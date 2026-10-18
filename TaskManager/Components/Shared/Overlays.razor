@@ -1,0 +1,63 @@
+@* Renders UiService's dialog and toasts above the page. Lives once in the layout. *@
+@implements IDisposable
+
+@if (Ui.Dialog is DialogRequest d)
+{
+    <div class="dialog-backdrop" @onclick="() => Ui.Close(null)"></div>
+    <div class="dialog" data-sk role="dialog" aria-modal="true" aria-label="@d.Title">
+        <h3>@d.Title</h3>
+        @if (d.Text.Length > 0) { <p>@d.Text</p> }
+        @if (d.IsPrompt)
+        {
+            <form @onsubmit="Submit" @onsubmit:preventDefault="true">
+                <input @ref="box" class="box text-in" data-sk @bind="text" @bind:event="oninput" placeholder="@d.Placeholder" aria-label="@d.Title" />
+            </form>
+        }
+        <div class="dialog-actions">
+            <button type="button" class="btn ghost dialog-cancel" @onclick="() => Ui.Close(null)">@d.No</button>
+            <button @ref="okButton" type="button" class="btn primary" data-sk disabled="@(d.IsPrompt && string.IsNullOrWhiteSpace(text))" @onclick="Submit">@d.Yes</button>
+        </div>
+    </div>
+}
+
+@if (Ui.Toasts.Count > 0)
+{
+    <div class="toasts" aria-live="polite">
+        @foreach (Toast t in Ui.Toasts) { <div class="toast @t.Kind.ToString().ToLowerInvariant()" data-sk>@t.Text</div> }
+    </div>
+}
+
+@code {
+    [Inject] private UiService Ui { get; set; } = default!;
+
+    private DialogRequest? shown;
+    private string text = "";
+    private ElementReference box;
+    private ElementReference okButton;
+    private bool focus;
+
+    protected override void OnInitialized() => Ui.Changed += OnChanged;
+
+    private void OnChanged() => InvokeAsync(() =>
+    {
+        if (Ui.Dialog != shown) { shown = Ui.Dialog; text = ""; focus = shown is not null; }
+        StateHasChanged();
+    });
+
+    // Focus the text box (prompt) or OK (confirm) when a dialog opens, so typing / Enter work straight away.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focus || shown is null) return;
+        focus = false;
+        try { await (shown.IsPrompt ? box : okButton).FocusAsync(); } catch (InvalidOperationException) { }
+    }
+
+    private void Submit()
+    {
+        if (Ui.Dialog is not DialogRequest d) return;
+        if (d.IsPrompt) { if (!string.IsNullOrWhiteSpace(text)) Ui.Close(text.Trim()); }
+        else Ui.Close("yes");
+    }
+
+    public void Dispose() => Ui.Changed -= OnChanged;
+}

@@ -8,7 +8,12 @@ namespace GitHistory;
 /// </summary>
 public static class GitHistoryApi
 {
-    public static void Configure(string repoRoot) => GitHistoryModule.RepoRoot = Path.GetFullPath(repoRoot);
+    public static void Configure(string repoRoot)
+    {
+        GitHistoryModule.RepoRoot = Path.GetFullPath(repoRoot);
+        GitHistoryModule.IsRepo = null;
+        GitHistoryModule.UserName = (null, false);
+    }
 
     public static bool IsRepository() => Queries.IsRepository();
     public static string? UserName() => Queries.UserName();

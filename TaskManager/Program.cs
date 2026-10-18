@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using MudBlazor.Services;
 using OpenSpecStore;
 using Photino.Blazor;
 using TaskManager.Services;
@@ -17,7 +16,7 @@ internal static class Program
 
         // RTM_SETTINGS lets demos/tests run with their own settings file instead of the user's.
         SettingsStore settings = new(Environment.GetEnvironmentVariable("RTM_SETTINGS") ?? SettingsStore.DefaultPath);
-        builder.Services.AddMudServices();
+        builder.Services.AddSingleton<UiService>();
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton<Workspace>();
         builder.Services.AddSingleton<FolderPicker>(() => app?.MainWindow.ShowOpenFolder("Choose a repository with an openspec/ folder")?.FirstOrDefault());

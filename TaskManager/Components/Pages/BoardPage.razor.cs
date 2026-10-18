@@ -2,7 +2,6 @@ using Features;
 using Features.PublicDTOs;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
-using MudBlazor;
 using TaskManager.Board;
 using TaskManager.Components.Shared;
 using TaskManager.Services;
@@ -16,8 +15,7 @@ public partial class BoardPage
     [Inject] private Workspace Workspace { get; set; } = default!;
     [Inject] private SettingsStore Settings { get; set; } = default!;
     [Inject] private NavigationManager Nav { get; set; } = default!;
-    [Inject] private ISnackbar Snackbar { get; set; } = default!;
-    [Inject] private IDialogService Dialogs { get; set; } = default!;
+    [Inject] private UiService Popups { get; set; } = default!;
 
     private BoardOptions O = new();
     private IReadOnlyList<WorkItem> items = [];
@@ -90,7 +88,7 @@ public partial class BoardPage
     /// <summary>Shows a module command's failure as a toast; successes refresh through Workspace.Changed.</summary>
     private void Run((bool Success, string Message) result)
     {
-        if (!Workspace.Do(result).Success) Snackbar.Add(result.Message, Severity.Warning);
+        if (!Workspace.Do(result).Success) Popups.Toast(result.Message, ToastKind.Warning);
     }
 
     private void OpenItem(int id) => Nav.NavigateTo($"item/{id}");
@@ -109,10 +107,9 @@ public partial class BoardPage
     {
         if (status == "Completed" && !it.Archived)
         {
-            bool? ok = await Dialogs.ShowMessageBoxAsync("Complete and archive?",
+            if (!await Popups.Confirm("Complete and archive?",
                 $"#wi{it.Id} {it.Title} will be archived with the OpenSpec CLI and its delta specs merged into openspec/specs. This can't be undone from the board.",
-                yesText: "Archive", cancelText: "Cancel");
-            if (ok != true) return;
+                yes: "Archive")) return;
         }
         Run(WorkItemsApi.SetStatus(it.Id, status));
     }
@@ -126,7 +123,7 @@ public partial class BoardPage
         if (O.GroupBy == "status" && from != col.Key) await SetStatus(it, col.Key);
         else if (O.GroupBy == "feature" && from != col.Key)
         {
-            if (it.Features.Any(f => f.Path == from && f.Locked)) { Snackbar.Add("This feature comes from the change's specs/ folder", Severity.Info); return; }
+            if (it.Features.Any(f => f.Path == from && f.Locked)) { Popups.Toast("This feature comes from the change's specs/ folder", ToastKind.Info); return; }
             Run(WorkItemsApi.SetManualFeatures(it.Id, it.Features.Select(f => f.Path).Where(p => p != from).Append(col.Key)));
         }
         else if (O.GroupBy == "contributor" && from != col.Key)
@@ -141,22 +138,14 @@ public partial class BoardPage
         string[]? feature = O.GroupBy == "feature" && columnKey is not null ? [columnKey] : null;
         string[] who = O.GroupBy == "contributor" && columnKey is not null ? [columnKey] : [Workspace.Me];
         (bool ok, string message, int id) = WorkItemsApi.Create("New work item", status, feature, who);
-        if (!ok) { Snackbar.Add(message, Severity.Warning); return; }
+        if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
         Workspace.Notify();
-        Snackbar.Add($"Created #wi{id}", Severity.Success);
+        Popups.Toast($"Created #wi{id}", ToastKind.Success);
         OpenItem(id);
         await Task.CompletedTask;
     }
 
-    private async Task<string?> Ask(string title, string placeholder, string action)
-    {
-        IDialogReference d = await Dialogs.ShowAsync<TextPrompt>(title, new DialogParameters<TextPrompt>
-        {
-            { p => p.Title, title }, { p => p.Placeholder, placeholder }, { p => p.Action, action },
-        });
-        DialogResult? r = await d.Result;
-        return r is { Canceled: false, Data: string s } ? s : null;
-    }
+    private Task<string?> Ask(string title, string placeholder, string action) => Popups.Prompt(title, placeholder, action);
 
     private async Task AddLane(string column)
     {
@@ -174,10 +163,10 @@ public partial class BoardPage
     private void Merge()
     {
         (bool ok, string message, int id) = WorkItemsApi.Merge(selected.Order().ToList());
-        if (!ok) { Snackbar.Add(message, Severity.Warning); return; }
+        if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
         selected.Clear();
         Workspace.Notify();
-        Snackbar.Add($"Merged into #wi{id}", Severity.Success);
+        Popups.Toast($"Merged into #wi{id}", ToastKind.Success);
     }
 
     public void Dispose() => Workspace.Changed -= OnChanged;

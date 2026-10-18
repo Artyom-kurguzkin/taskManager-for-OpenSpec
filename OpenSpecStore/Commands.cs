@@ -11,6 +11,7 @@ internal static class Commands
         if (!Directory.Exists(openSpec)) return (false, "No openspec/ folder here. Run `openspec init` in this repo first.");
         OpenSpecStoreModule.RepoRoot = root;
         OpenSpecStoreModule.LastSeen.Clear();
+        OpenSpecStoreModule.Bump();
         OpenSpecStoreModule.StartWatching(openSpec);
         return (true, "");
     }
@@ -20,6 +21,7 @@ internal static class Commands
         OpenSpecStoreModule.StopWatching();
         OpenSpecStoreModule.RepoRoot = null;
         OpenSpecStoreModule.LastSeen.Clear();
+        OpenSpecStoreModule.Bump();
     }
 
     internal static (bool Success, string Message) WriteText(string path, string content)
@@ -32,6 +34,7 @@ internal static class Commands
         OpenSpecStoreModule.MarkOwn(full);
         File.WriteAllText(full, content);
         OpenSpecStoreModule.LastSeen[full] = content;
+        OpenSpecStoreModule.Bump();   // after the write, so a cache rebuilt meanwhile still counts as stale
         return (true, "");
     }
 
@@ -56,6 +59,7 @@ internal static class Commands
         if (!Directory.Exists(full)) return (true, "");
         OpenSpecStoreModule.MarkOwn(full);
         Directory.Delete(full, recursive: true);
+        OpenSpecStoreModule.Bump();
         return (true, "");
     }
 }

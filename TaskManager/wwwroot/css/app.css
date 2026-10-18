@@ -330,20 +330,7 @@ main { padding-bottom: 96px; }
 .sub .s-t { cursor: pointer; flex: 1; }
 .status-field .box { color: var(--on-fill); }
 a.wl { color: inherit; }
-/* MudBlazor menu popovers, restyled as the design system's dropdown */
-.rtm-menu.mud-popover { background: var(--card) !important; color: var(--ink); border: 2px solid var(--line); border-radius: 14px !important;
   box-shadow: 4px 4px 0 var(--shadow) !important; padding: 6px; min-width: 200px; }
-.rtm-menu .mud-list { padding: 0; }
-.rtm-menu .mud-menu-item { border-radius: 9px; font: 500 14px var(--f-body); color: var(--ink); min-height: 0; padding: 8px 12px; }
-.rtm-menu .mud-menu-item:hover { background: var(--stone) !important; color: var(--on-fill); }
-.rtm-menu .mud-menu-item.cur { background: var(--sun); color: var(--on-fill); font-weight: 700; }
-.rtm-menu .mud-menu-item .mud-menu-item-text { display: flex; align-items: center; gap: 10px; }
-.mud-dialog { border: 2px solid var(--line); border-radius: 16px !important; box-shadow: 4px 4px 0 var(--shadow) !important; background: var(--card) !important; color: var(--ink) !important; }
-.mud-snackbar { border: 2px solid var(--line); border-radius: 12px !important; box-shadow: 3px 3px 0 var(--shadow) !important; }
-/* MudBlazor resets button borders inside its menu activator; restate the outlined box there. */
-.mud-menu .dd[data-sk], .mud-menu header[data-sk] { border: 2px solid var(--stroke); border-radius: var(--r); background: var(--fill); }
-.mud-menu header.col-h[data-sk] { --stroke: transparent; --fill: transparent; }
-.mud-menu header.col-h[data-sk]:hover { --stroke: var(--line); --fill: var(--stone); }
 .dd.is-group, .dd.filled, .box.filled, .tab.is-sel { color: var(--on-fill); }
 .card.hidden-item { opacity: .55; border-style: dashed; }
 /* Columns fill the board's height so the whole column is a drop target, not just the area around its cards. */
@@ -363,3 +350,32 @@ button.tab { background: none; border: 0; cursor: pointer; font: inherit; font-s
 button.tab.is-sel { background: var(--sun); border: 2px solid var(--line); }
 .card.selected { color: var(--ink); }   /* selection outline only; the card keeps its own surface + text colour */
 .card.selected .muted { color: var(--ink-2); opacity: 1; }
+
+/* ===================== menus, dialogs, toasts (own components; replaced MudBlazor) ===================== */
+.menu-wrap { display: inline-block; position: relative; }
+.menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.menu-pop { position: fixed; z-index: 50; visibility: hidden; display: flex; flex-direction: column; gap: 2px; min-width: 200px;
+  max-height: 60vh; overflow-y: auto; padding: 6px; background: var(--card); color: var(--ink);
+  border: 2px solid var(--line); border-radius: 14px; box-shadow: 4px 4px 0 var(--shadow); }
+.menu-pop.placed { visibility: visible; }
+.menu-item { display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: 0; padding: 8px 12px;
+  border-radius: 9px; font: 500 14px var(--f-body); color: var(--ink); cursor: pointer; white-space: nowrap; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
+.menu-item.cur { background: var(--sun); color: var(--on-fill); font-weight: 700; }
+.menu-item.cur::after { content: "✓"; margin-left: auto; padding-left: 12px; }
+.menu-activator > header.col-h { cursor: pointer; }
+
+.dialog-backdrop { position: fixed; inset: 0; z-index: 70; background: color-mix(in srgb, var(--ink) 35%, transparent); }
+.dialog { position: fixed; z-index: 71; left: 50%; top: 30%; transform: translate(-50%, -30%); width: min(460px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 12px; padding: 20px 22px; --fill: var(--card);
+  box-shadow: 4px 4px 0 var(--shadow); }
+.dialog h3 { font-size: var(--t-lg); }
+.dialog p { margin: 0; color: var(--ink-2); line-height: 1.5; }
+.dialog .text-in { width: 100%; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+.toasts { position: fixed; z-index: 80; right: 16px; top: 76px; display: flex; flex-direction: column; gap: 8px; }
+.toasts .toast { position: static; transform: none; opacity: 1; font: 600 14px var(--f-body); padding: 10px 16px; --fill: var(--card);
+  color: var(--ink); box-shadow: 3px 3px 0 var(--shadow); }
+.toasts .toast.success { --fill: var(--sage); color: var(--on-fill); }
+.toasts .toast.warning { --fill: var(--peach); color: var(--on-fill); }

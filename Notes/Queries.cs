@@ -10,7 +10,18 @@ namespace Notes;
 
 internal static partial class Queries
 {
+    /// <summary>All notes, parsed once per OpenSpecStore content version.</summary>
     internal static IReadOnlyList<Note> GetAll()
+    {
+        long version = OpenSpecStoreApi.Version;
+        if (NotesModule.Cache is { } c && c.Version == version) return c.Notes;
+        IReadOnlyList<Note> notes = Load();
+        NotesModule.Cache = (version, notes);
+        NotesModule.Loads++;
+        return notes;
+    }
+
+    private static IReadOnlyList<Note> Load()
     {
         List<Note> notes = [];
         foreach (WorkItem wi in WorkItemsApi.GetAll(includeHidden: true))

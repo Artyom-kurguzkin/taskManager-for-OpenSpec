@@ -9,6 +9,9 @@ public static class OpenSpecStoreApi
 {
     // ── Workspace ──
     public static string? RepoRoot => OpenSpecStoreModule.RepoRoot;
+
+    /// <summary>Changes whenever repo content may have changed; modules cache their parsed data against it.</summary>
+    public static long Version => Interlocked.Read(ref OpenSpecStoreModule.Version);
     public static string? OpenSpecRoot => OpenSpecStoreModule.RepoRoot is null ? null : Path.Combine(OpenSpecStoreModule.RepoRoot, "openspec");
     public static (bool Success, string Message) Open(string repoRoot) => Commands.Open(repoRoot);
     public static void Close() => Commands.Close();

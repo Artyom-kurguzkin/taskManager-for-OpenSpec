@@ -137,8 +137,7 @@
     [Parameter] public int Id { get; set; }
     [Inject] private Workspace Workspace { get; set; } = default!;
     [Inject] private NavigationManager Nav { get; set; } = default!;
-    [Inject] private ISnackbar Snackbar { get; set; } = default!;
-    [Inject] private IDialogService Dialogs { get; set; } = default!;
+    [Inject] private UiService Popups { get; set; } = default!;
     [Inject] private IJSRuntime Js { get; set; } = default!;
 
     private WorkItem? item;
@@ -182,7 +181,7 @@
 
     private void Run((bool Success, string Message) result)
     {
-        if (!Workspace.Do(result).Success) Snackbar.Add(result.Message, Severity.Warning);
+        if (!Workspace.Do(result).Success) Popups.Toast(result.Message, ToastKind.Warning);
         Load();
     }
 
@@ -190,9 +189,8 @@
     {
         if (status == "Completed" && item is { Archived: false })
         {
-            bool? ok = await Dialogs.ShowMessageBoxAsync("Complete and archive?",
-                $"#wi{item.Id} will be archived with the OpenSpec CLI and its delta specs merged into openspec/specs.", yesText: "Archive", cancelText: "Cancel");
-            if (ok != true) return;
+            if (!await Popups.Confirm("Complete and archive?",
+                $"#wi{item.Id} will be archived with the OpenSpec CLI and its delta specs merged into openspec/specs.", yes: "Archive")) return;
         }
         Run(WorkItemsApi.SetStatus(Id, status));
     }
@@ -238,13 +236,13 @@
         (bool ok, string message, int newId) = WorkItemsApi.MoveSubtasksToNew(Id, subSel.ToList());
         subSel.Clear();
         Run((ok, message));
-        if (ok) Snackbar.Add($"Moved into #wi{newId}", Severity.Success);
+        if (ok) Popups.Toast($"Moved into #wi{newId}", ToastKind.Success);
     }
 
     private void AddNote()
     {
         (bool ok, string message, int noteId) = NotesApi.Create(Id, Workspace.Me);
-        if (!ok) { Snackbar.Add(message, Severity.Warning); return; }
+        if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
         Nav.NavigateTo($"note/{noteId}");   // open it first; refreshing other views must not get in the way
         Workspace.Notify();
     }

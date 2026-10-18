@@ -1,11 +1,6 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 
-<MudThemeProvider @ref="themeProvider" Theme="AppTheme.Theme" IsDarkMode="dark" />
-<MudPopoverProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
-
 <header class="top">
     <h1>repo/tasks</h1>
     <span class="mono muted">@(Workspace.Root is string r ? Path.GetFileName(r) + "/openspec" : "no repository")</span>
@@ -16,6 +11,7 @@
     </nav>
 </header>
 <main>@Body</main>
+<Overlays />
 
 @code {
     [Inject] private SettingsStore Settings { get; set; } = default!;
@@ -27,43 +23,57 @@
     private bool OnSettingsPage => Nav.ToBaseRelativePath(Nav.Uri).StartsWith("settings", StringComparison.OrdinalIgnoreCase);
     private void OnNavigated(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
 
-    private MudThemeProvider? themeProvider;
-    private bool dark;
     private bool systemDark;
+    private string? shownRoot;
+    private DotNetObjectReference<MainLayout>? self;
 
     protected override void OnInitialized()
     {
+        shownRoot = Workspace.Root;
         Settings.Changed += OnSettings;
-        Workspace.Changed += OnSettings;
+        Workspace.Changed += OnWorkspace;
         Nav.LocationChanged += OnNavigated;
+    }
+
+    // Data changes are handled by the page; the layout only shows the repo name, so it redraws only when that changes.
+    private void OnWorkspace()
+    {
+        if (Workspace.Root == shownRoot) return;
+        shownRoot = Workspace.Root;
+        InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && themeProvider is not null)
-        {
-            systemDark = await themeProvider.GetSystemDarkModeAsync();
-            await themeProvider.WatchSystemDarkModeAsync(isDark => { systemDark = isDark; return ApplyTheme(); });
-            await ApplyTheme();
-        }
+        if (!firstRender) return;
+        self = DotNetObjectReference.Create(this);
+        systemDark = await Js.InvokeAsync<bool>("rtm.watchDark", self);   // current OS setting + notify on change
+        await ApplyTheme();
+    }
+
+    [JSInvokable]
+    public Task SystemDarkChanged(bool isDark)
+    {
+        systemDark = isDark;
+        return InvokeAsync(ApplyTheme);
     }
 
     private void OnSettings() => InvokeAsync(ApplyTheme);
 
-    /// <summary>Theme comes from Settings (System / Light / Dark); the CSS tokens switch on html[data-theme].</summary>
+    /// <summary>Theme comes from Settings (Light / Dark / System); the CSS tokens switch on html[data-theme].</summary>
     private async Task ApplyTheme()
     {
         string theme = Settings.Current.Theme;
-        dark = theme == "dark" || (theme == "system" && systemDark);
+        bool dark = theme == "dark" || (theme == "system" && systemDark);
         await Js.InvokeVoidAsync("rtm.setTheme", theme);
         (Services.GetService(typeof(WindowFrame)) as WindowFrame)?.Apply(dark);   // desktop host only
-        StateHasChanged();
     }
 
     public void Dispose()
     {
         Settings.Changed -= OnSettings;
-        Workspace.Changed -= OnSettings;
+        Workspace.Changed -= OnWorkspace;
         Nav.LocationChanged -= OnNavigated;
+        self?.Dispose();
     }
 }

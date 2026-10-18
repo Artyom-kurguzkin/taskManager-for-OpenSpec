@@ -1,8 +1,8 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
-using MudBlazor.Services;
 using Notes;
 using TaskManager.Components.Pages;
+using TaskManager.Components.Shared;
 using TaskManager.Services;
 using WorkItems;
 
@@ -13,16 +13,17 @@ public sealed class UsingThePagesTests : IDisposable
 {
     private readonly TestRepo repo = new();
     private readonly string settingsFile = Path.Combine(Path.GetTempPath(), "rtm-ui-" + Guid.NewGuid().ToString("N") + ".json");
+    private IRenderedComponent<Overlays>? overlays;
 
     private BunitContext NewContext()
     {
         BunitContext ctx = new();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
-        ctx.Services.AddMudServices();
+        ctx.Services.AddSingleton<UiService>();
         ctx.Services.AddSingleton(new SettingsStore(settingsFile));
         ctx.Services.AddSingleton<Workspace>();
         Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(repo.Root).Success);
-        ctx.Render<MudBlazor.MudPopoverProvider>();
+        overlays = ctx.Render<Overlays>();
         return ctx;
     }
 
@@ -138,6 +139,23 @@ public sealed class UsingThePagesTests : IDisposable
 
         Assert.Equal(0, changes);
         Assert.Contains("first", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
+    }
+
+    [Fact(DisplayName = "Choosing Completed asks before archiving, and Cancel leaves the item as it was")]
+    public async Task CompleteAsksFirst()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
+
+        page.Find(".status-field button.dd").Click();
+        page.FindAll(".menu-item").First(i => i.TextContent.Trim() == "Completed").Click();
+
+        overlays!.WaitForAssertion(() => Assert.Contains("Complete and archive?", overlays.Find(".dialog").TextContent));
+        Assert.Empty(page.FindAll(".menu-item"));   // the menu closed before the dialog opened
+        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Cancel").Click();
+
+        overlays.WaitForAssertion(() => Assert.Empty(overlays.FindAll(".dialog")));
+        Assert.Equal("Planned", WorkItemsApi.Get(107)!.Status);
     }
 
     [Fact(DisplayName = "Without git, the change log says the folder is not a git repository")]

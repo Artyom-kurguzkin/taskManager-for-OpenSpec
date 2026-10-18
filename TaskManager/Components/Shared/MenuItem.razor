@@ -1,0 +1,15 @@
+@* One entry in a Menu. Closes the menu first, so a dialog opened by the handler isn't covered by it. *@
+<button type="button" role="menuitem" class="menu-item @Class" @onclick="Click">@ChildContent</button>
+
+@code {
+    [CascadingParameter] private Menu? Menu { get; set; }
+    [Parameter] public EventCallback OnClick { get; set; }
+    [Parameter] public string Class { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private async Task Click()
+    {
+        Menu?.Close();
+        await OnClick.InvokeAsync();
+    }
+}

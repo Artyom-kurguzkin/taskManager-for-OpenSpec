@@ -60,7 +60,9 @@ internal static partial class Commands
         (bool ok, string message) = Update(id, _ => { });
         if (!ok) return (ok, message);
         OpenSpecStoreApi.MarkOwnChange(item.Path);
-        return WorkItemsModule.Archive(item.Folder);
+        (bool archived, string error) = WorkItemsModule.Archive(item.Folder);
+        OpenSpecStoreApi.MarkOwnChange(item.Path);   // the CLI moved folders: invalidate cached reads
+        return (archived, error);
     }
 
     internal static (bool Success, string Message) SetManualFeatures(int id, IEnumerable<string> featurePaths)

@@ -12,15 +12,23 @@ internal static class Queries
     /// <summary>True only when the configured folder is itself the top of a work tree (not just inside a parent repo).</summary>
     internal static bool IsRepository()
     {
+        if (GitHistoryModule.IsRepo is bool known) return known;
+        GitHistoryModule.RepoChecks++;
         (int exit, string output, string _) = GitCli.Run("rev-parse", "--show-toplevel");
-        return exit == 0 && GitHistoryModule.RepoRoot is string root &&
+        bool isRepo = exit == 0 && GitHistoryModule.RepoRoot is string root &&
                Path.GetFullPath(output.Trim()).TrimEnd(Path.DirectorySeparatorChar).Equals(root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+        GitHistoryModule.IsRepo = isRepo;
+        return isRepo;
     }
 
     internal static string? UserName()
     {
+        if (GitHistoryModule.UserName.Known) return GitHistoryModule.UserName.Name;
+        GitHistoryModule.UserNameLookups++;
         (int exit, string output, string _) = GitCli.Run("config", "user.name");
-        return exit == 0 && output.Trim().Length > 0 ? output.Trim() : null;
+        string? name = exit == 0 && output.Trim().Length > 0 ? output.Trim() : null;
+        GitHistoryModule.UserName = (name, true);
+        return name;
     }
 
     internal static IReadOnlyList<CommitInfo> Log(IReadOnlyList<string> paths) =>

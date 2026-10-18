@@ -8,10 +8,20 @@ namespace WorkItems;
 
 internal static partial class Queries
 {
-    // ponytail: re-reads every change folder per call (hundreds of small files, a few ms). Cache on OpenSpecStoreApi.Changed if needed.
     internal static IReadOnlyList<WorkItem> GetAll(bool includeHidden) => All().Where(w => includeHidden || !w.Hidden).ToList();
 
+    /// <summary>Every work item, parsed once per OpenSpecStore content version (own write, outside edit or repo switch).</summary>
     private static IReadOnlyList<WorkItem> All()
+    {
+        long version = OpenSpecStoreApi.Version;
+        if (WorkItemsModule.Cache is { } c && c.Version == version) return c.Items;
+        IReadOnlyList<WorkItem> items = Load();
+        WorkItemsModule.Cache = (version, items);
+        WorkItemsModule.Loads++;
+        return items;
+    }
+
+    private static IReadOnlyList<WorkItem> Load()
     {
         if (OpenSpecStoreApi.OpenSpecRoot is not string root) return [];
         string changes = Path.Combine(root, "changes");

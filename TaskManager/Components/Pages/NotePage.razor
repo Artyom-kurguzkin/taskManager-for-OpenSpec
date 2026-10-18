@@ -62,7 +62,7 @@
 @code {
     [Parameter] public int Id { get; set; }
     [Inject] private Workspace Workspace { get; set; } = default!;
-    [Inject] private ISnackbar Snackbar { get; set; } = default!;
+    [Inject] private UiService Popups { get; set; } = default!;
     [Inject] private IJSRuntime Js { get; set; } = default!;
 
     private Note? note;
@@ -119,7 +119,7 @@
     {
         string saved = body;
         (bool ok, string message) = NotesApi.SaveBody(Id, saved);
-        if (!ok) { saving = false; Snackbar.Add(message, Severity.Warning); return; }
+        if (!ok) { saving = false; Popups.Toast(message, ToastKind.Warning); return; }
         modified = DateTime.Now;
         saving = body != saved;   // more typing arrived while saving: its own save is already scheduled
         StateHasChanged();
@@ -128,7 +128,7 @@
     private void AddLink()
     {
         (bool ok, string message) = NotesApi.AddManualLink(Id, newLink);
-        if (!ok) Snackbar.Add(message, Severity.Warning);
+        if (!ok) Popups.Toast(message, ToastKind.Warning);
         newLink = "";
         Workspace.Notify();
     }

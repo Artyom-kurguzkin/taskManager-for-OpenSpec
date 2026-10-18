@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
-  <!-- Host / composition root: the only project with UI, DI and MudBlazor. Modules are configured from Program.cs. -->
+  <!-- Host / composition root: the only project with UI and DI. Modules are configured from Program.cs. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <RootNamespace>TaskManager</RootNamespace>
@@ -7,7 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Photino.Blazor" Version="4.0.13" />
-    <PackageReference Include="MudBlazor" Version="9.11.0" />
     <PackageReference Include="Markdig" Version="1.4.1" />
   </ItemGroup>
   <ItemGroup>

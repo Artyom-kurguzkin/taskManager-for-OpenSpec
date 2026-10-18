@@ -6,9 +6,18 @@ namespace Features;
 
 internal static class Queries
 {
-    // ponytail: re-scans openspec/specs on every call (tens of folders); cache on OpenSpecStoreApi.Changed if it ever shows in a profile.
-    /// <summary>Capabilities with a spec.md, plus features listed in config.yaml that have no spec yet.</summary>
+    /// <summary>Capabilities with a spec.md, plus features listed in config.yaml that have no spec yet. Cached per content version.</summary>
     internal static IReadOnlyList<Feature> GetAll()
+    {
+        long version = OpenSpecStoreApi.Version;
+        if (FeaturesModule.Cache is { } c && c.Version == version) return c.Features;
+        IReadOnlyList<Feature> features = Load();
+        FeaturesModule.Cache = (version, features);
+        FeaturesModule.Loads++;
+        return features;
+    }
+
+    private static IReadOnlyList<Feature> Load()
     {
         if (OpenSpecStoreApi.OpenSpecRoot is not string root) return [];
         string specs = Path.Combine(root, "specs");

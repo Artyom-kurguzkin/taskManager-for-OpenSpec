@@ -1,0 +1,8 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-18
+x-rtm:
+  id: 18
+  title: sync with github issues
+  status: Backlog
+  contributors: [Artyom-kurguzkin]

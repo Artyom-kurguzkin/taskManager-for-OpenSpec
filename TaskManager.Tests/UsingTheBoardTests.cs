@@ -1,8 +1,8 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
-using MudBlazor.Services;
 using TaskManager.Board;
 using TaskManager.Components.Pages;
+using TaskManager.Components.Shared;
 using TaskManager.Services;
 using WorkItems;
 
@@ -10,7 +10,7 @@ namespace TaskManager.Tests;
 
 /// <summary>
 /// Renders the real pages against a temp copy of the fixture repo. Each test owns its bUnit context and disposes
-/// it asynchronously (MudBlazor's services are IAsyncDisposable only).
+/// it asynchronously.
 /// </summary>
 [Collection(nameof(ModuleStateCollection))]
 public sealed class UsingTheBoardTests : IDisposable
@@ -18,17 +18,17 @@ public sealed class UsingTheBoardTests : IDisposable
     private readonly TestRepo repo = new();
     private readonly string settingsFile = Path.Combine(Path.GetTempPath(), "rtm-ui-" + Guid.NewGuid().ToString("N") + ".json");
 
-    private IRenderedComponent<MudBlazor.MudPopoverProvider>? popovers;
+    private IRenderedComponent<Overlays>? overlays;
 
     private BunitContext NewContext()
     {
         BunitContext ctx = new();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
-        ctx.Services.AddMudServices();
+        ctx.Services.AddSingleton<UiService>();
         ctx.Services.AddSingleton(new SettingsStore(settingsFile));
         ctx.Services.AddSingleton<Workspace>();
         Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(repo.Root).Success);
-        popovers = ctx.Render<MudBlazor.MudPopoverProvider>();
+        overlays = ctx.Render<Overlays>();
         return ctx;
     }
 
@@ -99,8 +99,8 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
         board.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
-        popovers!.WaitForAssertion(() => Assert.Contains(popovers.FindAll(".mud-menu-item"), i => i.TextContent.Trim() == "feature"));
-        popovers.FindAll(".mud-menu-item").First(i => i.TextContent.Trim() == "feature").Click();
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Trim() == "feature"));
+        board.FindAll(".menu-item").First(i => i.TextContent.Trim() == "feature").Click();
 
         board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".cat-tabs")));
     }
@@ -122,8 +122,8 @@ public sealed class UsingTheBoardTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         board.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
-        popovers!.WaitForAssertion(() => Assert.NotEmpty(popovers.FindAll(".mud-menu-item")));
-        popovers.FindAll(".mud-menu-item").First(i => i.TextContent.Trim() == "feature").Click();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".menu-item")));
+        board.FindAll(".menu-item").First(i => i.TextContent.Trim() == "feature").Click();
 
         board.WaitForAssertion(() => Assert.Empty(board.Find("label.seg-o:has(input[value=all])").QuerySelectorAll(".count")));
     }
@@ -165,6 +165,34 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains("hidden-item", board.FindAll("tr.lrow").Single(r => r.TextContent.Contains("#wi107")).ClassName);
     }
 
+    [Fact(DisplayName = "Adding a sub-category asks for its name in a dialog")]
+    public async Task SubCategoryPrompt()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
+        board.FindAll(".menu-item").First(i => i.TextContent.Contains("Add sub-category")).Click();
+
+        overlays!.WaitForAssertion(() => Assert.Contains("Add a sub-category to Blocked", overlays.Find(".dialog").TextContent));
+        overlays.Find(".dialog input").Input("Needs review");
+        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Add").Click();
+
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".lane-h span:first-child"), s => s.TextContent.Trim() == "Needs review"));
+        Assert.Empty(overlays.FindAll(".dialog"));
+    }
+
+    [Fact(DisplayName = "Merging work items confirms it with a toast")]
+    public async Task MergeToast()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        foreach (AngleSharp.Dom.IElement pick in board.FindAll("article.card input.pick").Take(2).ToList()) pick.Change(true);
+
+        board.Find(".actionbar button.primary").Click();
+
+        overlays!.WaitForAssertion(() => Assert.Contains("Merged into #wi", overlays.Find(".toast").TextContent));
+    }
+
     [Fact(DisplayName = "Clicking a column header opens its menu")]
     public async Task ColumnMenuOpens()
     {
@@ -173,7 +201,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
 
-        popovers!.WaitForAssertion(() => Assert.Contains(popovers.FindAll(".mud-menu-item"), i => i.TextContent.Contains("Add sub-category")));
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Contains("Add sub-category")));
     }
 
     [Fact(DisplayName = "Showing subtasks puts one card per tasks.md checkbox on the board")]

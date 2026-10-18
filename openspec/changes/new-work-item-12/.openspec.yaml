@@ -2,8 +2,8 @@ schema: spec-driven
 skip_specs: true
 created: 2026-10-18
 x-rtm:
-  id: 17
-  title: why exe file in dist 83 MBs?
-  status: Planned
-  priority: high
+  id: 19
+  title: New work item
+  status: Backlog
   contributors: [Artyom-kurguzkin]
+  hidden: true

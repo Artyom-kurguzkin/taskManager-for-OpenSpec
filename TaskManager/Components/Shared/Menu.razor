@@ -1,0 +1,42 @@
+@* A popup menu: click the activator to open; click an item, outside, or press Esc to close.
+   The list is positioned (fixed) next to the activator by wwwroot/js/app.js, so scroll containers can't clip it. *@
+<div class="menu-wrap @Class">
+    <div @ref="anchor" class="menu-activator" @onclick="Toggle">@Activator</div>
+    @if (open)
+    {
+        <div class="menu-backdrop" @onclick="Close"></div>
+        <div @ref="pop" class="menu-pop" role="menu" aria-label="@Label">
+            <CascadingValue Value="this" IsFixed="true">@Items</CascadingValue>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RenderFragment Activator { get; set; } = default!;
+    [Parameter, EditorRequired] public RenderFragment Items { get; set; } = default!;
+    [Parameter] public string Class { get; set; } = "";
+    [Parameter] public string Label { get; set; } = "";
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private bool open, place;
+    private ElementReference anchor, pop;
+
+    private void Toggle()
+    {
+        open = !open;
+        place = open;
+    }
+
+    public void Close()
+    {
+        open = false;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!place) return;
+        place = false;
+        try { await Js.InvokeVoidAsync("rtm.place", anchor, pop); } catch (JSException) { } catch (InvalidOperationException) { }
+    }
+}

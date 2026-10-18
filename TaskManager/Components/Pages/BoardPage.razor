@@ -114,21 +114,20 @@ else
                         {
                             @* data-drop: wwwroot/js/app.js cancels dragover here (Blazor has no dragover handler, so its preventDefault never runs) *@
                             <section class="col @(dropTarget == col.Key ? "over" : "")" data-drop @ondragenter="() => dropTarget = col.Key" @ondrop="() => Drop(col, null)">
-                                <MudMenu AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft" PopoverClass="rtm-menu">
-                                    <ActivatorContent Context="menu">
-                                        <header class="col-h hov" data-sk title="Column options" @onclick="e => menu.ToggleAsync(e)"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
-                                    </ActivatorContent>
-                                    <ChildContent>
-                                        <MudMenuItem OnClick="() => NewItem(col.Key)">+ Add work item here</MudMenuItem>
-                                        <MudMenuItem OnClick="() => SelectAll(col)">Select all in column</MudMenuItem>
-                                        @* fire-and-forget so the menu closes before the dialog opens *@
-                                        <MudMenuItem OnClick="() => { _ = AddLane(col.Key); }">+ Add sub-category…</MudMenuItem>
+                                <Menu Label="Column options">
+                                    <Activator>
+                                        <header class="col-h hov" data-sk title="Column options"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
+                                    </Activator>
+                                    <Items>
+                                        <MenuItem OnClick="() => NewItem(col.Key)">+ Add work item here</MenuItem>
+                                        <MenuItem OnClick="() => SelectAll(col)">Select all in column</MenuItem>
+                                        <MenuItem OnClick="() => AddLane(col.Key)">+ Add sub-category…</MenuItem>
                                         @foreach (string lane in col.Lanes)
                                         {
-                                            <MudMenuItem OnClick="() => Run(WorkItemsApi.RemoveLane(col.Key, lane))">Remove “@lane”</MudMenuItem>
+                                            <MenuItem OnClick="() => Run(WorkItemsApi.RemoveLane(col.Key, lane))">Remove “@lane”</MenuItem>
                                         }
-                                    </ChildContent>
-                                </MudMenu>
+                                    </Items>
+                                </Menu>
                                 @if (col.Lanes.Count > 0)
                                 {
                                     @foreach (string lane in col.Lanes)

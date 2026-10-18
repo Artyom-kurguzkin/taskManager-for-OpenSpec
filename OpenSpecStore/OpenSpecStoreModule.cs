@@ -8,6 +8,10 @@ internal static class OpenSpecStoreModule
     internal static string? RepoRoot;
     internal static event Action? Changed;
 
+    /// <summary>Goes up whenever repo content may have changed (own write, outside edit, repo switch). Readers cache against it.</summary>
+    internal static long Version;
+    internal static void Bump() => Interlocked.Increment(ref Version);
+
     /// <summary>Content of each file as the app last read or wrote it; null = the file did not exist.</summary>
     internal static readonly ConcurrentDictionary<string, string?> LastSeen = new(StringComparer.OrdinalIgnoreCase);
 
@@ -18,6 +22,7 @@ internal static class OpenSpecStoreModule
 
     internal static void MarkOwn(string path)
     {
+        Bump();
         string full = Path.GetFullPath(path);
         OwnWrites[full] = DateTime.UtcNow;
         if (Path.GetDirectoryName(full) is string dir) OwnWrites[dir] = DateTime.UtcNow;
@@ -53,6 +58,6 @@ internal static class OpenSpecStoreModule
         if (e.ChangeType == WatcherChangeTypes.Changed && Directory.Exists(e.FullPath)) return;
         if (OwnWrites.TryGetValue(Path.GetFullPath(e.FullPath), out DateTime at) && DateTime.UtcNow - at < OwnWriteWindow) return;
         debounce?.Dispose();
-        debounce = new Timer(_ => Changed?.Invoke(), null, 300, Timeout.Infinite);
+        debounce = new Timer(_ => { Bump(); Changed?.Invoke(); }, null, 300, Timeout.Infinite);
     }
 }
