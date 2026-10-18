@@ -65,16 +65,18 @@
                         @foreach (WorkItem it in col.Items)
                         {
                             bool open = expandAll || openRows.Contains(it.Id);
-                            <tr class="lrow @(selected.Contains(it.Id) ? "selected" : "")">
+                            <tr class="lrow @(selected.Contains(it.Id) ? "selected" : "") @(it.Hidden ? "hidden-item" : "")">
                                 <td><input type="checkbox" checked="@selected.Contains(it.Id)" @onchange="() => ToggleSelect(it)" aria-label="Select #wi@(it.Id)" /></td>
                                 <td>@if (it.Subtasks.Count > 0) {
                                     <button class="chev @(open ? "open" : "")" @onclick="() => Toggle(openRows, it.Id)" aria-expanded="@open" aria-label="Subtasks">@Ui.Icon("chev")</button> }</td>
                                 <td class="muted num id">#wi@(it.Id)</td>
                                 <td><button class="row-title" @onclick="() => OpenItem(it.Id)">@it.Title</button></td>
-                                <td><Dropdown Label="status" Class="cell" Style="@($"--fill:var({Ui.Band(it.Status)})")" Swatch="Ui.Band" Options="Statuses" Value="@it.Status" ValueChanged="v => SetStatus(it, v)" /></td>
+                                <td>@if (it.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(it.Status))">@it.Status</span> }
+                                    else { <Dropdown Label="status" Class="cell filled" Style="@($"--fill:var({Ui.Band(it.Status)})")" Swatch="Ui.Band" Options="Statuses" Value="@it.Status" ValueChanged="v => SetStatus(it, v)" /> }</td>
                                 <td>@foreach (FeatureLink f in it.Features) { <span class="tag">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span> }</td>
                                 <td>@string.Join(", ", it.Contributors)</td>
-                                <td><Dropdown Label="priority" Class="cell" Options="Priorities" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /></td>
+                                <td>@if (it.Archived) { <span class="muted">@(it.Priority == "high" ? "high" : "lower")</span> }
+                                    else { <Dropdown Label="priority" Class="cell" Options="Priorities" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /> }</td>
                                 <td><span class="prog"><i style="width:@(it.Subtasks.Count == 0 ? 0 : it.Subtasks.Count(s => s.Done) * 100 / it.Subtasks.Count)%"></i></span>
                                     <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span></td>
                                 <td class="muted num">@it.Modified.ToString("d MMM")</td>
@@ -83,13 +85,16 @@
                             {
                                 @foreach (Subtask s in it.Subtasks)
                                 {
-                                    <tr class="subrow"><td></td><td></td><td class="muted num">@it.Id.@s.Number</td>
+                                    <tr class="subrow"><td></td><td></td><td class="muted num">@s.Number</td>
                                         <td colspan="7"><label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done" disabled="@it.Archived"
                                             @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" /> @s.Text</label></td></tr>
                                 }
                             }
                         }
-                        <tr class="addrow"><td></td><td colspan="9"><button class="btn ghost" @onclick="() => NewItem(col.Key)">+ Add item</button></td></tr>
+                        @if (!(O.GroupBy == "status" && col.Key == "Completed"))   // completed = archived by the CLI, not created here
+                        {
+                            <tr class="addrow"><td></td><td colspan="9"><button class="btn ghost" @onclick="() => NewItem(col.Key)">+ Add item</button></td></tr>
+                        }
                     }
                 </tbody>
             }
@@ -107,15 +112,17 @@ else
                     <div class="cat-cols">
                         @foreach (BoardColumn col in sec.Columns)
                         {
-                            <section class="col @(dropTarget == col.Key ? "over" : "")" @ondragover:preventDefault="true" @ondragenter="() => dropTarget = col.Key" @ondrop="() => Drop(col, null)">
+                            @* data-drop: wwwroot/js/app.js cancels dragover here (Blazor has no dragover handler, so its preventDefault never runs) *@
+                            <section class="col @(dropTarget == col.Key ? "over" : "")" data-drop @ondragenter="() => dropTarget = col.Key" @ondrop="() => Drop(col, null)">
                                 <MudMenu AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft" PopoverClass="rtm-menu">
-                                    <ActivatorContent>
-                                        <header class="col-h hov" data-sk title="Column options"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
+                                    <ActivatorContent Context="menu">
+                                        <header class="col-h hov" data-sk title="Column options" @onclick="e => menu.ToggleAsync(e)"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
                                     </ActivatorContent>
                                     <ChildContent>
                                         <MudMenuItem OnClick="() => NewItem(col.Key)">+ Add work item here</MudMenuItem>
                                         <MudMenuItem OnClick="() => SelectAll(col)">Select all in column</MudMenuItem>
-                                        <MudMenuItem OnClick="() => AddLane(col.Key)">+ Add sub-category…</MudMenuItem>
+                                        @* fire-and-forget so the menu closes before the dialog opens *@
+                                        <MudMenuItem OnClick="() => { _ = AddLane(col.Key); }">+ Add sub-category…</MudMenuItem>
                                         @foreach (string lane in col.Lanes)
                                         {
                                             <MudMenuItem OnClick="() => Run(WorkItemsApi.RemoveLane(col.Key, lane))">Remove “@lane”</MudMenuItem>
@@ -128,12 +135,12 @@ else
                                     {
                                         List<WorkItem> inLane = BoardModel.InLane(col, lane).ToList();
                                         <div class="lane-h"><span>@lane</span><span class="count">@BoardModel.Count(inLane, O.Unit)</span></div>
-                                        <div class="lane" @ondragover:preventDefault="true" @ondrop="() => Drop(col, lane)" @ondrop:stopPropagation="true">@Cards(col, inLane)</div>
+                                        <div class="lane" data-drop @ondrop="() => Drop(col, lane)" @ondrop:stopPropagation="true">@Cards(col, inLane)</div>
                                     }
                                 }
                                 else
                                 {
-                                    <div class="lane">@Cards(col, col.Items)</div>
+                                    <div class="lane" data-drop>@Cards(col, col.Items)</div>
                                 }
                             </section>
                         }

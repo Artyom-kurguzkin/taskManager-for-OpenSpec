@@ -77,6 +77,69 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.False(WorkItemsApi.Get(107)!.Hidden);
     }
 
+    [Fact(DisplayName = "Adding a note from a work item opens the new note")]
+    public async Task AddNoteOpensIt()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
+
+        page.FindAll("button").Single(b => b.TextContent.Contains("Add note")).Click();
+
+        Assert.EndsWith("/note/124", ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri);
+    }
+
+    [Fact(DisplayName = "The description shows formatted text until you click to edit it")]
+    public async Task DescriptionRendered()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        Assert.Equal("Why", page.Find(".desc h2").TextContent.Trim());
+        Assert.DoesNotContain("## Why", page.Find(".desc").TextContent);
+    }
+
+    [Fact(DisplayName = "A completed (archived) work item is read-only on its page")]
+    public async Task ArchivedReadOnly()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 124));
+
+        Assert.Empty(page.FindAll(".chip.x"));
+        Assert.Empty(page.FindAll("button.dd"));            // no status/priority/feature/contributor pickers
+        Assert.Empty(page.FindAll("form.add-line"));
+        Assert.Contains("Completed", page.Find(".status-field").TextContent);
+        Assert.DoesNotContain("click to edit", page.Markup);
+    }
+
+    [Fact(DisplayName = "Typing never re-writes the editor's text, so fast typing can't be overwritten")]
+    public async Task EditorIsNotRewrittenWhileTyping()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+        string loaded = page.Find("textarea.md").GetAttribute("value") ?? page.Find("textarea.md").TextContent;
+
+        page.Find("textarea.md").Input(loaded + "abc");
+        page.Find("textarea.md").Input(loaded + "abcdef");
+
+        string now = page.Find("textarea.md").GetAttribute("value") ?? page.Find("textarea.md").TextContent;
+        Assert.Equal(loaded, now);   // the DOM keeps what the user typed; the app doesn't push its copy back
+    }
+
+    [Fact(DisplayName = "A note's own autosave doesn't reload the page under your cursor")]
+    public async Task AutosaveDoesNotReload()
+    {
+        await using BunitContext ctx = NewContext();
+        int changes = 0;
+        ctx.Services.GetRequiredService<Workspace>().Changed += () => changes++;
+        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+
+        page.Find("textarea.md").Input("# Ping test\n\nfirst");
+        await Task.Delay(1200);   // autosave has run
+
+        Assert.Equal(0, changes);
+        Assert.Contains("first", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
+    }
+
     [Fact(DisplayName = "Without git, the change log says the folder is not a git repository")]
     public async Task NoGitHistory()
     {
@@ -95,8 +158,11 @@ public sealed class UsingThePagesTests : IDisposable
 
         page.Find("textarea.md").Input("# Ping test\n\nSee [[runbook/uptime]] and #wi999");
 
-        Assert.Contains("runbook/uptime", page.Find(".links").TextContent);
-        Assert.Contains("unresolved", page.Find(".links").TextContent);
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("runbook/uptime", page.Find(".links").TextContent);
+            Assert.Contains("unresolved", page.Find(".links").TextContent);
+        });
     }
 
     [Fact(DisplayName = "A note is saved automatically shortly after typing stops")]

@@ -71,6 +71,19 @@ public sealed class EditingWorkItemsTests
         Assert.EndsWith("- [ ] 2.1 Hide internals from anonymous callers\n- [ ] 2.2 Write docs\n", repo.Read(HealthTasks));
     }
 
+    [Fact(DisplayName = "The first subtask of a new work item goes under its existing group heading")]
+    public void FirstSubtaskOfNewItem()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (_, _, int id) = WorkItemsApi.Create("Rate-limit the API");
+
+        WorkItemsApi.AddSubtask(id, "Pick a limiter");
+        WorkItemsApi.AddSubtask(id, "Load test");
+
+        Assert.Equal("# Tasks\n\n## 1. Tasks\n\n- [ ] 1.1 Pick a limiter\n- [ ] 1.2 Load test\n", repo.Read("openspec/changes/rate-limit-the-api/tasks.md"));
+    }
+
     [Fact(DisplayName = "Renaming and editing the description update x-rtm and the proposal body")]
     public void TitleAndDescription()
     {

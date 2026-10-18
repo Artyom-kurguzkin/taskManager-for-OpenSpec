@@ -10,8 +10,9 @@
     <h1>repo/tasks</h1>
     <span class="mono muted">@(Workspace.Root is string r ? Path.GetFileName(r) + "/openspec" : "no repository")</span>
     <nav class="tabs">
-        <NavLink class="tab" data-sk href="" Match="NavLinkMatch.All" ActiveClass="is-sel">Board</NavLink>
-        <NavLink class="tab" data-sk href="settings" ActiveClass="is-sel">Settings</NavLink>
+        @* buttons, not links: WebView2 shows a "localhost/…" bubble when hovering links *@
+        <button class="tab @(OnSettingsPage ? "" : "is-sel")" data-sk @onclick='() => Nav.NavigateTo("")'>Board</button>
+        <button class="tab @(OnSettingsPage ? "is-sel" : "")" data-sk @onclick='() => Nav.NavigateTo("settings")'>Settings</button>
     </nav>
 </header>
 <main>@Body</main>
@@ -20,6 +21,11 @@
     [Inject] private SettingsStore Settings { get; set; } = default!;
     [Inject] private Workspace Workspace { get; set; } = default!;
     [Inject] private IJSRuntime Js { get; set; } = default!;
+    [Inject] private IServiceProvider Services { get; set; } = default!;
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    private bool OnSettingsPage => Nav.ToBaseRelativePath(Nav.Uri).StartsWith("settings", StringComparison.OrdinalIgnoreCase);
+    private void OnNavigated(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
 
     private MudThemeProvider? themeProvider;
     private bool dark;
@@ -29,6 +35,7 @@
     {
         Settings.Changed += OnSettings;
         Workspace.Changed += OnSettings;
+        Nav.LocationChanged += OnNavigated;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -49,6 +56,7 @@
         string theme = Settings.Current.Theme;
         dark = theme == "dark" || (theme == "system" && systemDark);
         await Js.InvokeVoidAsync("rtm.setTheme", theme);
+        (Services.GetService(typeof(WindowFrame)) as WindowFrame)?.Apply(dark);   // desktop host only
         StateHasChanged();
     }
 
@@ -56,5 +64,6 @@
     {
         Settings.Changed -= OnSettings;
         Workspace.Changed -= OnSettings;
+        Nav.LocationChanged -= OnNavigated;
     }
 }

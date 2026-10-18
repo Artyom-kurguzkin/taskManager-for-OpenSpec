@@ -1,7 +1,8 @@
 @* Styled select: a boxed button that opens a MudMenu list (native <select> popups can't be styled). *@
-<MudMenu AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft" PopoverClass="rtm-menu" aria-label="@Label">
-    <ActivatorContent>
-        <button type="button" class="box dd @Class" data-sk style="@Style" aria-haspopup="listbox">
+<MudMenu @ref="menu" AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft" PopoverClass="rtm-menu" aria-label="@Label">
+    <ActivatorContent Context="ctx">
+        @* MudBlazor 9: a custom activator must open the menu itself *@
+        <button type="button" class="box dd @Class" data-sk style="@Style" aria-haspopup="listbox" @onclick="e => ctx.ToggleAsync(e)">
             @if (Swatch is not null) { <i class="sw-dot" style="background:var(@Swatch(Value))"></i> }
             <span>@(Options.FirstOrDefault(o => o.Value == Value).Label ?? Placeholder)</span>@Ui.Icon("caret")
         </button>
@@ -9,7 +10,7 @@
     <ChildContent>
         @foreach ((string value, string label) in Options)
         {
-            <MudMenuItem OnClick="() => ValueChanged.InvokeAsync(value)" Class="@(value == Value ? "cur" : "")">
+            <MudMenuItem OnClick="() => Pick(value)" Class="@(value == Value ? "cur" : "")">
                 @if (Swatch is not null) { <i class="sw-dot" style="background:var(@Swatch(value))"></i> }
                 @label
             </MudMenuItem>
@@ -27,4 +28,13 @@
     [Parameter] public string? Style { get; set; }
     /// <summary>Optional colour token per value (e.g. status band) shown as a swatch.</summary>
     [Parameter] public Func<string, string>? Swatch { get; set; }
+
+    private MudMenu? menu;
+
+    /// <summary>Close first, so a confirmation dialog opened by the handler isn't covered by the menu.</summary>
+    private async Task Pick(string value)
+    {
+        if (menu is not null) await menu.CloseMenuAsync();
+        await ValueChanged.InvokeAsync(value);
+    }
 }

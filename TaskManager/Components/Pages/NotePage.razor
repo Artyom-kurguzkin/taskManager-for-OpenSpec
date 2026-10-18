@@ -28,7 +28,9 @@
     <div class="note-grid">
         <section class="panel">
             <h3>Markdown <span class="muted">@note.Title</span></h3>
-            <div data-sk="soft"><textarea class="md" value="@body" @oninput="OnInput" spellcheck="false" aria-label="Markdown editor"></textarea></div>
+            @* Uncontrolled: the text is set when the note loads and never pushed back while typing,
+               so a re-render can't overwrite keystrokes that haven't reached .NET yet. *@
+            <div data-sk="soft"><textarea class="md" value="@editorText" @oninput="OnInput" spellcheck="false" aria-label="Markdown editor"></textarea></div>
         </section>
         <section class="panel">
             <h3>Preview</h3>
@@ -64,7 +66,10 @@
     [Inject] private IJSRuntime Js { get; set; } = default!;
 
     private Note? note;
-    private string body = "";
+    private string body = "";          // latest typed text (saved by autosave)
+    private string editorText = "";    // what the editor was loaded with; changes only on (re)load
+    private string previewBody = "";   // what preview/links show; refreshed after a short pause in typing
+    private CancellationTokenSource? pendingPreview;
     private DateTime modified;
     private IReadOnlyList<NoteLink> links = [];
     private IReadOnlyList<CommitInfo> commits = [];
@@ -76,14 +81,14 @@
 
     protected override void OnParametersSet() => Load();
 
-    // Outside edits reload the note, unless the user has unsaved typing in progress.
+    // Outside edits reload the note, but never while there is typing not yet on disk (that would wipe it).
     private void OnChanged() => InvokeAsync(() => { if (!saving) { Load(); StateHasChanged(); } });
 
     private void Load()
     {
         note = NotesApi.Get(Id);
         if (note is null) return;
-        body = note.Body;
+        body = editorText = previewBody = note.Body;
         modified = note.Modified;
         links = NotesApi.ResolveLinks(body);
         commits = GitHistoryApi.Mentioning($"#wi{note.WorkItemId}");
@@ -92,20 +97,31 @@
     private void OnInput(ChangeEventArgs e)
     {
         body = (string?)e.Value ?? "";
-        links = NotesApi.ResolveLinks(body);
+        // ponytail: link resolution reads the repo, so do it on a 250 ms pause rather than per keystroke
+        pendingPreview?.Cancel();
+        CancellationTokenSource preview = pendingPreview = new();
+        _ = Task.Delay(250, preview.Token).ContinueWith(t =>
+        {
+            if (t.IsCanceled) return;
+            InvokeAsync(() => { previewBody = body; links = NotesApi.ResolveLinks(previewBody); StateHasChanged(); });
+        }, TaskScheduler.Default);
         saving = true;
         pendingSave?.Cancel();
         CancellationTokenSource cts = pendingSave = new();
         _ = Task.Delay(600, cts.Token).ContinueWith(t => { if (!t.IsCanceled) InvokeAsync(Save); }, TaskScheduler.Default);
     }
 
+    /// <summary>
+    /// Autosave writes the file and nothing else: it must not trigger a reload, because the reload would put the
+    /// saved text back into the editor and drop whatever was typed since. Other pages re-read on navigation.
+    /// </summary>
     private void Save()
     {
-        (bool ok, string message) = NotesApi.SaveBody(Id, body);
-        saving = false;
-        if (!ok) { Snackbar.Add(message, Severity.Warning); return; }
+        string saved = body;
+        (bool ok, string message) = NotesApi.SaveBody(Id, saved);
+        if (!ok) { saving = false; Snackbar.Add(message, Severity.Warning); return; }
         modified = DateTime.Now;
-        Workspace.Notify();
+        saving = body != saved;   // more typing arrived while saving: its own save is already scheduled
         StateHasChanged();
     }
 
@@ -125,7 +141,7 @@
         get
         {
             HashSet<string> ok = links.Where(l => l.Resolved).Select(l => $"{l.Kind}:{l.Target}").ToHashSet();
-            string html = Markdig.Markdown.ToHtml(body);
+            string html = Markdig.Markdown.ToHtml(previewBody, Ui.Pipeline);
             html = Regex.Replace(html, @"\[\[([^\]<]+)\]\]", m => $"<span class=\"wl{(ok.Contains("doc:" + m.Groups[1].Value.Trim()) ? "" : " bad")}\">{m.Groups[1].Value}</span>");
             html = Regex.Replace(html, @"#wi(\d+)\b", m => ok.Contains("item:" + m.Groups[1].Value) ? $"<a class=\"wl\" href=\"item/{m.Groups[1].Value}\">{m.Value}</a>" : $"<span class=\"wl bad\">{m.Value}</span>");
             html = Regex.Replace(html, @"#n(\d+)\b", m => ok.Contains("note:" + m.Groups[1].Value) ? $"<a class=\"wl\" href=\"note/{m.Groups[1].Value}\">{m.Value}</a>" : $"<span class=\"wl bad\">{m.Value}</span>");
@@ -138,6 +154,7 @@
     public void Dispose()
     {
         pendingSave?.Cancel();
+        pendingPreview?.Cancel();
         Workspace.Changed -= OnChanged;
     }
 }

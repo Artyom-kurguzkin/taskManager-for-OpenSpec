@@ -39,7 +39,14 @@ internal static partial class TasksFile
     {
         IReadOnlyList<Subtask> subs = Parse(text);
         string nl = text.Contains("\r\n") ? "\r\n" : "\n";
-        if (subs.Count == 0) return text.TrimEnd() + $"{nl}{nl}## 1. Tasks{nl}{nl}- [ ] 1.1 {task}{nl}";
+        if (subs.Count == 0)
+        {
+            // Reuse the last group heading if there is one ("## 2. Hardening" → 2.1), else start group 1.
+            string? heading = Lines(text).LastOrDefault(l => GroupHeading().IsMatch(l));
+            if (heading is null) return text.TrimEnd() + $"{nl}{nl}## 1. Tasks{nl}{nl}- [ ] 1.1 {task}{nl}";
+            string group = Regex.Match(heading, @"^##\s+(\d+)\.").Groups[1] is { Success: true } g ? g.Value : "1";
+            return text.TrimEnd() + $"{nl}{nl}- [ ] {group}.1 {task}{nl}";
+        }
         string last = subs[^1].Number;
         string next = last.Contains('.') ? $"{last[..last.LastIndexOf('.')]}.{int.Parse(last[(last.LastIndexOf('.') + 1)..]) + 1}" : $"{subs.Count + 1}";
         List<string> lines = Lines(text).ToList();

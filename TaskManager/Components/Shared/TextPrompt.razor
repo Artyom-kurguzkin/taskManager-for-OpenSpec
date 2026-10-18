@@ -3,7 +3,7 @@
     <TitleContent>@Title</TitleContent>
     <DialogContent>
         <form @onsubmit="Submit" @onsubmit:preventDefault="true">
-            <input class="box text-in" data-sk @bind="text" @bind:event="oninput" placeholder="@Placeholder" aria-label="@Title" autofocus />
+            <input @ref="box" class="box text-in" data-sk @bind="text" @bind:event="oninput" placeholder="@Placeholder" aria-label="@Title" />
         </form>
     </DialogContent>
     <DialogActions>
@@ -18,6 +18,13 @@
     [Parameter] public string Placeholder { get; set; } = "";
     [Parameter] public string Action { get; set; } = "Add";
     private string text = "";
+    private ElementReference box;
+
+    // autofocus doesn't fire inside the MudBlazor dialog, so focus the box once it is on screen
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) { await Task.Delay(50); await box.FocusAsync(); }
+    }
 
     private void Submit()
     {

@@ -13,3 +13,10 @@ document.addEventListener("keydown", (e) => {
   if (document.querySelector(".mud-popover-open, .mud-dialog")) return;                       // MudBlazor closes its own popups
   if (location.pathname !== "/") history.back();
 });
+
+// HTML5 drag-and-drop: a drop only happens where dragover is cancelled. Blazor can't do that without a .NET
+// round-trip per mouse move, so board columns/lanes are marked data-drop and cancelled here.
+document.addEventListener("dragover", (e) => {
+  if (e.target.closest?.("[data-drop]")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }
+});
+document.addEventListener("dragstart", (e) => { if (e.target.closest?.(".card")) e.dataTransfer.effectAllowed = "move"; });

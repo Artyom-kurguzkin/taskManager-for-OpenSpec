@@ -34,34 +34,43 @@
         <div class="kv"><label>linked features</label>
             @foreach (FeatureLink f in item.Features)
             {
-                <span class="chip @(f.Locked ? "" : "x")" title="@(f.Locked ? "From the change's specs/ folder" : "Remove")"
-                      @onclick="() => { if (!f.Locked) RemoveFeature(f.Path); }">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span>
+                <span class="chip @(f.Locked || item.Archived ? "" : "x")" title="@(f.Locked ? "From the change's specs/ folder" : item.Archived ? "" : "Remove")"
+                      @onclick="() => { if (!f.Locked && !item.Archived) RemoveFeature(f.Path); }">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span>
             }
             @if (!item.Archived) { <Dropdown Label="add feature" Class="mini" Placeholder="+ add" Options="FeatureChoices" ValueChanged="AddFeature" /> }
         </div>
         <div class="kv"><label>contributors</label>
-            @foreach (string p in item.Contributors) { <span class="chip x" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Where(x => x != p)))">@p</span> }
+            @foreach (string p in item.Contributors)
+            {
+                if (item.Archived) { <span class="chip">@p</span> }
+                else { <span class="chip x" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Where(x => x != p)))">@p</span> }
+            }
             @if (!item.Archived) { <Dropdown Label="add contributor" Class="mini" Placeholder="+ add" Options="PeopleChoices" ValueChanged="v => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Append(v)))" /> }
         </div>
         <div class="kv status-field"><label>status</label>
-            <Dropdown Label="status" Options="Statuses" Value="@item.Status" Swatch="Ui.Band" Style="@($"--fill:var({Ui.Band(item.Status)})")" Class="cell" ValueChanged="SetStatus" />
+            @if (item.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(item.Status))">@item.Status</span> }
+            else { <Dropdown Label="status" Options="Statuses" Value="@item.Status" Swatch="Ui.Band" Style="@($"--fill:var({Ui.Band(item.Status)})")" Class="cell filled" ValueChanged="SetStatus" /> }
         </div>
         <div class="kv"><label>priority</label>
-            <Dropdown Label="priority" Options="Priorities" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" />
+            @if (item.Archived) { <span>@(item.Priority == "high" ? "high" : "lower")</span> }
+            else { <Dropdown Label="priority" Options="Priorities" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" /> }
         </div>
     </div>
     @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
 
     <div class="grid2">
         <section class="panel">
-            <h3>Description <span class="muted">proposal.md · click to edit</span></h3>
+            <h3>Description <span class="muted">proposal.md@(item.Archived ? "" : " · click to edit")</span></h3>
             @if (editingDescription)
             {
-                <textarea class="desc-in" rows="10" @bind="description" @onblur="SaveDescription" aria-label="Description" autofocus></textarea>
+                <textarea @ref="descriptionBox" class="desc-in" rows="10" @bind="description" @onblur="SaveDescription" aria-label="Description"></textarea>
             }
             else
             {
-                <div class="desc edit hov" data-sk tabindex="0" @onclick="() => editingDescription = !item.Archived">@(string.IsNullOrWhiteSpace(description) ? "Click to add a description" : description)</div>
+                <div class="desc edit hov" data-sk tabindex="0" @onclick="EditDescription">
+                    @if (string.IsNullOrWhiteSpace(description)) { <span class="muted">Click to add a description</span> }
+                    else { @Ui.Markdown(description) }
+                </div>
             }
         </section>
 
@@ -191,6 +200,22 @@
     private void AddFeature(string path) => Run(WorkItemsApi.SetManualFeatures(Id, item!.Features.Select(f => f.Path).Append(path)));
     private void RemoveFeature(string path) => Run(WorkItemsApi.SetManualFeatures(Id, item!.Features.Select(f => f.Path).Where(p => p != path)));
 
+    private ElementReference descriptionBox;
+    private bool focusDescription;
+
+    private void EditDescription()
+    {
+        if (item is null || item.Archived) return;
+        editingDescription = focusDescription = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusDescription) return;
+        focusDescription = false;
+        await descriptionBox.FocusAsync();
+    }
+
     private void SaveDescription()
     {
         editingDescription = false;
@@ -219,8 +244,9 @@
     private void AddNote()
     {
         (bool ok, string message, int noteId) = NotesApi.Create(Id, Workspace.Me);
-        Run((ok, message));
-        if (ok) Nav.NavigateTo($"note/{noteId}");
+        if (!ok) { Snackbar.Add(message, Severity.Warning); return; }
+        Nav.NavigateTo($"note/{noteId}");   // open it first; refreshing other views must not get in the way
+        Workspace.Notify();
     }
 
     private async Task Back() => await Js.InvokeVoidAsync("history.back");

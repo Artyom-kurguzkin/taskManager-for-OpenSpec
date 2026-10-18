@@ -5,7 +5,7 @@
         <label class="seg-o @(value == Value ? "is-sel" : "hov")" data-sk>
             <input type="radio" name="@Name" value="@value" checked="@(value == Value)" @onchange="() => ValueChanged.InvokeAsync(value)" />
             @label
-            @if (Counts?.GetValueOrDefault(value) is int n) { <span class="count">@n</span> }
+            @if (Counts is not null && Counts.TryGetValue(value, out int n)) { <span class="count">@n</span> }
         </label>
     }
 </div>
