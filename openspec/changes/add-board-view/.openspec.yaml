@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-10-18
+x-rtm:
+  id: 2
+  status: Planned
+  priority: high
+  contributors: [Artyom]

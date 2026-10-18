@@ -1,0 +1,881 @@
+<title>Repo Task Manager Sketchbook</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap">
+<style>
+/* Layout: soft-brutalist task app. White cards with firm 2px outlines and generous radius, pastel fills for state,
+   dashed icon frames as the one sketch-like detail. Dark mode is designed, not inverted:
+   dark warm-grey base, lighter elevated surfaces, desaturated pastels that keep dark text on top. */
+:root {
+  /* surfaces + text */
+  --paper: #f7f4f1;
+  --card: #ffffff;
+  --ink: #24211f;
+  --ink-2: #6f6a66;
+  --line: #2b2725;          /* firm outline */
+  --line-soft: #d9d3cd;     /* dividers, inputs */
+  /* pastel fills (always carry --on-fill text) */
+  --peach: #f4a98a;
+  --sun: #f3da6c;
+  --sage: #d3e39c;
+  --sky: #bcd5f1;
+  --lilac: #d8cbf1;
+  --stone: #e7e2dc;
+  --on-fill: #24211f;
+  --ok: #2f7d32;
+  --shadow: #2b2725;
+  /* legacy names used by components */
+  --hl-yellow: var(--sun); --hl-mint: var(--sage); --hl-red: var(--peach); --hl-blue: var(--sky);
+  --hl-lilac: var(--lilac); --hl-grey: var(--stone); --accent: var(--ink); --dot: transparent; --tape: transparent;
+  /* type */
+  --f-hand: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+  --f-body: var(--f-hand);
+  --f-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --t-xs: .75rem; --t-sm: .875rem; --t-md: 1rem; --t-lg: 1.2rem; --t-xl: 1.5rem; --t-2xl: 2rem;
+  /* space / shape */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --r: 14px; --wobble: 8px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #161514; --card: #221f1d; --ink: #ece7e1; --ink-2: #a9a29b; --line: #5e5751; --line-soft: #3a3532;
+  --peach: #d89479; --sun: #d4bd5f; --sage: #b2c483; --sky: #9db7d4; --lilac: #b5a8d3; --stone: #aea69e;
+  --on-fill: #1c1917; --ok: #9fd393; --shadow: #000000;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --paper: #161514; --card: #221f1d; --ink: #ece7e1; --ink-2: #a9a29b; --line: #5e5751; --line-soft: #3a3532;
+  --peach: #d89479; --sun: #d4bd5f; --sage: #b2c483; --sky: #9db7d4; --lilac: #b5a8d3; --stone: #aea69e;
+  --on-fill: #1c1917; --ok: #9fd393; --shadow: #000000;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  background: var(--paper);
+  color: var(--ink); font: 400 15px/1.5 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 96px;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--paper); }
+h1, h2, h3, h4 { font-family: var(--f-hand); font-weight: 700; margin: 0; text-wrap: balance; line-height: 1.15; }
+button, select, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px dashed var(--accent); outline-offset: 3px; }
+[hidden] { display: none !important; }
+/* outlined surfaces: firm 2px line, round corners, fill set by state */
+[data-sk] { position: relative; --fill: var(--card); --stroke: var(--line); border: 2px solid var(--stroke); border-radius: var(--r);
+  background: var(--fill); transition: background .12s, box-shadow .12s, transform .12s; }
+[data-sk="soft"] { --stroke: var(--line); }
+[data-sk="line"] { border: 0; border-top: 2px dashed var(--line-soft); border-radius: 0; background: none; height: 0 !important; margin-block: 6px; }
+[data-sk="vline"] { border: 0; border-left: 2px dashed var(--line-soft); border-radius: 0; background: none; width: 0 !important; }
+.sk-layer { display: none; }
+/* state: selected = sun fill, hover = lift with a hard offset shadow; plain rows show their outline on hover */
+.hov { --stroke: transparent; --fill: transparent; cursor: pointer; }
+.hov:hover, .hov:focus-visible { --stroke: var(--line); --fill: var(--stone); color: var(--on-fill); outline: none !important; }
+.card:hover, .sub:hover, .lrow:hover, .btn:hover, .ds-hover { box-shadow: 3px 3px 0 var(--shadow); transform: translate(-1px, -1px); outline: none !important; }
+.selected, .selected:hover, .is-sel { --fill: var(--sun) !important; --stroke: var(--line); color: var(--on-fill); }
+.selected .muted, .is-sel .muted { color: var(--on-fill); opacity: .7; }
+.is-group, .is-group select { color: var(--on-fill); }
+.mono { font-family: var(--f-mono); font-size: .92em; }
+.muted { color: var(--ink-2); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------- top bar ---------- */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--paper);
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3) var(--s5); padding-block: var(--s4) var(--s3); }
+.brand { display: flex; align-items: baseline; gap: var(--s2); }
+.brand h1 { font-size: var(--t-xl); }
+.brand .mono { color: var(--ink-2); font-size: var(--t-xs); }
+.tabs { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.tab { padding: var(--s1) var(--s3); font-family: var(--f-hand); font-size: var(--t-lg);
+  cursor: pointer; color: var(--ink-2); position: relative; }
+.tab[aria-selected="true"] { color: var(--on-fill); }
+.tab-old-marker {
+  content: ""; position: absolute; left: 8%; right: 6%; bottom: 2px; height: 7px; background: var(--hl-yellow);
+  border-radius: var(--wobble); transform: rotate(-1.2deg); z-index: -1; }
+.spacer { flex: 1; }
+.btn { padding: 4px 16px; min-height: 35px; cursor: pointer; font-family: var(--f-hand);
+  font-size: var(--t-md); line-height: 1.3; }
+.btn.primary { }
+.btn.ghost { background: transparent; border: 0; padding-left: 0; }
+.btn:hover { --fill: var(--hl-mint); }
+.btn > * { position: relative; }
+
+/* ---------- chips (highlighter strokes) ---------- */
+.chip { display: inline; white-space: nowrap; }
+.chip.x { cursor: pointer; }
+.chip.x::after { content: " ×"; color: var(--ink-2); }
+.st-Backlog { --c: var(--hl-grey); } .st-Planned { --c: var(--hl-blue); } .st-Confirmed { --c: var(--hl-lilac); }
+.st-InProgress { --c: var(--hl-yellow); } .st-Blocked { --c: var(--hl-red); } .st-Completed { --c: var(--hl-mint); }
+.who { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%;
+  border: 1.5px solid var(--ink); font: 700 10px/1 var(--f-body); background: var(--card); }
+
+/* ---------- toolbar ---------- */
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px 30px; align-items: center; margin-block: 4px 18px; }
+.box { display: inline-flex; align-items: center; padding: 3px 12px; min-height: 35px; }
+.is-group { --fill: var(--hl-mint); }
+.field { display: flex; align-items: center; gap: var(--s2); }
+.field label::after { content: ":"; }
+.sel { appearance: none; background: transparent; border: 0; padding: 0; cursor: pointer; }
+.sel option { background: var(--card); color: var(--ink); }
+.check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* ---------- board ---------- */
+.board-wrap { overflow-x: auto; padding-bottom: var(--s4); }
+.board { display: flex; gap: var(--s5); align-items: flex-start; width: max-content; padding: var(--s2); }
+.cat { display: flex; flex-direction: column; gap: var(--s3); }
+.cat-h { font-size: var(--t-lg); font-weight: 700; padding-inline: 8px; }
+.cat-cols { display: flex; gap: var(--s4); align-items: flex-start; }
+.col { width: 230px; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2); border-radius: 10px; transition: background .15s; }
+.col.over, .lane.over { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.col-h { display: flex; align-items: baseline; gap: 8px; padding: 3px 12px; cursor: pointer; align-self: flex-start; }
+
+.col-h h3 { font-size: var(--t-lg); }
+.col-h .count { font: 700 var(--t-xs) var(--f-body); color: var(--ink-2); }
+.tape { display: none; }
+.lane { display: flex; flex-direction: column; gap: var(--s3); min-height: 48px; padding: var(--s1); border-radius: 8px; }
+.card { padding: 0 0 12px; cursor: pointer; user-select: none; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.card > :not(.band):not(.pick) { padding-inline: 14px; }
+.card .band { background: var(--band, var(--stone)); color: var(--on-fill); font-weight: 700; line-height: 1.3; padding: 10px 34px 10px 14px; border-bottom: 2px solid var(--line); }
+.card.collapsed { padding-bottom: 0; }
+.card.collapsed .band { border-bottom: 0; }
+.card.selected { --fill: var(--card) !important; outline: 3px solid var(--ink) !important; outline-offset: 2px; }
+.meta-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 4px; font-size: 13px; }
+.ico { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1.5px dashed var(--line); border-radius: 8px; margin-left: 6px; flex: none; }
+.ico:first-child { margin-left: 0; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font-size: 12px; font-weight: 500; padding: 1px 8px; border: 1.5px solid var(--line); border-radius: 6px; background: var(--stone); color: var(--on-fill); }
+.tag.hot { background: var(--peach); }
+.card .id { font: 700 var(--t-xs) var(--f-mono); color: var(--ink-2); }
+.card .title { font-weight: 700; font-size: var(--t-sm); line-height: 1.3; }
+.card .meta { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: var(--t-xs); color: var(--ink-2); }
+.card .meta b { font-family: var(--f-hand); font-weight: 700; color: var(--ink); }
+.card .row { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
+.pick { position: absolute; top: 8px; right: 8px; width: 16px; height: 16px; opacity: 0; accent-color: var(--accent); z-index: 1; }
+.card:hover .pick, .card.selected .pick, .selecting .pick { opacity: 1; }
+.bar { display: flex; gap: 2px; height: 5px; }
+.bar i { flex: 1; background: var(--hl-grey); border-radius: 2px; }
+.bar i.on { background: var(--accent); }
+.subs { margin: 4px 0 0; padding: 0; list-style: none; font-size: var(--t-xs); display: grid; gap: 2px; }
+.subs li::before { content: "☐ "; } .subs li.done { text-decoration: line-through; color: var(--ink-2); } .subs li.done::before { content: "☑ "; }
+.add-col { width: 160px; align-self: stretch; display: grid; place-items: center; color: var(--ink-2); font-family: var(--f-hand);
+  font-size: var(--t-lg); border: 2px dashed var(--line); border-radius: 12px; background: none; cursor: pointer; min-height: 120px; }
+
+/* ---------- list ---------- */
+/* ---------- list (table) ---------- */
+.tbl-wrap { overflow-x: auto; padding: 0; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tbl thead th { position: sticky; top: 0; background: var(--card); text-align: left; font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--ink-2); padding: 10px 10px; border-bottom: 2px solid var(--line); white-space: nowrap; }
+.th-sort { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; }
+.th-sort:hover, .th-sort.on { color: var(--ink); }
+.tbl td { padding: 7px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.tbl tr.lrow:hover td { background: color-mix(in srgb, var(--stone) 40%, transparent); }
+.lrow:hover { box-shadow: none !important; transform: none !important; }
+.tbl tr.lrow.selected td { background: color-mix(in srgb, var(--sun) 45%, transparent); }
+.tbl .grp td { padding: 14px 6px 6px; border-bottom: 2px solid var(--line); }
+.tbl .grp button { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; cursor: pointer; font: inherit; color: inherit; font-size: 15px; }
+.tbl .subrow td { padding-block: 4px; font-size: 13px; background: color-mix(in srgb, var(--stone) 18%, transparent); }
+.tbl .subrow .done { text-decoration: line-through; color: var(--ink-2); }
+.tbl .addrow td { border-bottom: 0; padding-block: 2px 8px; }
+.chev { display: inline-grid; place-items: center; width: 22px; height: 22px; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; transition: transform .12s; }
+.chev.open { transform: rotate(90deg); }
+.row-title { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-weight: 600; color: inherit; text-align: left; }
+.row-title:hover { text-decoration: underline; }
+.box.cell { min-height: 28px; padding: 2px 10px; border-radius: 9px; color: var(--on-fill); font-size: 13px; }
+.prog { display: inline-block; width: 60px; height: 8px; border: 1.5px solid var(--line); border-radius: 6px; overflow: hidden; vertical-align: middle; }
+.prog i { display: block; height: 100%; background: var(--sage); }
+/* feature-group switcher, lanes, subtask cards */
+.cat-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+.seg-o .count, .lane-h .count { font-size: 12px; opacity: .7; margin-left: 6px; }
+.lane-h { display: flex; justify-content: space-between; font: 600 12px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); padding: 6px 4px 0; }
+.lane + .lane-h { border-top: 2px dashed var(--line-soft); margin-top: 6px; padding-top: 12px; }
+.subcard .band { display: flex; gap: 8px; align-items: flex-start; font-weight: 500; }
+.subcard .band input { margin-top: 3px; accent-color: var(--ink); }
+.subcard.done .band { text-decoration: line-through; opacity: .75; }
+.subcard { gap: 6px; }
+
+/* ---------- popover / action bar / toast ---------- */
+.pop { position: absolute; z-index: 20; padding: 6px; min-width: 200px; max-height: 60vh; overflow-y: auto; display: flex;
+  flex-direction: column; gap: 2px; box-shadow: 4px 4px 0 var(--shadow); }
+.pop button { display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: 0; padding: 8px 12px; cursor: pointer;
+  border-radius: 9px; font: 500 14px var(--f-body); color: var(--ink); white-space: nowrap; }
+.pop button:hover, .pop button:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
+.pop button.cur { background: var(--sun); color: var(--on-fill); font-weight: 700; }
+.pop button.cur::after { content: "✓"; margin-left: auto; padding-left: 12px; }
+.pop input { border: 0; border-bottom: 2px solid var(--line); background: transparent; padding: 4px 6px; margin: 2px 6px 6px; }
+.sw-dot { width: 12px; height: 12px; border-radius: 4px; border: 1.5px solid var(--line); flex: none; }
+/* custom dropdown trigger that stands in for a native <select> */
+.dd { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: inherit; }
+.dd svg { flex: none; opacity: .65; }
+.actionbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 15;
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; justify-content: center; background: var(--card); padding: var(--s3) var(--s4);
+  box-shadow: 5px 6px 0 var(--shadow); max-width: calc(100vw - 32px); }
+.actionbar .n { font-family: var(--f-hand); font-size: var(--t-lg); }
+.toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(76px + env(safe-area-inset-top, 0px)); z-index: 30;
+  background: var(--hl-mint); padding: var(--s2) var(--s4); font-family: var(--f-hand); font-size: var(--t-md); border-radius: var(--wobble);
+  transform: rotate(1deg); transition: opacity .3s; }
+
+/* ---------- detail ---------- */
+.crumbs { display: flex; gap: var(--s2); align-items: center; font-family: var(--f-hand); font-size: var(--t-md); color: var(--ink-2); margin-block: var(--s2) var(--s3); flex-wrap: wrap; }
+.crumbs kbd { font: 700 var(--t-xs) var(--f-mono); border: 1.5px solid var(--line); border-radius: 4px; padding: 0 5px; }
+.sheet { padding: 26px 30px 30px; display: flex; flex-direction: column; gap: var(--s5); }
+.head { display: flex; flex-wrap: wrap; gap: var(--s3) var(--s6); align-items: center; }
+.head h2 { font-size: var(--t-lg); }
+.title-in { font: 700 var(--t-xl) var(--f-body); border: 0; background: transparent; padding: 2px 4px; flex: 1 1 260px; min-width: 0; border-radius: 6px; }
+.title-in:hover { outline: 2px dashed var(--accent); }
+.kv { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.kv > label { color: var(--ink); } .kv > label::after { content: ":"; }
+.edit { cursor: pointer; border-radius: 8px; }
+
+.mini-sel { appearance: none; border: 0; background: transparent; cursor: pointer; padding: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: var(--s5); }
+.panel { padding: 0; display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.panel h3 { font-size: var(--t-lg); display: flex; align-items: center; gap: var(--s2); }
+.panel h3 .muted { font-size: 14px; }
+.desc { white-space: pre-wrap; padding: var(--s2); min-height: 4em; }
+textarea.desc-in, textarea.md { width: 100%; border: 0; background: transparent; padding: 10px 12px; outline: none;
+  border-radius: 8px; resize: vertical; line-height: 1.55; }
+.log { display: flex; flex-direction: column; gap: var(--s2); }
+.log-e { display: flex; flex-direction: column; padding: 6px 12px; margin-left: -12px; }
+.log-e b { font-family: var(--f-hand); }
+.log-e .muted { font-size: 15px; }
+.sub { display: flex; align-items: flex-start; gap: 8px; padding: 8px 14px; margin-bottom: 10px; cursor: pointer; }
+
+
+.sub input { accent-color: var(--accent); margin-top: 3px; }
+.sub.done span { text-decoration: line-through; color: var(--ink-2); }
+.sub .mono { color: var(--ink-2); font-size: var(--t-xs); margin-top: 2px; }
+.suite { padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.test { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s2); border-radius: 6px; cursor: pointer; text-align: left; }
+
+.ok { color: var(--ok); font-weight: 700; }
+.commit { display: grid; grid-template-columns: auto 1fr; gap: 0 var(--s2); font-size: var(--t-sm); }
+
+.add-line { display: flex; gap: var(--s2); }
+.add-line input { flex: 1; min-width: 0; border: 0; border-bottom: 2px solid var(--line); background: transparent; padding: 4px; }
+
+/* ---------- note ---------- */
+.note-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(220px, .7fr); gap: var(--s4); }
+@media (max-width: 960px) { .note-grid { grid-template-columns: 1fr; } }
+textarea.md { min-height: 420px; line-height: 1.45; }
+.preview { padding: var(--s2) var(--s3); overflow-wrap: anywhere; }
+.preview h1, .preview h2, .preview h3 { margin-block: .6em .3em; }
+.preview hr { border: 0; border-top: 1.5px dashed var(--ink-2); }
+.preview code { font-family: var(--f-mono); font-size: 13px; }
+.wl { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.wl.bad { text-decoration: line-through wavy; color: var(--ink-2); cursor: default; }
+.links { display: flex; flex-direction: column; gap: var(--s2); }
+.link { display: flex; gap: 10px; align-items: baseline; padding: 4px 12px; margin-left: -12px; }
+.link .k { color: var(--ink-2); min-width: 52px; }
+.link.bad { opacity: .6; }
+
+/* ---------- design system ---------- */
+.ds { display: flex; flex-direction: column; gap: var(--s6); max-width: 1180px; }
+.ds-intro { max-width: 68ch; font-size: var(--t-md); }
+.ds-intro h2 { font-size: var(--t-2xl); margin-bottom: var(--s2); }
+.ds section { display: flex; flex-direction: column; gap: var(--s3); }
+.ds h3 { font-size: var(--t-xl); }
+.sw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s4); }
+.sw { padding: var(--s3); background: var(--card); display: flex; flex-direction: column; gap: 4px; }
+.sw i { display: block; height: 44px; border-radius: var(--wobble); background: var(--v); border: 1px solid var(--line); }
+.sw b { font-family: var(--f-hand); font-size: var(--t-md); }
+.sw span { font: var(--t-xs) var(--f-mono); color: var(--ink-2); }
+.type-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--s3); align-items: baseline; padding-block: var(--s2); border-top: 1.5px dashed var(--line); }
+.type-row .mono { font-size: var(--t-xs); color: var(--ink-2); }
+.demo-row { display: flex; flex-wrap: wrap; gap: var(--s4); align-items: center; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: var(--s4); }
+.rule { background: var(--card); padding: var(--s4); }
+.rule h4 { font-size: var(--t-lg); margin-bottom: 4px; }
+.seg { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg-o { display: inline-flex; align-items: center; padding: 6px 16px; cursor: pointer; font-weight: 500; }
+.seg-o input { position: absolute; opacity: 0; pointer-events: none; }
+.seg-o:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+.settings { max-width: 880px; gap: 0 !important; }
+.settings h2 { font-size: var(--t-xl); margin-bottom: 8px; }
+.set-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 32px; align-items: center; padding-block: 20px; border-top: 2px dashed var(--line-soft); }
+.set-row h3 { font-size: 1rem; }
+.set-row p { margin: 2px 0 0; }
+.set-val { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-width: 0; }
+input.box { padding: 6px 12px; min-width: 0; }
+.ds-theme { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-block: 12px; }
+@media (max-width: 640px) { .set-row { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="brand"><h1>repo/tasks</h1><span class="mono">openspec/ · artyom</span></div>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+  <span class="spacer"></span>
+
+</header>
+<main id="app"></main>
+<div id="pop" class="pop" data-sk hidden></div>
+<div id="actionbar" class="actionbar" data-sk hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+/* ======================= sample data (example only) ======================= */
+const STATUSES = ["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "Completed"];
+const FEATURES = {
+  "Non-Functional": ["Authentication", "Availability", "Accessibility", "Style guide conformance", "Security"],
+  "Functional": ["Remittances", "Unbilled follow-up", "Reconciliation", "Banking"],
+};
+const PEOPLE = ["Artyom", "Tom", "Mira"];
+const D = (s) => s; // ISO strings
+let items = [
+  { id: 108, title: "Rate-limit the public API", status: "Backlog", pri: "low", features: ["Availability"], who: ["Artyom"], created: "2026-09-29", mod: "2026-10-02", subs: [["Pick limiter middleware", 0], ["Add 429 page", 0]] },
+  { id: 109, title: "Password-less sign-in", status: "Backlog", pri: "low", features: ["Authentication"], who: ["Artyom"], created: "2026-10-01", mod: "2026-10-01", subs: [] },
+  { id: 106, title: "Uptime status page", status: "Planned", pri: "low", features: ["Availability"], who: ["Artyom"], created: "2026-09-20", mod: "2026-10-09", subs: [["Choose probe interval", 1], ["Draft page layout", 0]] },
+  { id: 107, title: "Monthly remittance export", status: "Planned", pri: "low", features: ["Remittances"], who: ["Tom"], created: "2026-09-22", mod: "2026-10-12", subs: [["CSV columns agreed", 1], ["Export job", 0], ["Email digest", 0]] },
+  { id: 115, title: "Keyboard-only board navigation", status: "Confirmed", pri: "low", features: ["Accessibility", "Style guide conformance"], who: ["Mira"], created: "2026-10-03", mod: "2026-10-14", subs: [["Focus order", 0], ["Arrow-key moves", 0]] },
+  { id: 123, title: "Health-check endpoint", status: "In Progress", pri: "high", features: ["Availability", "Security"], who: ["Artyom", "Tom"], created: "2026-09-12", mod: "2026-10-17", subs: [["Add /health route", 1], ["Return build hash", 1], ["Ping test in suite 543", 1], ["Page-load budget test", 0], ["Hide internals from anonymous callers", 0]] },
+  { id: 104, title: "Retry failed bank webhooks", status: "In Progress", pri: "high", features: ["Banking", "Availability"], who: ["Tom"], created: "2026-09-10", mod: "2026-10-16", subs: [["Back-off policy", 1], ["Dead-letter view", 0]] },
+  { id: 105, title: "Unbilled items reminder", status: "In Progress", pri: "low", features: ["Unbilled follow-up"], who: ["Artyom"], created: "2026-09-15", mod: "2026-10-15", subs: [["Query unbilled > 30d", 1], ["Reminder template", 0]] },
+  { id: 111, title: "Match statements to invoices", status: "Blocked", pri: "high", features: ["Reconciliation", "Banking"], who: ["Tom", "Mira"], created: "2026-09-05", mod: "2026-10-08", subs: [["Waiting on bank sandbox keys", 0]] },
+  { id: 101, title: "Session timeout after 30 min", status: "Completed", pri: "low", features: ["Authentication", "Security"], who: ["Artyom"], created: "2026-08-20", mod: "2026-09-18", subs: [["Sliding expiry", 1], ["Warn before logout", 1]] },
+  { id: 102, title: "Audit log for spec edits", status: "Completed", pri: "low", features: ["Security"], who: ["Artyom"], created: "2026-08-22", mod: "2026-09-25", subs: [["Write to git notes", 1]] },
+  { id: 103, title: "Colour tokens match style guide", status: "Completed", pri: "low", features: ["Style guide conformance"], who: ["Mira"], created: "2026-08-25", mod: "2026-09-30", subs: [["Token audit", 1]] },
+];
+items.forEach(it => it.subs = it.subs.map(([t, d], i) => ({ n: i + 1, t, done: !!d })));
+const detail = {
+  123: {
+    desc: "Expose a lightweight /health endpoint the uptime monitor can poll.\n\nIt returns 200 with the build hash when the app and its repo watcher are alive, and 503 while the openspec/ folder is being re-indexed.",
+    log: [
+      { n: 155, when: "2026-10-01", by: "Artyom", what: "Status Confirmed → In Progress" },
+      { n: 154, when: "2026-09-13", by: "Tom", what: "Linked feature Security" },
+      { n: 153, when: "2026-09-12", by: "Artyom", what: "Created from proposal.md" },
+    ],
+    tests: { suite: 543, ran: "2026-10-17 14:02", result: "all passed", list: [["ping test", 123], ["page load test", 124]] },
+    commits: [["3f9a2c1", "Add /health route #wi123"], ["a71e0bd", "Return build hash from /health #wi123"], ["c09d5e4", "Ping test for suite 543 #wi123"]],
+  },
+};
+let notes = {
+  123: { id: 123, wi: 123, title: "Ping test", by: "Artyom", created: "2026-10-02 09:14", mod: "2026-10-17 13:58",
+    body: "# Ping test\n\nBlack-box check a developer or Playwright runs against a fresh build.\n\n- GET /health returns **200** within 300 ms\n- response body contains the build hash\n- while re-indexing, the endpoint returns 503\n\nSee [[runbook/uptime]] and the page-load note #n124.\nRelated: #wi106 (status page), #wi999\n\n---\n\nRun with `npx playwright test health.spec.ts`" },
+  124: { id: 124, wi: 123, title: "Page load test", by: "Tom", created: "2026-10-05 16:40", mod: "2026-10-10 11:02",
+    body: "# Page load test\n\nThe board must render in under 1.5 s with 500 work items.\n\nPart of #wi123." },
+};
+const docs = ["runbook/uptime", "openspec/project.md", "specs/availability/spec.md"];
+
+/* ======================= state ======================= */
+const S = { screen: "board", back: [], groupBy: "status", sortBy: "priority", sortDir: 1, who: "all", view: "board", unit: "tasks", compact: false,
+  cat: "all", open: new Set([123]), shut: new Set(), listAll: false, sel: new Set(), subSel: new Set(), item: 123, note: 123, editDesc: false };
+// custom sub-categories per column (example); items store their lane per column
+const LANES = { "In Progress": ["High priority", "Lower priority"] };
+items.forEach(it => it.lanes = it.status === "In Progress" ? { "In Progress": it.pri === "high" ? "High priority" : "Lower priority" } : {});
+try { const t = localStorage.getItem("rtm-tab"); if (t) S.screen = t; } catch (e) {}
+if (["system", "board", "item", "note", "settings"].includes(location.hash.slice(1))) S.screen = location.hash.slice(1);
+const TABS = [["system", "Design system"], ["board", "Board"], ["item", "Work item"], ["note", "Note"], ["settings", "Settings"]];
+let nextId = 125;
+
+/* ======================= helpers ======================= */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const stc = (s) => "st-" + s.replace(/\s/g, "");
+const fmt = (iso) => { const [y, m, d] = iso.slice(0, 10).split("-"); return `${+d}.${+m}.${y}`; };
+const byId = (id) => items.find(i => i.id === +id);
+const initials = (n) => n.slice(0, 2);
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; t.style.opacity = 1;
+  clearTimeout(toast.h); toast.h = setTimeout(() => { t.style.opacity = 0; setTimeout(() => t.hidden = true, 300); }, 2200); }
+function go(screen, opts = {}) { if (screen !== S.screen) S.back.push(S.screen); Object.assign(S, opts, { screen }); S.sel.clear(); S.subSel.clear(); closePop(); render();
+  try { localStorage.setItem("rtm-tab", screen); } catch (e) {} window.scrollTo(0, 0); }
+
+/* ======================= rough.js sketch layer ======================= */
+function hash(s) { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h) % 2 ** 31 || 1; }
+function sketch(root = document) {
+  if (!window.rough) return;
+  const cs = getComputedStyle(document.documentElement);
+  const ink = cs.getPropertyValue("--ink").trim(), acc = cs.getPropertyValue("--accent").trim();
+  root.querySelectorAll("[data-sk]").forEach(el => {
+    if (el.hidden) return;
+    el.querySelector(":scope > .sk-layer")?.remove();
+    const w = el.offsetWidth, h = el.offsetHeight; if (!w || !h) return;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "sk-layer"); svg.setAttribute("aria-hidden", "true");
+    // Same look as the Excalidraw original: roughness 1, 2px stroke (1px for "soft" frames), rounded corners.
+    const k = el.dataset.sk, thin = k === "soft";
+    const o = { roughness: 1, strokeWidth: thin ? 1 : 2, stroke: "#000", fill: "#000", fillStyle: "solid", preserveVertices: true,
+      seed: hash((el.dataset.seed || el.textContent.slice(0, 30)) + w) };
+    const rc = rough.svg(svg);
+    let node;
+    if (k === "line") node = rc.line(2, h / 2, w - 2, h / 2, o);
+    else if (k === "vline") node = rc.line(w / 2, 2, w / 2, h - 2, o);
+    else { const r = Math.min(32, Math.min(w, h) * .25), W = w - 2, H = h - 2;
+      node = rc.path(`M ${r} 0 L ${W - r} 0 Q ${W} 0, ${W} ${r} L ${W} ${H - r} Q ${W} ${H}, ${W - r} ${H} L ${r} ${H} Q 0 ${H}, 0 ${H - r} L 0 ${r} Q 0 0, ${r} 0`, o);
+      node.setAttribute("transform", "translate(1 1)"); }
+    // colours come from CSS (--fill / --stroke), so hover, selection and theme need no redraw
+    node.querySelectorAll("path").forEach(p => p.setAttribute("class", p.getAttribute("fill") === "none" || k === "line" || k === "vline" ? "sk-stroke" : "sk-fill"));
+    svg.appendChild(node);
+    el.prepend(svg);
+  });
+}
+let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => sketch(), 120); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => sketch());
+new MutationObserver(() => sketch()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+document.fonts?.ready.then(() => sketch());
+
+/* ======================= render ======================= */
+function render() {
+  $("#tabs").innerHTML = TABS.map(([k, l]) => `<button class="tab ${S.screen === k ? "is-sel" : "hov"}" data-sk role="tab" aria-selected="${S.screen === k}" data-act="tab" data-k="${k}">${l}</button>`).join("");
+  const app = $("#app");
+  app.innerHTML = { system: renderSystem, board: renderBoard, item: renderItem, note: renderNote, settings: renderSettings }[S.screen]();
+  enhanceSelects();
+  renderActionBar();
+  sketch();
+}
+
+/* ---------- board ---------- */
+const SORTS = {
+  priority: (a, b) => (a.pri === b.pri ? 0 : a.pri === "high" ? -1 : 1) || b.mod.localeCompare(a.mod),
+  modified: (a, b) => b.mod.localeCompare(a.mod), created: (a, b) => b.created.localeCompare(a.created),
+  status: (a, b) => STATUSES.indexOf(a.status) - STATUSES.indexOf(b.status),
+  feature: (a, b) => (a.features[0] || "~").localeCompare(b.features[0] || "~") || a.id - b.id,
+  who: (a, b) => (a.who[0] || "~").localeCompare(b.who[0] || "~"),
+  title: (a, b) => a.title.localeCompare(b.title), id: (a, b) => a.id - b.id,
+};
+function visible() {
+  const cmp = SORTS[S.sortBy] || SORTS.priority;
+  return items.filter(i => S.who === "all" || i.who.includes(S.who)).sort((a, b) => cmp(a, b) * S.sortDir);
+}
+function groups() {
+  const v = visible();
+  if (S.groupBy === "status") return [{ cat: null, cols: STATUSES.map(s => ({ key: s, label: s, items: v.filter(i => i.status === s) })) }];
+  if (S.groupBy === "contributor") return [{ cat: null, cols: PEOPLE.map(p => ({ key: p, label: p, items: v.filter(i => i.who.includes(p)) })) }];
+  return Object.entries(FEATURES).map(([cat, fs]) => ({ cat, cols: fs.map(f => ({ key: f, label: f, items: v.filter(i => i.features.includes(f)) })) }));
+}
+const BAND = { "Backlog": "--stone", "Planned": "--sky", "Confirmed": "--lilac", "In Progress": "--sun", "Blocked": "--peach", "Completed": "--sage" };
+const svgI = (d) => `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  cal: svgI('<rect x="2" y="3" width="12" height="11" rx="2"/><path d="M2 7h12M5 1.5v3M11 1.5v3"/>'),
+  list: svgI('<path d="M6 4h8M6 8h8M6 12h8M2.5 4h.5M2.5 8h.5M2.5 12h.5"/>'),
+  user: svgI('<circle cx="8" cy="5.5" r="2.8"/><path d="M2.5 14c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5"/>'),
+  chev: svgI('<path d="M6 4l4 4-4 4"/>'),
+};
+const short = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+function card(it, colKey) {
+  const exp = !S.compact;
+  const done = it.subs.filter(s => s.done).length;
+  return `<article class="card ${exp ? "" : "collapsed"} ${S.sel.has(it.id) ? "selected" : ""}" data-sk data-seed="c${it.id}" draggable="true" data-act="card" data-id="${it.id}" data-from="${esc(colKey)}">
+    <input type="checkbox" class="pick" data-act="pick" data-id="${it.id}" ${S.sel.has(it.id) ? "checked" : ""} aria-label="Select #wi${it.id}">
+    <span class="band" style="--band:var(${BAND[it.status]})">${esc(it.title)}</span>
+    ${exp ? `<span class="muted">${S.groupBy === "feature" ? it.status : (it.features.map(esc).join(", ") || "no feature")}</span>
+      <span class="meta-row"><span class="ico">${ICON.cal}</span>${short(it.mod)}<span class="ico">${ICON.list}</span>${done}/${it.subs.length}<span class="ico">${ICON.user}</span>${it.who.join(", ")}</span>
+      <span class="tags"><span class="tag">#wi${it.id}</span>${it.pri === "high" ? '<span class="tag hot">high priority</span>' : ""}</span>` : ""}
+  </article>`;
+}
+// Subtask mode: every tasks.md checkbox becomes its own card, placed where its parent work item would go.
+function subCard(s, it) {
+  return `<article class="card subcard ${s.done ? "done" : ""}" data-sk data-act="card" data-id="${it.id}">
+    <span class="band" style="--band:var(${BAND[it.status]})"><input type="checkbox" data-act="sub-tick" data-id="${it.id}" data-n="${s.n}" ${s.done ? "checked" : ""} aria-label="Done">${esc(s.t)}</span>
+    ${S.compact ? "" : `<span class="muted">#wi${it.id} · ${esc(it.title)}</span>`}
+  </article>`;
+}
+const units = (list, key) => S.unit === "subtasks" ? list.flatMap(it => it.subs.map(s => subCard(s, it))) : list.map(it => card(it, key));
+const unitCount = (list) => S.unit === "subtasks" ? list.reduce((n, it) => n + it.subs.length, 0) : list.length;
+// Custom sub-categories ("lanes") inside any column; items remember their lane per column in x-rtm.lanes.
+function column(col) {
+  const lanes = LANES[col.key] || [];
+  const laneOf = (it) => lanes.includes(it.lanes?.[col.key]) ? it.lanes[col.key] : lanes[0];
+  const body = lanes.length
+    ? lanes.map(l => `<div class="lane-h"><span>${esc(l)}</span><span class="count num">${unitCount(col.items.filter(i => laneOf(i) === l))}</span></div>
+        <div class="lane" data-drop data-key="${esc(col.key)}" data-lane="${esc(l)}">${units(col.items.filter(i => laneOf(i) === l), col.key).join("")}</div>`).join("")
+    : `<div class="lane" data-drop data-key="${esc(col.key)}">${units(col.items, col.key).join("")}</div>`;
+  return `<section class="col" data-drop data-key="${esc(col.key)}">
+    <header class="col-h hov" data-sk data-act="head" data-key="${esc(col.key)}" title="Column options"><h3>${esc(col.label)}</h3><span class="count num">${unitCount(col.items)}</span></header>
+    ${body}</section>`;
+}
+function toolbar() {
+  const opt = (arr, cur) => arr.map(([v, l]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${l}</option>`).join("");
+  const field = (id, key, label, opts, cls = "") => `<div class="field"><label for="${id}">${label}</label><span class="box ${cls}" data-sk><select id="${id}" class="sel" data-set="${key}">${opt(opts, S[key])}</select></span></div>`;
+  return `<div class="toolbar">
+    ${seg("view", S.view, [["board", "Board"], ["list", "List"]])}
+    ${field("f-group", "groupBy", "group by", [["status", "status"], ["feature", "feature"], ["contributor", "contributor"]], "is-group")}
+    ${field("f-sort", "sortBy", "sort by", [["priority", "priority"], ["feature", "feature"], ["who", "contributor"], ["modified", "date modified"], ["created", "date created"], ["status", "status"], ["title", "title"], ["id", "id"]])}
+    ${field("f-who", "who", "contributor", [["all", "everyone"], ...PEOPLE.map(p => [p, p])])}
+    ${S.view === "board" ? field("f-unit", "unit", "show", [["tasks", "work items"], ["subtasks", "subtasks"]])
+      : `<button class="btn" data-sk data-act="expand-all">${S.listAll ? "Collapse all" : "Expand all"}</button>`}
+    ${S.view === "board" ? `<label class="check" for="f-compact"><input type="checkbox" id="f-compact" data-set="compact" ${S.compact ? "checked" : ""}> compact cards</label>` : ""}
+    <span class="spacer"></span>
+    <button class="btn primary" data-sk data-act="new"><span>+ work item</span></button>
+  </div>`;
+}
+// Two-level grouping (feature groups): show one group at a time instead of one long scroll.
+function catTabs(gs) {
+  if (!gs[0].cat) return "";
+  const cur = gs.some(g => g.cat === S.cat) ? S.cat : "all";
+  return `<div class="cat-tabs">${seg("cat", cur, [["all", "All groups"], ...gs.map(g => [g.cat, `${g.cat} <span class="count num">${g.cols.reduce((n, c) => n + c.items.length, 0)}</span>`])])}
+    <button class="btn ghost" data-act="subgroup" data-cat="${esc(cur === "all" ? gs[0].cat : cur)}"><span>+ sub-group</span></button></div>`;
+}
+function renderBoard() {
+  let gs = groups();
+  const tabs = catTabs(gs);
+  if (gs[0].cat && S.cat !== "all" && gs.some(g => g.cat === S.cat)) gs = gs.filter(g => g.cat === S.cat);
+  if (S.view === "list") return toolbar() + tabs + renderList(gs);
+  return toolbar() + tabs + `<div class="board-wrap ${S.sel.size ? "selecting" : ""}"><div class="board">${gs.map(g => g.cat
+    ? `<div class="cat">${gs.length > 1 ? `<div class="cat-h">${esc(g.cat)}</div>` : ""}<div class="cat-cols">${g.cols.map(column).join("")}</div></div>`
+    : g.cols.map(column).join("")).join("")}</div></div>
+    <p class="muted">Click a card to open it · Ctrl/⌘-click or tick the corner box to multi-select · drag a card to another column · click a column header to add sub-categories.</p>`;
+}
+// List = table (GitHub Projects / Azure DevOps style): sortable headers, collapsible groups, inline status & priority,
+// a chevron per row to show its subtasks, row checkboxes, and "+ Add item" per group.
+const COLS = [["id", "ID"], ["title", "Title"], ["status", "Status"], ["feature", "Features"], ["who", "Contributors"], ["priority", "Priority"], ["progress", "Progress"], ["modified", "Updated"]];
+function renderList(gs) {
+  const th = COLS.map(([k, l]) => k === "progress" ? `<th>${l}</th>`
+    : `<th><button class="th-sort ${S.sortBy === k ? "on" : ""}" data-act="sort" data-k="${k}">${l}${S.sortBy === k ? (S.sortDir > 0 ? " ↑" : " ↓") : ""}</button></th>`).join("");
+  const row = (it) => {
+    const open = S.listAll || S.open.has(it.id), done = it.subs.filter(s => s.done).length;
+    return `<tr class="lrow ${S.sel.has(it.id) ? "selected" : ""}">
+      <td><input type="checkbox" data-act="pick" data-id="${it.id}" ${S.sel.has(it.id) ? "checked" : ""} aria-label="Select #wi${it.id}"></td>
+      <td>${it.subs.length ? `<button class="chev ${open ? "open" : ""}" data-act="row-open" data-id="${it.id}" aria-expanded="${open}" aria-label="Subtasks">${ICON.chev}</button>` : ""}</td>
+      <td class="muted num">#wi${it.id}</td>
+      <td><button class="row-title" data-act="card" data-id="${it.id}">${esc(it.title)}</button></td>
+      <td><span class="box cell" data-sk style="--fill:var(${BAND[it.status]})"><select id="rs-${it.id}" class="mini-sel" data-act="row-status" data-id="${it.id}">${STATUSES.map(s => `<option ${s === it.status ? "selected" : ""}>${s}</option>`).join("")}</select></span></td>
+      <td>${it.features.map(f => `<span class="tag">${esc(f)}</span>`).join(" ") || '<span class="muted">—</span>'}</td>
+      <td>${it.who.join(", ")}</td>
+      <td><span class="box cell" data-sk><select id="rp-${it.id}" class="mini-sel" data-act="row-pri" data-id="${it.id}"><option value="high" ${it.pri === "high" ? "selected" : ""}>high</option><option value="low" ${it.pri !== "high" ? "selected" : ""}>lower</option></select></span></td>
+      <td><span class="prog"><i style="width:${it.subs.length ? done / it.subs.length * 100 : 0}%"></i></span> <span class="muted num">${done}/${it.subs.length}</span></td>
+      <td class="muted num">${short(it.mod)}</td>
+    </tr>${open ? it.subs.map(s => `<tr class="subrow"><td></td><td></td><td class="muted num">${it.id}.${s.n}</td>
+      <td colspan="7"><label class="check ${s.done ? "done" : ""}"><input type="checkbox" data-act="sub-tick" data-id="${it.id}" data-n="${s.n}" ${s.done ? "checked" : ""}> ${esc(s.t)}</label></td></tr>`).join("") : ""}`;
+  };
+  const body = gs.flatMap(g => g.cols.map(c => ({ ...c, cat: g.cat }))).map(c => {
+    const shut = S.shut.has(c.key);
+    return `<tbody><tr class="grp"><td colspan="10"><button data-act="grp" data-key="${esc(c.key)}" aria-expanded="${!shut}"><span class="chev ${shut ? "" : "open"}">${ICON.chev}</span>
+      <b>${esc(c.label)}</b> <span class="count num">${c.items.length}</span>${c.cat ? ` <span class="muted">· ${esc(c.cat)}</span>` : ""}</button></td></tr>
+      ${shut ? "" : c.items.map(row).join("") + `<tr class="addrow"><td></td><td colspan="9"><button class="btn ghost" data-act="pop-add" data-key="${esc(c.key)}"><span>+ Add item</span></button></td></tr>`}</tbody>`;
+  }).join("");
+  return `<div class="tbl-wrap" data-sk><table class="tbl"><thead><tr><th></th><th></th>${th}</tr></thead>${body}</table></div>`;
+}
+function renderActionBar() {
+  const bar = $("#actionbar");
+  const n = S.screen === "board" ? S.sel.size : S.screen === "item" ? S.subSel.size : 0;
+  bar.hidden = n < 2 && !(S.screen === "board" && n === 1);
+  if (bar.hidden) return;
+  bar.innerHTML = S.screen === "board"
+    ? `<span class="n num">${n} selected</span>${n >= 2 ? `<button class="btn primary" data-sk data-act="merge"><span>Merge into one work item</span></button>` : `<span class="muted">select one more to merge</span>`}<button class="btn ghost" data-act="clear"><span>Clear</span></button>`
+    : `<span class="n num">${n} subtasks</span><button class="btn primary" data-sk data-act="merge-subs"><span>Move into a new work item</span></button><button class="btn ghost" data-act="clear"><span>Clear</span></button>`;
+}
+
+/* ---------- work item ---------- */
+function renderItem() {
+  const it = byId(S.item) || items[0];
+  const d = detail[it.id] || { desc: "", log: [{ n: 1, when: it.created, by: it.who[0] || "Artyom", what: "Created" }], tests: null, commits: [] };
+  detail[it.id] = d;
+  const myNotes = Object.values(notes).filter(n => n.wi === it.id);
+  const addOpts = (all, have) => `<option value="">+ add</option>` + all.filter(x => !have.includes(x)).map(x => `<option>${esc(x)}</option>`).join("");
+  return `<div class="crumbs"><button class="btn ghost" data-act="back"><span>← back</span></button><kbd>esc</kbd> goes to previous page · <span class="mono">openspec/changes/wi-${it.id}/</span></div>
+  <div class="sheet" data-sk="soft" data-seed="sheet${it.id}">
+    <div class="head">
+      <h2 class="num">#wi${it.id}</h2>
+      <input id="f-title" class="title-in" value="${esc(it.title)}" data-act="title" aria-label="Title">
+    </div>
+    <div class="head">
+      <div class="kv"><label>linked features</label>${it.features.map(f => `<span class="chip x" data-act="rm-feature" data-v="${esc(f)}" title="Remove">${esc(f)}</span>`).join("")}
+        <select id="f-addfeat" class="mini-sel" data-act="add-feature" aria-label="Add feature">${addOpts(Object.values(FEATURES).flat(), it.features)}</select></div>
+      <div class="kv"><label>contributors</label>${it.who.map(w => `<span class="chip x" data-act="rm-who" data-v="${w}" title="Remove">${w}</span>`).join("")}
+        <select id="f-addwho" class="mini-sel" data-act="add-who" aria-label="Add contributor">${addOpts(PEOPLE, it.who)}</select></div>
+      <div class="kv"><label for="f-status">status</label><span class="box" data-sk data-seed="st"><select id="f-status" class="mini-sel" data-act="status">${STATUSES.map(s => `<option ${s === it.status ? "selected" : ""}>${s}</option>`).join("")}</select></span></div>
+      <div class="kv"><label for="f-pri">priority</label><span class="box" data-sk data-seed="pr"><select id="f-pri" class="mini-sel" data-act="pri"><option ${it.pri === "high" ? "selected" : ""}>high</option><option ${it.pri === "low" ? "selected" : ""} value="low">lower</option></select></span></div>
+    </div>
+    <div class="grid2">
+      <section class="panel"><h3>Description <span class="muted">proposal.md · click to edit</span></h3>
+        ${S.editDesc ? `<textarea id="f-desc" class="desc-in" rows="7" data-act="desc">${esc(d.desc)}</textarea>`
+          : `<div class="desc edit hov" data-sk data-seed="desc" data-act="edit-desc" tabindex="0">${esc(d.desc) || '<span class="muted">Add a description…</span>'}</div>`}
+      </section>
+      <section class="panel"><h3>Change log <span class="muted">from git history</span></h3>
+        <div class="log">${d.log.map(e => `<div class="log-e hov" data-sk data-seed="e${e.n}" tabindex="0"><b class="num">entry ${e.n}</b><span>${esc(e.what)}</span><span class="muted">${fmt(e.when)} · ${e.by}</span></div>`).join("")}</div>
+      </section>
+      <section class="panel"><h3>Subtasks <span class="muted num">tasks.md · ${it.subs.filter(s => s.done).length}/${it.subs.length}</span></h3>
+        <div>${it.subs.map(s => `<div class="sub ${s.done ? "done" : ""} ${S.subSel.has(s.n) ? "selected" : ""}" data-act="sub" data-sk data-seed="s${s.n}" data-n="${s.n}">
+          <input type="checkbox" id="sub-${it.id}-${s.n}" data-act="sub-done" data-n="${s.n}" ${s.done ? "checked" : ""} aria-label="Done">
+          <span class="mono">${s.n}.</span><span>${esc(s.t)}</span></div>`).join("")}</div>
+        <form class="add-line" data-act="add-sub"><input id="f-newsub" placeholder="Add a subtask…" aria-label="New subtask"><button class="btn" data-sk><span>add</span></button></form>
+        <span class="muted">Click subtask text to select several, then move them into a new work item.</span>
+      </section>
+      <section class="panel"><h3>Linked tests</h3>
+        ${d.tests ? `<div class="suite"><b>Test suite ${d.tests.suite}</b><span class="muted">last ran ${d.tests.ran} · <span class="ok">${d.tests.result}</span></span>
+          ${d.tests.list.map(([t, n]) => `<button class="test hov" data-sk data-act="open-note" data-id="${n}"><span class="ok">✓</span> ${t} <span class="muted mono">#n${n}</span></button>`).join("")}</div>` : `<span class="muted">No tests linked yet.</span>`}
+        <h3>Linked commits</h3>
+        ${d.commits.length ? d.commits.map(([h, m]) => `<div class="commit hov" data-sk data-seed="${h}" tabindex="0"><span class="mono">${h}</span><span>${esc(m)}</span></div>`).join("") : `<span class="muted">Commits that mention #wi${it.id} show up here.</span>`}
+        ${myNotes.length ? `<h3>Notes</h3>${myNotes.map(n => `<button class="test hov" data-sk data-act="open-note" data-id="${n.id}"><span class="mono muted">#n${n.id}</span> ${esc(n.title)}</button>`).join("")}` : ""}
+      </section>
+    </div>
+  </div>`;
+}
+
+/* ---------- note ---------- */
+function md(src) {
+  const inline = (s) => esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[\[([^\]]+)\]\]/g, (_, d) => `<span class="wl ${docs.includes(d) ? "" : "bad"}">${d}</span>`)
+    .replace(/#wi(\d+)/g, (m, n) => `<span class="wl ${byId(n) ? "" : "bad"}" data-act="open-item" data-id="${n}">${m}</span>`)
+    .replace(/#n(\d+)/g, (m, n) => `<span class="wl ${notes[n] ? "" : "bad"}" data-act="open-note" data-id="${n}">${m}</span>`);
+  let out = "", list = false;
+  for (const line of src.split("\n")) {
+    const li = /^[-*] (.*)/.exec(line);
+    if (!li && list) { out += "</ul>"; list = false; }
+    if (li) { if (!list) { out += "<ul>"; list = true; } out += `<li>${inline(li[1])}</li>`; }
+    else if (/^---\s*$/.test(line)) out += "<hr>";
+    else if (/^(#{1,3}) /.test(line)) { const l = line.match(/^#+/)[0].length; out += `<h${l + 1}>${inline(line.slice(l + 1))}</h${l + 1}>`; }
+    else if (line.trim()) out += `<p>${inline(line)}</p>`;
+  }
+  return out + (list ? "</ul>" : "");
+}
+function noteLinks(n) {
+  const out = [], seen = new Set(), add = (k, label, ok, act, id) => { if (!seen.has(k + label)) { seen.add(k + label); out.push({ k, label, ok, act, id }); } };
+  for (const [, d] of n.body.matchAll(/\[\[([^\]]+)\]\]/g)) add("doc", d, docs.includes(d));
+  for (const [, id] of n.body.matchAll(/#wi(\d+)/g)) add("item", `#wi${id} ${byId(id)?.title || "(not found)"}`, !!byId(id), "open-item", id);
+  for (const [, id] of n.body.matchAll(/#n(\d+)/g)) if (+id !== n.id) add("note", `#n${id} ${notes[id]?.title || "(not found)"}`, !!notes[id], "open-note", id);
+  (detail[n.wi]?.commits || []).forEach(([h, m]) => add("commit", `${h} ${m}`, true));
+  (n.manual || []).forEach(m => add("manual", m, true));
+  return out;
+}
+function renderLinks(n) {
+  return noteLinks(n).map(l => `<div class="link ${l.ok ? "hov" : "bad"}" ${l.ok ? "data-sk" : ""} data-seed="l${l.label}"><span class="k">${l.k}</span><span ${l.act && l.ok ? `class="wl" data-act="${l.act}" data-id="${l.id}"` : ""}>${esc(l.label)}</span>${l.ok ? "" : ' <span class="muted">unresolved</span>'}</div>`).join("");
+}
+function renderNote() {
+  const n = notes[S.note] || Object.values(notes)[0];
+  return `<div class="crumbs"><button class="btn ghost" data-act="back"><span>← back</span></button><kbd>esc</kbd> goes to previous page · <span class="mono">openspec/changes/wi-${n.wi}/notes/n${n.id}.md</span></div>
+  <div class="sheet" data-sk="soft" data-seed="note${n.id}">
+    <div class="head">
+      <div class="kv"><label>note</label><h2 class="num">#n${n.id}</h2></div>
+      <div class="kv"><label>linked to</label><span class="wl" data-act="open-item" data-id="${n.wi}">#wi${n.wi}</span></div>
+      <div class="kv"><label>created</label><span class="num">${n.created}</span></div>
+      <div class="kv"><label>last modified</label><span class="num" id="n-mod">${n.mod}</span></div>
+      <div class="kv"><label>by</label><span class="chip">${n.by}</span></div>
+    </div>
+    <div class="note-grid">
+      <section class="panel"><h3>Markdown <span class="muted">${n.title}</span></h3><div data-sk="soft" data-seed="mded"><textarea id="f-md" class="md" data-act="md" spellcheck="false" aria-label="Markdown editor">${esc(n.body)}</textarea></div></section>
+      <section class="panel"><h3>Preview</h3><div class="preview" id="preview">${md(n.body)}</div></section>
+      <section class="panel"><h3>Linked docs and commits</h3>
+        <div class="links" id="links">${renderLinks(n)}</div>
+        <form class="add-line" data-act="add-link"><input id="f-link" placeholder="Add a link by hand…" aria-label="New link"><button class="btn" data-sk><span>add</span></button></form>
+        <span class="muted">The list fills in as you type valid [[doc]], #wi and #n references.</span>
+      </section>
+    </div>
+  </div>`;
+}
+
+/* ---------- design system ---------- */
+/* ---------- settings ---------- */
+function applyTheme(t) {
+  const r = document.documentElement;
+  if (t === "system") delete r.dataset.theme; else r.dataset.theme = t;
+  try { localStorage.setItem("rtm-theme", t); } catch (e) {}
+}
+function currentTheme() { try { return localStorage.getItem("rtm-theme") || "system"; } catch (e) { return "system"; } }
+function seg(name, cur, opts) {
+  return `<div class="seg" role="radiogroup">${opts.map(([v, l]) => `<label class="seg-o ${v === cur ? "is-sel" : "hov"}" data-sk for="${name}-${v}">
+    <input type="radio" id="${name}-${v}" name="${name}" value="${v}" data-act="${name}" ${v === cur ? "checked" : ""}>${l}</label>`).join("")}</div>`;
+}
+function renderSettings() {
+  return `<div class="sheet settings" data-sk="soft" data-seed="settings">
+    <h2>Settings</h2>
+    <section class="set-row"><div><h3>Theme</h3><p class="muted">System follows your OS setting.</p></div>
+      ${seg("theme", currentTheme(), [["system", "System"], ["light", "Light"], ["dark", "Dark"]])}</section>
+    <section class="set-row"><div><h3>Repository</h3><p class="muted">Folder with the openspec/ directory this app reads and writes.</p></div>
+      <div class="set-val"><span class="mono">~/Documents/5-mine/repo-task-manager</span><button class="btn" data-sk>Change…</button></div></section>
+    <section class="set-row"><div><h3>Your name</h3><p class="muted">Used for new work items and notes. Defaults to git user.name.</p></div>
+      <div class="set-val"><input id="f-name" class="box" data-sk value="Artyom" aria-label="Your name"></div></section>
+    <section class="set-row"><div><h3>Default board view</h3><p class="muted">What the board shows when you open a repository.</p></div>
+      ${seg("defview", S.view, [["board", "Board"], ["list", "List"]])}</section>
+  </div>`;
+}
+function renderSystem() {
+  const sw = (name, v, use) => `<div class="sw" data-sk="soft" data-seed="sw${name}"><i style="--v:var(${v})"></i><b>${name}</b><span>${v}</span><span>${use}</span></div>`;
+  const demo = items.find(i => i.id === 123);
+  return `<div class="ds">
+  <div class="ds-intro"><h2>Design system</h2><div class="ds-theme"><span class="muted">Preview theme</span>${seg("theme", currentTheme(), [["system", "System"], ["light", "Light"], ["dark", "Dark"]])}</div>
+    <p>Taken straight from the original drawing: black handwriting on white, rounded hand-drawn boxes around anything you can click or change, and plain text for everything else. Colour only marks state: yellow is selected, green is hover or the current grouping.</p></div>
+  <section><h3>Colour</h3><div class="sw-grid">
+    ${sw("Paper + ink", "--paper", "everything at rest")}${sw("Yellow", "--hl-yellow", "selected, open menu, current tab")}${sw("Green", "--hl-mint", "hover / focus, group-by value")}${sw("Red", "--hl-red", "problem: failed test")}
+  </div></section>
+  <section><h3>Type</h3><div>
+    <div class="type-row"><span class="mono">26</span><span style="font-size:26px">Health-check endpoint #wi123</span></div>
+    <div class="type-row"><span class="mono">20</span><span style="font-size:20px">Change Log</span></div>
+    <div class="type-row"><span class="mono">17</span><span>* f: Availability, Security</span></div>
+    <div class="type-row"><span class="mono">15</span><span class="muted" style="font-size:15px">esc → goes to previous page</span></div>
+    <div class="type-row"><span class="mono">mono 13</span><span class="mono">openspec/changes/wi-123/tasks.md · file paths only</span></div>
+  </div></section>
+  <section><h3>Card states</h3><div class="demo-row" style="align-items:flex-start">
+    <div style="width:220px">${card(demo, "")}</div>
+    <div style="width:220px">${card(items.find(i => i.id === 104), "").replace('class="card ', 'class="card ds-hover ')}</div>
+    <div style="width:220px">${(() => { S.sel.add(106); const c = card(items.find(i => i.id === 106), ""); S.sel.delete(106); return c; })()}</div>
+  </div><span class="muted">at rest · hover (green) · selected (yellow)</span></section>
+  <section><h3>Controls</h3><div class="demo-row">
+    <button class="btn primary" data-sk><span>+ work item</span></button><button class="btn" data-sk><span>add</span></button><button class="btn ghost"><span>← back</span></button>
+    <div class="field"><label for="ds-sel">group by</label><span class="box" data-sk data-seed="ds-sel"><select id="ds-sel" class="sel"><option>status</option><option>feature</option></select></span></div>
+    <label class="check" for="ds-chk"><input type="checkbox" id="ds-chk" checked> show subtasks</label>
+    
+    <span class="wl">[[runbook/uptime]]</span><span class="wl bad">#wi999</span>
+  </div></section>
+  <section><h3>Interaction rules</h3><div class="rules">
+    <div class="rule" data-sk="soft" data-seed="r1"><h4>Outline on hover</h4><p>Clickable plain text gets a hand-drawn box and a green fill on hover and keyboard focus.</p></div>
+    <div class="rule" data-sk="soft" data-seed="r2"><h4>Esc goes back</h4><p>Detail and note pages are a stack: Esc or ← back returns to where you came from.</p></div>
+    <div class="rule" data-sk="soft" data-seed="r3"><h4>Select many, then merge</h4><p>Ctrl/⌘-click cards or click subtask text. The selection turns yellow and a floating bar offers merge.</p></div>
+    <div class="rule" data-sk="soft" data-seed="r4"><h4>Files are the truth</h4><p>Every edit is written straight to the openspec/ markdown. Paths are shown in mono so you always know which file changes.</p></div>
+  </div></section>
+  </div>`;
+}
+
+/* ======================= actions ======================= */
+function closePop() { $("#pop").hidden = true; $("#pop").dataset.for = ""; }
+function openPop(anchor, html) {
+  const p = $("#pop"), r = anchor.getBoundingClientRect();
+  p.innerHTML = html; p.hidden = false;
+  p.style.left = Math.max(8, Math.min(r.left + scrollX, innerWidth - 240)) + "px"; p.style.top = r.bottom + scrollY + 6 + "px";
+  sketch();
+  p.querySelector("input,button")?.focus();
+}
+/* Native <select> popups can't be styled, so each select stays hidden as the source of truth
+   and a styled button + popover list stands in for it. Picking an option sets the select and fires "change". */
+const CARET = '<svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>';
+function enhanceSelects(root = document) {
+  root.querySelectorAll("select.sel, select.mini-sel").forEach(sel => {
+    if (sel.dataset.enh) return;
+    sel.dataset.enh = "1"; sel.hidden = true;
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "dd"; b.dataset.dd = sel.id;
+    b.setAttribute("aria-haspopup", "listbox");
+    b.setAttribute("aria-label", (sel.labels?.[0]?.textContent || sel.getAttribute("aria-label") || "") + ": " + (sel.selectedOptions[0]?.text || ""));
+    b.innerHTML = `<span>${esc(sel.selectedOptions[0]?.text || "")}</span>${CARET}`;
+    sel.after(b);
+  });
+}
+function openDD(b) {
+  const sel = document.getElementById(b.dataset.dd), anchor = b.closest(".box") || b;
+  openPop(anchor, [...sel.options].map(o => `<button type="button" role="option" aria-selected="${o.selected}" class="${o.selected && o.value ? "cur" : ""}" data-dd-pick="${sel.id}" data-v="${esc(o.value)}">${sel.id === "f-status" ? `<i class="sw-dot" style="background:var(${BAND[o.value]})"></i>` : ""}${esc(o.text)}</button>`).join(""));
+  const p = $("#pop"); p.style.minWidth = Math.max(200, anchor.offsetWidth) + "px";
+  (p.querySelector("button.cur") || p.querySelector("button"))?.focus();
+}
+function pickDD(btn) {
+  const sel = document.getElementById(btn.dataset.ddPick);
+  sel.value = btn.dataset.v; closePop();
+  const trig = document.querySelector(`.dd[data-dd="${sel.id}"]`);
+  sel.dispatchEvent(new Event("change", { bubbles: true }));
+  const t2 = document.querySelector(`.dd[data-dd="${sel.id}"]`);   // re-rendered, or the same button
+  if (t2 === trig && trig) trig.querySelector("span").textContent = sel.selectedOptions[0]?.text || "";
+  document.querySelector(`.dd[data-dd="${sel.id}"]`)?.focus();
+}
+function newItem(patch = {}) {
+  const it = { id: nextId++, title: "New work item", status: "Backlog", pri: "low", features: [], who: ["Artyom"], created: "2026-10-18", mod: "2026-10-18", subs: [], ...patch };
+  items.push(it); return it;
+}
+function merge() {
+  const picked = [...S.sel].map(byId);
+  const it = newItem({ title: "Merged: " + picked.map(p => p.title).join(" + "), status: picked[0].status, pri: picked.some(p => p.pri === "high") ? "high" : "low",
+    features: [...new Set(picked.flatMap(p => p.features))], who: [...new Set(picked.flatMap(p => p.who))],
+    subs: picked.flatMap(p => p.subs).map((s, i) => ({ ...s, n: i + 1 })) });
+  items = items.filter(i => !S.sel.has(i.id));
+  toast(`Merged ${picked.length} items into #wi${it.id}`); S.sel.clear(); render();
+}
+document.addEventListener("click", (e) => {
+  const dd = e.target.closest(".dd"), pk = e.target.closest("[data-dd-pick]");
+  if (pk) return pickDD(pk);
+  if (dd) { if (!$("#pop").hidden && $("#pop").dataset.for === dd.dataset.dd) return closePop(); openDD(dd); $("#pop").dataset.for = dd.dataset.dd; return; }
+  const t = e.target.closest("[data-act]");
+  if (!e.target.closest("#pop") && !e.target.closest("[data-act='head'],[data-act='subgroup']")) closePop();
+  if (!t) return;
+  const a = t.dataset.act, it = byId(S.item);
+  if (a === "tab") return go(t.dataset.k);
+  if (a === "back") return back();
+  if (a === "pick") { e.stopPropagation(); const id = +t.dataset.id; S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id); return render(); }
+  if (a === "card") {
+    const id = +t.dataset.id;
+    if (e.ctrlKey || e.metaKey || e.shiftKey || S.sel.size) { S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id); return render(); }
+    return go("item", { item: id, editDesc: false });
+  }
+  if (a === "merge") return merge();
+  if (a === "clear") { S.sel.clear(); S.subSel.clear(); return render(); }
+  if (a === "new") { const n = newItem(); toast(`Created #wi${n.id}`); return go("item", { item: n.id }); }
+  if (a === "head") {
+    const k = t.dataset.key;
+    return openPop(t, `<button data-act="pop-add" data-key="${esc(k)}">+ Add work item here</button>
+      <button data-act="pop-only" data-key="${esc(k)}">Select all in column</button>
+      <form data-act="pop-lane" data-key="${esc(k)}"><input id="f-lane" placeholder="New sub-category, e.g. Needs review" aria-label="Sub-category name"><button>+ Add sub-category</button></form>
+      ${(LANES[k] || []).map(l => `<button data-act="pop-rmlane" data-key="${esc(k)}" data-lane="${esc(l)}">Remove “${esc(l)}”</button>`).join("")}`);
+  }
+  if (a === "subgroup") return openPop(t, `<form data-act="pop-subgroup" data-cat="${t.dataset.cat}"><input id="f-sg" placeholder="New sub-group name" aria-label="Sub-group name"><button>Create sub-group</button></form>`);
+  if (a === "pop-add") { const k = t.dataset.key, p = S.groupBy === "status" ? { status: k } : S.groupBy === "feature" ? { features: [k] } : { who: [k] };
+    const n = newItem(p); closePop(); toast(`Created #wi${n.id} in ${k}`); return go("item", { item: n.id }); }
+  if (a === "pop-rmlane") { const k = t.dataset.key; LANES[k] = LANES[k].filter(l => l !== t.dataset.lane); if (!LANES[k].length) delete LANES[k]; closePop(); return render(); }
+  if (a === "sort") { const k = t.dataset.k; S.sortDir = S.sortBy === k ? -S.sortDir : 1; S.sortBy = k; return render(); }
+  if (a === "row-open") { const id = +t.dataset.id; S.open.has(id) ? S.open.delete(id) : S.open.add(id); return render(); }
+  if (a === "grp") { const k = t.dataset.key; S.shut.has(k) ? S.shut.delete(k) : S.shut.add(k); return render(); }
+  if (a === "expand-all") { S.listAll = !S.listAll; if (!S.listAll) S.open.clear(); return render(); }
+  if (a === "sub-tick") { e.stopPropagation(); return; }
+  if (a === "pop-only") { groups().flatMap(g => g.cols).find(c => c.key === t.dataset.key)?.items.forEach(i => S.sel.add(i.id)); closePop(); return render(); }
+  if (a === "rm-feature") { it.features = it.features.filter(f => f !== t.dataset.v); return render(); }
+  if (a === "rm-who") { it.who = it.who.filter(f => f !== t.dataset.v); return render(); }
+  if (a === "edit-desc") { S.editDesc = true; render(); return $("#f-desc")?.focus(); }
+  if (a === "sub") { if (e.target.matches("input")) return; const n = +t.dataset.n; S.subSel.has(n) ? S.subSel.delete(n) : S.subSel.add(n); return render(); }
+  if (a === "merge-subs") {
+    const moved = it.subs.filter(s => S.subSel.has(s.n));
+    const n = newItem({ title: "Split from #wi" + it.id, status: it.status, features: [...it.features], who: [...it.who], subs: moved.map((s, i) => ({ ...s, n: i + 1 })) });
+    it.subs = it.subs.filter(s => !S.subSel.has(s.n)).map((s, i) => ({ ...s, n: i + 1 }));
+    S.subSel.clear(); toast(`Moved ${moved.length} subtasks into #wi${n.id}`); return render();
+  }
+  if (a === "open-note" && notes[t.dataset.id]) return go("note", { note: +t.dataset.id });
+  if (a === "open-item" && byId(t.dataset.id)) return go("item", { item: +t.dataset.id, editDesc: false });
+});
+document.addEventListener("change", (e) => {
+  const t = e.target, it = byId(S.item);
+  if (t.dataset.act === "theme") { applyTheme(t.value); return render(); }
+  if (t.dataset.act === "defview" || t.dataset.act === "view") { S.view = t.value; S.sel.clear(); return render(); }
+  if (t.dataset.act === "cat") { S.cat = t.value; return render(); }
+  if (t.dataset.act === "row-status") { byId(t.dataset.id).status = t.value; return render(); }
+  if (t.dataset.act === "row-pri") { byId(t.dataset.id).pri = t.value; return render(); }
+  if (t.dataset.act === "sub-tick") { byId(t.dataset.id).subs.find(s => s.n === +t.dataset.n).done = t.checked; return render(); }
+  if (t.dataset.set) { S[t.dataset.set] = t.type === "checkbox" ? t.checked : t.value; S.sel.clear(); return render(); }
+  const a = t.dataset.act;
+  if (a === "status") { it.status = t.value; it.mod = "2026-10-18"; detail[it.id].log.unshift({ n: detail[it.id].log[0].n + 1, when: "2026-10-18", by: "Artyom", what: `Status → ${t.value}` }); return render(); }
+  if (a === "pri") { it.pri = t.value; return render(); }
+  if (a === "add-feature" && t.value) { it.features.push(t.value); return render(); }
+  if (a === "add-who" && t.value) { it.who.push(t.value); return render(); }
+  if (a === "sub-done") { it.subs.find(s => s.n === +t.dataset.n).done = t.checked; return render(); }
+  if (a === "title") { it.title = t.value; it.mod = "2026-10-18"; }
+});
+document.addEventListener("focusout", (e) => { if (e.target.dataset?.act === "desc") { detail[S.item].desc = e.target.value; S.editDesc = false; render(); } });
+document.addEventListener("input", (e) => {
+  if (e.target.dataset.act !== "md") return;
+  const n = notes[S.note]; n.body = e.target.value; n.mod = "2026-10-18 " + new Date().toTimeString().slice(0, 5);
+  $("#preview").innerHTML = md(n.body); $("#links").innerHTML = renderLinks(n); $("#n-mod").textContent = n.mod; sketch();
+});
+document.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const f = e.target, a = f.dataset.act, inp = f.querySelector("input"), v = inp?.value.trim();
+  if (!v) return;
+  if (a === "add-sub") { const it = byId(S.item); it.subs.push({ n: it.subs.length + 1, t: v, done: false }); render(); $("#f-newsub")?.focus(); }
+  if (a === "add-link") { const n = notes[S.note]; (n.manual ||= []).push(v); $("#links").innerHTML = renderLinks(n); inp.value = ""; }
+  if (a === "pop-lane") { const k = f.dataset.key; (LANES[k] ||= []).push(v); closePop(); toast(`Sub-category “${v}” added to ${k}`); render(); }
+  if (a === "pop-subgroup") { FEATURES[f.dataset.cat].push(v); closePop(); toast(`Sub-group “${v}” created`); render(); }
+});
+function back() { const p = S.back.pop(); if (!p) return; Object.assign(S, { screen: p, editDesc: false }); S.sel.clear(); S.subSel.clear(); render(); }
+document.addEventListener("keydown", (e) => {
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp") && e.target.closest?.("#pop")) { e.preventDefault(); const bs = [...$("#pop").querySelectorAll("button")], i = bs.indexOf(e.target); bs[(i + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length]?.focus(); return; }
+  if (e.key !== "Escape") return;
+  if (!$("#pop").hidden) return closePop();
+  if (S.sel.size || S.subSel.size) { S.sel.clear(); S.subSel.clear(); return render(); }
+  if (e.target.matches("textarea, input") && !e.target.matches("[type=checkbox]")) return e.target.blur();
+  if (S.screen === "item" || S.screen === "note") back();
+});
+/* drag & drop between columns / lanes */
+let drag = null;
+document.addEventListener("dragstart", (e) => { const c = e.target.closest?.(".card[data-id]"); if (!c) return; drag = { id: +c.dataset.id, from: c.dataset.from }; e.dataTransfer.effectAllowed = "move"; });
+document.addEventListener("dragover", (e) => { const z = e.target.closest?.("[data-drop]"); if (!drag || !z) return; e.preventDefault();
+  document.querySelectorAll(".over").forEach(x => x.classList.remove("over")); z.classList.add("over"); });
+document.addEventListener("drop", (e) => {
+  const z = e.target.closest?.("[data-drop]"); if (!drag || !z) return; e.preventDefault();
+  const it = byId(drag.id), k = z.dataset.key;
+  if (z.dataset.lane) (it.lanes ||= {})[k] = z.dataset.lane;
+  if (S.groupBy === "status") it.status = k;
+  else if (S.groupBy === "feature") { it.features = [...new Set(it.features.filter(f => f !== drag.from).concat(k))]; }
+  else it.who = [...new Set(it.who.filter(w => w !== drag.from).concat(k))];
+  it.mod = "2026-10-18"; toast(`#wi${it.id} → ${k}`); drag = null; render();
+});
+document.addEventListener("dragend", () => { drag = null; document.querySelectorAll(".over").forEach(x => x.classList.remove("over")); });
+applyTheme(currentTheme());
+render();
+</script>

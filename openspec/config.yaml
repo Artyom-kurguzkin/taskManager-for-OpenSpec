@@ -1,0 +1,15 @@
+schema: spec-driven
+
+context: |
+  Product: a desktop task manager whose only data store is a git repository's openspec/ folder. There is no database.
+  Data mapping (see openspec/changes/add-workspace/design.md): work item = OpenSpec change, feature = capability,
+  subtask = tasks.md checkbox, Completed = archived change. App-owned metadata lives in an `x-rtm:` block in the change's .openspec.yaml.
+  Must run on Windows, macOS and Linux. Host: Photino.Blazor; UI: Blazor + MudBlazor; .NET 10. MAUI is out (no Linux).
+  Every edit is written to the repo files immediately, and files changed outside the app are picked up live.
+  Never rewrite parts of a file the user did not change: keep formatting, comments and unknown keys.
+  Work items are referenced as #wi<number>, notes as #n<number>.
+  UI follows the sketchbook design system in design/mockup.html; MudTheme values come from its :root tokens.
+
+rules:
+  tasks:
+    - Each task group must leave the app building and its tests passing on its own
