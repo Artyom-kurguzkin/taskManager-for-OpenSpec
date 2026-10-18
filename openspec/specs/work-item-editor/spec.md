@@ -13,7 +13,7 @@ Opening a work item SHALL show its number as `#wi<id>`, title, linked features, 
 - **THEN** the work item page for #wi123 opens with all panels, and a panel without data shows a one-line empty state
 
 ### Requirement: Edit header fields
-Title, features, contributors, status and priority SHALL be editable in place. Each edit SHALL be saved when the control loses focus or a value is picked. The title SHALL be stored in `x-rtm.title`.
+Title, features, contributors, status and priority SHALL be editable in place. Each edit SHALL be saved when the control loses focus or a value is picked. The title SHALL be stored in `x-rtm.title`. Contributors who are commit authors of the change SHALL be shown without a remove control; assigned people SHALL be removable, and "+ add" SHALL offer the current user's name so a newcomer can assign themselves.
 
 #### Scenario: Change status
 - **WHEN** the user picks Blocked in the status control
@@ -22,6 +22,10 @@ Title, features, contributors, status and priority SHALL be editable in place. E
 #### Scenario: Remove a manual feature
 - **WHEN** the user removes Security, which is listed in `x-rtm.features`
 - **THEN** it is removed from `x-rtm.features`, while features from delta specs show no remove control
+
+#### Scenario: Commit author stays
+- **WHEN** Alice has commits in #wi123's folder and Tom is only assigned
+- **THEN** Tom shows a remove control and Alice does not
 
 ### Requirement: Edit description
 Clicking the description SHALL switch it to a markdown editor over the body of proposal.md (everything after the title heading). Leaving the editor SHALL save it.

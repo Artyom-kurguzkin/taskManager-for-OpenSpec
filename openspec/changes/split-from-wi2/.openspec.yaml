@@ -3,7 +3,7 @@ skip_specs: true
 created: 2026-10-18
 x-rtm:
   id: 8
-  title: 'Split from #wi2'
+  title: work item changes
   status: Planned
   contributors: [Artyom-kurguzkin]
   features: [board]

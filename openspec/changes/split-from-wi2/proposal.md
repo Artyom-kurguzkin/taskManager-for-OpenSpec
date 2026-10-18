@@ -1,10 +1,7 @@
 # Proposal
 
-## Why
+ separate a subtask (individual OR multiple) into a separate work item
 
-Split out of #wi2 Add board view.
+note editor chumps when editing. should be able to open in editor
 
-## What Changes
-
-- Build the list table with header sorting, collapsible groups, expandable rows, inline status/priority and "+ Add item"; verify the "Sort by header" and "Expand one row" scenarios
-- separate a subtask (individual OR multiple) into a separate work item
+should show 'confirm' if saved successfully. Should show loading instead of being stuck

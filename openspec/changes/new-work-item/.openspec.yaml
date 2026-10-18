@@ -1,0 +1,8 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-19
+x-rtm:
+  id: 21
+  title: still can't drag and drop collumns properly
+  status: Planned
+  contributors: [Artyom-kurguzkin]
