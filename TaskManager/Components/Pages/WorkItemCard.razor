@@ -1,0 +1,43 @@
+@* A work item on the board: coloured title band (by status), features, dashed icon meta row, tags. *@
+@using TaskManager.Board
+@using WorkItems.PublicDTOs
+@inject TaskManager.Services.Workspace Workspace
+
+<article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @(Item.Hidden ? "hidden-item" : "")" data-sk
+         draggable="true" @ondragstart="() => OnDragStart.InvokeAsync(Item)" @onclick="OnClick">
+    <input type="checkbox" class="pick" checked="@Selected" @onclick:stopPropagation="true"
+           @onchange="() => OnToggleSelect.InvokeAsync(Item)" aria-label="Select #wi@(Item.Id)" />
+    <span class="band" style="--band:var(@Ui.Band(Item.Status))">@Item.Title</span>
+    @if (!Options.Compact)
+    {
+        <span class="muted card-features">@(Options.GroupBy == "feature" ? Item.Status : FeatureText)</span>
+        <span class="meta-row">
+            <span class="ico">@Ui.Icon("cal")</span>@Item.Modified.ToString("d MMM")
+            <span class="ico">@Ui.Icon("list")</span>@Item.Subtasks.Count(s => s.Done)/@Item.Subtasks.Count
+            <span class="ico">@Ui.Icon("user")</span>@string.Join(", ", Item.Contributors)
+        </span>
+        <span class="tags">
+            <span class="tag">#wi@(Item.Id)</span>
+            @if (Item.Priority == "high") { <span class="tag hot">high priority</span> }
+            @if (Item.Warning is not null) { <span class="tag hot" title="@Item.Warning">!</span> }
+        </span>
+    }
+</article>
+
+@code {
+    [Parameter, EditorRequired] public WorkItem Item { get; set; } = default!;
+    [Parameter, EditorRequired] public BoardOptions Options { get; set; } = default!;
+    [Parameter] public bool Selected { get; set; }
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+    [Parameter] public EventCallback<WorkItem> OnToggleSelect { get; set; }
+    [Parameter] public EventCallback<WorkItem> OnDragStart { get; set; }
+
+    private string FeatureText
+    {
+        get
+        {
+            IReadOnlyDictionary<string, string> names = Workspace.FeatureNames;
+            return Item.Features.Count == 0 ? "no feature" : string.Join(", ", Item.Features.Select(f => names.GetValueOrDefault(f.Path, f.Path)));
+        }
+    }
+}

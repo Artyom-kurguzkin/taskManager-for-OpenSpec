@@ -2,9 +2,9 @@
 
 ## 1. Board rendering
 
-- [ ] 1.1 Build the toolbar (Board/List, group, sort incl. feature, contributor filter, show work items/subtasks, compact cards) and per-repo persistence; verify with bUnit tests that each option re-renders the expected columns and counts from the fixture repo
-- [ ] 1.2 Build the card, subtask card, column and feature-group switcher from the mockup; verify board, compact and subtask modes render the fixture in a bUnit snapshot
-- [ ] 1.3 Add custom sub-categories (stored in x-rtm.lanes) and the column header menu; verify the "Add a sub-category" and "Drop into lane" scenarios
+- [x] 1.1 Build the toolbar (Board/List, group, sort incl. feature, contributor filter, show work items/subtasks, compact cards) and per-repo persistence; verify with bUnit tests that each option re-renders the expected columns and counts from the fixture repo
+- [x] 1.2 Build the card, subtask card, column and feature-group switcher from the mockup; verify board, compact and subtask modes render the fixture in a bUnit snapshot
+- [x] 1.3 Add custom sub-categories (stored in x-rtm.lanes) and the column header menu; verify the "Add a sub-category" and "Drop into lane" scenarios
 - [ ] 1.4 Build the list table with header sorting, collapsible groups, expandable rows, inline status/priority and "+ Add item"; verify the "Sort by header" and "Expand one row" scenarios
 
 ## 2. Moving work
@@ -15,4 +15,4 @@
 ## 3. Creating and merging
 
 - [ ] 3.1 Implement "Add work item here" and "+ sub-group"; verify the new change and capability files pass `openspec validate --all`
-- [ ] 3.2 Implement multi-select and merge with requirement-conflict detection; verify the "Merge two" and "Requirement conflict" scenarios against the fixture
+- [x] 3.2 Implement multi-select and merge with requirement-conflict detection; verify the "Merge two" and "Requirement conflict" scenarios against the fixture

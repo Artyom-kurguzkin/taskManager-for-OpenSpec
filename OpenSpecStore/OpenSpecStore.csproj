@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Leaf module: deliberately zero ProjectReferences. Owns repo-root paths, safe file IO, the x-rtm YAML block and the file watcher. -->
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+</Project>

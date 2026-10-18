@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Markdown notes stored inside a work item's change folder. -->
+  <ItemGroup>
+    <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />
+    <ProjectReference Include="../WorkItems/WorkItems.csproj" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+</Project>

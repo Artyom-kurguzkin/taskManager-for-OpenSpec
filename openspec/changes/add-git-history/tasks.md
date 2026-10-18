@@ -2,9 +2,9 @@
 
 ## 1. Reading history
 
-- [ ] 1.1 Wrap the `git` CLI (log, config) with a timeout and "not a repo" detection; verify the "Plain folder" scenario in a test
-- [ ] 1.2 Build the change log across active and archive paths; verify the "History across archive" scenario on a temp git repo created in the test
-- [ ] 1.3 Build linked commits with whole-token `#wi<id>` matching; verify the "Token match" scenario
+- [x] 1.1 Wrap the `git` CLI (log, config) with a timeout and "not a repo" detection; verify the "Plain folder" scenario in a test
+- [x] 1.2 Build the change log across active and archive paths; verify the "History across archive" scenario on a temp git repo created in the test
+- [x] 1.3 Build linked commits with whole-token `#wi<id>` matching; verify the "Token match" scenario
 - [ ] 1.4 Use `user.name` as the default identity, with a one-time prompt as fallback; verify the "No git user" scenario
 
 ## 2. Committing

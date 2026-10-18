@@ -1,0 +1,229 @@
+@page "/item/{Id:int}"
+@using GitHistory
+@using GitHistory.PublicDTOs
+@using Notes
+@using Notes.PublicDTOs
+@using WorkItems
+@using WorkItems.PublicDTOs
+@implements IDisposable
+
+@if (item is null)
+{
+    <div class="sheet" data-sk><h2>#wi@(Id) not found</h2><p class="muted">It may have been merged or deleted. <a href="">Back to the board</a></p></div>
+    return;
+}
+
+<div class="crumbs">
+    <button class="btn ghost" @onclick="Back">← back</button><kbd>esc</kbd> goes to previous page ·
+    <span class="mono">@RelativePath(item.Path)</span>
+</div>
+
+<div class="sheet" data-sk="soft">
+    <div class="head">
+        <h2 class="num">#wi@(item.Id)</h2>
+        <input class="title-in hov" data-sk value="@item.Title" disabled="@item.Archived" aria-label="Title"
+               @onchange="e => Run(WorkItemsApi.SetTitle(item.Id, (string)e.Value!))" />
+        @if (!item.Archived)
+        {
+            <button class="btn ghost hide-item" title="Hides it from the app; the change folder stays in openspec/"
+                    @onclick="() => Run(item.Hidden ? WorkItemsApi.Unhide(item.Id) : WorkItemsApi.Hide(item.Id))">@(item.Hidden ? "Restore" : "Delete (hide)")</button>
+        }
+    </div>
+    @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
+    <div class="head kvs">
+        <div class="kv"><label>linked features</label>
+            @foreach (FeatureLink f in item.Features)
+            {
+                <span class="chip @(f.Locked ? "" : "x")" title="@(f.Locked ? "From the change's specs/ folder" : "Remove")"
+                      @onclick="() => { if (!f.Locked) RemoveFeature(f.Path); }">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span>
+            }
+            @if (!item.Archived) { <Dropdown Label="add feature" Class="mini" Placeholder="+ add" Options="FeatureChoices" ValueChanged="AddFeature" /> }
+        </div>
+        <div class="kv"><label>contributors</label>
+            @foreach (string p in item.Contributors) { <span class="chip x" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Where(x => x != p)))">@p</span> }
+            @if (!item.Archived) { <Dropdown Label="add contributor" Class="mini" Placeholder="+ add" Options="PeopleChoices" ValueChanged="v => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Append(v)))" /> }
+        </div>
+        <div class="kv status-field"><label>status</label>
+            <Dropdown Label="status" Options="Statuses" Value="@item.Status" Swatch="Ui.Band" Style="@($"--fill:var({Ui.Band(item.Status)})")" Class="cell" ValueChanged="SetStatus" />
+        </div>
+        <div class="kv"><label>priority</label>
+            <Dropdown Label="priority" Options="Priorities" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" />
+        </div>
+    </div>
+    @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
+
+    <div class="grid2">
+        <section class="panel">
+            <h3>Description <span class="muted">proposal.md · click to edit</span></h3>
+            @if (editingDescription)
+            {
+                <textarea class="desc-in" rows="10" @bind="description" @onblur="SaveDescription" aria-label="Description" autofocus></textarea>
+            }
+            else
+            {
+                <div class="desc edit hov" data-sk tabindex="0" @onclick="() => editingDescription = !item.Archived">@(string.IsNullOrWhiteSpace(description) ? "Click to add a description" : description)</div>
+            }
+        </section>
+
+        <section class="panel changelog">
+            <h3>Change log <span class="muted">from git history</span></h3>
+            @if (!GitHistoryApi.IsRepository()) { <p class="muted">Not a git repository, so there is no history to show.</p> }
+            else
+            {
+                @foreach ((CommitInfo c, int n) in log.Select((c, i) => (c, log.Count - i)))
+                {
+                    <div class="log-e hov" data-sk tabindex="0"><b>entry @n</b><span>@c.Subject</span><span class="muted">@c.Date.ToString("d.M.yyyy") · @c.Author</span></div>
+                }
+                @if (log.Count == 0) { <p class="muted">No commits touch this change yet.</p> }
+            }
+        </section>
+
+        <section class="panel">
+            <h3>Subtasks <span class="muted">tasks.md · @item.Subtasks.Count(s => s.Done)/@item.Subtasks.Count</span></h3>
+            <div>
+                @foreach (Subtask s in item.Subtasks)
+                {
+                    <div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "")" data-sk>
+                        <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done" disabled="@item.Archived"
+                               @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
+                        <span class="mono">@s.Number</span><span class="s-t" @onclick="() => ToggleSub(s.Number)">@s.Text</span>
+                    </div>
+                }
+            </div>
+            @if (!item.Archived)
+            {
+                <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
+                    <input @bind="newSubtask" placeholder="Add a subtask…" aria-label="New subtask" /><button class="btn" data-sk type="submit">add</button>
+                </form>
+                <span class="muted">Click subtask text to select several, then move them into a new work item.</span>
+            }
+        </section>
+
+        <section class="panel">
+            <h3>Linked commits</h3>
+            @if (commits.Count == 0) { <p class="muted">Commits that mention #wi@(item.Id) show up here.</p> }
+            @foreach (CommitInfo c in commits) { <div class="commit hov" data-sk tabindex="0"><span class="mono">@c.Hash</span><span>@c.Subject</span></div> }
+            <h3>Notes</h3>
+            <div class="notes-list">
+                @foreach (Note n in notes) { <button class="test hov" data-sk @onclick="@(() => Nav.NavigateTo($"note/{n.Id}"))"><span class="mono muted">#n@(n.Id)</span> @n.Title</button> }
+                @if (notes.Count == 0) { <p class="muted">No notes yet.</p> }
+            </div>
+            <button class="btn" data-sk @onclick="AddNote">+ Add note</button>
+            <h3>Linked tests</h3>
+            <p class="muted">Test results arrive with the add-test-links change.</p>
+        </section>
+    </div>
+</div>
+
+@if (subSel.Count >= 2)
+{
+    <div class="actionbar" data-sk>
+        <span class="n">@subSel.Count subtasks</span>
+        <button class="btn primary" data-sk @onclick="MoveSubtasks">Move into a separate work item</button>
+        <button class="btn ghost" @onclick="() => subSel.Clear()">Clear</button>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    [Inject] private Workspace Workspace { get; set; } = default!;
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+    [Inject] private ISnackbar Snackbar { get; set; } = default!;
+    [Inject] private IDialogService Dialogs { get; set; } = default!;
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private WorkItem? item;
+    private string description = "";
+    private bool editingDescription;
+    private string newSubtask = "";
+    private IReadOnlyList<CommitInfo> log = [];
+    private IReadOnlyList<CommitInfo> commits = [];
+    private IReadOnlyList<Note> notes = [];
+    private readonly HashSet<string> subSel = [];
+
+    private static readonly IReadOnlyList<(string, string)> Statuses = WorkItemsApi.Statuses.Select(s => (s, s)).ToList();
+    private static readonly IReadOnlyList<(string, string)> Priorities = [("high", "high"), ("low", "lower")];
+
+    private IReadOnlyList<(string, string)> FeatureChoices =>
+        Features.FeaturesApi.GetAll().Where(f => item!.Features.All(x => x.Path != f.Path)).Select(f => (f.Path, $"{f.Group} · {f.Name}")).ToList();
+
+    private IReadOnlyList<(string, string)> PeopleChoices =>
+        WorkItemsApi.GetAll().SelectMany(w => w.Contributors).Append(Workspace.Me).Distinct().Except(item!.Contributors).Order().Select(p => (p, p)).ToList();
+
+    protected override void OnInitialized() => Workspace.Changed += OnChanged;
+
+    protected override void OnParametersSet() => Load();
+
+    private void OnChanged() => InvokeAsync(() => { Load(); StateHasChanged(); });
+
+    private void Load()
+    {
+        item = WorkItemsApi.Get(Id);
+        if (item is null) return;
+        if (!editingDescription) description = WorkItemsApi.GetDescription(Id);
+        notes = NotesApi.GetForWorkItem(Id);
+        // History follows the folder into the archive: openspec/changes/<name> → openspec/changes/archive/<date>-<name>.
+        string name = System.Text.RegularExpressions.Regex.Replace(item.Folder, @"^\d{4}-\d{2}-\d{2}-", "");
+        log = GitHistoryApi.Log([$"openspec/changes/{name}", $"openspec/changes/archive/{item.Folder}"]);
+        commits = GitHistoryApi.Mentioning($"#wi{Id}");
+        subSel.IntersectWith(item.Subtasks.Select(s => s.Number));
+    }
+
+    private string RelativePath(string path) => Workspace.Root is string root ? Path.GetRelativePath(root, path).Replace('\\', '/') + "/" : path;
+
+    private void Run((bool Success, string Message) result)
+    {
+        if (!Workspace.Do(result).Success) Snackbar.Add(result.Message, Severity.Warning);
+        Load();
+    }
+
+    private async Task SetStatus(string status)
+    {
+        if (status == "Completed" && item is { Archived: false })
+        {
+            bool? ok = await Dialogs.ShowMessageBoxAsync("Complete and archive?",
+                $"#wi{item.Id} will be archived with the OpenSpec CLI and its delta specs merged into openspec/specs.", yesText: "Archive", cancelText: "Cancel");
+            if (ok != true) return;
+        }
+        Run(WorkItemsApi.SetStatus(Id, status));
+    }
+
+    private void AddFeature(string path) => Run(WorkItemsApi.SetManualFeatures(Id, item!.Features.Select(f => f.Path).Append(path)));
+    private void RemoveFeature(string path) => Run(WorkItemsApi.SetManualFeatures(Id, item!.Features.Select(f => f.Path).Where(p => p != path)));
+
+    private void SaveDescription()
+    {
+        editingDescription = false;
+        Run(WorkItemsApi.SetDescription(Id, description));
+    }
+
+    private void ToggleSub(string number)
+    {
+        if (!subSel.Remove(number)) subSel.Add(number);
+    }
+
+    private void AddSubtask()
+    {
+        Run(WorkItemsApi.AddSubtask(Id, newSubtask));
+        newSubtask = "";
+    }
+
+    private void MoveSubtasks()
+    {
+        (bool ok, string message, int newId) = WorkItemsApi.MoveSubtasksToNew(Id, subSel.ToList());
+        subSel.Clear();
+        Run((ok, message));
+        if (ok) Snackbar.Add($"Moved into #wi{newId}", Severity.Success);
+    }
+
+    private void AddNote()
+    {
+        (bool ok, string message, int noteId) = NotesApi.Create(Id, Workspace.Me);
+        Run((ok, message));
+        if (ok) Nav.NavigateTo($"note/{noteId}");
+    }
+
+    private async Task Back() => await Js.InvokeVoidAsync("history.back");
+
+    public void Dispose() => Workspace.Changed -= OnChanged;
+}

@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="Features/Features.csproj" />
+  <Project Path="GitHistory/GitHistory.csproj" />
+  <Project Path="Notes/Notes.csproj" />
+  <Project Path="OpenSpecStore/OpenSpecStore.csproj" />
+  <Project Path="TaskManager.Tests/TaskManager.Tests.csproj" />
+  <Project Path="TaskManager/TaskManager.csproj" />
+  <Project Path="WorkItems/WorkItems.csproj" />
+</Solution>

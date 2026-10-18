@@ -1,0 +1,60 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+
+<MudThemeProvider @ref="themeProvider" Theme="AppTheme.Theme" IsDarkMode="dark" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<header class="top">
+    <h1>repo/tasks</h1>
+    <span class="mono muted">@(Workspace.Root is string r ? Path.GetFileName(r) + "/openspec" : "no repository")</span>
+    <nav class="tabs">
+        <NavLink class="tab" data-sk href="" Match="NavLinkMatch.All" ActiveClass="is-sel">Board</NavLink>
+        <NavLink class="tab" data-sk href="settings" ActiveClass="is-sel">Settings</NavLink>
+    </nav>
+</header>
+<main>@Body</main>
+
+@code {
+    [Inject] private SettingsStore Settings { get; set; } = default!;
+    [Inject] private Workspace Workspace { get; set; } = default!;
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private MudThemeProvider? themeProvider;
+    private bool dark;
+    private bool systemDark;
+
+    protected override void OnInitialized()
+    {
+        Settings.Changed += OnSettings;
+        Workspace.Changed += OnSettings;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && themeProvider is not null)
+        {
+            systemDark = await themeProvider.GetSystemDarkModeAsync();
+            await themeProvider.WatchSystemDarkModeAsync(isDark => { systemDark = isDark; return ApplyTheme(); });
+            await ApplyTheme();
+        }
+    }
+
+    private void OnSettings() => InvokeAsync(ApplyTheme);
+
+    /// <summary>Theme comes from Settings (System / Light / Dark); the CSS tokens switch on html[data-theme].</summary>
+    private async Task ApplyTheme()
+    {
+        string theme = Settings.Current.Theme;
+        dark = theme == "dark" || (theme == "system" && systemDark);
+        await Js.InvokeVoidAsync("rtm.setTheme", theme);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        Settings.Changed -= OnSettings;
+        Workspace.Changed -= OnSettings;
+    }
+}

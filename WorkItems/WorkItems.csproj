@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- OpenSpec changes as work items: metadata, subtasks, lanes, create/merge/archive. -->
+  <ItemGroup>
+    <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />
+    <ProjectReference Include="../Features/Features.csproj" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+</Project>

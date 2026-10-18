@@ -26,14 +26,14 @@ The system SHALL treat every folder under `openspec/changes/` (excluding `archiv
 
 #### Scenario: Active change
 - **WHEN** `openspec/changes/add-health-check/` exists
-- **THEN** a work item titled from its proposal's first heading, or from the folder name if there is none, appears with the status from its metadata
+- **THEN** a work item titled from `x-rtm.title` (else a proposal heading other than the template's "# Proposal", else the folder name) appears with the status from its metadata
 
 #### Scenario: Archived change
 - **WHEN** `openspec/changes/archive/2026-09-18-session-timeout/` exists
 - **THEN** a work item with status Completed appears for it
 
 ### Requirement: Work item metadata
-The system SHALL read and write work item metadata in an `x-rtm:` mapping inside the change's `.openspec.yaml`, with the keys `id`, `status`, `priority`, `contributors` and `features`. A missing key SHALL fall back to a default: status Backlog, priority low, contributors empty.
+The system SHALL read and write work item metadata in an `x-rtm:` mapping inside the change's `.openspec.yaml`, with the keys `id`, `title`, `status`, `priority`, `contributors`, `features`, `lanes` and `hidden`. A missing key SHALL fall back to a default: status Backlog, priority low, contributors empty.
 
 #### Scenario: Change created outside the app
 - **WHEN** a change folder has a `.openspec.yaml` without an `x-rtm:` block

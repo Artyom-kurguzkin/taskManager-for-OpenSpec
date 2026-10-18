@@ -14,7 +14,7 @@ Opening a work item SHALL show its number as `#wi<id>`, title, linked features, 
 - **THEN** the work item page for #wi123 opens with all panels, and a panel without data shows a one-line empty state
 
 ### Requirement: Edit header fields
-Title, features, contributors, status and priority SHALL be editable in place. Each edit SHALL be saved when the control loses focus or a value is picked. The title SHALL be stored as the first `#` heading of proposal.md.
+Title, features, contributors, status and priority SHALL be editable in place. Each edit SHALL be saved when the control loses focus or a value is picked. The title SHALL be stored in `x-rtm.title`.
 
 #### Scenario: Change status
 - **WHEN** the user picks Blocked in the status control

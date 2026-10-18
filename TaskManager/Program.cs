@@ -1,0 +1,37 @@
+using Microsoft.Extensions.DependencyInjection;
+using MudBlazor.Services;
+using OpenSpecStore;
+using Photino.Blazor;
+using TaskManager.Services;
+
+namespace TaskManager;
+
+/// <summary>Composition root: the only place that wires services, configures modules and owns the window.</summary>
+internal static class Program
+{
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        PhotinoBlazorAppBuilder builder = PhotinoBlazorAppBuilder.CreateDefault(args);
+        PhotinoBlazorApp? app = null;
+
+        SettingsStore settings = new(SettingsStore.DefaultPath);
+        builder.Services.AddMudServices();
+        builder.Services.AddSingleton(settings);
+        builder.Services.AddSingleton<Workspace>();
+        builder.Services.AddSingleton<FolderPicker>(() => app?.MainWindow.ShowOpenFolder("Choose a repository with an openspec/ folder")?.FirstOrDefault());
+        builder.RootComponents.Add<App>("#app");
+
+        app = builder.Build();
+        app.MainWindow.SetTitle("Repo tasks").SetSize(1440, 900).Center();
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => app.MainWindow.ShowMessage("Error", e.ExceptionObject.ToString());
+
+        // Reopen the last repository; otherwise try the folder the app was started from.
+        Workspace workspace = app.Services.GetRequiredService<Workspace>();
+        string? start = args.FirstOrDefault(Directory.Exists) ?? settings.Current.LastRepo ?? Environment.CurrentDirectory;
+        if (start is not null && Directory.Exists(start)) workspace.Open(start);
+
+        app.Run();
+        OpenSpecStoreApi.Close();
+    }
+}

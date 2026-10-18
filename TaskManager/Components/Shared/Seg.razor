@@ -1,0 +1,19 @@
+@* Segmented control: real radio inputs (keyboard + screen readers), styled as pills. *@
+<div class="seg" role="radiogroup">
+    @foreach ((string value, string label) in Options)
+    {
+        <label class="seg-o @(value == Value ? "is-sel" : "hov")" data-sk>
+            <input type="radio" name="@Name" value="@value" checked="@(value == Value)" @onchange="() => ValueChanged.InvokeAsync(value)" />
+            @label
+            @if (Counts?.GetValueOrDefault(value) is int n) { <span class="count">@n</span> }
+        </label>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    [Parameter, EditorRequired] public IReadOnlyList<(string Value, string Label)> Options { get; set; } = [];
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public IReadOnlyDictionary<string, int>? Counts { get; set; }
+}

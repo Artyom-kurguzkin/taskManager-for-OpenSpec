@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <!-- Host / composition root: the only project with UI, DI and MudBlazor. Modules are configured from Program.cs. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>TaskManager</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Photino.Blazor" Version="4.0.13" />
+    <PackageReference Include="MudBlazor" Version="9.11.0" />
+    <PackageReference Include="Markdig" Version="1.4.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />
+    <ProjectReference Include="../GitHistory/GitHistory.csproj" />
+    <ProjectReference Include="../Features/Features.csproj" />
+    <ProjectReference Include="../WorkItems/WorkItems.csproj" />
+    <ProjectReference Include="../Notes/Notes.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

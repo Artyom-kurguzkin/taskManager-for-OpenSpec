@@ -1,0 +1,143 @@
+@page "/note/{Id:int}"
+@using System.Text.RegularExpressions
+@using GitHistory
+@using GitHistory.PublicDTOs
+@using Notes
+@using Notes.PublicDTOs
+@implements IDisposable
+
+@if (note is null)
+{
+    <div class="sheet" data-sk><h2>#n@(Id) not found</h2><p class="muted"><a href="">Back to the board</a></p></div>
+    return;
+}
+
+<div class="crumbs">
+    <button class="btn ghost" @onclick="Back">← back</button><kbd>esc</kbd> goes to previous page ·
+    <span class="mono">@(Workspace.Root is string r ? Path.GetRelativePath(r, note.Path).Replace('\\', '/') : note.Path)</span>
+</div>
+
+<div class="sheet" data-sk="soft">
+    <div class="head kvs">
+        <div class="kv"><label>note</label><h2 class="num">#n@(note.Id)</h2></div>
+        <div class="kv"><label>linked to</label><a class="wl" href="item/@note.WorkItemId">#wi@(note.WorkItemId)</a></div>
+        <div class="kv"><label>created</label><span class="num">@note.Created.ToString("yyyy-MM-dd HH:mm")</span></div>
+        <div class="kv"><label>last modified</label><span class="num">@modified.ToString("yyyy-MM-dd HH:mm")</span>@if (saving) { <span class="muted"> · saving…</span> }</div>
+        <div class="kv"><label>by</label><span>@note.By</span></div>
+    </div>
+    <div class="note-grid">
+        <section class="panel">
+            <h3>Markdown <span class="muted">@note.Title</span></h3>
+            <div data-sk="soft"><textarea class="md" value="@body" @oninput="OnInput" spellcheck="false" aria-label="Markdown editor"></textarea></div>
+        </section>
+        <section class="panel">
+            <h3>Preview</h3>
+            <div class="preview">@Preview</div>
+        </section>
+        <section class="panel">
+            <h3>Linked docs and commits</h3>
+            <div class="links">
+                @foreach (NoteLink l in links)
+                {
+                    <div class="link @(l.Resolved ? "hov" : "bad")" data-sk="@(l.Resolved ? "" : null)">
+                        <span class="k">@l.Kind</span>
+                        @if (l.Resolved && l.Kind != "doc") { <a class="wl" href="@(l.Kind == "item" ? "item" : "note")/@l.Target">@Label(l)</a> }
+                        else { <span>@Label(l)</span> }
+                        @if (!l.Resolved) { <span class="muted"> unresolved</span> }
+                    </div>
+                }
+                @foreach (CommitInfo c in commits) { <div class="link"><span class="k">commit</span><span><span class="mono">@c.Hash</span> @c.Subject</span></div> }
+                @foreach (string m in note.ManualLinks) { <div class="link"><span class="k">link</span><span>@m</span></div> }
+            </div>
+            <form class="add-line" @onsubmit="AddLink" @onsubmit:preventDefault="true">
+                <input @bind="newLink" placeholder="Add a link by hand…" aria-label="New link" /><button class="btn" data-sk type="submit">add</button>
+            </form>
+            <span class="muted">The list fills in as you type valid [[doc]], #wi and #n references.</span>
+        </section>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    [Inject] private Workspace Workspace { get; set; } = default!;
+    [Inject] private ISnackbar Snackbar { get; set; } = default!;
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    private Note? note;
+    private string body = "";
+    private DateTime modified;
+    private IReadOnlyList<NoteLink> links = [];
+    private IReadOnlyList<CommitInfo> commits = [];
+    private string newLink = "";
+    private bool saving;
+    private CancellationTokenSource? pendingSave;
+
+    protected override void OnInitialized() => Workspace.Changed += OnChanged;
+
+    protected override void OnParametersSet() => Load();
+
+    // Outside edits reload the note, unless the user has unsaved typing in progress.
+    private void OnChanged() => InvokeAsync(() => { if (!saving) { Load(); StateHasChanged(); } });
+
+    private void Load()
+    {
+        note = NotesApi.Get(Id);
+        if (note is null) return;
+        body = note.Body;
+        modified = note.Modified;
+        links = NotesApi.ResolveLinks(body);
+        commits = GitHistoryApi.Mentioning($"#wi{note.WorkItemId}");
+    }
+
+    private void OnInput(ChangeEventArgs e)
+    {
+        body = (string?)e.Value ?? "";
+        links = NotesApi.ResolveLinks(body);
+        saving = true;
+        pendingSave?.Cancel();
+        CancellationTokenSource cts = pendingSave = new();
+        _ = Task.Delay(600, cts.Token).ContinueWith(t => { if (!t.IsCanceled) InvokeAsync(Save); }, TaskScheduler.Default);
+    }
+
+    private void Save()
+    {
+        (bool ok, string message) = NotesApi.SaveBody(Id, body);
+        saving = false;
+        if (!ok) { Snackbar.Add(message, Severity.Warning); return; }
+        modified = DateTime.Now;
+        Workspace.Notify();
+        StateHasChanged();
+    }
+
+    private void AddLink()
+    {
+        (bool ok, string message) = NotesApi.AddManualLink(Id, newLink);
+        if (!ok) Snackbar.Add(message, Severity.Warning);
+        newLink = "";
+        Workspace.Notify();
+    }
+
+    private static string Label(NoteLink l) => l.Kind switch { "item" => $"#wi{l.Target}", "note" => $"#n{l.Target}", _ => l.Target };
+
+    /// <summary>Markdig HTML with [[doc]], #wiN and #nN turned into links (unresolved ones struck through).</summary>
+    private MarkupString Preview
+    {
+        get
+        {
+            HashSet<string> ok = links.Where(l => l.Resolved).Select(l => $"{l.Kind}:{l.Target}").ToHashSet();
+            string html = Markdig.Markdown.ToHtml(body);
+            html = Regex.Replace(html, @"\[\[([^\]<]+)\]\]", m => $"<span class=\"wl{(ok.Contains("doc:" + m.Groups[1].Value.Trim()) ? "" : " bad")}\">{m.Groups[1].Value}</span>");
+            html = Regex.Replace(html, @"#wi(\d+)\b", m => ok.Contains("item:" + m.Groups[1].Value) ? $"<a class=\"wl\" href=\"item/{m.Groups[1].Value}\">{m.Value}</a>" : $"<span class=\"wl bad\">{m.Value}</span>");
+            html = Regex.Replace(html, @"#n(\d+)\b", m => ok.Contains("note:" + m.Groups[1].Value) ? $"<a class=\"wl\" href=\"note/{m.Groups[1].Value}\">{m.Value}</a>" : $"<span class=\"wl bad\">{m.Value}</span>");
+            return new MarkupString(html);
+        }
+    }
+
+    private async Task Back() => await Js.InvokeVoidAsync("history.back");
+
+    public void Dispose()
+    {
+        pendingSave?.Cancel();
+        Workspace.Changed -= OnChanged;
+    }
+}

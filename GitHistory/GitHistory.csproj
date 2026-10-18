@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Leaf module: deliberately zero ProjectReferences. Thin wrapper over the git CLI. -->
+  <ItemGroup>
+  </ItemGroup>
+</Project>

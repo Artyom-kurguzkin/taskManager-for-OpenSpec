@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Capabilities under openspec/specs as features and feature groups. -->
+  <ItemGroup>
+    <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+</Project>

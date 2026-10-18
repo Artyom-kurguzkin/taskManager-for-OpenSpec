@@ -1,0 +1,183 @@
+@page "/"
+@using TaskManager.Board
+@using WorkItems
+@using WorkItems.PublicDTOs
+@implements IDisposable
+
+@if (Workspace.Root is null)
+{
+    <div class="empty sheet" data-sk>
+        <h2>Open a repository</h2>
+        <p class="muted">Pick a folder that contains an <span class="mono">openspec/</span> directory in <a href="settings">Settings</a>.</p>
+    </div>
+    return;
+}
+
+<div class="toolbar">
+    <Seg Name="view" Options="Views" Value="@O.View" ValueChanged="v => Set(O with { View = v })" />
+    <div class="field"><label>group by</label><Dropdown Label="group by" Class="is-group" Options="GroupBys" Value="@O.GroupBy" ValueChanged="v => Set(O with { GroupBy = v })" /></div>
+    <div class="field"><label>sort by</label><Dropdown Label="sort by" Options="SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
+    <div class="field"><label>contributor</label><Dropdown Label="contributor" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
+    @if (O.View == "board")
+    {
+        <Seg Name="unit" Options="Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />
+        <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> compact cards</label>
+    }
+    else
+    {
+        <button class="btn" data-sk @onclick="ToggleExpandAll">@(expandAll ? "Collapse all" : "Expand all")</button>
+    }
+    <label class="check"><input type="checkbox" id="f-hidden" checked="@O.ShowHidden" @onchange="e => Set(O with { ShowHidden = (bool)e.Value! })" /> show hidden</label>
+    <span class="spacer"></span>
+    <button class="btn primary" data-sk @onclick="() => NewItem(null)">+ work item</button>
+</div>
+
+@if (O.GroupBy == "feature")
+{
+    <div class="cat-tabs">
+        <Seg Name="cat" Options="CategoryOptions" Counts="CategoryCounts" Value="@CurrentCategory" ValueChanged="v => Set(O with { Category = v })" />
+        <button class="btn ghost" @onclick="AddSubgroup">+ sub-group</button>
+    </div>
+}
+
+@foreach (string w in WorkItemsApi.GetWarnings()) { <p class="warning">@w</p> }
+
+@if (O.View == "list")
+{
+    <div class="tbl-wrap" data-sk>
+        <table class="tbl">
+            <thead><tr><th></th><th></th>
+                @foreach ((string key, string label) in Columns)
+                {
+                    <th>@if (key == "progress") { @label } else {
+                        <button class="th-sort @(O.SortBy == key ? "on" : "")" @onclick="() => SortBy(key)">@label@(O.SortBy == key ? (O.SortDir > 0 ? " ↑" : " ↓") : "")</button> }</th>
+                }
+            </tr></thead>
+            @foreach ((string? cat, BoardColumn col) in Flat)
+            {
+                bool shut = shutGroups.Contains(col.Key);
+                <tbody>
+                    <tr class="grp"><td colspan="10"><button @onclick="() => Toggle(shutGroups, col.Key)" aria-expanded="@(!shut)">
+                        <span class="chev @(shut ? "" : "open")">@Ui.Icon("chev")</span><b>@col.Label</b> <span class="count">@col.Items.Count</span>
+                        @if (cat is not null) { <span class="muted"> · @cat</span> }</button></td></tr>
+                    @if (!shut)
+                    {
+                        @foreach (WorkItem it in col.Items)
+                        {
+                            bool open = expandAll || openRows.Contains(it.Id);
+                            <tr class="lrow @(selected.Contains(it.Id) ? "selected" : "")">
+                                <td><input type="checkbox" checked="@selected.Contains(it.Id)" @onchange="() => ToggleSelect(it)" aria-label="Select #wi@(it.Id)" /></td>
+                                <td>@if (it.Subtasks.Count > 0) {
+                                    <button class="chev @(open ? "open" : "")" @onclick="() => Toggle(openRows, it.Id)" aria-expanded="@open" aria-label="Subtasks">@Ui.Icon("chev")</button> }</td>
+                                <td class="muted num id">#wi@(it.Id)</td>
+                                <td><button class="row-title" @onclick="() => OpenItem(it.Id)">@it.Title</button></td>
+                                <td><Dropdown Label="status" Class="cell" Style="@($"--fill:var({Ui.Band(it.Status)})")" Swatch="Ui.Band" Options="Statuses" Value="@it.Status" ValueChanged="v => SetStatus(it, v)" /></td>
+                                <td>@foreach (FeatureLink f in it.Features) { <span class="tag">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span> }</td>
+                                <td>@string.Join(", ", it.Contributors)</td>
+                                <td><Dropdown Label="priority" Class="cell" Options="Priorities" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /></td>
+                                <td><span class="prog"><i style="width:@(it.Subtasks.Count == 0 ? 0 : it.Subtasks.Count(s => s.Done) * 100 / it.Subtasks.Count)%"></i></span>
+                                    <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span></td>
+                                <td class="muted num">@it.Modified.ToString("d MMM")</td>
+                            </tr>
+                            @if (open)
+                            {
+                                @foreach (Subtask s in it.Subtasks)
+                                {
+                                    <tr class="subrow"><td></td><td></td><td class="muted num">@it.Id.@s.Number</td>
+                                        <td colspan="7"><label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done" disabled="@it.Archived"
+                                            @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" /> @s.Text</label></td></tr>
+                                }
+                            }
+                        }
+                        <tr class="addrow"><td></td><td colspan="9"><button class="btn ghost" @onclick="() => NewItem(col.Key)">+ Add item</button></td></tr>
+                    }
+                </tbody>
+            }
+        </table>
+    </div>
+}
+else
+{
+    <div class="board-wrap @(selected.Count > 0 ? "selecting" : "")">
+        <div class="board">
+            @foreach (BoardSection sec in Sections)
+            {
+                <div class="cat">
+                    @if (sec.Category is not null && Sections.Count > 1) { <div class="cat-h">@sec.Category</div> }
+                    <div class="cat-cols">
+                        @foreach (BoardColumn col in sec.Columns)
+                        {
+                            <section class="col @(dropTarget == col.Key ? "over" : "")" @ondragover:preventDefault="true" @ondragenter="() => dropTarget = col.Key" @ondrop="() => Drop(col, null)">
+                                <MudMenu AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft" PopoverClass="rtm-menu">
+                                    <ActivatorContent>
+                                        <header class="col-h hov" data-sk title="Column options"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
+                                    </ActivatorContent>
+                                    <ChildContent>
+                                        <MudMenuItem OnClick="() => NewItem(col.Key)">+ Add work item here</MudMenuItem>
+                                        <MudMenuItem OnClick="() => SelectAll(col)">Select all in column</MudMenuItem>
+                                        <MudMenuItem OnClick="() => AddLane(col.Key)">+ Add sub-category…</MudMenuItem>
+                                        @foreach (string lane in col.Lanes)
+                                        {
+                                            <MudMenuItem OnClick="() => Run(WorkItemsApi.RemoveLane(col.Key, lane))">Remove “@lane”</MudMenuItem>
+                                        }
+                                    </ChildContent>
+                                </MudMenu>
+                                @if (col.Lanes.Count > 0)
+                                {
+                                    @foreach (string lane in col.Lanes)
+                                    {
+                                        List<WorkItem> inLane = BoardModel.InLane(col, lane).ToList();
+                                        <div class="lane-h"><span>@lane</span><span class="count">@BoardModel.Count(inLane, O.Unit)</span></div>
+                                        <div class="lane" @ondragover:preventDefault="true" @ondrop="() => Drop(col, lane)" @ondrop:stopPropagation="true">@Cards(col, inLane)</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="lane">@Cards(col, col.Items)</div>
+                                }
+                            </section>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+    <p class="muted hint">Click a card to open it · Ctrl/⌘-click or tick the corner box to select several · drag a card to another column · click a column header for options.</p>
+}
+
+@if (selected.Count > 0)
+{
+    <div class="actionbar" data-sk>
+        <span class="n">@selected.Count selected</span>
+        @if (selected.Count >= 2) { <button class="btn primary" data-sk @onclick="Merge">Merge into one work item</button> }
+        else { <span class="muted">select one more to merge</span> }
+        <button class="btn ghost" @onclick="() => selected.Clear()">Clear</button>
+    </div>
+}
+
+@code {
+    private RenderFragment Cards(BoardColumn col, IEnumerable<WorkItem> items) => __builder =>
+    {
+        foreach (WorkItem it in items)
+        {
+            if (O.Unit == "subtasks")
+            {
+                foreach (Subtask s in it.Subtasks)
+                {
+                    <article class="card subcard @(s.Done ? "done" : "")" data-sk @onclick="() => OpenItem(it.Id)">
+                        <span class="band" style="--band:var(@Ui.Band(it.Status))">
+                            <input type="checkbox" checked="@s.Done" disabled="@it.Archived" @onclick:stopPropagation="true"
+                                   @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" aria-label="Done" />@s.Text
+                        </span>
+                        @if (!O.Compact) { <span class="muted">#wi@(it.Id) · @it.Title</span> }
+                    </article>
+                }
+            }
+            else
+            {
+                <WorkItemCard Item="it" Options="O" Selected="selected.Contains(it.Id)"
+                              OnClick="e => CardClick(it, e)" OnToggleSelect="ToggleSelect" OnDragStart="i => dragging = (i, col.Key)" />
+            }
+        }
+    };
+}
