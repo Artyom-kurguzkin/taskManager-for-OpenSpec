@@ -16,3 +16,6 @@ context: |
 rules:
   tasks:
     - Each task group must leave the app building and its tests passing on its own
+x-rtm:
+  features:
+    - ux

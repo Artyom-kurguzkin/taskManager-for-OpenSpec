@@ -11,3 +11,6 @@
 - [ ] 2.2 Implement a Markdig extension for `[[path]]`, `#wi<id>` and `#n<id>` with resolution; verify the "Unresolved reference" and "Follow a link" scenarios with unit tests
 - [x] 2.3 Build the "Linked docs and commits" panel with manual entries stored in frontmatter; verify the "Live update" scenario
 - [ ] 2.4 List notes and "Add note" on the work item page; verify the "Open note from work item" scenario
+- [ ] 2.5 notes should go to change log
+- [ ] 2.6 you should be able to move subtasks within the list to identify priorities
+- [ ] 2.7 you should be able to attach screenshots to task descriptions

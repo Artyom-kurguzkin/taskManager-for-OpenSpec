@@ -1,0 +1,9 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-18
+x-rtm:
+  id: 8
+  title: 'Split from #wi2'
+  status: Planned
+  contributors: [Artyom]
+  features: [board]
