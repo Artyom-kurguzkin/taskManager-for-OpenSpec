@@ -1,0 +1,9 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-18
+x-rtm:
+  id: 7
+  title: header should remain on top when scrolling
+  status: Confirmed
+  contributors: [Artyom-kurguzkin]
+  features: [board]

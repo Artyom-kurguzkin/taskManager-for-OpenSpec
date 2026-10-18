@@ -1,0 +1,9 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-18
+x-rtm:
+  id: 9
+  title: not all items are showing in different views
+  status: Confirmed
+  contributors: [Artyom-kurguzkin]
+  features: [board]
