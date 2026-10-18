@@ -13,6 +13,7 @@ public static class GitHistoryApi
         GitHistoryModule.RepoRoot = Path.GetFullPath(repoRoot);
         GitHistoryModule.IsRepo = null;
         GitHistoryModule.UserName = (null, false);
+        GitHistoryModule.Authors = null;
     }
 
     public static bool IsRepository() => Queries.IsRepository();
@@ -23,6 +24,12 @@ public static class GitHistoryApi
 
     /// <summary>Commits whose message contains the token as a whole word (#wi123 does not match #wi1234).</summary>
     public static IReadOnlyList<CommitInfo> Mentioning(string token) => Queries.Mentioning(token);
+
+    /// <summary>Authors of commits that touched openspec/changes/&lt;folder&gt; (or its archived copy), newest first.</summary>
+    public static IReadOnlyList<string> AuthorsOfChange(string folder) => Queries.AuthorsOfChange(folder);
+
+    /// <summary>Changes whenever a commit is made (read from .git files, no process); "" when there is no commit.</summary>
+    public static string HeadToken() => Queries.HeadToken();
 
     /// <summary>Stages and commits only the given repo-relative paths.</summary>
     public static (bool Success, string Message) Commit(IReadOnlyList<string> paths, string message) => Commands.Commit(paths, message);

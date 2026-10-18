@@ -14,7 +14,7 @@
 }
 
 <div class="crumbs">
-    <button class="btn ghost" @onclick="Back">← back</button><kbd>esc</kbd> goes to previous page ·
+    <button class="btn ghost" @onclick="Back">← back</button><span class="esc-hint"><kbd>esc</kbd> goes to previous page ·</span>
     <span class="mono">@RelativePath(item.Path)</span>
 </div>
 
@@ -40,12 +40,13 @@
             @if (!item.Archived) { <Dropdown Label="add feature" Class="mini" Placeholder="+ add" Options="FeatureChoices" ValueChanged="AddFeature" /> }
         </div>
         <div class="kv"><label>contributors</label>
+            @* commit authors come from git and can't be removed here; assigned people (x-rtm) can *@
             @foreach (string p in item.Contributors)
             {
-                if (item.Archived) { <span class="chip">@p</span> }
-                else { <span class="chip x" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Where(x => x != p)))">@p</span> }
+                if (item.Archived || !Assigned.Contains(p)) { <span class="chip" title="@(Assigned.Contains(p) ? "" : "has commits on this change (from git)")">@p</span> }
+                else { <span class="chip x" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, Assigned.Where(x => x != p)))">@p</span> }
             }
-            @if (!item.Archived) { <Dropdown Label="add contributor" Class="mini" Placeholder="+ add" Options="PeopleChoices" ValueChanged="v => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Append(v)))" /> }
+            @if (!item.Archived) { <Dropdown Label="add contributor" Class="mini" Placeholder="+ add" Options="PeopleChoices" ValueChanged="v => Run(WorkItemsApi.SetContributors(item.Id, Assigned.Append(v)))" /> }
         </div>
         <div class="kv status-field"><label>status</label>
             @if (item.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(item.Status))">@item.Status</span> }
@@ -154,6 +155,8 @@
 
     private IReadOnlyList<(string, string)> FeatureChoices =>
         Features.FeaturesApi.GetAll().Where(f => item!.Features.All(x => x.Path != f.Path)).Select(f => (f.Path, $"{f.Group} · {f.Name}")).ToList();
+
+    private IReadOnlyList<string> Assigned => item!.Assigned ?? item.Contributors;
 
     private IReadOnlyList<(string, string)> PeopleChoices =>
         WorkItemsApi.GetAll().SelectMany(w => w.Contributors).Append(Workspace.Me).Distinct().Except(item!.Contributors).Order().Select(p => (p, p)).ToList();

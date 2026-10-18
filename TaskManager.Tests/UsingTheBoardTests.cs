@@ -1,6 +1,7 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using TaskManager.Board;
+using TaskManager.Components.Layout;
 using TaskManager.Components.Pages;
 using TaskManager.Components.Shared;
 using TaskManager.Services;
@@ -19,6 +20,7 @@ public sealed class UsingTheBoardTests : IDisposable
     private readonly string settingsFile = Path.Combine(Path.GetTempPath(), "rtm-ui-" + Guid.NewGuid().ToString("N") + ".json");
 
     private IRenderedComponent<Overlays>? overlays;
+    private IRenderedComponent<SideNav>? nav;
 
     private BunitContext NewContext()
     {
@@ -29,6 +31,7 @@ public sealed class UsingTheBoardTests : IDisposable
         ctx.Services.AddSingleton<Workspace>();
         Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(repo.Root).Success);
         overlays = ctx.Render<Overlays>();
+        nav = ctx.Render<SideNav>();
         return ctx;
     }
 
@@ -69,7 +72,7 @@ public sealed class UsingTheBoardTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        board.Find("input[name=view][value=list]").Change("list");
+        ShowList();
 
         Assert.Equal(4, board.FindAll("tr.lrow").Count);
         board.FindAll("button.th-sort").Single(b => b.TextContent.StartsWith("Title")).Click();
@@ -86,7 +89,8 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         Assert.Equal(3, board.FindAll("article.card").Count);
 
-        board.Find("input#f-hidden").Change(true);
+        nav!.Find("button.nav-toggle").Click();   // the expanded side menu holds the view options
+        nav.Find("input#f-hidden").Change(true);
 
         Assert.Equal(4, board.FindAll("article.card").Count);
         Assert.Single(board.FindAll("article.card.hidden-item"));
@@ -98,14 +102,15 @@ public sealed class UsingTheBoardTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
-        board.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
-        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Trim() == "feature"));
-        board.FindAll(".menu-item").First(i => i.TextContent.Trim() == "feature").Click();
+        nav!.Find("button.nav-toggle").Click();
+        nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
+        nav.WaitForAssertion(() => Assert.Contains(nav.FindAll(".menu-item"), i => i.TextContent.Trim() == "feature"));
+        nav.FindAll(".menu-item").First(i => i.TextContent.Trim() == "feature").Click();
 
-        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".cat-tabs")));
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".feature-bar")));
     }
 
-    [Fact(DisplayName = "Every board column and sub-category lane is a drop zone the drag script can accept drops on")]
+    [Fact(DisplayName = "Every board column and subgroup lane is a drop zone the drag script can accept drops on")]
     public async Task DropZonesMarked()
     {
         await using BunitContext ctx = NewContext();
@@ -116,16 +121,21 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains("data-drop", File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js")));
     }
 
-    [Fact(DisplayName = "The 'All groups' tab shows no misleading count")]
-    public async Task AllGroupsHasNoCount()
+    [Fact(DisplayName = "The Functional / Non-Functional dropdown shows one side's features at a time")]
+    public async Task SideDropdown()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        board.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
-        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".menu-item")));
-        board.FindAll(".menu-item").First(i => i.TextContent.Trim() == "feature").Click();
+        GroupByFeature();
+        Assert.Contains("Banking", Columns(board));
+        Assert.DoesNotContain("Availability", Columns(board));
+        Assert.Empty(board.FindAll(".cat-h"));   // no headings over the columns
 
-        board.WaitForAssertion(() => Assert.Empty(board.Find("label.seg-o:has(input[value=all])").QuerySelectorAll(".count")));
+        board.Find(".feature-bar button.dd").Click();
+        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Non-Functional").Click();
+
+        Assert.Contains("Availability", Columns(board));
+        Assert.DoesNotContain("Banking", Columns(board));
     }
 
     [Fact(DisplayName = "An expanded list row numbers its subtasks 1.1, 1.2 …")]
@@ -133,7 +143,7 @@ public sealed class UsingTheBoardTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        board.Find("input[name=view][value=list]").Change("list");
+        ShowList();
         board.FindAll("tr.lrow").First(r => r.TextContent.Contains("#wi123")).QuerySelector("button.chev")!.Click();
 
         Assert.Equal(["1.1", "1.2", "1.3", "2.1"], board.FindAll("tr.subrow td.num").Select(td => td.TextContent.Trim()));
@@ -144,7 +154,7 @@ public sealed class UsingTheBoardTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        board.Find("input[name=view][value=list]").Change("list");
+        ShowList();
 
         AngleSharp.Dom.IElement row = board.FindAll("tr.lrow").Single(r => r.TextContent.Contains("#wi124"));
         Assert.Empty(row.QuerySelectorAll("button.dd"));
@@ -153,27 +163,41 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Empty(completed.QuerySelectorAll("tr.addrow"));
     }
 
+    [Fact(DisplayName = "The expand-all chevron in the list header shows every subtask row")]
+    public async Task ExpandAllFromViewMenu()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        Assert.Empty(board.FindAll("tr.subrow"));
+
+        board.FindAll("button").Single(b => b.TextContent.Trim() == "Expand all rows").Click();
+
+        Assert.Equal(4 + 2 + 1 + 1, board.FindAll("tr.subrow").Count);
+    }
+
     [Fact(DisplayName = "A hidden work item's row is marked as hidden in the list")]
     public async Task HiddenRowMarked()
     {
         await using BunitContext ctx = NewContext();
         WorkItemsApi.Hide(107);
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        board.Find("input[name=view][value=list]").Change("list");
-        board.Find("input#f-hidden").Change(true);
+        ShowList();
+        nav!.Find("button.nav-toggle").Click();   // the expanded side menu holds the view options
+        nav.Find("input#f-hidden").Change(true);
 
         Assert.Contains("hidden-item", board.FindAll("tr.lrow").Single(r => r.TextContent.Contains("#wi107")).ClassName);
     }
 
-    [Fact(DisplayName = "Adding a sub-category asks for its name in a dialog")]
+    [Fact(DisplayName = "Adding a subgroup asks for its name in a dialog")]
     public async Task SubCategoryPrompt()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
-        board.FindAll(".menu-item").First(i => i.TextContent.Contains("Add sub-category")).Click();
+        board.FindAll(".menu-item").First(i => i.TextContent.Contains("Add subgroup")).Click();
 
-        overlays!.WaitForAssertion(() => Assert.Contains("Add a sub-category to Blocked", overlays.Find(".dialog").TextContent));
+        overlays!.WaitForAssertion(() => Assert.Contains("Add a subgroup to Blocked", overlays.Find(".dialog").TextContent));
         overlays.Find(".dialog input").Input("Needs review");
         overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Add").Click();
 
@@ -201,7 +225,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
 
-        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Contains("Add sub-category")));
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Contains("Add subgroup")));
     }
 
     [Fact(DisplayName = "Showing subtasks puts one card per tasks.md checkbox on the board")]
@@ -209,9 +233,120 @@ public sealed class UsingTheBoardTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        board.Find("input[name=unit][value=subtasks]").Change("subtasks");
+        nav!.Find("button.nav-toggle").Click();
+        nav.Find("input[name=unit][value=subtasks]").Change("subtasks");
         Assert.Equal(4 + 2 + 1 + 1, board.FindAll("article.subcard").Count);
     }
+
+    [Fact(DisplayName = "The menu button expands the side menu to labels and view options, and collapses it again")]
+    public async Task SideMenuExpands()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.DoesNotContain("expanded", nav!.Find("nav.side").ClassName);
+        Assert.Empty(nav.FindAll(".nav-view"));
+
+        nav.Find("button.nav-toggle").Click();
+        Assert.Contains("expanded", nav.Find("nav.side").ClassName);
+        Assert.Contains("group by", nav.Find(".nav-view").TextContent);
+        Assert.Contains("contributor", nav.Find(".nav-view").TextContent);
+
+        nav.Find("button.nav-toggle").Click();
+        Assert.Empty(nav.FindAll(".nav-view"));
+
+        nav.Find("button[aria-label='View options']").Click();   // the view icon opens the same expanded menu
+        Assert.NotEmpty(nav.FindAll(".nav-view"));
+    }
+
+    [Fact(DisplayName = "+ in the side menu creates a work item and opens it")]
+    public async Task SideMenuNewItem()
+    {
+        await using BunitContext ctx = NewContext();
+
+        nav!.Find("button[aria-label='New work item']").Click();
+
+        overlays!.WaitForAssertion(() => Assert.Contains("Created #wi", overlays.Find(".toast").TextContent));
+        Assert.Matches(@"/item/\d+$", ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri);
+    }
+
+    [Fact(DisplayName = "Board and List are one dropdown in the side menu")]
+    public async Task LayoutDropdown()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        Assert.Empty(nav!.FindAll("button[aria-label=List]"));
+        Assert.Contains("Board", nav.Find("button[aria-label=Layout]").TextContent);
+
+        ShowList();
+
+        Assert.NotEmpty(board.FindAll("tr.lrow"));
+        Assert.Contains("List", nav.Find("button[aria-label=Layout]").TextContent);
+    }
+
+    [Fact(DisplayName = "Clicking a column header offers Hide; the hidden column then shows in the side menu to bring back")]
+    public async Task HideColumn()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        nav!.Find("button.nav-toggle").Click();
+        Assert.Empty(nav.FindAll(".nav-hidden"));   // nothing hidden, nothing listed
+
+        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
+        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Hide column").Click();
+
+        Assert.DoesNotContain("Blocked", Columns(board));
+        nav.Find("button[aria-label='Show Blocked']").Click();
+        Assert.Contains("Blocked", Columns(board));
+        Assert.Empty(nav.FindAll(".nav-hidden"));
+    }
+
+    [Fact(DisplayName = "Dragging the Backlog header onto Completed moves Backlog next to Completed")]
+    public async Task DragColumn()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Backlog")).DragStart();
+        board.FindAll("section.col").Single(c => c.QuerySelector("h3")!.TextContent == "Completed").Drop();
+
+        Assert.Equal(["Planned", "Confirmed", "In Progress", "Blocked", "Completed", "Backlog"], Columns(board));
+    }
+
+    [Fact(DisplayName = "Deleting my own feature from its header asks first, then its work items move to Unassigned")]
+    public async Task DeleteFeature()
+    {
+        await using BunitContext ctx = NewContext();
+        Features.FeaturesApi.CreateFeature("Functional", "Payments");
+        (bool _, string _, int id) = WorkItemsApi.Create("Pay run", features: ["functional/payments"]);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        GroupByFeature();
+        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Banking")).Click();
+        Assert.DoesNotContain(board.FindAll(".menu-item"), i => i.TextContent.Contains("Delete"));   // spec-backed: hide only
+        board.Find(".menu-backdrop").Click();
+
+        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Payments")).Click();
+        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Delete feature…").Click();
+        overlays!.WaitForAssertion(() => Assert.Contains("Delete Payments?", overlays.Find(".dialog").TextContent));
+        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Delete").Click();
+
+        board.WaitForAssertion(() => Assert.DoesNotContain("Payments", Columns(board)));
+        Assert.Contains($"#wi{id}", board.FindAll("section.col").Single(c => c.QuerySelector("h3")!.TextContent == "Unassigned").TextContent);
+    }
+
+    // The layout dropdown in the side menu switches the board to the list.
+    private void ShowList()
+    {
+        nav!.Find("button[aria-label=Layout]").Click();
+        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "List").Click();
+    }
+
+    private void GroupByFeature()
+    {
+        nav!.Find("button.nav-toggle").Click();
+        nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
+        nav.FindAll(".menu-item").First(i => i.TextContent.Trim() == "feature").Click();
+    }
+
+    private static List<string> Columns(IRenderedComponent<BoardPage> board) => board.FindAll("section.col h3").Select(h => h.TextContent).ToList();
 
     public void Dispose()
     {

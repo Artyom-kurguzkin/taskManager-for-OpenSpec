@@ -1,0 +1,114 @@
+@using Features
+@using Features.PublicDTOs
+@using TaskManager.Board
+@using TaskManager.Components.Pages
+@using WorkItems
+@implements IDisposable
+@* Left icon rail; ☰ expands it to labels, the board's view options and the list of hidden columns.
+   On narrow windows the same markup lays out as a top header bar (see app.css "side menu"), where the view icon opens the options. *@
+<nav class="side @(expanded ? "expanded" : "")">
+    <button class="nav-btn nav-toggle" aria-label="Menu" aria-expanded="@expanded" title="@(expanded ? "Collapse menu" : "Expand menu")"
+            @onclick="() => expanded = !expanded">@Ui.Icon("menu")<span class="nav-l mono">@RepoName</span></button>
+    @if (Workspace.Root is not null)
+    {
+        <Menu Label="Board or list">
+            <Activator>
+                <button class="nav-btn @(OnBoard ? "is-sel" : "")" aria-label="Layout" title="Board or list" aria-haspopup="menu">
+                    @Ui.Icon(O.View == "list" ? "list" : "board")<span class="nav-l">@(O.View == "list" ? "List" : "Board")</span><span class="nav-l nav-caret">@Ui.Icon("caret")</span>
+                </button>
+            </Activator>
+            <Items>
+                <MenuItem Class="@(O.View == "board" ? "cur" : "")" OnClick='() => Show("board")'>@Ui.Icon("board") Board</MenuItem>
+                <MenuItem Class="@(O.View == "list" ? "cur" : "")" OnClick='() => Show("list")'>@Ui.Icon("list") List</MenuItem>
+            </Items>
+        </Menu>
+        <button class="nav-btn" aria-label="New work item" title="New work item" @onclick="NewItem">@Ui.Icon("plus")<span class="nav-l">New work item</span></button>
+        <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="() => expanded = !expanded">@Ui.Icon("sliders")</button>
+        @if (expanded && OnBoard)
+        {
+            <div class="nav-view">
+                <div class="field"><label>group by</label><Dropdown Label="group by" Class="is-group" Options="BoardPage.GroupBys" Value="@O.GroupBy" ValueChanged="v => Set(O with { GroupBy = v })" /></div>
+                <div class="field"><label>sort by</label><Dropdown Label="sort by" Options="BoardPage.SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
+                <div class="field"><label>contributor</label><Dropdown Label="contributor" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
+                @if (O.View == "board")
+                {
+                    <Seg Name="unit" Options="BoardPage.Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />
+                    <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> compact cards</label>
+                }
+                <label class="check"><input type="checkbox" id="f-hidden" checked="@O.ShowHidden" @onchange="e => Set(O with { ShowHidden = (bool)e.Value! })" /> show hidden</label>
+            </div>
+            @if (HiddenHere.Count > 0)
+            {
+                @* hide from a column header on the board; only hidden columns are listed here, to bring back *@
+                <div class="nav-hidden">
+                    <div class="nav-h">Hidden</div>
+                    @foreach (string key in HiddenHere)
+                    {
+                        string name = BoardModel.KeyLabel(key, FeaturesApi.GetAll());
+                        <div class="grp-row"><span class="nm">@name</span>
+                            <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(O, key))">@Ui.Icon("eye")</button></div>
+                    }
+                </div>
+            }
+        }
+    }
+    <span class="spacer"></span>
+    <button class="nav-btn @(OnSettings ? "is-sel" : "")" aria-label="Settings" title="Settings" @onclick='() => Nav.NavigateTo("settings")'>@Ui.Icon("gear")<span class="nav-l">Settings</span></button>
+</nav>
+
+@code {
+    [Inject] private Workspace Workspace { get; set; } = default!;
+    [Inject] private SettingsStore Settings { get; set; } = default!;
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+    [Inject] private UiService Popups { get; set; } = default!;
+
+    private bool expanded;
+
+    private string Path => Nav.ToBaseRelativePath(Nav.Uri);
+    private bool OnBoard => Path.Length == 0;
+    private bool OnSettings => Path.StartsWith("settings", StringComparison.OrdinalIgnoreCase);
+    private string RepoName => Workspace.Root is string r ? System.IO.Path.GetFileName(r) + "/openspec" : "no repository";
+    private BoardOptions O => Workspace.Root is string r ? Settings.Board(r) : new();
+
+    private IReadOnlyList<(string, string)> People =>
+        [("all", "everyone"), .. WorkItemsApi.GetAll(includeHidden: O.ShowHidden).SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
+
+    // Hidden columns of the current grouping.
+    private List<string> HiddenHere => (O.Hidden ?? []).Where(k => k.StartsWith(BoardModel.ColumnKey(O, ""))).ToList();
+
+    protected override void OnInitialized()
+    {
+        Settings.Changed += Redraw;
+        Workspace.Changed += Redraw;
+        Nav.LocationChanged += OnNavigated;
+    }
+
+    private void Redraw() => InvokeAsync(StateHasChanged);
+    private void OnNavigated(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => Redraw();
+
+    private void Set(BoardOptions options)
+    {
+        if (Workspace.Root is string root) Settings.SaveBoard(root, options);   // the board page picks this up from Settings.Changed
+    }
+
+    private void Show(string view)
+    {
+        Set(O with { View = view });
+        if (!OnBoard) Nav.NavigateTo("");
+    }
+
+    private void NewItem()
+    {
+        (bool ok, string message, int id) = Workspace.CreateItem();
+        if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
+        Popups.Toast($"Created #wi{id}", ToastKind.Success);
+        Nav.NavigateTo($"item/{id}");
+    }
+
+    public void Dispose()
+    {
+        Settings.Changed -= Redraw;
+        Workspace.Changed -= Redraw;
+        Nav.LocationChanged -= OnNavigated;
+    }
+}

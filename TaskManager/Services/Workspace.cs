@@ -1,6 +1,7 @@
 using Features;
 using GitHistory;
 using OpenSpecStore;
+using WorkItems;
 
 namespace TaskManager.Services;
 
@@ -28,6 +29,7 @@ public sealed class Workspace : IDisposable
         (bool ok, string message) = OpenSpecStoreApi.Open(root);
         if (!ok) return (ok, message);
         GitHistoryApi.Configure(root);
+        WorkItemsApi.ConfigureContributors(() => GitHistoryApi.IsRepository() ? (GitHistoryApi.HeadToken(), GitHistoryApi.AuthorsOfChange) : null);
         settings.Update(s => s with { LastRepo = OpenSpecStoreApi.RepoRoot });
         Notify();
         return (true, "");
@@ -46,6 +48,14 @@ public sealed class Workspace : IDisposable
     }
 
     public void Notify() => Changed?.Invoke();
+
+    /// <summary>Creates "New work item" (assigned to me unless <paramref name="who"/> says otherwise) and refreshes every view.</summary>
+    public (bool Ok, string Message, int Id) CreateItem(string status = "Backlog", string[]? features = null, string[]? who = null)
+    {
+        (bool ok, string message, int id) = WorkItemsApi.Create("New work item", status, features, who ?? [Me]);
+        if (ok) Notify();
+        return (ok, message, id);
+    }
 
     public void Dispose() => OpenSpecStoreApi.Changed -= Notify;
 }

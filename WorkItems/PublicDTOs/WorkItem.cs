@@ -1,6 +1,10 @@
 namespace WorkItems.PublicDTOs;
 
-/// <summary>An OpenSpec change seen as a work item. <paramref name="Path"/> is the change folder (active or archived).</summary>
+/// <summary>
+/// An OpenSpec change seen as a work item. <paramref name="Path"/> is the change folder (active or archived).
+/// <paramref name="Contributors"/> = git commit authors of the folder plus <paramref name="Assigned"/> (x-rtm.contributors,
+/// people added in the app, e.g. a newcomer who has not committed yet).
+/// </summary>
 public sealed record WorkItem(
     int Id,
     string Folder,
@@ -16,7 +20,8 @@ public sealed record WorkItem(
     DateTime Created,
     DateTime Modified,
     string? Warning,
-    bool Hidden = false);
+    bool Hidden = false,
+    IReadOnlyList<string>? Assigned = null);
 
 /// <summary>A capability the work item touches. Locked = it comes from the change's own specs/ folder.</summary>
 public sealed record FeatureLink(string Path, bool Locked);

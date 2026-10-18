@@ -43,6 +43,26 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("openspec/changes/add-health-check", page.Markup.Replace('\\', '/'));
     }
 
+    [Fact(DisplayName = "Commit authors show as contributors without a remove button; people assigned in the app can be removed")]
+    public async Task GitContributors()
+    {
+        await using BunitContext ctx = NewContext();
+        try
+        {
+            WorkItemsApi.ConfigureContributors(() => ("t1", folder => folder == "add-health-check" ? ["Alice"] : []));
+            IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+            List<AngleSharp.Dom.IElement> chips = page.FindAll(".kv:has(label) .chip").Where(c => c.ParentElement!.TextContent.Contains("contributors")).ToList();
+
+            Assert.Equal(["Alice", "Artyom", "Tom"], chips.Select(c => c.TextContent.Trim()));
+            Assert.DoesNotContain("x", chips[0].ClassList);   // Alice has commits: not removable
+            Assert.Contains("x", chips[1].ClassList);
+
+            chips[1].Click();   // unassign Artyom
+            Assert.Equal(["Tom"], WorkItemsApi.Get(123)!.Assigned);
+        }
+        finally { WorkItemsApi.ConfigureContributors(null); }
+    }
+
     [Fact(DisplayName = "Ticking a subtask on the work item page saves it to tasks.md")]
     public async Task TickOnPage()
     {

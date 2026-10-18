@@ -4,18 +4,21 @@ context: |
   Product: a desktop task manager whose only data store is a git repository's openspec/ folder. There is no database.
   Data mapping (see openspec/changes/add-workspace/design.md): work item = OpenSpec change, feature = capability,
   subtask = tasks.md checkbox, Completed = archived change. App-owned metadata lives in an `x-rtm:` block in the change's .openspec.yaml.
-  Must run on Windows, macOS and Linux. Host: Photino.Blazor; UI: Blazor + MudBlazor; .NET 10. MAUI is out (no Linux).
+  Must run on Windows, macOS and Linux. Host: Photino.Blazor; UI: Blazor with a few own components (no UI library); .NET 10. MAUI is out (no Linux).
   Every edit is written to the repo files immediately, and files changed outside the app are picked up live.
   Never rewrite parts of a file the user did not change: keep formatting, comments and unknown keys.
   Work items are referenced as #wi<number>, notes as #n<number>.
   Architecture: modular monolith. One static class library per domain entity (OpenSpecStore, GitHistory, Features, WorkItems, Notes);
   each exposes only `{Module}Api` + `{Module}.PublicDTOs`, everything else internal; no DI in modules; all UI in the TaskManager host.
   Tests are written first, named by user action, in TaskManager.Tests.
-  UI follows the sketchbook design system in design/mockup.html; MudTheme values come from its :root tokens.
+  UI follows the design system in design/mockup.html; colours are the :root tokens in TaskManager/wwwroot/css/app.css.
+  Navigation is a left side menu (top header bar on narrow windows); view settings are per user, not in the repo.
 
 rules:
   tasks:
     - Each task group must leave the app building and its tests passing on its own
 x-rtm:
   features:
-    - ux
+    []
+  lanes:
+    board: [test, test-2]

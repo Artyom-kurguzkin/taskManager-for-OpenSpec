@@ -13,4 +13,7 @@ internal static class GitHistoryModule
     /// <summary>git user.name, looked up once per Configure; (null, false) = not looked up yet.</summary>
     internal static (string? Name, bool Known) UserName;
     internal static int UserNameLookups;
+
+    /// <summary>Commit authors per change name (archive date prefix dropped), read with one git log and kept until HEAD moves.</summary>
+    internal static (string Head, Dictionary<string, List<string>> ByChange)? Authors;
 }

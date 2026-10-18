@@ -13,30 +13,17 @@
     return;
 }
 
-<div class="toolbar">
-    <Seg Name="view" Options="Views" Value="@O.View" ValueChanged="v => Set(O with { View = v })" />
-    <div class="field"><label>group by</label><Dropdown Label="group by" Class="is-group" Options="GroupBys" Value="@O.GroupBy" ValueChanged="v => Set(O with { GroupBy = v })" /></div>
-    <div class="field"><label>sort by</label><Dropdown Label="sort by" Options="SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
-    <div class="field"><label>contributor</label><Dropdown Label="contributor" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
-    @if (O.View == "board")
-    {
-        <Seg Name="unit" Options="Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />
-        <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> compact cards</label>
-    }
-    else
-    {
-        <button class="btn" data-sk @onclick="ToggleExpandAll">@(expandAll ? "Collapse all" : "Expand all")</button>
-    }
-    <label class="check"><input type="checkbox" id="f-hidden" checked="@O.ShowHidden" @onchange="e => Set(O with { ShowHidden = (bool)e.Value! })" /> show hidden</label>
-    <span class="spacer"></span>
-    <button class="btn primary" data-sk @onclick="() => NewItem(null)">+ work item</button>
-</div>
+@* view options, Board/List and "+ new work item" live in the side menu (Layout/SideNav) *@
 
 @if (O.GroupBy == "feature")
 {
-    <div class="cat-tabs">
-        <Seg Name="cat" Options="CategoryOptions" Counts="CategoryCounts" Value="@CurrentCategory" ValueChanged="v => Set(O with { Category = v })" />
-        <button class="btn ghost" @onclick="AddSubgroup">+ sub-group</button>
+    @* Functional / Non-Functional only filters which features are shown; one side at a time *@
+    <div class="feature-bar">
+        @if (CategoryOptions.Count > 1)
+        {
+            <Dropdown Label="features shown" Class="is-group" Options="CategoryOptions" Value="@CurrentCategory" ValueChanged="v => Set(O with { Category = v })" />
+        }
+        <button class="btn ghost" @onclick="AddFeature">+ feature</button>
     </div>
 }
 
@@ -46,7 +33,7 @@
 {
     <div class="tbl-wrap" data-sk>
         <table class="tbl">
-            <thead><tr><th></th><th></th>
+            <thead><tr><th></th><th><button class="chev @(expandAll ? "open" : "")" title="@(expandAll ? "Collapse all rows" : "Expand all rows")" @onclick="ToggleExpandAll">@Ui.Icon("chev")<span class="sr">@(expandAll ? "Collapse all rows" : "Expand all rows")</span></button></th>
                 @foreach ((string key, string label) in Columns)
                 {
                     <th>@if (key == "progress") { @label } else {
@@ -108,7 +95,6 @@ else
             @foreach (BoardSection sec in Sections)
             {
                 <div class="cat">
-                    @if (sec.Category is not null && Sections.Count > 1) { <div class="cat-h">@sec.Category</div> }
                     <div class="cat-cols">
                         @foreach (BoardColumn col in sec.Columns)
                         {
@@ -116,15 +102,25 @@ else
                             <section class="col @(dropTarget == col.Key ? "over" : "")" data-drop @ondragenter="() => dropTarget = col.Key" @ondrop="() => Drop(col, null)">
                                 <Menu Label="Column options">
                                     <Activator>
-                                        <header class="col-h hov" data-sk title="Column options"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
+                                        @* drag a header onto another column to reorder columns *@
+                                        <header class="col-h hov" data-sk title="Column options · drag to reorder" draggable="@(col.Key != BoardModel.Unassigned ? "true" : "false")"
+                                                @ondragstart="() => StartColumnDrag(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), BoardModel.ColumnKey(O, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
                                     </Activator>
                                     <Items>
                                         <MenuItem OnClick="() => NewItem(col.Key)">+ Add work item here</MenuItem>
                                         <MenuItem OnClick="() => SelectAll(col)">Select all in column</MenuItem>
-                                        <MenuItem OnClick="() => AddLane(col.Key)">+ Add sub-category…</MenuItem>
+                                        <MenuItem OnClick="() => AddLane(col.Key, col.Label)">+ Add subgroup…</MenuItem>
                                         @foreach (string lane in col.Lanes)
                                         {
-                                            <MenuItem OnClick="() => Run(WorkItemsApi.RemoveLane(col.Key, lane))">Remove “@lane”</MenuItem>
+                                            <MenuItem OnClick="() => Run(WorkItemsApi.RemoveLane(col.Key, lane))">Remove subgroup “@lane”</MenuItem>
+                                        }
+                                        @if (col.Key != BoardModel.Unassigned)
+                                        {
+                                            <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
+                                        }
+                                        @if (O.GroupBy == "feature" && features.FirstOrDefault(f => f.Path == col.Key) is { Custom: true } custom)
+                                        {
+                                            <MenuItem OnClick="() => DeleteFeature(custom)">Delete feature…</MenuItem>
                                         }
                                     </Items>
                                 </Menu>
@@ -182,7 +178,7 @@ else
             else
             {
                 <WorkItemCard Item="it" Options="O" Selected="selected.Contains(it.Id)"
-                              OnClick="e => CardClick(it, e)" OnToggleSelect="ToggleSelect" OnDragStart="i => dragging = (i, col.Key)" />
+                              OnClick="e => CardClick(it, e)" OnToggleSelect="ToggleSelect" OnDragStart="i => { dragging = (i, col.Key); draggingColumn = null; }" />
             }
         }
     };

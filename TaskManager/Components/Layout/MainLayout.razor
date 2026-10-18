@@ -1,46 +1,22 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 
-<header class="top">
-    <h1>repo/tasks</h1>
-    <span class="mono muted">@(Workspace.Root is string r ? Path.GetFileName(r) + "/openspec" : "no repository")</span>
-    <nav class="tabs">
-        @* buttons, not links: WebView2 shows a "localhost/…" bubble when hovering links *@
-        <button class="tab @(OnSettingsPage ? "" : "is-sel")" data-sk @onclick='() => Nav.NavigateTo("")'>Board</button>
-        <button class="tab @(OnSettingsPage ? "is-sel" : "")" data-sk @onclick='() => Nav.NavigateTo("settings")'>Settings</button>
-    </nav>
-</header>
+@* nav items are buttons, not links: WebView2 shows a "localhost/…" bubble when hovering links *@
+<SideNav />
 <main>@Body</main>
 <Overlays />
 
 @code {
     [Inject] private SettingsStore Settings { get; set; } = default!;
-    [Inject] private Workspace Workspace { get; set; } = default!;
     [Inject] private IJSRuntime Js { get; set; } = default!;
     [Inject] private IServiceProvider Services { get; set; } = default!;
-    [Inject] private NavigationManager Nav { get; set; } = default!;
-
-    private bool OnSettingsPage => Nav.ToBaseRelativePath(Nav.Uri).StartsWith("settings", StringComparison.OrdinalIgnoreCase);
-    private void OnNavigated(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
 
     private bool systemDark;
-    private string? shownRoot;
     private DotNetObjectReference<MainLayout>? self;
 
     protected override void OnInitialized()
     {
-        shownRoot = Workspace.Root;
         Settings.Changed += OnSettings;
-        Workspace.Changed += OnWorkspace;
-        Nav.LocationChanged += OnNavigated;
-    }
-
-    // Data changes are handled by the page; the layout only shows the repo name, so it redraws only when that changes.
-    private void OnWorkspace()
-    {
-        if (Workspace.Root == shownRoot) return;
-        shownRoot = Workspace.Root;
-        InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -72,8 +48,6 @@
     public void Dispose()
     {
         Settings.Changed -= OnSettings;
-        Workspace.Changed -= OnWorkspace;
-        Nav.LocationChanged -= OnNavigated;
         self?.Dispose();
     }
 }

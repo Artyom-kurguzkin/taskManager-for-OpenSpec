@@ -48,7 +48,7 @@ public sealed class KeepingTheRepoValidForOpenSpecTests
         Ok(WorkItemsApi.Merge([107, 125]));
         Ok(WorkItemsApi.Hide(created));
         Ok(NotesApi.Create(123, "Artyom"));
-        (bool sg, string sgMessage, _) = FeaturesApi.CreateSubgroup("Functional", "Exports");
+        (bool sg, string sgMessage, _) = FeaturesApi.CreateFeature("Functional", "Exports");
         Ok((sg, sgMessage));
 
         (int exit, string output) = OpenSpec(repo.Root, "validate --all --strict");

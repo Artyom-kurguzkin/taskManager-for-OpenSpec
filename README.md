@@ -118,7 +118,7 @@ A modular monolith with one static class library per domain entity, plus the app
 
 ## Notes
 
-Deleting a work item doesn't remove it from OpenSpec. It only hides it from the app (`x-rtm.hidden: true`) until the workflow matures. Tick "show hidden" on the board and use **Restore** on the item's page to bring it back.
+Deleting a work item doesn't remove it from OpenSpec. It only hides it from the app (`x-rtm.hidden: true`) until the workflow matures. Tick "show hidden" under **view** on the board and use **Restore** on the item's page to bring it back.
 
 Only Windows has been tested so far. Photino also supports macOS and Linux (Linux needs WebKitGTK), but the app hasn't been run there.
 

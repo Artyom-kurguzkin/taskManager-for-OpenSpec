@@ -51,4 +51,4 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("dragover", (e) => {
   if (e.target.closest?.("[data-drop]")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }
 });
-document.addEventListener("dragstart", (e) => { if (e.target.closest?.(".card")) e.dataTransfer.effectAllowed = "move"; });
+document.addEventListener("dragstart", (e) => { if (e.target.closest?.(".card, .col-h, .cat-h")) e.dataTransfer.effectAllowed = "move"; });

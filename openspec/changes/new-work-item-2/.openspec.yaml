@@ -7,3 +7,5 @@ x-rtm:
   status: Confirmed
   contributors: [Artyom-kurguzkin]
   features: [board]
+  lanes:
+    board: test-2

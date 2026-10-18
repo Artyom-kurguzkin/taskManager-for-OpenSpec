@@ -42,23 +42,22 @@ public sealed class ArrangingTheBoardTests
         Assert.Equal([2, 3], s.Columns.Single(c => c.Key == "In Progress").Items.Select(i => i.Id));   // high priority first
     }
 
-    [Fact(DisplayName = "Grouping by feature gives a section per feature group, and an item shows under each of its features")]
+    [Fact(DisplayName = "Grouping by feature shows one row of feature columns, and an item shows under each of its features")]
     public void ByFeature()
     {
-        IReadOnlyList<BoardSection> sections = Build(new BoardOptions(GroupBy: "feature"));
-        Assert.Equal(["Functional", "Non-Functional"], sections.Select(s => s.Category));
-        BoardSection nf = sections[1];
-        Assert.Equal(["Availability", "Security"], nf.Columns.Select(c => c.Label));
-        Assert.Contains(nf.Columns[0].Items, i => i.Id == 2);
-        Assert.Contains(nf.Columns[1].Items, i => i.Id == 2);
+        BoardSection s = Assert.Single(Build(new BoardOptions(GroupBy: "feature", Category: "Non-Functional")));
+        Assert.Null(s.Category);   // flat: no headings over the columns
+        Assert.Equal(["Availability", "Security"], s.Columns.Select(c => c.Label));
+        Assert.Contains(s.Columns[0].Items, i => i.Id == 2);
+        Assert.Contains(s.Columns[1].Items, i => i.Id == 2);
     }
 
-    [Fact(DisplayName = "The feature-group switcher shows only the chosen group")]
-    public void CategorySwitcher()
+    [Fact(DisplayName = "Only one side (Functional or Non-Functional) is shown at a time; the first one by default")]
+    public void OneSideAtATime()
     {
-        IReadOnlyList<BoardSection> sections = Build(new BoardOptions(GroupBy: "feature", Category: "Functional"));
-        Assert.Equal(["Functional"], sections.Select(s => s.Category));
         Assert.Equal(["Functional", "Non-Functional"], BoardModel.Categories(Features));
+        Assert.Equal(["Banking", "Remittances"], Assert.Single(Build(new BoardOptions(GroupBy: "feature"))).Columns.Select(c => c.Label));
+        Assert.Equal(["Banking", "Remittances"], Assert.Single(Build(new BoardOptions(GroupBy: "feature", Category: "all"))).Columns.Select(c => c.Label));
     }
 
     [Fact(DisplayName = "Grouping by contributor gives one column per person, sortable by feature")]
@@ -98,5 +97,70 @@ public sealed class ArrangingTheBoardTests
         BoardColumn col = Build(new BoardOptions(Unit: "subtasks"))[0].Columns.Single(c => c.Key == "In Progress");
         Assert.Equal(5, BoardModel.Count(col.Items, "subtasks"));
         Assert.Equal(2, BoardModel.Count(col.Items, "tasks"));
+    }
+
+    [Fact(DisplayName = "A hidden feature leaves the board")]
+    public void HiddenFeature()
+    {
+        BoardOptions o = new(GroupBy: "feature", Category: "Non-Functional", Hidden: [BoardModel.FeatureKey("non-functional/security")]);
+        Assert.Equal(["Availability"], Assert.Single(Build(o)).Columns.Select(c => c.Label));
+    }
+
+    [Fact(DisplayName = "Features follow the saved order; the rest keep their usual order after them")]
+    public void OrderedFeatures()
+    {
+        BoardOptions o = new(GroupBy: "feature", Category: "Non-Functional", Order: [BoardModel.FeatureKey("non-functional/security")]);
+        Assert.Equal(["Security", "Availability"], Assert.Single(Build(o)).Columns.Select(c => c.Label));
+    }
+
+    [Fact(DisplayName = "Dropping Backlog onto Completed moves the Backlog column to after Completed")]
+    public void DragStatusColumn()
+    {
+        BoardOptions o = new();
+        List<string> keys = Build(o)[0].Columns.Select(c => BoardModel.ColumnKey(o, c.Key)).ToList();
+
+        BoardOptions moved = BoardModel.MoveTo(o, keys, BoardModel.ColumnKey(o, "Backlog"), BoardModel.ColumnKey(o, "Completed"));
+
+        Assert.Equal(["Planned", "Confirmed", "In Progress", "Blocked", "Completed", "Backlog"], Build(moved)[0].Columns.Select(c => c.Label));
+    }
+
+    [Fact(DisplayName = "Dropping a column onto an earlier one puts it in front of that one")]
+    public void DragLeft()
+    {
+        BoardOptions o = new();
+        List<string> keys = Build(o)[0].Columns.Select(c => BoardModel.ColumnKey(o, c.Key)).ToList();
+
+        BoardOptions moved = BoardModel.MoveTo(o, keys, BoardModel.ColumnKey(o, "Blocked"), BoardModel.ColumnKey(o, "Planned"));
+
+        Assert.Equal(["Backlog", "Blocked", "Planned", "Confirmed", "In Progress", "Completed"], Build(moved)[0].Columns.Select(c => c.Label));
+    }
+
+    [Fact(DisplayName = "A hidden status column leaves the board")]
+    public void HiddenStatus()
+    {
+        BoardOptions o = BoardModel.ToggleHidden(new BoardOptions(), BoardModel.ColumnKey(new BoardOptions(), "Completed"));
+        Assert.DoesNotContain("Completed", Build(o)[0].Columns.Select(c => c.Label));
+    }
+
+    [Fact(DisplayName = "Work items without a feature show in an Unassigned column when grouping by feature")]
+    public void Unassigned()
+    {
+        WorkItem loose = W(5, "Backlog", [], ["Tom"]);
+
+        BoardSection s = Assert.Single(BoardModel.Build([.. Items, loose], Features, Lanes, new BoardOptions(GroupBy: "feature")));
+
+        Assert.Equal(["Unassigned", "Banking", "Remittances"], s.Columns.Select(c => c.Label));   // first, whichever side is shown
+        Assert.Equal([5], s.Columns[0].Items.Select(i => i.Id));
+    }
+
+    [Fact(DisplayName = "Work items without contributors show in their own column when grouping by contributor")]
+    public void NoContributors()
+    {
+        WorkItem loose = W(5, "Backlog", [], []);
+
+        BoardSection s = Assert.Single(BoardModel.Build([.. Items, loose], Features, Lanes, new BoardOptions(GroupBy: "contributor")));
+
+        Assert.Equal("No contributors", s.Columns[0].Label);
+        Assert.Equal([5], s.Columns[0].Items.Select(i => i.Id));
     }
 }

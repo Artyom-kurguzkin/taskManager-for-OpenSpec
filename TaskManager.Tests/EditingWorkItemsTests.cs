@@ -205,7 +205,7 @@ public sealed class EditingWorkItemsTests
         Assert.NotNull(WorkItemsApi.Get(107));
     }
 
-    [Fact(DisplayName = "Adding a sub-category to a column saves it in config.yaml, and dropping an item into it is remembered")]
+    [Fact(DisplayName = "Adding a subgroup to a column saves it in config.yaml, and dropping an item into it is remembered")]
     public void Lanes()
     {
         using TestRepo repo = new();
@@ -262,5 +262,59 @@ public sealed class EditingWorkItemsTests
         (bool ok, string message) = WorkItemsApi.SetStatus(124, "Planned");
         Assert.False(ok);
         Assert.Equal("Completed work items are archived and can't be moved back", message);
+    }
+
+    [Fact(DisplayName = "Deleting a custom feature unlinks it from its work items, which become unassigned")]
+    public void DeleteFeatureUnlinks()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        Features.FeaturesApi.CreateFeature("Functional", "Payments");
+        WorkItemsApi.SetManualFeatures(107, ["functional/payments"]);
+        Assert.Contains(Item(107).Features, f => f.Path == "functional/payments");
+
+        (bool ok, string _) = WorkItemsApi.DeleteFeature("functional/payments");
+
+        Assert.True(ok);
+        Assert.DoesNotContain(Item(107).Features, f => f.Path == "functional/payments");
+        Assert.DoesNotContain(Features.FeaturesApi.GetAll(), f => f.Path == "functional/payments");
+    }
+
+    [Fact(DisplayName = "In a git repo contributors are the commit authors plus anyone assigned in the app")]
+    public void ContributorsFromGit()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string token = "t1";
+        IReadOnlyList<string> authors = ["Alice"];
+        try
+        {
+            WorkItemsApi.ConfigureContributors(() => (token, folder => folder == "add-health-check" ? authors : []));
+            Assert.Equal(["Alice", "Artyom", "Tom"], Item(123).Contributors);   // git first, then x-rtm assignees
+            Assert.Equal(["Artyom", "Tom"], Item(123).Assigned);
+
+            authors = ["Bob", "Alice"];
+            token = "t2";   // a new commit
+            Assert.Equal(["Bob", "Alice", "Artyom", "Tom"], Item(123).Contributors);
+        }
+        finally { WorkItemsApi.ConfigureContributors(null); }
+
+        Assert.Equal(["Artyom", "Tom"], Item(123).Contributors);   // outside git only the assignees
+    }
+
+    [Fact(DisplayName = "A newcomer with no commits yet can assign themselves")]
+    public void NewcomerAssignsThemselves()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        try
+        {
+            WorkItemsApi.ConfigureContributors(() => ("t1", _ => []));   // fresh clone: nobody has committed to this change
+
+            WorkItemsApi.SetContributors(107, [.. Item(107).Assigned!, "Newcomer"]);
+
+            Assert.Contains("Newcomer", Item(107).Contributors);
+        }
+        finally { WorkItemsApi.ConfigureContributors(null); }
     }
 }

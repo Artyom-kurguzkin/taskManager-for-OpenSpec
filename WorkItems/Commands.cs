@@ -72,6 +72,19 @@ internal static partial class Commands
         return Update(id, m => m.Features = featurePaths.Where(p => !locked.Contains(p)).Distinct().ToList());
     }
 
+    /// <summary>Deletes a custom feature and unlinks it from active work items (they become unassigned). Archived items are left as they are.</summary>
+    internal static (bool Success, string Message) DeleteFeature(string path)
+    {
+        List<WorkItem> linked = Queries.GetAll(includeHidden: true).Where(i => !i.Archived && i.Features.Any(f => f.Path == path)).ToList();
+        if (linked.FirstOrDefault(i => i.Features.Any(f => f.Path == path && f.Locked)) is WorkItem specced)
+            return (false, $"#wi{specced.Id} has a spec for it in its specs/ folder");
+        (bool ok, string message) = Features.FeaturesApi.DeleteFeature(path);   // refuses spec-backed features before any item is touched
+        if (!ok) return (false, message);
+        foreach (WorkItem it in linked)
+            if (SetManualFeatures(it.Id, it.Features.Where(f => !f.Locked && f.Path != path).Select(f => f.Path)) is { Success: false } failed) return failed;
+        return (true, "");
+    }
+
     internal static (bool Success, string Message) SetDescription(int id, string body)
     {
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);

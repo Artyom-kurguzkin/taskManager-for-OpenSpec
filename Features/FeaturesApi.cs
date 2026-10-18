@@ -12,6 +12,9 @@ public static class FeaturesApi
 
     public static IReadOnlyList<Feature> GetAll() => Queries.GetAll();
 
-    /// <summary>Creates openspec/specs/&lt;group&gt;/&lt;name&gt;/spec.md with a Purpose placeholder.</summary>
-    public static (bool Success, string Message, Feature? Created) CreateSubgroup(string group, string name) => Commands.CreateSubgroup(group, name);
+    /// <summary>Adds a feature under a side (Functional, Non-Functional or Ungrouped), listed in config.yaml until OpenSpec creates its spec.</summary>
+    public static (bool Success, string Message, Feature? Created) CreateFeature(string group, string name) => Commands.CreateFeature(group, name);
+
+    /// <summary>Removes a custom feature (added from the board) from config.yaml. Features with a spec are refused (only OpenSpec removes those).</summary>
+    public static (bool Success, string Message) DeleteFeature(string path) => Commands.DeleteFeature(path);
 }

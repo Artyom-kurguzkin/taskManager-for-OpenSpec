@@ -5,7 +5,7 @@ namespace Features.Infrastructure;
 
 /// <summary>
 /// Features added from the board before any spec exists. OpenSpec only accepts a capability that has requirements
-/// (it creates one when a change that specs it is archived), so new sub-groups are listed in
+/// (it creates one when a change that specs it is archived), so features added from the board are listed in
 /// openspec/config.yaml under <c>x-rtm.features</c> instead of as empty spec files.
 /// </summary>
 internal static class DeclaredFeatures
@@ -24,6 +24,16 @@ internal static class DeclaredFeatures
         if (Config is not string c) return (false, "No repository is open");
         List<string> list = Read();
         if (!list.Contains(path)) list.Add(path);
-        return OpenSpecStoreApi.WriteRtmSection(c, Section, Writer.Serialize(list).Replace("\r\n", "\n"));
+        return Write(c, list);
     }
+
+    internal static (bool Success, string Message) Remove(string path)
+    {
+        if (Config is not string c) return (false, "No repository is open");
+        List<string> list = Read();
+        return list.Remove(path) ? Write(c, list) : (true, "");
+    }
+
+    private static (bool Success, string Message) Write(string config, List<string> list) =>
+        OpenSpecStoreApi.WriteRtmSection(config, Section, Writer.Serialize(list).Replace("\r\n", "\n"));
 }

@@ -42,6 +42,7 @@
   /* space / shape */
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
   --r: 14px; --wobble: 8px;
+  color-scheme: light;      /* native parts (scrollbars, form controls) follow the app theme, not the OS one */
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --paper: #161514; --card: #221f1d; --ink: #ece7e1; --ink-2: #a9a29b; --line: #5e5751; --line-soft: #3a3532;
@@ -379,3 +380,112 @@ button.tab.is-sel { background: var(--sun); border: 2px solid var(--line); }
   color: var(--ink); box-shadow: 3px 3px 0 var(--shadow); }
 .toasts .toast.success { --fill: var(--sage); color: var(--on-fill); }
 .toasts .toast.warning { --fill: var(--peach); color: var(--on-fill); }
+
+/* ===================== side menu (Layout/SideNav) ===================== */
+/* Wide windows: an icon rail on the left; ☰ or the view icon expands it to labels plus the board's view options.
+   Narrow windows (tablet, phone): the same markup becomes a top header bar, and the view options wrap under it. */
+body { padding: 0; }
+#app { display: grid; grid-template-columns: auto minmax(0, 1fr); min-height: 100vh; }
+main { min-width: 0; padding: 4px 12px 96px; }
+nav.side { position: sticky; top: 0; height: 100vh; z-index: 20; display: flex; flex-direction: column; gap: 2px;
+  width: 44px; padding: 6px 4px; overflow: hidden auto; background: var(--paper); border-right: 2px solid var(--line-soft); }
+nav.side.expanded { width: 240px; }
+.nav-btn { display: flex; align-items: center; gap: 10px; flex: none; min-height: 34px; padding: 0 8px; border: 2px solid transparent;
+  border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--f-body); text-align: left; white-space: nowrap; cursor: pointer; }
+.nav-btn svg { width: 16px; height: 16px; flex: none; }
+.nav-btn:hover, .nav-btn.is-open { background: var(--stone); color: var(--on-fill); }
+.nav-btn.is-sel { background: var(--sun); border-color: var(--line); color: var(--on-fill); }
+.nav-l { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+nav.side.expanded .nav-l { display: inline; }
+.nav-toggle .nav-l { font-size: 12px; color: var(--ink-2); }
+.nav-view { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 4px 0; padding: 12px 10px;
+  border-block: 2px dashed var(--line-soft); }
+.nav-view .field { gap: 6px; }
+.nav-view .seg-o { padding: 3px 12px; }
+.cat-tabs { margin-block: 0 8px; }
+.cat-tabs .seg-o { padding: 3px 12px; }
+.cat-tabs, .board-wrap, .tbl-wrap { scrollbar-width: thin; }
+.board-wrap .col { min-height: calc(100vh - 170px); }
+@media (max-width: 1100px) { .hint { display: none; } }
+@media (max-width: 900px) {
+  #app { display: block; }
+  nav.side, nav.side.expanded { position: sticky; top: 0; width: auto; height: auto; flex-flow: row wrap; align-items: center;
+    gap: 4px; padding: 6px 10px; border-right: 0; border-bottom: 2px solid var(--line-soft); overflow: visible; }
+  nav.side .nav-l, nav.side.expanded .nav-l { display: none; }
+  .nav-toggle .nav-l { display: inline !important; }        /* the repo name stays visible in the header */
+  .nav-btn { min-height: 36px; }
+  .nav-view { flex: 1 1 100%; order: 10; flex-flow: row wrap; align-items: center; gap: 8px 18px; margin: 0; padding: 8px 4px 2px; border-bottom: 0; }
+}
+@media (max-width: 640px) {
+  main { padding: 10px 10px 96px; }
+  .nav-toggle .nav-l { display: none !important; }
+  .cat-tabs .seg-o { padding: 3px 9px; }
+  .cat-h, .col-h h3 { font-size: var(--t-md); }
+  .board { gap: var(--s3); }
+  .cat-tabs, .cat-tabs .seg { flex-wrap: nowrap; }
+  .cat-tabs { overflow-x: auto; white-space: nowrap; padding-bottom: 4px; }
+  .sheet { padding: 16px; }
+  .esc-hint, .crumbs .mono { display: none; }
+  .title-in { flex-basis: 100%; }
+  /* list: keep id, title, status, priority; features, contributors, progress and date are on the item page */
+  .tbl thead th:nth-child(6), .tbl thead th:nth-child(7), .tbl thead th:nth-child(9), .tbl thead th:nth-child(10),
+  .tbl tr.lrow > td:nth-child(6), .tbl tr.lrow > td:nth-child(7), .tbl tr.lrow > td:nth-child(9), .tbl tr.lrow > td:nth-child(10) { display: none; }
+  .tbl td, .tbl thead th { padding-inline: 6px; }
+}
+/* tighter spacing everywhere (space is the scarce thing on a board) */
+.nav-view { gap: 8px; padding: 8px 6px; }
+.cat-tabs { margin-block: 0 4px; gap: 8px; }
+.cat-tabs .seg-o, .seg-o { padding: 2px 10px; }
+.board-wrap { padding-bottom: 8px; }
+.board { gap: var(--s4); padding: 2px; }
+.cat { gap: 4px; }
+.cat-h { font-size: var(--t-md); padding-inline: 4px; }
+.cat-cols { gap: var(--s2); }
+.col { padding: 2px 4px; gap: 6px; }
+.col-h { padding: 2px 8px; }
+.col-h h3 { font-size: var(--t-md); }
+.lane { gap: var(--s2); padding: 2px; }
+.card { gap: 6px; padding-bottom: 10px; }
+.card .band { padding: 7px 30px 7px 12px; }
+.card > :not(.band):not(.pick) { padding-inline: 12px; }
+.tbl thead th { padding: 6px 8px; }
+.tbl td { padding: 4px 8px; }
+.tbl .grp td { padding: 8px 6px 4px; }
+.crumbs { margin-block: 0 6px; }
+.sheet { padding: 16px 20px 20px; gap: var(--s4); }
+.board-wrap .col { min-height: calc(100vh - 110px); }
+@media (max-width: 900px) { nav.side, nav.side.expanded { padding: 2px 8px; } }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tbl td { white-space: nowrap; }
+.tbl td:nth-child(4) { white-space: normal; min-width: 180px; }   /* only the title wraps */
+/* side menu: layout dropdown, group manager */
+nav.side .menu-wrap, nav.side .menu-activator { display: block; }
+nav.side .menu-activator .nav-btn { width: 100%; }
+nav.side.expanded .nav-caret { display: inline-flex; margin-left: auto; opacity: .6; }
+.menu-item svg { width: 15px; height: 15px; }
+@media (min-width: 901px) { .nav-view-btn { display: none !important; } }   /* desktop: ☰ shows the options; the view icon is for the header bar */
+.nav-hidden { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 8px; border-bottom: 2px dashed var(--line-soft); }
+.nav-h { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 4px; font: 700 12px var(--f-body);
+  text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
+.nav-h .btn { min-height: 26px; font-size: 13px; text-transform: none; letter-spacing: 0; }
+.grp-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 2px; padding: 1px 2px; border-radius: 8px; }
+.grp-row:hover { background: color-mix(in srgb, var(--stone) 45%, transparent); }
+.grp-row .nm { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grp-row .ic { display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none;
+  color: var(--ink-2); cursor: pointer; }
+.grp-row .ic:hover:not(:disabled) { background: var(--stone); color: var(--on-fill); }
+.grp-row .ic svg { width: 14px; height: 14px; }
+@media (max-width: 900px) {
+  nav.side .menu-wrap, nav.side .menu-activator { display: inline-block; }
+  .nav-hidden { flex: 1 1 100%; order: 11; max-width: 420px; border-bottom: 0; }
+}
+.nav-view .seg { flex-wrap: nowrap; }
+.nav-view .seg-o { white-space: nowrap; padding: 2px 9px; }
+nav.side { scrollbar-width: thin; }
+.grp-row .nm { padding-left: 6px; font-weight: 500; }
+.cat > .menu-wrap { align-self: flex-start; }
+.cat-h { padding: 1px 8px; cursor: pointer; }
+.col-h[draggable="true"], .cat-h { cursor: grab; }
+.feature-bar { display: flex; align-items: center; gap: 14px; margin-block: 0 4px; }
+/* thin scrollbars in theme colours (the default one is a heavy dark bar) */
+html, .board-wrap, .tbl-wrap, .cat-tabs, nav.side { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink-2) 45%, transparent) transparent; }

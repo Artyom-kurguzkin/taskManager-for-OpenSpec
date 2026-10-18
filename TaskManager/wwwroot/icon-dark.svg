@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- App icon: Artyom's signature (a long swoosh into a looped "A") on the dark theme's background (icon.svg inverted). -->
+  <rect width="100" height="100" rx="20" fill="#161514"/>
+  <g transform="translate(9 8) scale(.82)" fill="none" stroke="#ece7e1" stroke-linecap="round" stroke-linejoin="round">
+    <!-- swoosh: a thin line sweeping down-left from the top right -->
+    <path d="M95 6 C 72 18, 48 33, 33 47 S 12 75, 5 91" stroke-width="4.5"/>
+    <!-- bold loop: along the bottom, up to the apex, back down-left -->
+    <path d="M5 91 Q 32 84, 58 81 L 64 50 L 40 72" stroke-width="10"/>
+  </g>
+</svg>

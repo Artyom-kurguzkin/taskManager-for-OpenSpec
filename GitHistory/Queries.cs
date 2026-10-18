@@ -41,6 +41,55 @@ internal static class Queries
         return Parse(GitCli.Run("log", Format, "--fixed-strings", $"--grep={token}").Output).Where(c => whole.IsMatch(c.Subject)).ToList();
     }
 
+    internal static IReadOnlyList<string> AuthorsOfChange(string folder)
+    {
+        if (!IsRepository()) return [];
+        string head = HeadToken();
+        if (GitHistoryModule.Authors is not { } a || a.Head != head)
+        {
+            a = (head, ReadAuthors());
+            GitHistoryModule.Authors = a;
+        }
+        return a.ByChange.TryGetValue(ChangeName(folder), out List<string>? authors) ? authors : [];
+    }
+
+    // One "git log --name-only" over openspec/changes: each commit is "\x1e<author>" followed by the files it touched.
+    private static Dictionary<string, List<string>> ReadAuthors()
+    {
+        Dictionary<string, List<string>> byChange = [];
+        string? author = null;
+        foreach (string raw in GitCli.Run("log", "--format=%x1e%an", "--name-only", "--", "openspec/changes").Output.Split('\n'))
+        {
+            string line = raw.TrimEnd('\r');
+            if (line.StartsWith('\x1e')) { author = line[1..]; continue; }
+            string[] parts = line.Split('/');   // openspec/changes/<name>/… or openspec/changes/archive/<date-name>/…
+            if (author is null || parts.Length < 4 || parts[0] != "openspec" || parts[1] != "changes") continue;
+            if (parts[2] == "archive" && parts.Length < 5) continue;
+            string name = ChangeName(parts[2] == "archive" ? parts[3] : parts[2]);
+            List<string> list = byChange.TryGetValue(name, out List<string>? l) ? l : byChange[name] = [];
+            if (!list.Contains(author)) list.Add(author);
+        }
+        return byChange;
+    }
+
+    /// <summary>"2026-09-18-session-timeout" (archived) and "session-timeout" are the same change.</summary>
+    private static string ChangeName(string folder) => Regex.Replace(folder, @"^\d{4}-\d{2}-\d{2}-", "");
+
+    // ponytail: reads .git/HEAD and the branch ref directly; worktrees/submodules (.git is a file) fall back to git rev-parse.
+    internal static string HeadToken()
+    {
+        if (GitHistoryModule.RepoRoot is not string root) return "";
+        string git = Path.Combine(root, ".git");
+        if (!Directory.Exists(git)) return GitCli.Run("rev-parse", "HEAD").Output.Trim();
+        string head = File.ReadAllText(Path.Combine(git, "HEAD")).Trim();
+        if (!head.StartsWith("ref: ", StringComparison.Ordinal)) return head;
+        string name = head[5..];
+        string loose = Path.Combine(git, name);
+        if (File.Exists(loose)) return File.ReadAllText(loose).Trim();
+        string packed = Path.Combine(git, "packed-refs");
+        return File.Exists(packed) ? File.ReadLines(packed).FirstOrDefault(l => l.EndsWith(" " + name, StringComparison.Ordinal)) ?? "" : "";
+    }
+
     private static List<CommitInfo> Parse(string output) =>
         output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(l => l.TrimEnd('\r').Split('\x1f'))

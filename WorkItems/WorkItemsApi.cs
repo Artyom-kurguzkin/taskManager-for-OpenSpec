@@ -15,6 +15,13 @@ public static class WorkItemsApi
     /// How a change gets archived. Default runs <c>openspec archive &lt;folder&gt; --yes</c> in the repo root;
     /// pass null to restore it. Returns the CLI's message on failure.
     /// </summary>
+    /// <summary>Adds git commit authors to contributors. The token must change on each commit so the cache refreshes.</summary>
+    public static void ConfigureContributors(Func<(string Token, Func<string, IReadOnlyList<string>> AuthorsOf)?>? git)
+    {
+        WorkItemsModule.Git = git;
+        WorkItemsModule.Cache = null;
+    }
+
     public static void ConfigureArchiver(Func<string, (bool Success, string Message)>? archive) => WorkItemsModule.Archive = archive ?? Infrastructure.OpenSpecCli.Archive;
 
     // ── Reads ──
@@ -33,6 +40,9 @@ public static class WorkItemsApi
     public static (bool Success, string Message) SetTitle(int id, string title) => Commands.Update(id, m => m.Title = title.Trim());
     public static (bool Success, string Message) SetContributors(int id, IEnumerable<string> people) => Commands.Update(id, m => m.Contributors = people.Distinct().ToList());
     public static (bool Success, string Message) SetManualFeatures(int id, IEnumerable<string> featurePaths) => Commands.SetManualFeatures(id, featurePaths);
+
+    /// <summary>Deletes a custom feature (see FeaturesApi.DeleteFeature) and unlinks it from active work items, which become unassigned.</summary>
+    public static (bool Success, string Message) DeleteFeature(string path) => Commands.DeleteFeature(path);
     public static (bool Success, string Message) SetDescription(int id, string body) => Commands.SetDescription(id, body);
 
     // ── Subtasks ──

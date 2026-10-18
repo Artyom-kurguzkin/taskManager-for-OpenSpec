@@ -13,7 +13,7 @@
 }
 
 <div class="crumbs">
-    <button class="btn ghost" @onclick="Back">← back</button><kbd>esc</kbd> goes to previous page ·
+    <button class="btn ghost" @onclick="Back">← back</button><span class="esc-hint"><kbd>esc</kbd> goes to previous page ·</span>
     <span class="mono">@(Workspace.Root is string r ? Path.GetRelativePath(r, note.Path).Replace('\\', '/') : note.Path)</span>
 </div>
 

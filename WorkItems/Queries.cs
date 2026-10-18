@@ -10,13 +10,16 @@ internal static partial class Queries
 {
     internal static IReadOnlyList<WorkItem> GetAll(bool includeHidden) => All().Where(w => includeHidden || !w.Hidden).ToList();
 
-    /// <summary>Every work item, parsed once per OpenSpecStore content version (own write, outside edit or repo switch).</summary>
+    /// <summary>Every work item, parsed once per OpenSpecStore content version (own write, outside edit or repo switch) and git commit.</summary>
     private static IReadOnlyList<WorkItem> All()
     {
         long version = OpenSpecStoreApi.Version;
-        if (WorkItemsModule.Cache is { } c && c.Version == version) return c.Items;
+        var git = WorkItemsModule.Git?.Invoke();
+        string token = git?.Token ?? "";
+        if (WorkItemsModule.Cache is { } c && c.Version == version && c.Git == token) return c.Items;
         IReadOnlyList<WorkItem> items = Load();
-        WorkItemsModule.Cache = (version, items);
+        if (git is { } g) items = items.Select(i => i with { Contributors = [.. g.AuthorsOf(i.Folder).Union(i.Contributors)] }).ToList();
+        WorkItemsModule.Cache = (version, token, items);
         WorkItemsModule.Loads++;
         return items;
     }
@@ -93,7 +96,7 @@ internal static partial class Queries
             features,
             TasksFile.Parse(OpenSpecStoreApi.ReadText(Path.Combine(dir, "tasks.md"))),
             meta.Lanes ?? [],
-            archived, created, modified, warning, meta.Hidden == true);
+            archived, created, modified, warning, meta.Hidden == true, meta.Contributors ?? []);
     }
 
     [GeneratedRegex(@"^created:\s*(?<d>\S+)", RegexOptions.Multiline)]

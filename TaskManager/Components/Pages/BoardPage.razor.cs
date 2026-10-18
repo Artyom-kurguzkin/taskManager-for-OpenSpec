@@ -26,12 +26,13 @@ public partial class BoardPage
     private readonly HashSet<string> shutGroups = [];
     private bool expandAll;
     private (WorkItem Item, string From)? dragging;
+    private (IReadOnlyList<string> Siblings, string Key)? draggingColumn;   // a column header or group name being dragged
     private string? dropTarget;
 
-    private static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List")];
-    private static readonly IReadOnlyList<(string, string)> Units = [("tasks", "Work items"), ("subtasks", "Subtasks")];
-    private static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("feature", "feature"), ("contributor", "contributor")];
-    private static readonly IReadOnlyList<(string, string)> SortBys =
+    internal static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List")];
+    internal static readonly IReadOnlyList<(string, string)> Units = [("tasks", "Work items"), ("subtasks", "Subtasks")];
+    internal static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("feature", "feature"), ("contributor", "contributor")];
+    internal static readonly IReadOnlyList<(string, string)> SortBys =
         [("priority", "priority"), ("feature", "feature"), ("who", "contributor"), ("modified", "date modified"), ("created", "date created"), ("status", "status"), ("title", "title"), ("id", "id")];
     private static readonly IReadOnlyList<(string, string)> Priorities = [("high", "high"), ("low", "lower")];
     private static readonly IReadOnlyList<(string, string)> Statuses = WorkItemsApi.Statuses.Select(s => (s, s)).ToList();
@@ -41,21 +42,26 @@ public partial class BoardPage
     private IReadOnlyList<(string, string)> People =>
         [("all", "everyone"), .. items.SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
 
-    private string CurrentCategory => BoardModel.Categories(features).Contains(O.Category) ? O.Category : "all";
-    private IReadOnlyList<(string, string)> CategoryOptions => [("all", "All groups"), .. BoardModel.Categories(features).Select(c => (c, c))];
-    private IReadOnlyDictionary<string, int> CategoryCounts =>
-        features.GroupBy(f => f.Group).ToDictionary(g => g.Key, g => items.Count(i => i.Features.Any(f => g.Any(x => x.Path == f.Path))));
+    private string CurrentCategory => BoardModel.Side(features, O);
+    private IReadOnlyList<(string, string)> CategoryOptions => BoardModel.Categories(features).Select(c => (c, c)).ToList();
 
     private IEnumerable<(string? Category, BoardColumn Column)> Flat => Sections.SelectMany(s => s.Columns.Select(c => (s.Category, c)));
 
     protected override void OnInitialized()
     {
         Workspace.Changed += OnChanged;
+        Settings.Changed += OnSettings;
         if (Workspace.Root is string root) O = Settings.Board(root);
         Load();
     }
 
     private void OnChanged() => InvokeAsync(() => { Load(); StateHasChanged(); });
+
+    // The side menu edits the view options through the settings store.
+    private void OnSettings() => InvokeAsync(() =>
+    {
+        if (Workspace.Root is string root && Settings.Board(root) is var o && o != O) { O = o; Load(); StateHasChanged(); }
+    });
 
     private void Load()
     {
@@ -114,8 +120,24 @@ public partial class BoardPage
         Run(WorkItemsApi.SetStatus(it.Id, status));
     }
 
+    private void StartColumnDrag(IReadOnlyList<string> siblings, string key)
+    {
+        dragging = null;
+        draggingColumn = (siblings, key);
+    }
+
+    /// <summary>A header dropped onto another column takes that one's place, if they are siblings.</summary>
+    private void DropOn(string targetKey)
+    {
+        dropTarget = null;
+        if (draggingColumn is not (IReadOnlyList<string> siblings, string key)) return;
+        draggingColumn = null;
+        if (siblings.Contains(targetKey)) Set(BoardModel.MoveTo(O, siblings, key, targetKey));
+    }
+
     private async Task Drop(BoardColumn col, string? lane)
     {
+        if (draggingColumn is not null) { DropOn(BoardModel.ColumnKey(O, col.Key)); return; }
         dropTarget = null;
         if (dragging is not (WorkItem it, string from)) return;
         dragging = null;
@@ -124,10 +146,14 @@ public partial class BoardPage
         else if (O.GroupBy == "feature" && from != col.Key)
         {
             if (it.Features.Any(f => f.Path == from && f.Locked)) { Popups.Toast("This feature comes from the change's specs/ folder", ToastKind.Info); return; }
-            Run(WorkItemsApi.SetManualFeatures(it.Id, it.Features.Select(f => f.Path).Where(p => p != from).Append(col.Key)));
+            Run(WorkItemsApi.SetManualFeatures(it.Id, it.Features.Select(f => f.Path).Where(p => p != from).Append(col.Key).Where(p => p != BoardModel.Unassigned)));
         }
         else if (O.GroupBy == "contributor" && from != col.Key)
-            Run(WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(p => p != from).Append(col.Key)));
+        {
+            // only assignments move; commit authors stay contributors whatever column the card is dropped on
+            Run(WorkItemsApi.SetContributors(it.Id, (it.Assigned ?? it.Contributors).Where(p => p != from).Append(col.Key).Where(p => p != BoardModel.Unassigned)));
+            if (from != BoardModel.Unassigned && !(it.Assigned ?? []).Contains(from)) Popups.Toast($"{from} has commits on #wi{it.Id}, so they stay a contributor", ToastKind.Info);
+        }
 
         if (lane is not null) Run(WorkItemsApi.SetLane(it.Id, col.Key, lane));
     }
@@ -135,28 +161,42 @@ public partial class BoardPage
     private async Task NewItem(string? columnKey)
     {
         string status = O.GroupBy == "status" && columnKey is not null ? columnKey : "Backlog";
-        string[]? feature = O.GroupBy == "feature" && columnKey is not null ? [columnKey] : null;
-        string[] who = O.GroupBy == "contributor" && columnKey is not null ? [columnKey] : [Workspace.Me];
-        (bool ok, string message, int id) = WorkItemsApi.Create("New work item", status, feature, who);
+        string[]? feature = O.GroupBy == "feature" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
+        string[]? who = O.GroupBy == "contributor" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
+        (bool ok, string message, int id) = Workspace.CreateItem(status, feature, who);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
-        Workspace.Notify();
         Popups.Toast($"Created #wi{id}", ToastKind.Success);
         OpenItem(id);
         await Task.CompletedTask;
     }
 
-    private Task<string?> Ask(string title, string placeholder, string action) => Popups.Prompt(title, placeholder, action);
+    private int Linked(string path) => WorkItemsApi.GetAll(includeHidden: true).Count(i => !i.Archived && i.Features.Any(f => f.Path == path));
 
-    private async Task AddLane(string column)
+    private static string Moving(int n) => n switch
     {
-        if (await Ask($"Add a sub-category to {column}", "e.g. Needs review", "Add") is string lane) Run(WorkItemsApi.AddLane(column, lane));
+        0 => "Nothing is linked to it.",
+        1 => "Its 1 work item moves to Unassigned.",
+        _ => $"Its {n} work items move to Unassigned.",
+    };
+
+    private async Task DeleteFeature(Feature f)
+    {
+        if (!await Popups.Confirm($"Delete {f.Name}?", $"{Moving(Linked(f.Path))} It is removed from openspec/config.yaml.", yes: "Delete")) return;
+        Run(WorkItemsApi.DeleteFeature(f.Path));
     }
 
-    private async Task AddSubgroup()
+    private Task<string?> Ask(string title, string placeholder, string action) => Popups.Prompt(title, placeholder, action);
+
+    private async Task AddLane(string column, string label)
     {
-        string group = CurrentCategory == "all" ? BoardModel.Categories(features).FirstOrDefault(c => c != FeaturesApi.Ungrouped) ?? FeaturesApi.Ungrouped : CurrentCategory;
-        if (await Ask($"New sub-group in {group}", "e.g. Exports", "Create") is not string name) return;
-        (bool ok, string message, Feature? _) = FeaturesApi.CreateSubgroup(group, name);
+        if (await Ask($"Add a subgroup to {label}", "e.g. Needs review", "Add") is string lane) Run(WorkItemsApi.AddLane(column, lane));
+    }
+
+    private async Task AddFeature()
+    {
+        string side = CurrentCategory;
+        if (await Ask(side == FeaturesApi.Ungrouped ? "New feature" : $"New {side} feature", "e.g. Exports", "Create") is not string name) return;
+        (bool ok, string message, Feature? _) = FeaturesApi.CreateFeature(side, name);
         Run((ok, message));
     }
 
@@ -169,5 +209,9 @@ public partial class BoardPage
         Popups.Toast($"Merged into #wi{id}", ToastKind.Success);
     }
 
-    public void Dispose() => Workspace.Changed -= OnChanged;
+    public void Dispose()
+    {
+        Workspace.Changed -= OnChanged;
+        Settings.Changed -= OnSettings;
+    }
 }

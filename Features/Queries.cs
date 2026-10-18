@@ -25,17 +25,16 @@ internal static class Queries
             ? Directory.EnumerateFiles(specs, "spec.md", SearchOption.AllDirectories)
                 .Select(f => Path.GetRelativePath(specs, Path.GetDirectoryName(f)!).Replace('\\', '/')).ToList()
             : [];
-        return real.Concat(DeclaredFeatures.Read().Except(real))
-            .Select(ToFeature)
+        return real.Select(p => ToFeature(p)).Concat(DeclaredFeatures.Read().Except(real).Select(p => ToFeature(p, custom: true)))
             .OrderBy(f => f.Group == FeaturesApi.Ungrouped ? "" : f.Group, StringComparer.OrdinalIgnoreCase)
             .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
-    internal static Feature ToFeature(string path)
+    internal static Feature ToFeature(string path, bool custom = false)
     {
         string[] parts = path.Split('/');
         string group = parts.Length > 1 ? Naming.Group(parts[0]) : FeaturesApi.Ungrouped;
-        return new Feature(path, Naming.Name(parts[^1]), group);
+        return new Feature(path, Naming.Name(parts[^1]), group, custom);
     }
 }
