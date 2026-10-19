@@ -2,12 +2,11 @@
 
 ## Why
 
-Git already records who changed a work item and when, and which commits implement it. Showing that history directly avoids keeping a separate changelog by hand.
+Git already records which commits implement a work item and who wrote them. Showing that directly saves looking it up by hand. (The work item's change log is its notes, see add-notes.)
 
 ## What Changes
 
-- Change log on the work item page, built from commits that touched the change folder (archived path included).
-- Linked commits: commits whose message mentions `#wi<id>`.
+- Linked commits: commits whose message mentions `#wi<id>`, plus commits picked from a list on the work item page (stored in `x-rtm.commits`).
 - The current git user becomes the default contributor and note author.
 - Optional "Commit" action that commits the app's pending edits to the work item with a generated message containing `#wi<id>`.
 

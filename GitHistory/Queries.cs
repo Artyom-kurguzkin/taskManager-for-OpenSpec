@@ -31,9 +31,6 @@ internal static class Queries
         return name;
     }
 
-    internal static IReadOnlyList<CommitInfo> Log(IReadOnlyList<string> paths) =>
-        IsRepository() ? Parse(GitCli.Run(["log", Format, "--", .. paths]).Output) : [];
-
     internal static IReadOnlyList<CommitInfo> Mentioning(string token)
     {
         if (!IsRepository()) return [];
@@ -89,6 +86,13 @@ internal static class Queries
         string packed = Path.Combine(git, "packed-refs");
         return File.Exists(packed) ? File.ReadLines(packed).FirstOrDefault(l => l.EndsWith(" " + name, StringComparison.Ordinal)) ?? "" : "";
     }
+
+    internal static IReadOnlyList<CommitInfo> Recent(int count) =>
+        IsRepository() ? Parse(GitCli.Run("log", Format, $"-{count}").Output) : [];
+
+    // One "git show" per hash: an unknown hash fails on its own instead of failing the whole list.
+    internal static IReadOnlyList<CommitInfo> Commits(IReadOnlyList<string> hashes) =>
+        IsRepository() ? hashes.SelectMany(h => Parse(GitCli.Run("show", "-s", Format, h).Output)).ToList() : [];
 
     private static List<CommitInfo> Parse(string output) =>
         output.Split('\n', StringSplitOptions.RemoveEmptyEntries)

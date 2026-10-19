@@ -56,6 +56,20 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Empty(card.FindAll(".meta-row"));
     }
 
+    [Fact(DisplayName = "A card shows a failing-tests marker when a linked test failed in the latest run")]
+    public async Task FailingTestsMarker()
+    {
+        await using BunitContext ctx = NewContext();
+        repo.Write("results/run.trx", ReadingTestResultsTests.Trx);
+        ReadingTestResultsTests.UseResults(repo, "results/*.trx");
+
+        WorkItemsApi.SetLinkedTests(123, [new WorkItems.PublicDTOs.TestLink("UptimeTests", "Ping test", null)]);
+        Assert.Empty(ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Options, new BoardOptions())).FindAll(".tests-failing"));
+
+        WorkItemsApi.SetLinkedTests(123, [new WorkItems.PublicDTOs.TestLink("UptimeTests", "Page load test", null)]);
+        Assert.NotEmpty(ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Options, new BoardOptions())).FindAll(".tests-failing"));
+    }
+
     [Fact(DisplayName = "The board shows a column per status with the repository's work items")]
     public async Task BoardColumns()
     {

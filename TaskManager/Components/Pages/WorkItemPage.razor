@@ -75,17 +75,17 @@
             }
         </section>
 
+        @* the work item's notes are its change log entries (newest first); commits are listed separately under Linked commits *@
         <section class="panel changelog">
-            <h3>Change log <span class="muted">from git history</span></h3>
-            @if (!GitHistoryApi.IsRepository()) { <p class="muted">Not a git repository, so there is no history to show.</p> }
-            else
-            {
-                @foreach ((CommitInfo c, int n) in log.Select((c, i) => (c, log.Count - i)))
+            <h3>Change log <span class="muted">notes</span></h3>
+            <div class="change-log">
+                @foreach (Note n in notes)
                 {
-                    <div class="log-e hov" data-sk tabindex="0"><b>entry @n</b><span>@c.Subject</span><span class="muted">@c.Date.ToString("d.M.yyyy") · @c.Author</span></div>
+                    <button class="log-e hov" data-sk @onclick="@(() => Nav.NavigateTo($"note/{n.Id}"))"><b>#n@(n.Id) · @n.Title</b><span class="muted">@n.Created.ToString("d.M.yyyy") · @n.By</span></button>
                 }
-                @if (log.Count == 0) { <p class="muted">No commits touch this change yet.</p> }
-            }
+                @if (notes.Count == 0) { <p class="muted">No entries yet.</p> }
+            </div>
+            <button class="btn" data-sk @onclick="AddNote">+ Add entry</button>
         </section>
 
         <section class="panel">
@@ -105,31 +105,83 @@
                 <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
                     <input @bind="newSubtask" placeholder="Add a subtask…" aria-label="New subtask" /><button class="btn" data-sk type="submit">add</button>
                 </form>
-                <span class="muted">Click subtask text to select several, then move them into a new work item.</span>
+                <span class="muted">Click a subtask's text to select it (or several), then make it a work item of its own.</span>
             }
         </section>
 
         <section class="panel">
             <h3>Linked commits</h3>
-            @if (commits.Count == 0) { <p class="muted">Commits that mention #wi@(item.Id) show up here.</p> }
-            @foreach (CommitInfo c in commits) { <div class="commit hov" data-sk tabindex="0"><span class="mono">@c.Hash</span><span>@c.Subject</span></div> }
-            <h3>Notes</h3>
-            <div class="notes-list">
-                @foreach (Note n in notes) { <button class="test hov" data-sk @onclick="@(() => Nav.NavigateTo($"note/{n.Id}"))"><span class="mono muted">#n@(n.Id)</span> @n.Title</button> }
-                @if (notes.Count == 0) { <p class="muted">No notes yet.</p> }
+            @* commits that mention #wiN (from git) plus ones picked by hand (x-rtm.commits, removable) *@
+            <div class="linked-commits">
+                @if (!GitHistoryApi.IsRepository()) { <p class="muted">Not a git repository, so there are no commits to show.</p> }
+                else if (commits.Count == 0) { <p class="muted">Commits that mention #wi@(item.Id), or that you link here, show up here.</p> }
+                @foreach (CommitInfo c in commits)
+                {
+                    bool picked = (item.Commits ?? []).Contains(c.Hash);
+                    <div class="commit hov" data-sk tabindex="0"><span class="mono">@c.Hash</span><span>@c.Subject</span>
+                        @if (picked && !item.Archived) { <button class="ic" aria-label="Unlink commit" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedCommits(item.Id, item.Commits!.Where(h => h != c.Hash)))">×</button> }</div>
+                }
+                @if (GitHistoryApi.IsRepository() && !item.Archived)
+                {
+                    <Menu Label="Link a commit">
+                        <Activator><button class="btn ghost" aria-label="Link a commit">+ link commit</button></Activator>
+                        <Items>
+                            <input class="menu-filter" placeholder="Filter commits…" aria-label="Filter commits" @bind="pickFilter" @bind:event="oninput" />
+                            @foreach (CommitInfo c in GitHistoryApi.Recent(50).Where(c => !commits.Any(x => x.Hash == c.Hash) && Matches(c.Hash, c.Subject, c.Author)))
+                            {
+                                <MenuItem OnClick="() => Run(WorkItemsApi.SetLinkedCommits(item.Id, [.. item.Commits ?? [], c.Hash]))"><span class="mono">@c.Hash</span> @c.Subject <span class="muted">· @c.Author</span></MenuItem>
+                            }
+                        </Items>
+                    </Menu>
+                }
             </div>
-            <button class="btn" data-sk @onclick="AddNote">+ Add note</button>
             <h3>Linked tests</h3>
-            <p class="muted">Test results arrive with the add-test-links change.</p>
+            @* tests picked from the newest results file (x-rtm.tests), each with its last result and an optional note *@
+            <div class="linked-tests">
+                @foreach (IGrouping<string, TestLink> suite in (item.Tests ?? []).GroupBy(t => t.Suite))
+                {
+                    List<string> outcomes = suite.Select(Outcome).ToList();
+                    <div class="suite-h"><b>@suite.Key</b>
+                        <span class="muted">@(run.Results.Where(r => r.Suite == suite.Key).Max(r => r.Finished) is DateTime ran ? $"· last ran {ran.ToLocalTime():d.M.yyyy HH:mm}" : "")
+                            · @(outcomes.Count(o => o == "failed") is int failed and > 0 ? $"{failed} failed" : outcomes.All(o => o == "passed") ? "all passed" : "not all run")</span></div>
+                    @foreach (TestLink t in suite)
+                    {
+                        <div class="test @Outcome(t)">
+                            @if (t.Note is int note) { <button class="row-title" @onclick="@(() => Nav.NavigateTo($"note/{note}"))">@t.Test</button> } else { <span>@t.Test</span> }
+                            <span class="muted">@Outcome(t)</span>
+                            @if (!item.Archived)
+                            {
+                                @if (t.Note is null) { <button class="btn ghost" aria-label="Add a note for this test" @onclick="() => AddTestNote(t)">+ note</button> }
+                                <button class="ic" aria-label="Unlink test" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, item.Tests!.Where(x => x != t)))">×</button>
+                            }
+                        </div>
+                    }
+                }
+                @if (run.File is null) { <p class="muted">@(run.Globs.Count == 0 ? "No test results configured: list result files under x-rtm.testResults in openspec/config.yaml." : $"No results file found at {string.Join(", ", run.Globs)}.")</p> }
+                @if (!item.Archived && run.File is not null)
+                {
+                    <Menu Label="Link a test">
+                        <Activator><button class="btn ghost" aria-label="Link a test">+ link test</button></Activator>
+                        <Items>
+                            <input class="menu-filter" placeholder="Filter tests…" aria-label="Filter tests" @bind="pickFilter" @bind:event="oninput" />
+                            @foreach (TestResults.PublicDTOs.TestResult r in run.Results.Where(r => !(item.Tests ?? []).Any(t => t.Suite == r.Suite && t.Test == r.Test) && Matches(r.Suite, r.Test))
+                                .OrderBy(r => r.Suite, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Test, StringComparer.OrdinalIgnoreCase))
+                            {
+                                <MenuItem OnClick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, [.. item.Tests ?? [], new TestLink(r.Suite, r.Test, null)]))"><span class="muted">@r.Suite /</span> @r.Test</MenuItem>
+                            }
+                        </Items>
+                    </Menu>
+                }
+            </div>
         </section>
     </div>
 </div>
 
-@if (subSel.Count >= 2)
+@if (subSel.Count >= 1)
 {
     <div class="actionbar" data-sk>
-        <span class="n">@subSel.Count subtasks</span>
-        <button class="btn primary" data-sk @onclick="MoveSubtasks">Move into a separate work item</button>
+        <span class="n">@subSel.Count subtask@(subSel.Count == 1 ? "" : "s")</span>
+        <button class="btn primary" data-sk @onclick="MoveSubtasks">@(subSel.Count == 1 ? "Make it a work item" : "Move into a separate work item")</button>
         <button class="btn ghost" @onclick="() => subSel.Clear()">Clear</button>
     </div>
 }
@@ -145,10 +197,16 @@
     private string description = "";
     private bool editingDescription;
     private string newSubtask = "";
-    private IReadOnlyList<CommitInfo> log = [];
     private IReadOnlyList<CommitInfo> commits = [];
     private IReadOnlyList<Note> notes = [];
+    private TestResults.PublicDTOs.TestRun run = new(null, [], []);
+    private string pickFilter = "";   // text typed in the commit / test picker
+
+    private bool Matches(params string[] fields) => pickFilter.Trim().Length == 0 || fields.Any(f => f.Contains(pickFilter.Trim(), StringComparison.OrdinalIgnoreCase));
     private readonly HashSet<string> subSel = [];
+
+    /// <summary>A linked test's outcome in the newest results file: passed, failed, skipped, or "no result".</summary>
+    private string Outcome(TestLink t) => run.Results.FirstOrDefault(r => r.Suite == t.Suite && r.Test == t.Test)?.Outcome ?? "no result";
 
     private static readonly IReadOnlyList<(string, string)> Statuses = WorkItemsApi.Statuses.Select(s => (s, s)).ToList();
     private static readonly IReadOnlyList<(string, string)> Priorities = [("high", "high"), ("low", "lower")];
@@ -172,11 +230,10 @@
         item = WorkItemsApi.Get(Id);
         if (item is null) return;
         if (!editingDescription) description = WorkItemsApi.GetDescription(Id);
-        notes = NotesApi.GetForWorkItem(Id);
-        // History follows the folder into the archive: openspec/changes/<name> → openspec/changes/archive/<date>-<name>.
-        string name = System.Text.RegularExpressions.Regex.Replace(item.Folder, @"^\d{4}-\d{2}-\d{2}-", "");
-        log = GitHistoryApi.Log([$"openspec/changes/{name}", $"openspec/changes/archive/{item.Folder}"]);
-        commits = GitHistoryApi.Mentioning($"#wi{Id}");
+        notes = NotesApi.GetForWorkItem(Id).OrderByDescending(n => n.Created).ThenByDescending(n => n.Id).ToList();
+        commits = [.. GitHistoryApi.Mentioning($"#wi{Id}").Concat(GitHistoryApi.Commits(item.Commits ?? [])).DistinctBy(c => c.Hash)];
+        run = TestResults.TestResultsApi.Latest();
+        pickFilter = "";
         subSel.IntersectWith(item.Subtasks.Select(s => s.Number));
     }
 
@@ -240,6 +297,15 @@
         subSel.Clear();
         Run((ok, message));
         if (ok) Popups.Toast($"Moved into #wi{newId}", ToastKind.Success);
+    }
+
+    // A note describing the test (what a developer or Playwright checks), attached to the link and opened for writing.
+    private void AddTestNote(TestLink t)
+    {
+        (bool ok, string message, int noteId) = NotesApi.Create(Id, Workspace.Me);
+        if (!ok || !WorkItemsApi.SetLinkedTests(Id, item!.Tests!.Select(x => x == t ? x with { Note = noteId } : x)).Success) { Popups.Toast(message, ToastKind.Warning); return; }
+        Nav.NavigateTo($"note/{noteId}");
+        Workspace.Notify();
     }
 
     private void AddNote()

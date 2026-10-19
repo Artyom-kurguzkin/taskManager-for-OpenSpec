@@ -6,7 +6,7 @@ The mockup's work item page shows linked test suites with their last run result,
 
 ## What Changes
 
-- Tests linked to a work item through `x-rtm.tests` (suite name plus test names, each test optionally pointing to a note).
+- Tests linked to a work item through `x-rtm.tests` (suite name plus test names, each test optionally pointing to a note), picked from a list of the tests in the newest results file.
 - Last-run result per suite, read from a test results file in the repo.
 - The Linked tests panel on the work item page, with pass/fail per test and click-through to its note.
 
@@ -21,4 +21,4 @@ The mockup's work item page shows linked test suites with their last run result,
 ## Impact
 
 - Depends on `add-workspace`, `add-work-item-editor` and `add-notes`.
-- **Deferred.** Build this after the other five changes. The results source is still open; see design.md.
+- New leaf module `TestResults` (reads result files; depends only on OpenSpecStore for the configured globs).

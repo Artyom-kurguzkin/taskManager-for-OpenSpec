@@ -42,11 +42,15 @@ The subtasks panel SHALL list tasks.md checkboxes with their numbers and group h
 - **THEN** tasks.md gains the line `- [ ] 2.4 Write docs` under group 2
 
 ### Requirement: Move subtasks to a new work item
-Selecting two or more subtasks by clicking their text SHALL offer "Move into a new work item". This SHALL create a new change holding those tasks (renumbered from 1.1), with the same features and contributors, remove them from the source, and renumber the tasks left in the source.
+Selecting one or more subtasks by clicking their text SHALL offer to move them into a new work item ("Make it a work item" for one, "Move into a separate work item" for several). This SHALL create a new change holding those tasks (renumbered from 1.1), with the same features and contributors, remove them from the source, and renumber the tasks left in the source.
 
 #### Scenario: Split out
 - **WHEN** the user selects subtasks 1.4 and 1.5 of #wi123 and moves them
 - **THEN** a new work item with those two subtasks exists, #wi123 keeps 1.1–1.3, and both change logs mention the split
+
+#### Scenario: One subtask
+- **WHEN** the user selects only subtask 1.3 of #wi123 and picks "Make it a work item"
+- **THEN** a new work item holds that subtask as 1.1 and #wi123 keeps the rest
 
 ### Requirement: Navigation and affordances
 Esc and the Back button SHALL return to the previous screen, unless a text field has focus, in which case Esc only leaves the field. Every editable element SHALL show a dashed outline on hover and on keyboard focus.

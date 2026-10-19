@@ -29,7 +29,7 @@ public sealed class UsingThePagesTests : IDisposable
 
     // ── Work item page ──
 
-    [Fact(DisplayName = "Opening a work item shows its header, description, subtasks and notes")]
+    [Fact(DisplayName = "Opening a work item shows its header, description, subtasks, and its notes as the change log")]
     public async Task WorkItemPage()
     {
         await using BunitContext ctx = NewContext();
@@ -39,7 +39,8 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("In Progress", page.Find(".status-field").TextContent);
         Assert.Contains("Expose a lightweight /health endpoint", page.Find(".desc").TextContent);
         Assert.Equal(4, page.FindAll(".sub").Count);
-        Assert.Contains("Ping test", page.Find(".notes-list").TextContent);
+        Assert.Contains("Ping test", page.Find(".change-log").TextContent);
+        Assert.DoesNotContain(page.FindAll("h3"), h => h.TextContent.Trim() == "Notes");   // no separate notes panel
         Assert.Contains("openspec/changes/add-health-check", page.Markup.Replace('\\', '/'));
     }
 
@@ -98,15 +99,30 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.False(WorkItemsApi.Get(107)!.Hidden);
     }
 
-    [Fact(DisplayName = "Adding a note from a work item opens the new note")]
+    [Fact(DisplayName = "+ Add entry in the change log creates a note and opens it")]
     public async Task AddNoteOpensIt()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
 
-        page.FindAll("button").Single(b => b.TextContent.Contains("Add note")).Click();
+        page.FindAll("button").Single(b => b.TextContent.Contains("Add entry")).Click();
 
         Assert.EndsWith("/note/124", ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri);
+    }
+
+    [Fact(DisplayName = "The change log lists the newest note first, with its date and author")]
+    public async Task ChangeLogNewestFirst()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool _, string _, int id) = NotesApi.Create(123, "Tom");
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        List<AngleSharp.Dom.IElement> entries = page.FindAll(".change-log .log-e").ToList();
+
+        Assert.Equal(2, entries.Count);
+        Assert.Contains($"#n{id}", entries[0].TextContent);
+        Assert.Contains("Tom", entries[0].TextContent);
+        Assert.Contains("#n123", entries[1].TextContent);
     }
 
     [Fact(DisplayName = "The description shows formatted text until you click to edit it")]
@@ -178,12 +194,78 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("Planned", WorkItemsApi.Get(107)!.Status);
     }
 
-    [Fact(DisplayName = "Without git, the change log says the folder is not a git repository")]
+    [Fact(DisplayName = "Without git, Linked commits says the folder is not a git repository")]
     public async Task NoGitHistory()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Assert.Contains("Not a git repository", page.Find(".changelog").TextContent);
+        Assert.Contains("Not a git repository", page.Find(".linked-commits").TextContent);
+    }
+
+    [Fact(DisplayName = "Selecting one subtask offers to make it a work item of its own")]
+    public async Task SplitOneSubtask()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        page.FindAll(".sub .s-t")[2].Click();
+        Assert.Equal("Make it a work item", page.Find(".actionbar button.primary").TextContent.Trim());
+        page.Find(".actionbar button.primary").Click();
+
+        Assert.Equal(3, WorkItemsApi.Get(123)!.Subtasks.Count);
+        Assert.Contains(WorkItemsApi.GetAll(), w => w.Subtasks is [{ Number: "1.1", Text: "Ping test in suite 543" }]);
+    }
+
+    [Fact(DisplayName = "+ link commit lists recent commits; the picked one is linked and can be removed")]
+    public async Task LinkCommit()
+    {
+        GitInit();
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        page.Find("button[aria-label='Link a commit']").Click();
+        page.FindAll(".menu-item").Single(i => i.TextContent.Contains("Fix uptime probe")).Click();
+
+        Assert.Single(WorkItemsApi.Get(123)!.Commits!);
+        AngleSharp.Dom.IElement linked = page.FindAll(".linked-commits .commit").Single(c => c.TextContent.Contains("Fix uptime probe"));
+        linked.QuerySelector("button[aria-label='Unlink commit']")!.Click();
+        Assert.Empty(WorkItemsApi.Get(123)!.Commits ?? []);
+    }
+
+    [Fact(DisplayName = "+ link test lists the tests in the newest results file; a linked test shows its result and can get a note")]
+    public async Task LinkTest()
+    {
+        repo.Write("results/run.trx", ReadingTestResultsTests.Trx);
+        await using BunitContext ctx = NewContext();
+        ReadingTestResultsTests.UseResults(repo, "results/*.trx");
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        page.Find("button[aria-label='Link a test']").Click();
+        Assert.Equal(2, page.FindAll(".menu-item").Count);
+        page.Find(".menu-filter").Input("ping");   // long lists: type to narrow
+        page.FindAll(".menu-item").Single().Click();
+
+        AngleSharp.Dom.IElement row = page.FindAll(".linked-tests .test").Single(t => t.TextContent.Contains("Ping test"));
+        Assert.Contains("passed", row.ClassName);
+        row.QuerySelector("button[aria-label='Add a note for this test']")!.Click();
+        Assert.NotNull(WorkItemsApi.Get(123)!.Tests!.Single().Note);
+        Assert.Matches("/note/[0-9]+$", ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri);
+    }
+
+    // Makes the temp repo a git repository with one commit, before the workspace opens it.
+    private void GitInit()
+    {
+        foreach (string[] args in new[]
+        {
+            new[] { "init", "-q" }, ["config", "user.name", "Tester"], ["config", "user.email", "t@example.com"], ["config", "commit.gpgsign", "false"],
+            ["add", "-A"], ["commit", "-q", "-m", "Fix uptime probe"],
+        })
+        {
+            System.Diagnostics.ProcessStartInfo psi = new("git") { WorkingDirectory = repo.Root, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (string a in args) psi.ArgumentList.Add(a);
+            using System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi)!;
+            p.WaitForExit();
+        }
     }
 
     // ── Note page ──

@@ -91,7 +91,7 @@ public sealed class CachingTheRepoTests
         GitHistoryApi.Configure(dir);
         int before = GitHistoryModule.RepoChecks;
 
-        GitHistoryApi.IsRepository(); GitHistoryApi.Log(["openspec"]); GitHistoryApi.Mentioning("#wi1"); GitHistoryApi.IsRepository();
+        GitHistoryApi.IsRepository(); GitHistoryApi.Mentioning("#wi1"); GitHistoryApi.AuthorsOfChange("x"); GitHistoryApi.IsRepository();
 
         Assert.Equal(before + 1, GitHistoryModule.RepoChecks);
     }

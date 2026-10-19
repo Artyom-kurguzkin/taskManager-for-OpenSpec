@@ -489,3 +489,14 @@ nav.side { scrollbar-width: thin; }
 .feature-bar { display: flex; align-items: center; gap: 14px; margin-block: 0 4px; }
 /* thin scrollbars in theme colours (the default one is a heavy dark bar) */
 html, .board-wrap, .tbl-wrap, .cat-tabs, nav.side { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink-2) 45%, transparent) transparent; }
+button.log-e { align-items: flex-start; text-align: left; width: 100%; font: inherit; color: inherit; cursor: pointer; }   /* change log entries (notes) */
+.linked-tests .test { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.linked-tests .test.failed > :first-child { color: var(--peach); font-weight: 700; }
+.linked-tests .test.passed .muted { color: var(--ok); }
+.suite-h { margin-top: 6px; }
+.commit .ic, .linked-tests .ic { margin-left: auto; background: none; border: 0; cursor: pointer; color: var(--ink-2); font-size: 16px; }
+.menu-filter { position: sticky; top: -6px; z-index: 1; margin: 0 0 4px; padding: 6px 10px; border: 0; border-bottom: 2px solid var(--line-soft); background: var(--card); color: var(--ink); font: 500 14px var(--f-body); outline: none; }
+.linked-commits .commit { display: flex; gap: 8px; align-items: baseline; }
+.linked-tests .test > :first-child { flex: 1; min-width: 0; }
+.linked-tests .test .btn, .linked-tests .test .muted { white-space: nowrap; }
+.linked-tests .test .btn { min-height: 26px; padding: 0 6px; }

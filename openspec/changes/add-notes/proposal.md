@@ -6,6 +6,7 @@ Work items collect context that doesn't belong in a proposal: test instructions 
 
 ## What Changes
 
+- Notes are the work item's change log entries: the Change log panel lists them, newest first, with "+ Add entry".
 - Notes as markdown files in `openspec/changes/<name>/notes/n<id>.md`, with a small frontmatter block (`id`, `by`, `created`).
 - Note page with a markdown editor, live preview, and metadata (linked work item, created, last modified, author).
 - `[[path]]` links to repo docs, `#wi<id>` and `#n<id>` references, all resolved live. Unresolved ones are flagged.

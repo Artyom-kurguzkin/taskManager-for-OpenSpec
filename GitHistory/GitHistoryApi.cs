@@ -19,11 +19,14 @@ public static class GitHistoryApi
     public static bool IsRepository() => Queries.IsRepository();
     public static string? UserName() => Queries.UserName();
 
-    /// <summary>Commits that touched any of the repo-relative paths, newest first (pass the active and archived folder).</summary>
-    public static IReadOnlyList<CommitInfo> Log(IReadOnlyList<string> paths) => Queries.Log(paths);
-
     /// <summary>Commits whose message contains the token as a whole word (#wi123 does not match #wi1234).</summary>
     public static IReadOnlyList<CommitInfo> Mentioning(string token) => Queries.Mentioning(token);
+
+    /// <summary>The newest commits of the current branch, newest first (what "+ link commit" offers).</summary>
+    public static IReadOnlyList<CommitInfo> Recent(int count) => Queries.Recent(count);
+
+    /// <summary>The commits for hashes picked earlier; unknown hashes are skipped.</summary>
+    public static IReadOnlyList<CommitInfo> Commits(IReadOnlyList<string> hashes) => Queries.Commits(hashes);
 
     /// <summary>Authors of commits that touched openspec/changes/&lt;folder&gt; (or its archived copy), newest first.</summary>
     public static IReadOnlyList<string> AuthorsOfChange(string folder) => Queries.AuthorsOfChange(folder);

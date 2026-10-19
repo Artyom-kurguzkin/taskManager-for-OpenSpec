@@ -19,6 +19,15 @@ internal sealed class Rtm
     public Dictionary<string, string>? Lanes { get; set; }
     /// <summary>"Deleted" in the app: hidden from the board, folder kept. Null (omitted) when visible.</summary>
     public bool? Hidden { get; set; }
+    public List<string>? Commits { get; set; }
+    public List<RtmTest>? Tests { get; set; }
+}
+
+internal sealed class RtmTest
+{
+    public string Suite { get; set; } = "";
+    public string Test { get; set; } = "";
+    public int? Note { get; set; }
 }
 
 internal static class Metadata
@@ -32,12 +41,28 @@ internal static class Metadata
         .WithEventEmitter(next => new FlowSequences(next))
         .Build();
 
-    /// <summary>Lists are written as [a, b] (as people write them by hand), so a change shows as a one-line git diff.</summary>
+    /// <summary>Lists are written as [a, b] (as people write them by hand), so a change shows as a one-line git diff.
+    /// Mappings inside a list ({suite: x, test: y}) go on that line too.</summary>
     private sealed class FlowSequences(IEventEmitter next) : ChainedEventEmitter(next)
     {
+        private int depth;   // how many lists we are inside
+
         public override void Emit(SequenceStartEventInfo eventInfo, IEmitter emitter)
         {
             eventInfo.Style = SequenceStyle.Flow;
+            depth++;
+            base.Emit(eventInfo, emitter);
+        }
+
+        public override void Emit(SequenceEndEventInfo eventInfo, IEmitter emitter)
+        {
+            depth--;
+            base.Emit(eventInfo, emitter);
+        }
+
+        public override void Emit(MappingStartEventInfo eventInfo, IEmitter emitter)
+        {
+            if (depth > 0) eventInfo.Style = MappingStyle.Flow;
             base.Emit(eventInfo, emitter);
         }
     }

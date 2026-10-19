@@ -1,7 +1,7 @@
 # app-shell Specification
 
 ## Purpose
-TBD - created by archiving change polish-board-and-shell. Update Purpose after archive.
+The frame around every page: the side menu (or header bar on narrow windows) used to move around the app and set the board's view, plus the window's look (title bar, icon, scrollbars) in both themes.
 
 ## Requirements
 

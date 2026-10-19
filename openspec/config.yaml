@@ -22,3 +22,5 @@ x-rtm:
     []
   lanes:
     board: [test, test-2]
+  testResults:
+    - TaskManager.Tests/TestResults/*.trx

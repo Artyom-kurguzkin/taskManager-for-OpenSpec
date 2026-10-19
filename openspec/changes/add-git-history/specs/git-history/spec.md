@@ -2,16 +2,9 @@
 
 ## Purpose
 
-Shows each work item's history and its implementing commits straight from git, and lets the user commit the app's edits with a traceable message.
+Shows the commits that implement each work item straight from git, and lets the user commit the app's edits with a traceable message.
 
 ## ADDED Requirements
-
-### Requirement: Change log
-The work item page SHALL list commits that changed files in the work item's change folder, following the folder into the archive, newest first. Each entry SHALL show a running entry number, the subject, date and author.
-
-#### Scenario: History across archive
-- **WHEN** #wi101 was edited in `changes/session-timeout/` and later archived
-- **THEN** its change log shows the commits from both paths, the archive commit included
 
 ### Requirement: Linked commits
 The work item page SHALL list commits whose message contains `#wi<id>` as a whole token, showing the short hash and subject.
@@ -19,6 +12,13 @@ The work item page SHALL list commits whose message contains `#wi<id>` as a whol
 #### Scenario: Token match
 - **WHEN** commits say "Add /health route #wi123" and "Fix #wi1234"
 - **THEN** #wi123 lists only the first
+
+### Requirement: Link commits by hand
+The Linked commits panel SHALL offer "+ link commit", which lists the repository's most recent commits (short hash, subject, author) to pick from, narrowed by typing. Picked commits SHALL be stored in `x-rtm.commits` in the change's `.openspec.yaml` and listed with the ones that mention `#wi<id>`. Picked commits SHALL be removable; commits that mention `#wi<id>` SHALL NOT be.
+
+#### Scenario: Pick a commit
+- **WHEN** the user opens "+ link commit" on #wi123 and picks "a1b2c3d Fix uptime probe"
+- **THEN** `x-rtm.commits` lists a1b2c3d and the commit shows under Linked commits with a remove control
 
 ### Requirement: Git identity
 The default contributor for new work items and the author of new notes SHALL be the repository's `user.name`. When git or `user.name` is unavailable, the user SHALL be asked for a name once per repository.
@@ -39,4 +39,4 @@ If the folder is not a git repository or git is missing, history panels SHALL sa
 
 #### Scenario: Plain folder
 - **WHEN** the opened folder has `openspec/` but no `.git`
-- **THEN** the change log shows "Not a git repository" and the board works normally
+- **THEN** Linked commits shows "Not a git repository" and the board works normally

@@ -317,4 +317,20 @@ public sealed class EditingWorkItemsTests
         }
         finally { WorkItemsApi.ConfigureContributors(null); }
     }
+
+    [Fact(DisplayName = "Commits and tests linked by hand are saved in x-rtm, each list on one line")]
+    public void LinkByHand()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.True(WorkItemsApi.SetLinkedCommits(123, ["a1b2c3d"]).Success);
+        Assert.True(WorkItemsApi.SetLinkedTests(123, [new TestLink("suite 543", "ping test", 123)]).Success);
+
+        Assert.Equal(["a1b2c3d"], Item(123).Commits);
+        Assert.Equal([new TestLink("suite 543", "ping test", 123)], Item(123).Tests);
+        string yaml = repo.Read(HealthYaml);
+        Assert.Contains("  commits: [a1b2c3d]\n", yaml);
+        Assert.Contains("  tests: [{suite: suite 543, test: ping test, note: 123}]\n", yaml);
+    }
 }

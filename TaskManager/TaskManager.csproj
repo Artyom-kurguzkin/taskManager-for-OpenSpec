@@ -16,6 +16,7 @@
     <ProjectReference Include="../Features/Features.csproj" />
     <ProjectReference Include="../WorkItems/WorkItems.csproj" />
     <ProjectReference Include="../Notes/Notes.csproj" />
+    <ProjectReference Include="../TestResults/TestResults.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />

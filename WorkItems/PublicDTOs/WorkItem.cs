@@ -21,7 +21,12 @@ public sealed record WorkItem(
     DateTime Modified,
     string? Warning,
     bool Hidden = false,
-    IReadOnlyList<string>? Assigned = null);
+    IReadOnlyList<string>? Assigned = null,
+    IReadOnlyList<string>? Commits = null,     // picked by hand (x-rtm.commits); commits mentioning #wiN come from git
+    IReadOnlyList<TestLink>? Tests = null);    // x-rtm.tests
+
+/// <summary>A test linked to a work item, by suite and test name as the results file names them; Note = #n id describing it.</summary>
+public sealed record TestLink(string Suite, string Test, int? Note);
 
 /// <summary>A capability the work item touches. Locked = it comes from the change's own specs/ folder.</summary>
 public sealed record FeatureLink(string Path, bool Locked);

@@ -37,22 +37,6 @@ public sealed class ReadingGitHistoryTests : IDisposable
         GitHistoryApi.Configure(root);
     }
 
-    [Fact(DisplayName = "A work item's change log follows its folder into the archive, newest first")]
-    public void LogFollowsArchive()
-    {
-        InitRepo();
-        Commit("openspec/changes/session-timeout/proposal.md", "a", "Create session timeout");
-        Commit("openspec/changes/other/proposal.md", "b", "Unrelated");
-        Directory.CreateDirectory(Path.Combine(root, "openspec/changes/archive"));
-        Git("mv", "openspec/changes/session-timeout", "openspec/changes/archive/2026-09-18-session-timeout");
-        Git("commit", "-q", "-m", "Archive session timeout");
-
-        IReadOnlyList<CommitInfo> log = GitHistoryApi.Log(["openspec/changes/session-timeout", "openspec/changes/archive/2026-09-18-session-timeout"]);
-
-        Assert.Equal(["Archive session timeout", "Create session timeout"], log.Select(c => c.Subject));
-        Assert.Equal("Artyom Test", log[0].Author);
-    }
-
     [Fact(DisplayName = "Only commits that mention the whole #wi token are linked")]
     public void WholeTokenMentions()
     {
@@ -85,7 +69,7 @@ public sealed class ReadingGitHistoryTests : IDisposable
         (bool ok, string message) = GitHistoryApi.Commit(["openspec/changes/a"], "Update #wi1 A");
 
         Assert.True(ok, message);
-        Assert.Equal("Update #wi1 A", GitHistoryApi.Log(["openspec/changes/a"])[0].Subject);
+        Assert.Equal("Update #wi1 A", GitHistoryApi.Mentioning("#wi1")[0].Subject);
         Assert.Contains("openspec/changes/b/tasks.md", Git("status", "--porcelain"));
         Assert.DoesNotContain("openspec/changes/a/tasks.md", Git("status", "--porcelain"));
     }
@@ -95,7 +79,6 @@ public sealed class ReadingGitHistoryTests : IDisposable
     {
         GitHistoryApi.Configure(root);
         Assert.False(GitHistoryApi.IsRepository());
-        Assert.Empty(GitHistoryApi.Log(["openspec"]));
         Assert.Empty(GitHistoryApi.Mentioning("#wi1"));
     }
 
@@ -136,6 +119,22 @@ public sealed class ReadingGitHistoryTests : IDisposable
 
         Assert.NotEqual(before, GitHistoryApi.HeadToken());
         Assert.Equal(["Dan", "Alice"], GitHistoryApi.AuthorsOfChange("x"));
+    }
+
+    [Fact(DisplayName = "Recent commits come newest first, and picked hashes resolve to their commits")]
+    public void RecentAndResolve()
+    {
+        InitRepo();
+        Commit("a.txt", "1", "First");
+        Commit("b.txt", "2", "Second");
+        Commit("c.txt", "3", "Third");
+
+        IReadOnlyList<CommitInfo> recent = GitHistoryApi.Recent(2);
+
+        Assert.Equal(["Third", "Second"], recent.Select(c => c.Subject));
+        string first = GitHistoryApi.Recent(10).Single(c => c.Subject == "First").Hash;
+        Assert.Equal(["First"], GitHistoryApi.Commits([first]).Select(c => c.Subject));
+        Assert.Empty(GitHistoryApi.Commits(["deadbee"]));   // unknown hash: nothing, no error
     }
 
     public void Dispose()

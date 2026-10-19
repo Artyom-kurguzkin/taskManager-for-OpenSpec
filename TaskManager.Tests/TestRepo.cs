@@ -33,7 +33,7 @@ internal sealed class TestRepo : IDisposable
     public void Dispose()
     {
         OpenSpecStore.OpenSpecStoreApi.Close();
-        try { Directory.Delete(Root, recursive: true); } catch (IOException) { } // ponytail: temp folder, best effort
+        try { Directory.Delete(Root, recursive: true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } // ponytail: temp folder (git objects are read-only), best effort
     }
 }
 

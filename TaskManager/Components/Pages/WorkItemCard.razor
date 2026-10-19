@@ -19,12 +19,16 @@
         <span class="tags">
             <span class="tag">#wi@(Item.Id)</span>
             @if (Item.Priority == "high") { <span class="tag hot">high priority</span> }
+            @if (TestsFailing) { <span class="tag hot tests-failing" title="A linked test failed in the latest run">tests failing</span> }
             @if (Item.Warning is not null) { <span class="tag hot" title="@Item.Warning">!</span> }
         </span>
     }
 </article>
 
 @code {
+    // Any linked test failed in the newest results file (TestResults caches the file, so every card can ask).
+    private bool TestsFailing => Item.Tests is { Count: > 0 } links && TestResults.TestResultsApi.Latest().Results.Any(r => r.Outcome == "failed" && links.Any(t => t.Suite == r.Suite && t.Test == r.Test));
+
     [Parameter, EditorRequired] public WorkItem Item { get; set; } = default!;
     [Parameter, EditorRequired] public BoardOptions Options { get; set; } = default!;
     [Parameter] public bool Selected { get; set; }

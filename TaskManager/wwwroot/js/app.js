@@ -25,7 +25,7 @@ window.rtm = {
     pop.style.left = `${x}px`;
     pop.style.top = `${y}px`;
     pop.classList.add("placed");
-    pop.querySelector(".menu-item.cur, .menu-item")?.focus();
+    (pop.querySelector(".menu-filter") ?? pop.querySelector(".menu-item.cur, .menu-item"))?.focus();   // pickers: type to filter
   },
 };
 

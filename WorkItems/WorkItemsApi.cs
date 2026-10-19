@@ -43,6 +43,12 @@ public static class WorkItemsApi
 
     /// <summary>Deletes a custom feature (see FeaturesApi.DeleteFeature) and unlinks it from active work items, which become unassigned.</summary>
     public static (bool Success, string Message) DeleteFeature(string path) => Commands.DeleteFeature(path);
+    public static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes) =>
+        Commands.Update(id, m => m.Commits = hashes.Distinct().ToList());
+
+    public static (bool Success, string Message) SetLinkedTests(int id, IEnumerable<TestLink> tests) =>
+        Commands.Update(id, m => m.Tests = tests.Distinct().Select(t => new Infrastructure.RtmTest { Suite = t.Suite, Test = t.Test, Note = t.Note }).ToList());
+
     public static (bool Success, string Message) SetDescription(int id, string body) => Commands.SetDescription(id, body);
 
     // ── Subtasks ──

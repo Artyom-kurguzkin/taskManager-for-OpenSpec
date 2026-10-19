@@ -96,7 +96,8 @@ internal static partial class Queries
             features,
             TasksFile.Parse(OpenSpecStoreApi.ReadText(Path.Combine(dir, "tasks.md"))),
             meta.Lanes ?? [],
-            archived, created, modified, warning, meta.Hidden == true, meta.Contributors ?? []);
+            archived, created, modified, warning, meta.Hidden == true, meta.Contributors ?? [],
+            meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList());
     }
 
     [GeneratedRegex(@"^created:\s*(?<d>\S+)", RegexOptions.Multiline)]

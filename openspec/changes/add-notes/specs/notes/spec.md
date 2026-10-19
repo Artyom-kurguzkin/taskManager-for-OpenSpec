@@ -38,9 +38,13 @@ The note page SHALL list every resolved and unresolved link found in the note, t
 - **WHEN** the user types `[[runbook/uptime]]` and `docs/runbook/uptime.md` exists
 - **THEN** the list gains a doc entry for it without saving or reloading
 
-### Requirement: Notes on the work item
-The work item page SHALL list its notes by id and title (the first heading), and SHALL offer "Add note".
+### Requirement: Notes are the change log
+A work item's notes SHALL be its change log entries: the Change log panel on the work item page SHALL list them newest first, each showing its id, title (the first heading), created date and author, and SHALL offer "+ Add entry", which creates a note and opens it. There SHALL be no separate notes list.
 
-#### Scenario: Open note from work item
-- **WHEN** the user clicks note #n123 on the #wi123 page
+#### Scenario: Open an entry
+- **WHEN** the user clicks entry #n123 in the change log of #wi123
 - **THEN** the note page opens, and Esc returns to #wi123
+
+#### Scenario: Add an entry
+- **WHEN** the user clicks "+ Add entry" on #wi123
+- **THEN** a new note file is created in the change's notes/ folder, its page opens, and back on #wi123 it is the newest change log entry

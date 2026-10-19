@@ -1,0 +1,9 @@
+schema: spec-driven
+created: 2026-10-19
+x-rtm:
+  id: 22
+  title: Make a single subtask its own work item
+  status: In Progress
+  priority: low
+  contributors: [Artyom-kurguzkin]
+  tests: [{suite: UsingThePagesTests, test: Selecting one subtask offers to make it a work item of its own}]

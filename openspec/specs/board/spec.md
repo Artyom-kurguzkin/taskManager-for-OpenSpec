@@ -6,19 +6,22 @@ The home screen of the app: shows the repository's work items grouped, sorted an
 ## Requirements
 
 ### Requirement: Group work items
-The board SHALL group work items by a category: status (one column per status, in workflow order), contributor (one column per person) or feature (one column per feature). Each column is a group, and a column MAY be divided into subgroups. A work item with several features or contributors SHALL appear in each matching column. Work items with no feature (when grouped by feature) or no contributor (when grouped by contributor) SHALL appear in a first column of their own, Unassigned or No contributors, shown only when it has items.
+The board SHALL group work items by a category: status (one column per status, in workflow order), contributor (one column per person) or feature (one column per feature). Each column is a group, and a column MAY be divided into subgroups. A work item with several features or contributors SHALL appear in each matching column.
 
 #### Scenario: Group by feature
 - **WHEN** the user picks "group by feature"
 - **THEN** one row of feature columns appears, with no headings over them, and a card linked to Availability and Security shows in both columns
 
-#### Scenario: Unassigned
-- **WHEN** a work item has no feature and the board is grouped by feature
-- **THEN** it shows in the Unassigned column at the front, and dragging a card there removes its manual feature
-
 #### Scenario: Cards show the other dimension
 - **WHEN** the board is grouped by feature
 - **THEN** each expanded card shows its status chip instead of its feature list
+
+### Requirement: Unassigned columns
+Work items with no feature (when grouped by feature) or no contributor (when grouped by contributor) SHALL appear in a first column of their own, Unassigned or No contributors, shown only when it has items.
+
+#### Scenario: Unassigned
+- **WHEN** a work item has no feature and the board is grouped by feature
+- **THEN** it shows in the Unassigned column at the front, and dragging a card there removes its manual feature
 
 ### Requirement: Sort and filter
 The board SHALL sort the cards within each column by priority, feature, contributor, date modified, date created, status, title or id, and SHALL filter them by contributor. The chosen grouping, sort, filter and view SHALL be remembered per repository.
