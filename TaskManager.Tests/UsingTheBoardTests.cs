@@ -110,7 +110,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Single(board.FindAll("article.card.hidden-item"));
     }
 
-    [Fact(DisplayName = "Opening the group-by dropdown and picking feature regroups the board")]
+    [Fact(DisplayName = "Opening the group-by dropdown and picking bucket regroups the board into sections")]
     public async Task DropdownOpensAndPicks()
     {
         await using BunitContext ctx = NewContext();
@@ -118,10 +118,10 @@ public sealed class UsingTheBoardTests : IDisposable
 
         nav!.Find("button.nav-toggle").Click();
         nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
-        nav.WaitForAssertion(() => Assert.Contains(nav.FindAll(".menu-item"), i => i.TextContent.Trim() == "feature"));
-        nav.FindAll(".menu-item").First(i => i.TextContent.Trim() == "feature").Click();
+        nav.WaitForAssertion(() => Assert.Contains(nav.FindAll(".menu-item"), i => i.TextContent.Trim() == "bucket"));
+        nav.FindAll(".menu-item").First(i => i.TextContent.Trim() == "bucket").Click();
 
-        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".feature-bar")));
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".cat-h")));
     }
 
     [Fact(DisplayName = "Every board column and subgroup lane is a drop zone the drag script can accept drops on")]
@@ -135,21 +135,18 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains("data-drop", File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js")));
     }
 
-    [Fact(DisplayName = "The Functional / Non-Functional dropdown shows one side's features at a time")]
-    public async Task SideDropdown()
+    [Fact(DisplayName = "Bucket grouping shows all buckets simultaneously as sections with their features")]
+    public async Task BucketSections()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        GroupByFeature();
+        GroupByBucket();
+
+        List<string> headers = board.FindAll(".cat-h h2").Select(h => h.TextContent.Trim()).ToList();
+        Assert.Contains("Functional", headers);
+        Assert.Contains("Non-Functional", headers);
         Assert.Contains("Banking", Columns(board));
-        Assert.DoesNotContain("Availability", Columns(board));
-        Assert.Empty(board.FindAll(".cat-h"));   // no headings over the columns
-
-        board.Find(".feature-bar button.dd").Click();
-        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Non-Functional").Click();
-
         Assert.Contains("Availability", Columns(board));
-        Assert.DoesNotContain("Banking", Columns(board));
     }
 
     [Fact(DisplayName = "An expanded list row numbers its subtasks 1.1, 1.2 …")]
@@ -332,7 +329,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Features.FeaturesApi.CreateFeature("Functional", "Payments");
         (bool _, string _, int id) = WorkItemsApi.Create("Pay run", features: ["functional/payments"]);
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        GroupByFeature();
+        GroupByBucket();
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Banking")).Click();
         Assert.DoesNotContain(board.FindAll(".menu-item"), i => i.TextContent.Contains("Delete"));   // spec-backed: hide only
         board.Find(".menu-backdrop").Click();
@@ -353,11 +350,11 @@ public sealed class UsingTheBoardTests : IDisposable
         nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "List").Click();
     }
 
-    private void GroupByFeature()
+    private void GroupByBucket()
     {
         nav!.Find("button.nav-toggle").Click();
         nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
-        nav.FindAll(".menu-item").First(i => i.TextContent.Trim() == "feature").Click();
+        nav.FindAll(".menu-item").First(i => i.TextContent.Trim() == "bucket").Click();
     }
 
     private static List<string> Columns(IRenderedComponent<BoardPage> board) => board.FindAll("section.col h3").Select(h => h.TextContent).ToList();

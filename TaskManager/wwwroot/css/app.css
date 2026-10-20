@@ -132,7 +132,8 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .board-wrap { overflow-x: auto; padding-bottom: var(--s4); }
 .board { display: flex; gap: var(--s5); align-items: flex-start; width: max-content; padding: var(--s2); }
 .cat { display: flex; flex-direction: column; gap: var(--s3); }
-.cat-h { font-size: var(--t-lg); font-weight: 700; padding-inline: 8px; }
+.cat-h { display: flex; align-items: baseline; gap: 12px; font-size: var(--t-lg); font-weight: 700; padding-inline: 8px; }
+.cat-h .btn.sm { font-size: var(--t-sm); font-weight: 400; }
 .cat-cols { display: flex; gap: var(--s4); align-items: flex-start; }
 .col { width: 230px; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2); border-radius: 10px; transition: background .15s; }
 .col.over, .lane.over { background: color-mix(in srgb, var(--accent) 12%, transparent); }
@@ -486,7 +487,6 @@ nav.side { scrollbar-width: thin; }
 .cat > .menu-wrap { align-self: flex-start; }
 .cat-h { padding: 1px 8px; cursor: pointer; }
 .col-h[draggable="true"], .cat-h { cursor: grab; }
-.feature-bar { display: flex; align-items: center; gap: 14px; margin-block: 0 4px; }
 /* thin scrollbars in theme colours (the default one is a heavy dark bar) */
 html, .board-wrap, .tbl-wrap, .cat-tabs, nav.side { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink-2) 45%, transparent) transparent; }
 button.log-e { align-items: flex-start; text-align: left; width: 100%; font: inherit; color: inherit; cursor: pointer; }   /* change log entries (notes) */

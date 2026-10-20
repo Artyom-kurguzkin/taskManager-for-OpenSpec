@@ -10,6 +10,7 @@ namespace WorkItems;
 public static class WorkItemsApi
 {
     public static readonly IReadOnlyList<string> Statuses = ["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "Completed"];
+    public static readonly IReadOnlyList<string> Labels = ["bug", "feature", "enhancement"];
 
     /// <summary>
     /// How a change gets archived. Default runs <c>openspec archive &lt;folder&gt; --yes</c> in the repo root;
@@ -39,6 +40,7 @@ public static class WorkItemsApi
     public static (bool Success, string Message) SetPriority(int id, string priority) => Commands.Update(id, m => m.Priority = priority);
     public static (bool Success, string Message) SetTitle(int id, string title) => Commands.Update(id, m => m.Title = title.Trim());
     public static (bool Success, string Message) SetContributors(int id, IEnumerable<string> people) => Commands.Update(id, m => m.Contributors = people.Distinct().ToList());
+    public static (bool Success, string Message) SetLabel(int id, string? label) => Commands.Update(id, m => m.Label = string.IsNullOrEmpty(label) ? null : label);
     public static (bool Success, string Message) SetManualFeatures(int id, IEnumerable<string> featurePaths) => Commands.SetManualFeatures(id, featurePaths);
 
     /// <summary>Deletes a custom feature (see FeaturesApi.DeleteFeature) and unlinks it from active work items, which become unassigned.</summary>

@@ -17,6 +17,7 @@ internal sealed class Rtm
     public List<string>? Contributors { get; set; }
     public List<string>? Features { get; set; }
     public Dictionary<string, string>? Lanes { get; set; }
+    public string? Label { get; set; }
     /// <summary>"Deleted" in the app: hidden from the board, folder kept. Null (omitted) when visible.</summary>
     public bool? Hidden { get; set; }
     public List<string>? Commits { get; set; }

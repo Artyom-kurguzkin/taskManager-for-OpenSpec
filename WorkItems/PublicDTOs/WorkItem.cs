@@ -22,6 +22,7 @@ public sealed record WorkItem(
     string? Warning,
     bool Hidden = false,
     IReadOnlyList<string>? Assigned = null,
+    string? Label = null,                       // x-rtm.label: bug, feature, enhancement
     IReadOnlyList<string>? Commits = null,     // picked by hand (x-rtm.commits); commits mentioning #wiN come from git
     IReadOnlyList<TestLink>? Tests = null);    // x-rtm.tests
 

@@ -15,18 +15,6 @@
 
 @* view options, Board/List and "+ new work item" live in the side menu (Layout/SideNav) *@
 
-@if (O.GroupBy == "feature")
-{
-    @* Functional / Non-Functional only filters which features are shown; one side at a time *@
-    <div class="feature-bar">
-        @if (CategoryOptions.Count > 1)
-        {
-            <Dropdown Label="features shown" Class="is-group" Options="CategoryOptions" Value="@CurrentCategory" ValueChanged="v => Set(O with { Category = v })" />
-        }
-        <button class="btn ghost" @onclick="AddFeature">+ feature</button>
-    </div>
-}
-
 @foreach (string w in WorkItemsApi.GetWarnings()) { <p class="warning">@w</p> }
 
 @if (O.View == "list")
@@ -44,7 +32,7 @@
             {
                 bool shut = shutGroups.Contains(col.Key);
                 <tbody>
-                    <tr class="grp"><td colspan="10"><button @onclick="() => Toggle(shutGroups, col.Key)" aria-expanded="@(!shut)">
+                    <tr class="grp"><td colspan="11"><button @onclick="() => Toggle(shutGroups, col.Key)" aria-expanded="@(!shut)">
                         <span class="chev @(shut ? "" : "open")">@Ui.Icon("chev")</span><b>@col.Label</b> <span class="count">@col.Items.Count</span>
                         @if (cat is not null) { <span class="muted"> · @cat</span> }</button></td></tr>
                     @if (!shut)
@@ -60,6 +48,8 @@
                                 <td><button class="row-title" @onclick="() => OpenItem(it.Id)">@it.Title</button></td>
                                 <td>@if (it.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(it.Status))">@it.Status</span> }
                                     else { <Dropdown Label="status" Class="cell filled" Style="@($"--fill:var({Ui.Band(it.Status)})")" Swatch="Ui.Band" Options="Statuses" Value="@it.Status" ValueChanged="v => SetStatus(it, v)" /> }</td>
+                                <td>@if (it.Archived) { <span class="muted">@(it.Label ?? "")</span> }
+                                    else { <Dropdown Label="label" Class="cell" Options="LabelOptions" Value="@(it.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(it.Id, v))" /> }</td>
                                 <td>@foreach (FeatureLink f in it.Features) { <span class="tag">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span> }</td>
                                 <td>@string.Join(", ", it.Contributors)</td>
                                 <td>@if (it.Archived) { <span class="muted">@(it.Priority == "high" ? "high" : "lower")</span> }
@@ -73,14 +63,14 @@
                                 @foreach (Subtask s in it.Subtasks)
                                 {
                                     <tr class="subrow"><td></td><td></td><td class="muted num">@s.Number</td>
-                                        <td colspan="7"><label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done" disabled="@it.Archived"
+                                        <td colspan="8"><label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done" disabled="@it.Archived"
                                             @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" /> @s.Text</label></td></tr>
                                 }
                             }
                         }
-                        @if (!(O.GroupBy == "status" && col.Key == "Completed"))   // completed = archived by the CLI, not created here
+                        @if (!(O.GroupBy == "status" && col.Label == "Completed"))   // completed = archived by the CLI, not created here
                         {
-                            <tr class="addrow"><td></td><td colspan="9"><button class="btn ghost" @onclick="() => NewItem(col.Key)">+ Add item</button></td></tr>
+                            <tr class="addrow"><td></td><td colspan="10"><button class="btn ghost" @onclick="() => NewItem(col.Key)">+ Add item</button></td></tr>
                         }
                     }
                 </tbody>
@@ -95,6 +85,13 @@ else
             @foreach (BoardSection sec in Sections)
             {
                 <div class="cat">
+                    @if (sec.Category is not null)
+                    {
+                        <div class="cat-h">
+                            <h2>@sec.Category</h2>
+                            @if (O.GroupBy is "bucket" or "feature") { <button class="btn ghost sm" @onclick="() => AddFeature(sec.Category)">+ feature</button> }
+                        </div>
+                    }
                     <div class="cat-cols">
                         @foreach (BoardColumn col in sec.Columns)
                         {
@@ -118,7 +115,7 @@ else
                                         {
                                             <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
                                         }
-                                        @if (O.GroupBy == "feature" && features.FirstOrDefault(f => f.Path == col.Key) is { Custom: true } custom)
+                                        @if (O.GroupBy is "bucket" or "feature" && features.FirstOrDefault(f => f.Path == col.Key) is { Custom: true } custom)
                                         {
                                             <MenuItem OnClick="() => DeleteFeature(custom)">Delete feature…</MenuItem>
                                         }

@@ -7,11 +7,11 @@ namespace TaskManager.Board;
 
 /// <summary>What the board/list is showing. Remembered per repository in the settings file.</summary>
 public sealed record BoardOptions(
-    string GroupBy = "status",     // status | feature | contributor
+    string GroupBy = "status",     // status | bucket | label | contributor
     string SortBy = "priority",    // priority | feature | who | modified | created | status | title | id
     int SortDir = 1,
     string Who = "all",
-    string Category = "all",       // which side of the features is shown (Functional, Non-Functional, Ungrouped); unknown = the first
+    string Category = "all",       // legacy; kept for deserialization but unused by bucket grouping
     string Unit = "tasks",         // tasks | subtasks
     string View = "board",         // board | list
     bool Compact = false,
@@ -41,14 +41,25 @@ public static class BoardModel
                 people.AddRange(Arrange(items.SelectMany(i => i.Contributors).Distinct().Order(StringComparer.OrdinalIgnoreCase), p => ColumnKey(o, p), o)
                     .Select(p => Col(p, p, i => i.Contributors.Contains(p))));
                 return [new(null, people)];
-            case "feature":
-                // one flat row: Unassigned first, then the chosen side's features (Functional / Non-Functional is a filter, not a level)
-                string side = Side(features, o);
-                List<BoardColumn> cols = [];
+            case "bucket":
+            case "feature":   // legacy saved setting
+                List<BoardSection> sections = [];
                 if (visible.Where(i => i.Features.Count == 0).ToList() is { Count: > 0 } loose)
-                    cols.Add(new(Unassigned, "Unassigned", loose, lanes.TryGetValue(Unassigned, out IReadOnlyList<string>? ul) ? ul : []));
-                cols.AddRange(Arrange(features.Where(f => f.Group == side), f => FeatureKey(f.Path), o).Select(f => Col(f.Path, f.Name, i => i.Features.Any(x => x.Path == f.Path))));
-                return [new(null, cols)];
+                    sections.Add(new(null, [new(Unassigned, "Unassigned", loose, [])]));
+                foreach (string bucket in Arrange(Categories(features), b => "bucket:" + b, o))
+                {
+                    List<BoardColumn> cols = Arrange(features.Where(f => f.Group == bucket), f => FeatureKey(f.Path), o)
+                        .Select(f => Col(f.Path, f.Name, i => i.Features.Any(x => x.Path == f.Path))).ToList();
+                    if (cols.Count > 0) sections.Add(new(bucket, cols));
+                }
+                return sections.Count > 0 ? sections : [new(null, [])];
+            case "label":
+                List<BoardColumn> labelCols = [];
+                if (visible.Where(i => string.IsNullOrEmpty(i.Label)).ToList() is { Count: > 0 } unlabeled)
+                    labelCols.Add(new(Unassigned, "Unlabeled", unlabeled, []));
+                labelCols.AddRange(Arrange(WorkItemsApi.Labels, l => "label:" + l, o)
+                    .Select(l => Col(l, l, i => i.Label == l)));
+                return [new(null, labelCols)];
             default:
                 return [new(null, Arrange(WorkItemsApi.Statuses, s => ColumnKey(o, s), o).Select(s => Col(s, s, i => i.Status == s)).ToList())];
         }
@@ -57,20 +68,17 @@ public static class BoardModel
     /// <summary>Column key for work items without a feature (grouping by feature) or without contributors (by contributor).</summary>
     public const string Unassigned = "";
 
-    /// <summary>The sides features are split into (folders under openspec/specs: Functional, Non-Functional; Ungrouped = no folder).</summary>
+    /// <summary>The buckets features are organized into (folders under openspec/specs: Functional, Non-Functional; Ungrouped = no folder).</summary>
     public static IReadOnlyList<string> Categories(IReadOnlyList<Feature> features) =>
-        features.Select(f => f.Group).Distinct().OrderBy(g => g == FeaturesApi.Ungrouped).ToList();   // named sides first
-
-    /// <summary>The side being shown: the chosen one if it exists, else the first.</summary>
-    public static string Side(IReadOnlyList<Feature> features, BoardOptions o) =>
-        Categories(features) is var sides && sides.Contains(o.Category) ? o.Category : sides.FirstOrDefault() ?? FeaturesApi.Ungrouped;
+        features.Select(f => f.Group).Distinct().OrderBy(g => g == FeaturesApi.Ungrouped).ToList();   // named buckets first
 
     public static string FeatureKey(string path) => "feature:" + path;
 
     /// <summary>Key of a column under the current grouping, for the saved order / hidden lists.</summary>
     public static string ColumnKey(BoardOptions o, string column) => o.GroupBy switch
     {
-        "feature" => FeatureKey(column),
+        "bucket" or "feature" => FeatureKey(column),
+        "label" => "label:" + column,
         "contributor" => "who:" + column,
         _ => "status:" + column,
     };
@@ -79,6 +87,7 @@ public static class BoardModel
     public static string KeyLabel(string key, IReadOnlyList<Feature> features) => key.Split(':', 2) switch
     {
         ["feature", string path] => features.FirstOrDefault(f => f.Path == path)?.Name ?? path,
+        ["bucket", string name] => name,
         [_, string name] => name,
         _ => key,
     };
@@ -122,6 +131,7 @@ public static class BoardModel
         Comparison<WorkItem> cmp = o.SortBy switch
         {
             "feature" => (a, b) => string.CompareOrdinal(a.Features.FirstOrDefault()?.Path ?? "~", b.Features.FirstOrDefault()?.Path ?? "~"),
+            "label" => (a, b) => string.Compare(a.Label ?? "~", b.Label ?? "~", StringComparison.OrdinalIgnoreCase),
             "who" => (a, b) => string.Compare(a.Contributors.FirstOrDefault() ?? "~", b.Contributors.FirstOrDefault() ?? "~", StringComparison.OrdinalIgnoreCase),
             "modified" => (a, b) => b.Modified.CompareTo(a.Modified),
             "created" => (a, b) => b.Created.CompareTo(a.Created),

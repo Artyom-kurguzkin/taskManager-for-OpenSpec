@@ -31,19 +31,18 @@ public partial class BoardPage
 
     internal static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List")];
     internal static readonly IReadOnlyList<(string, string)> Units = [("tasks", "Work items"), ("subtasks", "Subtasks")];
-    internal static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("feature", "feature"), ("contributor", "contributor")];
+    internal static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("bucket", "bucket"), ("label", "label"), ("contributor", "contributor")];
     internal static readonly IReadOnlyList<(string, string)> SortBys =
-        [("priority", "priority"), ("feature", "feature"), ("who", "contributor"), ("modified", "date modified"), ("created", "date created"), ("status", "status"), ("title", "title"), ("id", "id")];
+        [("priority", "priority"), ("feature", "feature"), ("label", "label"), ("who", "contributor"), ("modified", "date modified"), ("created", "date created"), ("status", "status"), ("title", "title"), ("id", "id")];
     private static readonly IReadOnlyList<(string, string)> Priorities = [("high", "high"), ("low", "lower")];
     private static readonly IReadOnlyList<(string, string)> Statuses = WorkItemsApi.Statuses.Select(s => (s, s)).ToList();
     private static readonly IReadOnlyList<(string Key, string Label)> Columns =
-        [("id", "ID"), ("title", "Title"), ("status", "Status"), ("feature", "Features"), ("who", "Contributors"), ("priority", "Priority"), ("progress", "Progress"), ("modified", "Updated")];
+        [("id", "ID"), ("title", "Title"), ("status", "Status"), ("label", "Label"), ("feature", "Features"), ("who", "Contributors"), ("priority", "Priority"), ("progress", "Progress"), ("modified", "Updated")];
 
     private IReadOnlyList<(string, string)> People =>
         [("all", "everyone"), .. items.SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
 
-    private string CurrentCategory => BoardModel.Side(features, O);
-    private IReadOnlyList<(string, string)> CategoryOptions => BoardModel.Categories(features).Select(c => (c, c)).ToList();
+    private static readonly IReadOnlyList<(string, string)> LabelOptions = [("", "none"), .. WorkItemsApi.Labels.Select(l => (l, l))];
 
     private IEnumerable<(string? Category, BoardColumn Column)> Flat => Sections.SelectMany(s => s.Columns.Select(c => (s.Category, c)));
 
@@ -67,7 +66,7 @@ public partial class BoardPage
     {
         items = WorkItemsApi.GetAll(includeHidden: O.ShowHidden);
         features = FeaturesApi.GetAll();
-        Sections = BoardModel.Build(items, features, WorkItemsApi.GetLanes(), O with { Category = CurrentCategory });
+        Sections = BoardModel.Build(items, features, WorkItemsApi.GetLanes(), O);
         selected.IntersectWith(items.Select(i => i.Id));
     }
 
@@ -143,10 +142,14 @@ public partial class BoardPage
         dragging = null;
 
         if (O.GroupBy == "status" && from != col.Key) await SetStatus(it, col.Key);
-        else if (O.GroupBy == "feature" && from != col.Key)
+        else if (O.GroupBy is "bucket" or "feature" && from != col.Key)
         {
             if (it.Features.Any(f => f.Path == from && f.Locked)) { Popups.Toast("This feature comes from the change's specs/ folder", ToastKind.Info); return; }
             Run(WorkItemsApi.SetManualFeatures(it.Id, it.Features.Select(f => f.Path).Where(p => p != from).Append(col.Key).Where(p => p != BoardModel.Unassigned)));
+        }
+        else if (O.GroupBy == "label" && from != col.Key)
+        {
+            Run(WorkItemsApi.SetLabel(it.Id, col.Key == BoardModel.Unassigned ? null : col.Key));
         }
         else if (O.GroupBy == "contributor" && from != col.Key)
         {
@@ -161,7 +164,7 @@ public partial class BoardPage
     private async Task NewItem(string? columnKey)
     {
         string status = O.GroupBy == "status" && columnKey is not null ? columnKey : "Backlog";
-        string[]? feature = O.GroupBy == "feature" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
+        string[]? feature = O.GroupBy is "bucket" or "feature" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
         string[]? who = O.GroupBy == "contributor" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
         (bool ok, string message, int id) = Workspace.CreateItem(status, feature, who);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
@@ -192,11 +195,10 @@ public partial class BoardPage
         if (await Ask($"Add a subgroup to {label}", "e.g. Needs review", "Add") is string lane) Run(WorkItemsApi.AddLane(column, lane));
     }
 
-    private async Task AddFeature()
+    private async Task AddFeature(string bucket)
     {
-        string side = CurrentCategory;
-        if (await Ask(side == FeaturesApi.Ungrouped ? "New feature" : $"New {side} feature", "e.g. Exports", "Create") is not string name) return;
-        (bool ok, string message, Feature? _) = FeaturesApi.CreateFeature(side, name);
+        if (await Ask(bucket == FeaturesApi.Ungrouped ? "New feature" : $"New {bucket} feature", "e.g. Exports", "Create") is not string name) return;
+        (bool ok, string message, Feature? _) = FeaturesApi.CreateFeature(bucket, name);
         Run((ok, message));
     }
 

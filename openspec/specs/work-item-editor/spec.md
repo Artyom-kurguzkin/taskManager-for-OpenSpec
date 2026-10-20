@@ -13,7 +13,7 @@ Opening a work item SHALL show its number as `#wi<id>`, title, linked features, 
 - **THEN** the work item page for #wi123 opens with all panels, and a panel without data shows a one-line empty state
 
 ### Requirement: Edit header fields
-Title, features, contributors, status and priority SHALL be editable in place. Each edit SHALL be saved when the control loses focus or a value is picked. The title SHALL be stored in `x-rtm.title`. Contributors who are commit authors of the change SHALL be shown without a remove control; assigned people SHALL be removable, and "+ add" SHALL offer the current user's name so a newcomer can assign themselves.
+Title, features, contributors, status, priority and label SHALL be editable in place. Each edit SHALL be saved when the control loses focus or a value is picked. The title SHALL be stored in `x-rtm.title` and the label in `x-rtm.label` (values: bug, feature, enhancement, or none). Contributors who are commit authors of the change SHALL be shown without a remove control; assigned people SHALL be removable, and "+ add" SHALL offer the current user's name so a newcomer can assign themselves.
 
 #### Scenario: Change status
 - **WHEN** the user picks Blocked in the status control
