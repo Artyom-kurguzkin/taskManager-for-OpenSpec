@@ -96,6 +96,13 @@ Dropping a card on another column SHALL set the dimension that column stands for
 - **WHEN** the user drags a card out of a feature that comes from the change's delta specs
 - **THEN** the card stays and the message "This feature comes from the change's specs/ folder" appears
 
+### Requirement: In Review status
+The board SHALL include "In Review" as a status between Blocked and Completed in workflow order. Items in In Review can be moved back to any earlier status. Moving an item to Completed still triggers the archive flow.
+
+#### Scenario: Move to In Review
+- **WHEN** the user drops #wi106 on In Review
+- **THEN** `x-rtm.status` becomes In Review and the card appears in the In Review column
+
 ### Requirement: Complete by archiving
 Dropping a card on Completed SHALL ask for confirmation and then archive the change with the OpenSpec CLI. Cards SHALL NOT be dragged out of Completed.
 
@@ -106,6 +113,17 @@ Dropping a card on Completed SHALL ask for confirmation and then archive the cha
 #### Scenario: Archive fails
 - **WHEN** the CLI reports an error, for example unfinished tasks or invalid deltas
 - **THEN** the card returns to its column and the CLI's message is shown
+
+### Requirement: Edit archived items
+Archived (Completed) work items SHALL allow editing all metadata — label, priority, title, features, contributors, description, subtasks, linked commits and tests — except status, which stays locked at Completed. Archived items SHALL be mergeable with other archived items; the merged result stays in the archive.
+
+#### Scenario: Change label on archived item
+- **WHEN** the user picks "bug" in the label dropdown of a completed #wi124
+- **THEN** `x-rtm.label` in its `.openspec.yaml` is updated to bug
+
+#### Scenario: Merge archived items
+- **WHEN** the user selects two completed items and merges them
+- **THEN** a new work item is created in `openspec/changes/archive/`, combining their proposals and subtasks, and the source folders are removed
 
 ### Requirement: Column header actions
 Clicking a column header SHALL open a menu with: add a work item in this column, select all cards in the column, add a subgroup, remove an existing subgroup, hide the column, and (for features created from the board) delete the feature.

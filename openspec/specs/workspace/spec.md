@@ -43,7 +43,7 @@ The system SHALL read and write work item metadata in an `x-rtm:` mapping inside
 - **THEN** every other key, comment and line in that file stays byte-for-byte unchanged
 
 ### Requirement: Status values
-The system SHALL support the statuses Backlog, Planned, Confirmed, In Progress, Blocked and Completed. Completed SHALL be derived only from the change being archived and SHALL NOT be stored in metadata.
+The system SHALL support the statuses Backlog, Planned, Confirmed, In Progress, Blocked, In Review and Completed, in that workflow order. Completed SHALL be derived only from the change being archived and SHALL NOT be stored in metadata. In Review is a reversible pre-completion state; items can move back from In Review to any earlier status.
 
 #### Scenario: Stored Completed is ignored
 - **WHEN** an active change's metadata says `status: Completed`

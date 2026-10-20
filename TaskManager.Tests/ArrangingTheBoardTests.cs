@@ -38,7 +38,7 @@ public sealed class ArrangingTheBoardTests
     {
         BoardSection s = Assert.Single(Build(new BoardOptions()));
         Assert.Null(s.Category);
-        Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "Completed"], s.Columns.Select(c => c.Key));
+        Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"], s.Columns.Select(c => c.Key));
         Assert.Equal([2, 3], s.Columns.Single(c => c.Key == "In Progress").Items.Select(i => i.Id));   // high priority first
     }
 
@@ -129,7 +129,7 @@ public sealed class ArrangingTheBoardTests
 
         BoardOptions moved = BoardModel.MoveTo(o, keys, BoardModel.ColumnKey(o, "Backlog"), BoardModel.ColumnKey(o, "Completed"));
 
-        Assert.Equal(["Planned", "Confirmed", "In Progress", "Blocked", "Completed", "Backlog"], Build(moved)[0].Columns.Select(c => c.Label));
+        Assert.Equal(["Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed", "Backlog"], Build(moved)[0].Columns.Select(c => c.Label));
     }
 
     [Fact(DisplayName = "Dropping a column onto an earlier one puts it in front of that one")]
@@ -140,7 +140,7 @@ public sealed class ArrangingTheBoardTests
 
         BoardOptions moved = BoardModel.MoveTo(o, keys, BoardModel.ColumnKey(o, "Blocked"), BoardModel.ColumnKey(o, "Planned"));
 
-        Assert.Equal(["Backlog", "Blocked", "Planned", "Confirmed", "In Progress", "Completed"], Build(moved)[0].Columns.Select(c => c.Label));
+        Assert.Equal(["Backlog", "Blocked", "Planned", "Confirmed", "In Progress", "In Review", "Completed"], Build(moved)[0].Columns.Select(c => c.Label));
     }
 
     [Fact(DisplayName = "A hidden status column leaves the board")]

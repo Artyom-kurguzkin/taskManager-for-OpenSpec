@@ -19,7 +19,7 @@
 
 @if (O.View == "list")
 {
-    <div class="tbl-wrap" data-sk>
+    <div class="scx"><div class="tbl-wrap" data-sk>
         <table class="tbl">
             <thead><tr><th></th><th><button class="chev @(expandAll ? "open" : "")" title="@(expandAll ? "Collapse all rows" : "Expand all rows")" @onclick="ToggleExpandAll">@Ui.Icon("chev")<span class="sr">@(expandAll ? "Collapse all rows" : "Expand all rows")</span></button></th>
                 @foreach ((string key, string label) in Columns)
@@ -48,12 +48,10 @@
                                 <td><button class="row-title" @onclick="() => OpenItem(it.Id)">@it.Title</button></td>
                                 <td>@if (it.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(it.Status))">@it.Status</span> }
                                     else { <Dropdown Label="status" Class="cell filled" Style="@($"--fill:var({Ui.Band(it.Status)})")" Swatch="Ui.Band" Options="Statuses" Value="@it.Status" ValueChanged="v => SetStatus(it, v)" /> }</td>
-                                <td>@if (it.Archived) { <span class="muted">@(it.Label ?? "")</span> }
-                                    else { <Dropdown Label="label" Class="cell" Options="LabelOptions" Value="@(it.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(it.Id, v))" /> }</td>
+                                <td><Dropdown Label="label" Class="cell" Options="LabelOptions" Value="@(it.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(it.Id, v))" /></td>
                                 <td>@foreach (FeatureLink f in it.Features) { <span class="tag">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span> }</td>
                                 <td>@string.Join(", ", it.Contributors)</td>
-                                <td>@if (it.Archived) { <span class="muted">@(it.Priority == "high" ? "high" : "lower")</span> }
-                                    else { <Dropdown Label="priority" Class="cell" Options="Priorities" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /> }</td>
+                                <td><Dropdown Label="priority" Class="cell" Options="Priorities" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /></td>
                                 <td><span class="prog"><i style="width:@(it.Subtasks.Count == 0 ? 0 : it.Subtasks.Count(s => s.Done) * 100 / it.Subtasks.Count)%"></i></span>
                                     <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span></td>
                                 <td class="muted num">@it.Modified.ToString("d MMM")</td>
@@ -63,7 +61,7 @@
                                 @foreach (Subtask s in it.Subtasks)
                                 {
                                     <tr class="subrow"><td></td><td></td><td class="muted num">@s.Number</td>
-                                        <td colspan="8"><label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done" disabled="@it.Archived"
+                                        <td colspan="8"><label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done"
                                             @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" /> @s.Text</label></td></tr>
                                 }
                             }
@@ -76,11 +74,11 @@
                 </tbody>
             }
         </table>
-    </div>
+    </div></div>
 }
 else
 {
-    <div class="board-wrap @(selected.Count > 0 ? "selecting" : "")">
+    <div class="scx"><div class="board-wrap @(selected.Count > 0 ? "selecting" : "")">
         <div class="board">
             @foreach (BoardSection sec in Sections)
             {
@@ -140,8 +138,8 @@ else
                 </div>
             }
         </div>
-    </div>
-    <p class="muted hint">Click a card to open it · Ctrl/⌘-click or tick the corner box to select several · drag a card to another column · click a column header for options.</p>
+    </div></div>
+   
 }
 
 @if (selected.Count > 0)
@@ -165,7 +163,7 @@ else
                 {
                     <article class="card subcard @(s.Done ? "done" : "")" data-sk @onclick="() => OpenItem(it.Id)">
                         <span class="band" style="--band:var(@Ui.Band(it.Status))">
-                            <input type="checkbox" checked="@s.Done" disabled="@it.Archived" @onclick:stopPropagation="true"
+                            <input type="checkbox" checked="@s.Done" @onclick:stopPropagation="true"
                                    @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" aria-label="Done" />@s.Text
                         </span>
                         @if (!O.Compact) { <span class="muted">#wi@(it.Id) · @it.Title</span> }

@@ -12,6 +12,7 @@ public static class Ui
         "Confirmed" => "--lilac",
         "In Progress" => "--sun",
         "Blocked" => "--peach",
+        "In Review" => "--mint",
         "Completed" => "--sage",
         _ => "--stone",
     };

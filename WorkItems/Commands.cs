@@ -15,7 +15,6 @@ internal static partial class Commands
     internal static (bool Success, string Message) Update(int id, Action<Rtm> change)
     {
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
-        if (item.Archived) return (false, Archived);
         string yaml = Queries.Yaml(item.Path);
         Rtm meta = Metadata.Read<Rtm>(yaml);
         meta.Id ??= item.Id;
@@ -110,15 +109,18 @@ internal static partial class Commands
 
     private static (bool Success, string Message, int Id) CreateFolder(
         string title, string status, IEnumerable<string>? features, IEnumerable<string>? contributors, string? priority,
-        string proposalBody, string tasks, IReadOnlyDictionary<string, string> deltas, string? folder = null)
+        string proposalBody, string tasks, IReadOnlyDictionary<string, string> deltas, string? folder = null, bool inArchive = false)
     {
         if (OpenSpecStoreApi.OpenSpecRoot is not string root) return (false, "No repository is open", 0);
         if (string.IsNullOrWhiteSpace(title)) return (false, "Give the work item a title", 0);
         StampProvisionalIds();
         int id = Queries.NextId();
-        string baseName = folder ?? Proposal.Slug(title), name = baseName;
-        for (int n = 2; Directory.Exists(Path.Combine(root, "changes", name)); n++) name = $"{baseName}-{n}";
-        string dir = Path.Combine(root, "changes", name);
+        string basePath = inArchive ? Path.Combine("changes", "archive") : "changes";
+        string slug = folder ?? Proposal.Slug(title);
+        string baseName = inArchive ? $"{DateTime.Today:yyyy-MM-dd}-{slug}" : slug;
+        string name = baseName;
+        for (int n = 2; Directory.Exists(Path.Combine(root, basePath, name)); n++) name = $"{baseName}-{n}";
+        string dir = Path.Combine(root, basePath, name);
 
         Rtm meta = new()
         {
@@ -175,9 +177,10 @@ internal static partial class Commands
     {
         List<WorkItem> items = ids.Select(Queries.Get).OfType<WorkItem>().ToList();
         if (items.Count < 2) return (false, "Select at least two work items to merge", 0);
-        if (items.FirstOrDefault(i => i.Archived) is WorkItem done) return (false, $"#wi{done.Id} is completed and can't be merged", 0);
+        bool allArchived = items.All(i => i.Archived);
 
         // Delta specs: refuse when two items change the same requirement; otherwise concatenate per capability.
+        // Archived items have no deltas (already merged into specs/), so they contribute nothing here.
         Dictionary<string, string> deltas = [];
         Dictionary<(string Cap, string Req), int> owner = [];
         foreach (WorkItem it in items)
@@ -194,14 +197,15 @@ internal static partial class Commands
             deltas[cap] = deltas.TryGetValue(cap, out string? prev) ? prev.TrimEnd() + "\n\n" + text : text;
         }
 
+        string status = items.FirstOrDefault(i => !i.Archived)?.Status ?? items[0].Status;
         string body = string.Join("\n\n", items.Select(it => $"<!-- merged from #wi{it.Id} {it.Title} -->\n{Queries.GetDescription(it.Id).Trim()}")) + "\n";
         string tasks = TasksFile.Create(items.SelectMany(it => it.Subtasks));
         (bool ok, string message, int id) = CreateFolder(
-            string.Join(" + ", items.Select(i => i.Title)), items[0].Status,
+            string.Join(" + ", items.Select(i => i.Title)), status,
             items.SelectMany(i => i.Features.Where(f => !f.Locked).Select(f => f.Path)),
             items.SelectMany(i => i.Contributors),
             items.Any(i => i.Priority == "high") ? "high" : null,
-            body, tasks, deltas, folder: "merge-" + string.Join("-", items.Select(i => $"wi{i.Id}")));
+            body, tasks, deltas, folder: "merge-" + string.Join("-", items.Select(i => $"wi{i.Id}")), inArchive: allArchived);
         if (!ok) return (ok, message, 0);
         foreach (WorkItem it in items) OpenSpecStoreApi.DeleteFolder(it.Path);
         return (true, "", id);

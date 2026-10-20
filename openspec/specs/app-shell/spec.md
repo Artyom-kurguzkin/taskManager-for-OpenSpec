@@ -23,6 +23,13 @@ On narrow windows (tablet and phone widths, including half and quarter of a desk
 - **WHEN** the window is a quarter of the screen
 - **THEN** the controls fit in one header row and the board scrolls sideways
 
+### Requirement: Window sizing
+The window SHALL open maximized and DPI-aware (PerMonitorV2). The content area SHALL fill the window exactly, with no page-level scrollbar; individual pages SHALL scroll internally.
+
+#### Scenario: Maximized start
+- **WHEN** the app starts
+- **THEN** the window fills the screen and the board content extends to the window edges with no gap
+
 ### Requirement: Window look
 The title bar and window border SHALL take the theme's colours, scrollbars SHALL be thin and in the theme's colours, and the window icon SHALL be the app icon (Artyom's signature) in the light theme or its inverted version in the dark theme, switching when the theme changes. The exe file SHALL carry the light icon.
 

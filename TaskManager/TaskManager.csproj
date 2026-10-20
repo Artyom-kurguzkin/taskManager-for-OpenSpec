@@ -5,6 +5,7 @@
     <RootNamespace>TaskManager</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationIcon>wwwroot/icon.ico</ApplicationIcon>   <!-- drawn from wwwroot/icon.svg (Artyom's signature) -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Photino.Blazor" Version="4.0.13" />

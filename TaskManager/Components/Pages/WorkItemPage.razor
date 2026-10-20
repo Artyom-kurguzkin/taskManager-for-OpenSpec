@@ -21,51 +21,46 @@
 <div class="sheet" data-sk="soft">
     <div class="head">
         <h2 class="num">#wi@(item.Id)</h2>
-        <input class="title-in hov" data-sk value="@item.Title" disabled="@item.Archived" aria-label="Title"
+        <input class="title-in hov" data-sk value="@item.Title" aria-label="Title"
                @onchange="e => Run(WorkItemsApi.SetTitle(item.Id, (string)e.Value!))" />
-        @if (!item.Archived)
-        {
-            <button class="btn ghost hide-item" title="Hides it from the app; the change folder stays in openspec/"
-                    @onclick="() => Run(item.Hidden ? WorkItemsApi.Unhide(item.Id) : WorkItemsApi.Hide(item.Id))">@(item.Hidden ? "Restore" : "Delete (hide)")</button>
-        }
+        <button class="btn ghost hide-item" title="Hides it from the app; the change folder stays in openspec/"
+                @onclick="() => Run(item.Hidden ? WorkItemsApi.Unhide(item.Id) : WorkItemsApi.Hide(item.Id))">@(item.Hidden ? "Restore" : "Delete (hide)")</button>
     </div>
     @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
     <div class="head kvs">
         <div class="kv"><label>linked features</label>
             @foreach (FeatureLink f in item.Features)
             {
-                <span class="chip @(f.Locked || item.Archived ? "" : "x")" title="@(f.Locked ? "From the change's specs/ folder" : item.Archived ? "" : "Remove")"
-                      @onclick="() => { if (!f.Locked && !item.Archived) RemoveFeature(f.Path); }">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span>
+                <span class="chip @(f.Locked ? "" : "x")" title="@(f.Locked ? "From the change's specs/ folder" : "Remove")"
+                      @onclick="() => { if (!f.Locked) RemoveFeature(f.Path); }">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span>
             }
-            @if (!item.Archived) { <Dropdown Label="add feature" Class="mini" Placeholder="+ add" Options="FeatureChoices" ValueChanged="AddFeature" /> }
+            <Dropdown Label="add feature" Class="mini" Placeholder="+ add" Options="FeatureChoices" ValueChanged="AddFeature" />
         </div>
         <div class="kv"><label>contributors</label>
             @* commit authors come from git and can't be removed here; assigned people (x-rtm) can *@
             @foreach (string p in item.Contributors)
             {
-                if (item.Archived || !Assigned.Contains(p)) { <span class="chip" title="@(Assigned.Contains(p) ? "" : "has commits on this change (from git)")">@p</span> }
+                if (!Assigned.Contains(p)) { <span class="chip" title="has commits on this change (from git)">@p</span> }
                 else { <span class="chip x" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, Assigned.Where(x => x != p)))">@p</span> }
             }
-            @if (!item.Archived) { <Dropdown Label="add contributor" Class="mini" Placeholder="+ add" Options="PeopleChoices" ValueChanged="v => Run(WorkItemsApi.SetContributors(item.Id, Assigned.Append(v)))" /> }
+            <Dropdown Label="add contributor" Class="mini" Placeholder="+ add" Options="PeopleChoices" ValueChanged="v => Run(WorkItemsApi.SetContributors(item.Id, Assigned.Append(v)))" />
         </div>
         <div class="kv status-field"><label>status</label>
             @if (item.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(item.Status))">@item.Status</span> }
             else { <Dropdown Label="status" Options="Statuses" Value="@item.Status" Swatch="Ui.Band" Style="@($"--fill:var({Ui.Band(item.Status)})")" Class="cell filled" ValueChanged="SetStatus" /> }
         </div>
         <div class="kv"><label>priority</label>
-            @if (item.Archived) { <span>@(item.Priority == "high" ? "high" : "lower")</span> }
-            else { <Dropdown Label="priority" Options="Priorities" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" /> }
+            <Dropdown Label="priority" Options="Priorities" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" />
         </div>
         <div class="kv"><label>label</label>
-            @if (item.Archived) { <span>@(item.Label ?? "none")</span> }
-            else { <Dropdown Label="label" Options="LabelChoices" Value="@(item.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" /> }
+            <Dropdown Label="label" Options="LabelChoices" Value="@(item.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" />
         </div>
     </div>
     @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
 
     <div class="grid2">
         <section class="panel">
-            <h3>Description <span class="muted">proposal.md@(item.Archived ? "" : " · click to edit")</span></h3>
+            <h3>Description <span class="muted">proposal.md · click to edit</span></h3>
             @if (editingDescription)
             {
                 <textarea @ref="descriptionBox" class="desc-in" rows="10" @bind="description" @onblur="SaveDescription" aria-label="Description"></textarea>
@@ -98,19 +93,16 @@
                 @foreach (Subtask s in item.Subtasks)
                 {
                     <div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "")" data-sk>
-                        <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done" disabled="@item.Archived"
+                        <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
                                @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
                         <span class="mono">@s.Number</span><span class="s-t" @onclick="() => ToggleSub(s.Number)">@s.Text</span>
                     </div>
                 }
             </div>
-            @if (!item.Archived)
-            {
-                <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
-                    <input @bind="newSubtask" placeholder="Add a subtask…" aria-label="New subtask" /><button class="btn" data-sk type="submit">add</button>
-                </form>
-                <span class="muted">Click a subtask's text to select it (or several), then make it a work item of its own.</span>
-            }
+            <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
+                <input @bind="newSubtask" placeholder="Add a subtask…" aria-label="New subtask" /><button class="btn" data-sk type="submit">add</button>
+            </form>
+            @if (!item.Archived) { <span class="muted">Click a subtask's text to select it (or several), then make it a work item of its own.</span> }
         </section>
 
         <section class="panel">
@@ -123,9 +115,9 @@
                 {
                     bool picked = (item.Commits ?? []).Contains(c.Hash);
                     <div class="commit hov" data-sk tabindex="0"><span class="mono">@c.Hash</span><span>@c.Subject</span>
-                        @if (picked && !item.Archived) { <button class="ic" aria-label="Unlink commit" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedCommits(item.Id, item.Commits!.Where(h => h != c.Hash)))">×</button> }</div>
+                        @if (picked) { <button class="ic" aria-label="Unlink commit" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedCommits(item.Id, item.Commits!.Where(h => h != c.Hash)))">×</button> }</div>
                 }
-                @if (GitHistoryApi.IsRepository() && !item.Archived)
+                @if (GitHistoryApi.IsRepository())
                 {
                     <Menu Label="Link a commit">
                         <Activator><button class="btn ghost" aria-label="Link a commit">+ link commit</button></Activator>
@@ -153,16 +145,13 @@
                         <div class="test @Outcome(t)">
                             @if (t.Note is int note) { <button class="row-title" @onclick="@(() => Nav.NavigateTo($"note/{note}"))">@t.Test</button> } else { <span>@t.Test</span> }
                             <span class="muted">@Outcome(t)</span>
-                            @if (!item.Archived)
-                            {
-                                @if (t.Note is null) { <button class="btn ghost" aria-label="Add a note for this test" @onclick="() => AddTestNote(t)">+ note</button> }
-                                <button class="ic" aria-label="Unlink test" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, item.Tests!.Where(x => x != t)))">×</button>
-                            }
+                            @if (t.Note is null) { <button class="btn ghost" aria-label="Add a note for this test" @onclick="() => AddTestNote(t)">+ note</button> }
+                            <button class="ic" aria-label="Unlink test" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, item.Tests!.Where(x => x != t)))">×</button>
                         </div>
                     }
                 }
                 @if (run.File is null) { <p class="muted">@(run.Globs.Count == 0 ? "No test results configured: list result files under x-rtm.testResults in openspec/config.yaml." : $"No results file found at {string.Join(", ", run.Globs)}.")</p> }
-                @if (!item.Archived && run.File is not null)
+                @if (run.File is not null)
                 {
                     <Menu Label="Link a test">
                         <Activator><button class="btn ghost" aria-label="Link a test">+ link test</button></Activator>
@@ -268,7 +257,7 @@
 
     private void EditDescription()
     {
-        if (item is null || item.Archived) return;
+        if (item is null) return;
         editingDescription = focusDescription = true;
     }
 

@@ -264,6 +264,58 @@ public sealed class EditingWorkItemsTests
         Assert.Equal("Completed work items are archived and can't be moved back", message);
     }
 
+    [Fact(DisplayName = "An archived item's label can be edited")]
+    public void EditArchivedLabel()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.True(Item(124).Archived);
+        (bool ok, string message) = WorkItemsApi.SetLabel(124, "bug");
+        Assert.True(ok, message);
+        Assert.Equal("bug", Item(124).Label);
+    }
+
+    [Fact(DisplayName = "An archived item's priority can be changed")]
+    public void EditArchivedPriority()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool ok, string message) = WorkItemsApi.SetPriority(124, "high");
+        Assert.True(ok, message);
+        Assert.Equal("high", Item(124).Priority);
+    }
+
+    [Fact(DisplayName = "In Review is a valid status between Blocked and Completed")]
+    public void InReviewStatus()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool ok, string _) = WorkItemsApi.SetStatus(123, "In Review");
+        Assert.True(ok);
+        Assert.Equal("In Review", Item(123).Status);
+    }
+
+    [Fact(DisplayName = "Archived items can be merged into a larger completed task")]
+    public void MergeArchived()
+    {
+        using TestRepo repo = new();
+        string dir = repo.PathOf("openspec/changes/archive/2026-09-20-old-auth");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, ".openspec.yaml"), "schema: spec-driven\ncreated: 2026-09-01\nx-rtm:\n  id: 200\n  title: Old auth cleanup\n  priority: high\n  contributors: [Tom]\n");
+        File.WriteAllText(Path.Combine(dir, "proposal.md"), "# Proposal\n\nCleanup.\n");
+        File.WriteAllText(Path.Combine(dir, "tasks.md"), "# Tasks\n\n## 1. Tasks\n\n- [x] 1.1 Remove old middleware\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([124, 200]);
+
+        Assert.True(ok, message);
+        WorkItem merged = Item(id);
+        Assert.True(merged.Archived);
+        Assert.Contains("archive", merged.Path.Replace('\\', '/'));
+        Assert.Contains("Session timeout", WorkItemsApi.GetDescription(id));
+        Assert.Contains("Cleanup", WorkItemsApi.GetDescription(id));
+    }
+
     [Fact(DisplayName = "Deleting a custom feature unlinks it from its work items, which become unassigned")]
     public void DeleteFeatureUnlinks()
     {

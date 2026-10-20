@@ -9,7 +9,7 @@ namespace WorkItems;
 /// </summary>
 public static class WorkItemsApi
 {
-    public static readonly IReadOnlyList<string> Statuses = ["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "Completed"];
+    public static readonly IReadOnlyList<string> Statuses = ["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"];
     public static readonly IReadOnlyList<string> Labels = ["bug", "feature", "enhancement"];
 
     /// <summary>

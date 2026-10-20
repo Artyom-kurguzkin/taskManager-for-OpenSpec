@@ -135,17 +135,18 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.DoesNotContain("## Why", page.Find(".desc").TextContent);
     }
 
-    [Fact(DisplayName = "A completed (archived) work item is read-only on its page")]
+    [Fact(DisplayName = "A completed (archived) work item has editable metadata but its status stays locked")]
     public async Task ArchivedReadOnly()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 124));
 
-        Assert.Empty(page.FindAll(".chip.x"));
-        Assert.Empty(page.FindAll("button.dd"));            // no status/priority/feature/contributor pickers
-        Assert.Empty(page.FindAll("form.add-line"));
+        // Status stays read-only
         Assert.Contains("Completed", page.Find(".status-field").TextContent);
-        Assert.DoesNotContain("click to edit", page.Markup);
+        Assert.Empty(page.FindAll(".status-field button.dd"));
+        // Other fields are editable: priority, label, feature and contributor dropdowns
+        Assert.NotEmpty(page.FindAll("button.dd"));
+        Assert.Contains("click to edit", page.Markup);
     }
 
     [Fact(DisplayName = "Typing never re-writes the editor's text, so fast typing can't be overwritten")]

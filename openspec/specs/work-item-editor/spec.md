@@ -52,6 +52,17 @@ Selecting one or more subtasks by clicking their text SHALL offer to move them i
 - **WHEN** the user selects only subtask 1.3 of #wi123 and picks "Make it a work item"
 - **THEN** a new work item holds that subtask as 1.1 and #wi123 keeps the rest
 
+### Requirement: Archived item editing
+Archived (Completed) work items SHALL show editable controls for all metadata fields except status. The status SHALL display as a read-only "Completed" chip. Title, label, priority, features, contributors, description, subtasks, linked commits and linked tests SHALL all be editable in place, writing changes to the archived change's `x-rtm` block.
+
+#### Scenario: Edit archived label
+- **WHEN** the user picks "bug" in the label control of archived #wi124
+- **THEN** `x-rtm.label` becomes bug and the change is saved
+
+#### Scenario: Status locked
+- **WHEN** the user views archived #wi124
+- **THEN** the status field shows "Completed" without a dropdown picker
+
 ### Requirement: Navigation and affordances
 Esc and the Back button SHALL return to the previous screen, unless a text field has focus, in which case Esc only leaves the field. Every editable element SHALL show a dashed outline on hover and on keyboard focus.
 

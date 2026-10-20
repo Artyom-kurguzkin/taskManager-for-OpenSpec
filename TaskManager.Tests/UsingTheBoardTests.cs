@@ -76,7 +76,7 @@ public sealed class UsingTheBoardTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
-        Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "Completed"], board.FindAll(".col-h h3").Select(h => h.TextContent.Trim()));
+        Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"], board.FindAll(".col-h h3").Select(h => h.TextContent.Trim()));
         Assert.Equal(4, board.FindAll("article.card").Count);
         Assert.Equal(["High priority", "Lower priority"], board.FindAll(".lane-h span:first-child").Select(s => s.TextContent.Trim()));
     }
@@ -160,7 +160,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Equal(["1.1", "1.2", "1.3", "2.1"], board.FindAll("tr.subrow td.num").Select(td => td.TextContent.Trim()));
     }
 
-    [Fact(DisplayName = "Completed rows in the list are read-only and Completed has no '+ Add item'")]
+    [Fact(DisplayName = "Completed rows have editable label and priority but status stays read-only, and Completed has no '+ Add item'")]
     public async Task CompletedRowsReadOnly()
     {
         await using BunitContext ctx = NewContext();
@@ -168,8 +168,12 @@ public sealed class UsingTheBoardTests : IDisposable
         ShowList();
 
         AngleSharp.Dom.IElement row = board.FindAll("tr.lrow").Single(r => r.TextContent.Contains("#wi124"));
-        Assert.Empty(row.QuerySelectorAll("button.dd"));
+        Assert.NotEmpty(row.QuerySelectorAll("button.dd"));   // label and priority dropdowns
         Assert.Contains("Completed", row.TextContent);
+        // status cell is a read-only span, not a dropdown
+        AngleSharp.Dom.IElement statusCell = row.QuerySelectorAll("td").First(td => td.QuerySelector(".filled") is not null);
+        Assert.NotNull(statusCell.QuerySelector("span.box"));
+        Assert.Null(statusCell.QuerySelector("button.dd"));
         AngleSharp.Dom.IElement completed = board.FindAll("tbody").Single(b => b.QuerySelector(".grp")!.TextContent.Contains("Completed"));
         Assert.Empty(completed.QuerySelectorAll("tr.addrow"));
     }
@@ -319,7 +323,7 @@ public sealed class UsingTheBoardTests : IDisposable
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Backlog")).DragStart();
         board.FindAll("section.col").Single(c => c.QuerySelector("h3")!.TextContent == "Completed").Drop();
 
-        Assert.Equal(["Planned", "Confirmed", "In Progress", "Blocked", "Completed", "Backlog"], Columns(board));
+        Assert.Equal(["Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed", "Backlog"], Columns(board));
     }
 
     [Fact(DisplayName = "Deleting my own feature from its header asks first, then its work items move to Unassigned")]
