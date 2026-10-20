@@ -60,8 +60,8 @@ public sealed class UsingTheBoardTests : IDisposable
     public async Task FailingTestsMarker()
     {
         await using BunitContext ctx = NewContext();
-        repo.Write("results/run.trx", ReadingTestResultsTests.Trx);
-        ReadingTestResultsTests.UseResults(repo, "results/*.trx");
+        repo.Write("results/run.trx", ReadingLinkedTestRunsTests.Trx);
+        ReadingLinkedTestRunsTests.UseResults(repo, "results/*.trx");
 
         WorkItemsApi.SetLinkedTests(123, [new WorkItems.PublicDTOs.TestLink("UptimeTests", "Ping test", null)]);
         Assert.Empty(ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Options, new BoardOptions())).FindAll(".tests-failing"));

@@ -164,7 +164,7 @@
                         <Activator><button class="btn ghost" aria-label="Link a test">+ link test</button></Activator>
                         <Items>
                             <input class="menu-filter" placeholder="Filter tests…" aria-label="Filter tests" @bind="pickFilter" @bind:event="oninput" />
-                            @foreach (TestResults.PublicDTOs.TestResult r in run.Results.Where(r => !(item.Tests ?? []).Any(t => t.Suite == r.Suite && t.Test == r.Test) && Matches(r.Suite, r.Test))
+                            @foreach (LinkedTestRuns.PublicDTOs.TestResult r in run.Results.Where(r => !(item.Tests ?? []).Any(t => t.Suite == r.Suite && t.Test == r.Test) && Matches(r.Suite, r.Test))
                                 .OrderBy(r => r.Suite, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Test, StringComparer.OrdinalIgnoreCase))
                             {
                                 <MenuItem OnClick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, [.. item.Tests ?? [], new TestLink(r.Suite, r.Test, null)]))"><span class="muted">@r.Suite /</span> @r.Test</MenuItem>
@@ -199,7 +199,7 @@
     private string newSubtask = "";
     private IReadOnlyList<CommitInfo> commits = [];
     private IReadOnlyList<Note> notes = [];
-    private TestResults.PublicDTOs.TestRun run = new(null, [], []);
+    private LinkedTestRuns.PublicDTOs.TestRun run = new(null, [], []);
     private string pickFilter = "";   // text typed in the commit / test picker
 
     private bool Matches(params string[] fields) => pickFilter.Trim().Length == 0 || fields.Any(f => f.Contains(pickFilter.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -232,7 +232,7 @@
         if (!editingDescription) description = WorkItemsApi.GetDescription(Id);
         notes = NotesApi.GetForWorkItem(Id).OrderByDescending(n => n.Created).ThenByDescending(n => n.Id).ToList();
         commits = [.. GitHistoryApi.Mentioning($"#wi{Id}").Concat(GitHistoryApi.Commits(item.Commits ?? [])).DistinctBy(c => c.Hash)];
-        run = TestResults.TestResultsApi.Latest();
+        run = LinkedTestRuns.LinkedTestRunsApi.Latest();
         pickFilter = "";
         subSel.IntersectWith(item.Subtasks.Select(s => s.Number));
     }

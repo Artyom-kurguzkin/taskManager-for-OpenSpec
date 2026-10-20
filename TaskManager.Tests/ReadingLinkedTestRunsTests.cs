@@ -1,11 +1,11 @@
 using OpenSpecStore;
-using TestResults;
-using TestResults.PublicDTOs;
+using LinkedTestRuns;
+using LinkedTestRuns.PublicDTOs;
 
 namespace TaskManager.Tests;
 
 [Collection(nameof(ModuleStateCollection))]
-public sealed class ReadingTestResultsTests
+public sealed class ReadingLinkedTestRunsTests
 {
     internal const string Trx = """
         <?xml version="1.0" encoding="utf-8"?>
@@ -43,7 +43,7 @@ public sealed class ReadingTestResultsTests
         repo.Write("results/run.trx", Trx);
         UseResults(repo, "results/*.trx");
 
-        TestRun run = TestResultsApi.Latest();
+        TestRun run = LinkedTestRunsApi.Latest();
 
         Assert.EndsWith("run.trx", run.File);
         Assert.Contains(new TestResult("UptimeTests", "Ping test", "passed", new DateTime(2026, 10, 17, 14, 2, 0, DateTimeKind.Utc)), run.Results.Select(r => r with { Finished = r.Finished?.ToUniversalTime() }));
@@ -58,7 +58,7 @@ public sealed class ReadingTestResultsTests
         repo.Write("test-results/junit.xml", JUnit);
         UseResults(repo, "test-results/**/*.xml");
 
-        TestRun run = TestResultsApi.Latest();
+        TestRun run = LinkedTestRunsApi.Latest();
 
         Assert.Equal(["passed", "failed", "skipped"], run.Results.Select(r => r.Outcome));
         Assert.All(run.Results, r => Assert.Equal("suite 543", r.Suite));
@@ -74,7 +74,7 @@ public sealed class ReadingTestResultsTests
         repo.Write("results/new.trx", Trx);
         UseResults(repo, "results/*.trx");
 
-        Assert.EndsWith("new.trx", TestResultsApi.Latest().File);
+        Assert.EndsWith("new.trx", LinkedTestRunsApi.Latest().File);
     }
 
     [Fact(DisplayName = "Without a results file the run is empty and says where it looked")]
@@ -84,7 +84,7 @@ public sealed class ReadingTestResultsTests
         OpenSpecStoreApi.Open(repo.Root);
         UseResults(repo, "results/*.trx");
 
-        TestRun run = TestResultsApi.Latest();
+        TestRun run = LinkedTestRunsApi.Latest();
 
         Assert.Null(run.File);
         Assert.Empty(run.Results);

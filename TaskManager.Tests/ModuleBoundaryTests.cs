@@ -9,7 +9,7 @@ namespace TaskManager.Tests;
 /// </summary>
 public sealed class ModuleBoundaryTests
 {
-    public static TheoryData<string> Modules => ["OpenSpecStore", "GitHistory", "Features", "WorkItems", "Notes", "TestResults"];
+    public static TheoryData<string> Modules => ["OpenSpecStore", "GitHistory", "Features", "WorkItems", "Notes", "LinkedTestRuns"];
 
     private static Assembly Load(string module) => Assembly.Load(module);
 

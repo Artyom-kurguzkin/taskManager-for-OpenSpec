@@ -235,9 +235,9 @@ public sealed class UsingThePagesTests : IDisposable
     [Fact(DisplayName = "+ link test lists the tests in the newest results file; a linked test shows its result and can get a note")]
     public async Task LinkTest()
     {
-        repo.Write("results/run.trx", ReadingTestResultsTests.Trx);
+        repo.Write("results/run.trx", ReadingLinkedTestRunsTests.Trx);
         await using BunitContext ctx = NewContext();
-        ReadingTestResultsTests.UseResults(repo, "results/*.trx");
+        ReadingLinkedTestRunsTests.UseResults(repo, "results/*.trx");
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
         page.Find("button[aria-label='Link a test']").Click();

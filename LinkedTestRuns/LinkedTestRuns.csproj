@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Test results (TRX, JUnit XML) found at the globs listed in openspec/config.yaml x-rtm.testResults. -->
+  <ItemGroup>
+    <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+</Project>

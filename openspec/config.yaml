@@ -8,7 +8,7 @@ context: |
   Every edit is written to the repo files immediately, and files changed outside the app are picked up live.
   Never rewrite parts of a file the user did not change: keep formatting, comments and unknown keys.
   Work items are referenced as #wi<number>, notes as #n<number>.
-  Architecture: modular monolith. One static class library per domain entity (OpenSpecStore, GitHistory, Features, WorkItems, Notes);
+  Architecture: modular monolith. One static class library per domain entity (OpenSpecStore, GitHistory, Features, WorkItems, Notes, LinkedTestRuns);
   each exposes only `{Module}Api` + `{Module}.PublicDTOs`, everything else internal; no DI in modules; all UI in the TaskManager host.
   Tests are written first, named by user action, in TaskManager.Tests.
   UI follows the design system in design/mockup.html; colours are the :root tokens in TaskManager/wwwroot/css/app.css.

@@ -5,6 +5,6 @@
   <Project Path="OpenSpecStore/OpenSpecStore.csproj" />
   <Project Path="TaskManager.Tests/TaskManager.Tests.csproj" />
   <Project Path="TaskManager/TaskManager.csproj" />
-  <Project Path="TestResults/TestResults.csproj" />
+  <Project Path="LinkedTestRuns/LinkedTestRuns.csproj" />
   <Project Path="WorkItems/WorkItems.csproj" />
 </Solution>
