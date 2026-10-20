@@ -500,3 +500,13 @@ button.log-e { align-items: flex-start; text-align: left; width: 100%; font: inh
 .linked-tests .test > :first-child { flex: 1; min-width: 0; }
 .linked-tests .test .btn, .linked-tests .test .muted { white-space: nowrap; }
 .linked-tests .test .btn { min-height: 26px; padding: 0 6px; }
+
+/* hint mode (Alt held) */
+.hint-overlay { position: absolute; inset: 0; z-index: 9999; pointer-events: none; }
+.hint-badge {
+  position: absolute; padding: 1px 5px; border-radius: 4px; font: 700 11px/1.3 var(--f-body);
+  background: var(--sun); color: var(--on-fill); border: 1.5px solid var(--line);
+  box-shadow: 0 1px 3px rgba(0,0,0,.18); white-space: nowrap; pointer-events: none;
+  transform: translate(-50%, -50%); z-index: 9999;
+}
+.hint-badge.dim { opacity: .25; }
