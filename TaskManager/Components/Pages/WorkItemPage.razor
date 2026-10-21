@@ -50,10 +50,10 @@
             else { <Dropdown Label="status" Options="Statuses" Value="@item.Status" Swatch="Ui.Band" Style="@($"--fill:var({Ui.Band(item.Status)})")" Class="cell filled" ValueChanged="SetStatus" /> }
         </div>
         <div class="kv"><label>priority</label>
-            <Dropdown Label="priority" Options="Priorities" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" />
+            <Dropdown Label="priority" Options="Priorities" Value="@item.Priority" Swatch="Ui.PriorityColor" Style="@($"--fill:var({Ui.PriorityColor(item.Priority)})")" Class="cell filled" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" />
         </div>
         <div class="kv"><label>label</label>
-            <Dropdown Label="label" Options="LabelChoices" Value="@(item.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" />
+            <Dropdown Label="label" Options="LabelChoices" Value="@(item.Label ?? "")" Swatch="Ui.LabelColor" Style="@($"--fill:var({Ui.LabelColor(item.Label ?? "")})")" Class="cell filled" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" />
         </div>
     </div>
     @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }

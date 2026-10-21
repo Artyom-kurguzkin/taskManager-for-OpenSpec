@@ -72,6 +72,8 @@ dotnet run --project TaskManager -- "C:\path\to\your-repo"
 
 Without a path, the app reopens the last repo you used, or else the current folder. You can switch repos any time in **Settings → Repository** (Browse… or paste a path, then Open).
 
+If you make your own Start Menu or desktop shortcut for quicker access, point it at `TaskManager\bin\Release\net10.0\TaskManager.exe` and build with `dotnet build TaskManager -c Release` (the default `dotnet build`/`dotnet run` produce a separate `bin\Debug\` copy). A shortcut left pointing at a `Debug` build, or at an old `dist\` exe from step 5, will keep launching whatever was there last, not your latest change.
+
 ## 5. Build a standalone exe (optional)
 
 ```powershell

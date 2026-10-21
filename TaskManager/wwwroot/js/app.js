@@ -64,7 +64,7 @@ const _hints = {
 
     const els = [...document.querySelectorAll(
       "button, a[href], input:not([type=hidden]), select, textarea, " +
-      "[onclick], .menu-item, .chip.x, .nav-btn, .row-title, .log-e, " +
+      "[onclick], .menu-item, .chip.x, .nav-btn, .row-title, .log-e, .card, " +
       "header.col-h, .seg-o, label.check input"
     )].filter(el => {
       if (el.offsetParent === null && !el.closest("nav.side")) return false;

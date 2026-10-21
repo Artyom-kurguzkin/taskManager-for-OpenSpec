@@ -48,3 +48,18 @@ A work item's notes SHALL be its change log entries: the Change log panel on the
 #### Scenario: Add an entry
 - **WHEN** the user clicks "+ Add entry" on #wi123
 - **THEN** a new note file is created in the change's notes/ folder, its page opens, and back on #wi123 it is the newest change log entry
+
+### Requirement: Edit in an external editor
+The note page SHALL offer a button to open the note's file in an external editor, labelled "Edit in &lt;editor&gt;" once one is configured. If none is configured, clicking it SHALL ask which command to use (e.g. `code`, `notepad++`, or a full path) and remember the answer for next time. The editor command SHALL be changeable in Settings.
+
+#### Scenario: First use
+- **WHEN** no editor is configured and the user clicks the button
+- **THEN** a prompt asks which editor to use; once answered, that note's file opens in it and the command is saved
+
+#### Scenario: Already configured
+- **WHEN** an editor is already set and the user clicks "Edit in &lt;editor&gt;"
+- **THEN** the note's file opens in that editor directly, without asking again
+
+#### Scenario: Change later
+- **WHEN** the user edits the external editor field in Settings
+- **THEN** later clicks of "Edit in …" use the new command

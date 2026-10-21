@@ -20,6 +20,7 @@ internal static class Program
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton<Workspace>();
         builder.Services.AddSingleton<FolderPicker>(() => app?.MainWindow.ShowOpenFolder("Choose a repository with an openspec/ folder")?.FirstOrDefault());
+        builder.Services.AddSingleton<EditorLauncher>(EditorLaunchers.Default);
         builder.Services.AddSingleton(new WindowFrame(() => app?.MainWindow.WindowHandle ?? IntPtr.Zero));
         builder.RootComponents.Add<App>("#app");
 

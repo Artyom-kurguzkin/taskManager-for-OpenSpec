@@ -28,6 +28,12 @@
         <div><h3>Default board view</h3><p class="muted">What the board shows when you open a repository for the first time.</p></div>
         <Seg Name="defview" Options="Views" Value="@Settings.Current.DefaultView" ValueChanged="v => Settings.Update(s => s with { DefaultView = v })" />
     </section>
+
+    <section class="set-row">
+        <div><h3>External editor</h3><p class="muted">Command "Edit in …" launches on a note, e.g. code, notepad++, subl. Empty = ask next time.</p></div>
+        <div class="set-val"><input class="box text-in" data-sk value="@Settings.Current.Editor" placeholder="e.g. code"
+                                    @onchange="e => Settings.Update(s => s with { Editor = string.IsNullOrWhiteSpace((string?)e.Value) ? null : ((string)e.Value!).Trim() })" aria-label="External editor" /></div>
+    </section>
 </div>
 
 @code {

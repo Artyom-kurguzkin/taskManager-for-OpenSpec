@@ -15,13 +15,14 @@ public sealed class UsingThePagesTests : IDisposable
     private readonly string settingsFile = Path.Combine(Path.GetTempPath(), "rtm-ui-" + Guid.NewGuid().ToString("N") + ".json");
     private IRenderedComponent<Overlays>? overlays;
 
-    private BunitContext NewContext()
+    private BunitContext NewContext(EditorLauncher? launcher = null)
     {
         BunitContext ctx = new();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<UiService>();
         ctx.Services.AddSingleton(new SettingsStore(settingsFile));
         ctx.Services.AddSingleton<Workspace>();
+        if (launcher is not null) ctx.Services.AddSingleton(launcher);
         Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(repo.Root).Success);
         overlays = ctx.Render<Overlays>();
         return ctx;
@@ -176,6 +177,39 @@ public sealed class UsingThePagesTests : IDisposable
 
         Assert.Equal(0, changes);
         Assert.Contains("first", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
+    }
+
+    [Fact(DisplayName = "Edit in <editor> opens the note's file in the already-configured external editor")]
+    public async Task EditInEditorConfigured()
+    {
+        string? launchedEditor = null, launchedPath = null;
+        await using BunitContext ctx = NewContext((editor, path) => { launchedEditor = editor; launchedPath = path; return (true, ""); });
+        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Editor = "code" });
+        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+
+        Assert.Equal("Edit in code", page.Find(".edit-ext").TextContent.Trim());
+        page.Find(".edit-ext").Click();
+
+        Assert.Equal("code", launchedEditor);
+        Assert.Contains("n123.md", launchedPath);
+    }
+
+    [Fact(DisplayName = "Edit in editor asks which editor to use the first time, then remembers it in settings")]
+    public async Task EditInEditorAsksFirstTime()
+    {
+        string? launchedEditor = null;
+        await using BunitContext ctx = NewContext((editor, path) => { launchedEditor = editor; return (true, ""); });
+        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+
+        Assert.Equal("Edit in…", page.Find(".edit-ext").TextContent.Trim());
+        page.Find(".edit-ext").Click();
+
+        overlays!.WaitForAssertion(() => Assert.Contains("editor", overlays.Find(".dialog").TextContent, StringComparison.OrdinalIgnoreCase));
+        overlays.Find(".dialog input").Input("notepad++");
+        overlays.Find(".dialog button.primary").Click();
+
+        overlays.WaitForAssertion(() => Assert.Equal("notepad++", launchedEditor));
+        Assert.Equal("notepad++", ctx.Services.GetRequiredService<SettingsStore>().Current.Editor);
     }
 
     [Fact(DisplayName = "Choosing Completed asks before archiving, and Cancel leaves the item as it was")]

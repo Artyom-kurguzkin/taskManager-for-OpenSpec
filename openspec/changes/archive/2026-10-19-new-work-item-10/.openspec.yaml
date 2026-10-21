@@ -7,3 +7,4 @@ x-rtm:
   status: Confirmed
   priority: high
   contributors: [Artyom-kurguzkin]
+  label: bug

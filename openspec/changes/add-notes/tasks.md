@@ -14,3 +14,4 @@
 - [x] 2.5 notes should go to change log
 - [ ] 2.6 you should be able to move subtasks within the list to identify priorities
 - [ ] 2.7 you should be able to attach screenshots to task descriptions
+- [x] 2.8 "Edit in editor" button on the note page; asks which command to use the first time, remembered in Settings; verify the "First use" and "Already configured" scenarios

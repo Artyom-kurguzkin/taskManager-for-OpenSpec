@@ -8,7 +8,8 @@ public sealed record AppSettings(
     string? LastRepo = null,
     string? Name = null,                  // null = use git user.name
     string DefaultView = "board",
-    Dictionary<string, BoardOptions>? Boards = null);
+    Dictionary<string, BoardOptions>? Boards = null,
+    string? Editor = null);     // command used by "Edit in …"; null = ask next time
 
 /// <summary>Per-user settings in a JSON file (AppData/RepoTaskManager/settings.json). Host-only, not repo data.</summary>
 public sealed class SettingsStore(string path)

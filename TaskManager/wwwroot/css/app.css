@@ -236,6 +236,14 @@ button, select, input, textarea { font: inherit; color: inherit; }
 .title-in:hover { outline: 2px dashed var(--accent); }
 .kv { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .kv > label { color: var(--ink); } .kv > label::after { content: ":"; }
+/* header dropdown triggers (priority, label, +add) look like plain text otherwise; box them so they read as clickable at rest */
+.head.kvs .dd { border: 2px solid var(--line); border-radius: var(--r); padding: 3px 10px; background: var(--fill, var(--stone)); }
+.head.kvs .dd:hover, .head.kvs .dd:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
+/* linked feature / contributor chips: dashed = locked (from specs or git, can't remove here), solid = removable, matching the
+   app's existing dashed-for-static / solid-for-interactive convention (see .ico). Otherwise both look like plain text. */
+.head.kvs .chip { display: inline-flex; align-items: center; border: 1.5px dashed var(--line-soft); border-radius: var(--r); padding: 3px 10px; background: var(--stone); color: var(--ink-2); }
+.head.kvs .chip.x { border: 2px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+.head.kvs .chip.x:hover { background: var(--stone); color: var(--on-fill); }
 .edit { cursor: pointer; border-radius: 8px; }
 
 .mini-sel { appearance: none; border: 0; background: transparent; cursor: pointer; padding: 0; }

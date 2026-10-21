@@ -31,6 +31,7 @@
             @* Uncontrolled: the text is set when the note loads and never pushed back while typing,
                so a re-render can't overwrite keystrokes that haven't reached .NET yet. *@
             <div data-sk="soft"><textarea class="md" value="@editorText" @oninput="OnInput" spellcheck="false" aria-label="Markdown editor"></textarea></div>
+            <button class="btn ghost edit-ext" data-sk @onclick="EditExternally">@(Settings.Current.Editor is string e ? $"Edit in {e}" : "Edit in…")</button>
         </section>
         <section class="panel">
             <h3>Preview</h3>
@@ -64,6 +65,9 @@
     [Inject] private Workspace Workspace { get; set; } = default!;
     [Inject] private UiService Popups { get; set; } = default!;
     [Inject] private IJSRuntime Js { get; set; } = default!;
+    [Inject] private SettingsStore Settings { get; set; } = default!;
+    [Inject] private IServiceProvider Services { get; set; } = default!;
+    private EditorLauncher? Launcher => Services.GetService(typeof(EditorLauncher)) as EditorLauncher;
 
     private Note? note;
     private string body = "";          // latest typed text (saved by autosave)
@@ -134,6 +138,22 @@
     }
 
     private static string Label(NoteLink l) => l.Kind switch { "item" => $"#wi{l.Target}", "note" => $"#n{l.Target}", _ => l.Target };
+
+    private async Task EditExternally()
+    {
+        if (note is null) return;
+        string? editor = Settings.Current.Editor;
+        if (string.IsNullOrWhiteSpace(editor))
+        {
+            string? typed = await Popups.Prompt("Which editor should open files?", "e.g. code, notepad++, subl, or a full path", "Use it");
+            if (string.IsNullOrWhiteSpace(typed)) return;
+            editor = typed.Trim();
+            Settings.Update(s => s with { Editor = editor });
+        }
+        if (Launcher is null) return;
+        (bool ok, string message) = Launcher(editor, note.Path);
+        if (!ok) Popups.Toast(message, ToastKind.Warning);
+    }
 
     /// <summary>Markdig HTML with [[doc]], #wiN and #nN turned into links (unresolved ones struck through).</summary>
     private MarkupString Preview

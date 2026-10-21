@@ -2,7 +2,8 @@ schema: spec-driven
 created: 2026-10-19
 x-rtm:
   id: 20
-  title: Board and app shell rework
+  title: Board UI bugs
   status: In Progress
   priority: high
   contributors: [Artyom-kurguzkin]
+  label: bug

@@ -17,6 +17,16 @@ public static class Ui
         _ => "--stone",
     };
 
+    public static string PriorityColor(string priority) => priority == "high" ? "--peach" : "--stone";
+
+    public static string LabelColor(string label) => label switch
+    {
+        "bug" => "--peach",
+        "feature" => "--sky",
+        "enhancement" => "--sage",
+        _ => "--stone",
+    };
+
     private static readonly Dictionary<string, string> Paths = new()
     {
         ["cal"] = "<rect x=\"2\" y=\"3\" width=\"12\" height=\"11\" rx=\"2\"/><path d=\"M2 7h12M5 1.5v3M11 1.5v3\"/>",
