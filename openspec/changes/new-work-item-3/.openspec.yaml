@@ -7,3 +7,4 @@ x-rtm:
   status: Confirmed
   contributors: [Artyom-kurguzkin]
   features: [board]
+  hidden: true

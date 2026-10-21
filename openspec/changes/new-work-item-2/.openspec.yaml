@@ -9,3 +9,4 @@ x-rtm:
   features: [board]
   lanes:
     board: test-2
+  hidden: true

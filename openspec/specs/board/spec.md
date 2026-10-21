@@ -174,3 +174,10 @@ When grouped by bucket, "+ feature" next to a bucket heading SHALL add a feature
 #### Scenario: Delete own feature
 - **WHEN** the user deletes "Payments", which #wi21 links to, and confirms
 - **THEN** the Payments column is gone, `functional/payments` is removed from config.yaml, and #wi21 shows under Unassigned
+
+### Requirement: Hide selected work items
+The selection action bar SHALL offer "Delete (hide)", enabled with one or more cards selected, which hides every selected item the same way the per-item "Delete (hide)" control does. Hiding SHALL clear the selection.
+
+#### Scenario: Hide several
+- **WHEN** the user selects three cards and picks "Delete (hide)"
+- **THEN** all three items gain `x-rtm.hidden: true`, disappear from the board unless "show hidden" is on, and the selection clears

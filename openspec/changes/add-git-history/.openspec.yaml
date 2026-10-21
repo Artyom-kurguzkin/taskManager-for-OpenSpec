@@ -5,3 +5,5 @@ x-rtm:
   status: Backlog
   priority: low
   contributors: [Artyom-kurguzkin]
+  label: feature
+  hidden: true

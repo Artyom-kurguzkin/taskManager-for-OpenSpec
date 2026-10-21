@@ -3,7 +3,7 @@
     <Activator>
         <button type="button" class="box dd @Class" data-sk style="@Style" aria-haspopup="listbox" aria-label="@Label">
             @if (Swatch is not null) { <i class="sw-dot" style="background:var(@Swatch(Value))"></i> }
-            <span>@(Options.FirstOrDefault(o => o.Value == Value).Label ?? Placeholder)</span>@Ui.Icon("caret")
+            <span>@DisplayText</span>@Ui.Icon("caret")
         </button>
     </Activator>
     <Items>
@@ -27,4 +27,11 @@
     [Parameter] public string? Style { get; set; }
     /// <summary>Optional colour token per value (e.g. status band) shown as a swatch.</summary>
     [Parameter] public Func<string, string>? Swatch { get; set; }
+
+    /// <summary>
+    /// The current value's label, so a selection is never shown as blank. Placeholder is for "nothing picked yet"
+    /// (an empty Value); a non-empty Value with no matching option (stale or legacy data) falls back to showing
+    /// the raw value rather than hiding it.
+    /// </summary>
+    private string DisplayText => Options.FirstOrDefault(o => o.Value == Value).Label ?? (string.IsNullOrEmpty(Value) ? Placeholder : Value);
 }

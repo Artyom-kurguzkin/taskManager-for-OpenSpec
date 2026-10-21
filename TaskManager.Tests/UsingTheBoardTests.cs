@@ -110,6 +110,19 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Single(board.FindAll("article.card.hidden-item"));
     }
 
+    [Fact(DisplayName = "A dropdown whose current value isn't in its options still shows that value, not blank")]
+    public void DropdownShowsUnknownValue()
+    {
+        using BunitContext ctx = new();
+        IRenderedComponent<Dropdown> dd = ctx.Render<Dropdown>(p => p
+            .Add(c => c.Label, "example")
+            .Add(c => c.Options, [("a", "Alpha"), ("b", "Beta")])
+            .Add(c => c.Value, "mystery")
+            .Add(c => c.Placeholder, "pick one"));
+
+        Assert.Equal("mystery", dd.Find("button.dd span").TextContent.Trim());
+    }
+
     [Fact(DisplayName = "Opening the group-by dropdown and picking bucket regroups the board into sections")]
     public async Task DropdownOpensAndPicks()
     {
