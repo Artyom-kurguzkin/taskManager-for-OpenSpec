@@ -11,6 +11,26 @@
             @onclick="() => expanded = !expanded">@Ui.Icon("menu")<span class="nav-l mono">@RepoName</span></button>
     @if (Workspace.Root is not null)
     {
+        <Menu Label="Switch repository">
+            <Activator>
+                <button class="nav-btn tabs-btn" aria-label="Open repositories" title="Switch repository" aria-haspopup="menu">
+                    @Ui.Icon("board")<span class="nav-l">@Workspace.OpenRepos.Count open</span>
+                </button>
+            </Activator>
+            <Items>
+                @foreach (string repo in Workspace.OpenRepos)
+                {
+                    <MenuItem Class="@(IsActive(repo) ? "cur" : "")" OnClick="() => Switch(repo)">
+                        <span class="nm">@System.IO.Path.GetFileName(repo)</span>
+                        @if (Workspace.OpenRepos.Count > 1)
+                        {
+                            <span class="chip x" role="button" tabindex="0" aria-label="Close tab" @onclick:stopPropagation="true" @onclick="() => Workspace.CloseTab(repo)"></span>
+                        }
+                    </MenuItem>
+                }
+                <MenuItem OnClick="OpenAnother">@Ui.Icon("plus") Open another repository…</MenuItem>
+            </Items>
+        </Menu>
         <Menu Label="Board or list">
             <Activator>
                 <button class="nav-btn @(OnBoard ? "is-sel" : "")" aria-label="Layout" title="Board or list" aria-haspopup="menu">
@@ -61,6 +81,9 @@
     [Inject] private SettingsStore Settings { get; set; } = default!;
     [Inject] private NavigationManager Nav { get; set; } = default!;
     [Inject] private UiService Popups { get; set; } = default!;
+    /// <summary>Native folder dialog, registered by the desktop host (absent in tests).</summary>
+    [Inject] private IServiceProvider Services { get; set; } = default!;
+    private FolderPicker? Picker => Services.GetService(typeof(FolderPicker)) as FolderPicker;
 
     private bool expanded;
 
@@ -95,6 +118,20 @@
     {
         Set(O with { View = view });
         if (!OnBoard) Nav.NavigateTo("");
+    }
+
+    private bool IsActive(string repo) => Workspace.Root is string r && string.Equals(System.IO.Path.GetFullPath(r), System.IO.Path.GetFullPath(repo), StringComparison.OrdinalIgnoreCase);
+
+    private void Switch(string repo)
+    {
+        if (!IsActive(repo) && Workspace.OpenTab(repo) is { Success: false, Message: string message }) Popups.Toast(message, ToastKind.Warning);
+    }
+
+    private void OpenAnother()
+    {
+        if (Picker?.Invoke() is not string chosen) return;
+        (bool ok, string message) = Workspace.OpenTab(chosen);
+        if (!ok) Popups.Toast(message, ToastKind.Warning);
     }
 
     private void NewItem()

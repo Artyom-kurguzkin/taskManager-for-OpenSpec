@@ -9,7 +9,8 @@ public sealed record AppSettings(
     string? Name = null,                  // null = use git user.name
     string DefaultView = "board",
     Dictionary<string, BoardOptions>? Boards = null,
-    string? Editor = null);     // command used by "Edit in …"; null = ask next time
+    string? Editor = null,      // command used by "Edit in …"; null = ask next time
+    List<string>? OpenRepos = null);   // repos open as tabs, in display order
 
 /// <summary>Per-user settings in a JSON file (AppData/RepoTaskManager/settings.json). Host-only, not repo data.</summary>
 public sealed class SettingsStore(string path)
@@ -37,7 +38,7 @@ public sealed class SettingsStore(string path)
     public void SaveBoard(string repo, BoardOptions options) =>
         Update(s => s with { Boards = new Dictionary<string, BoardOptions>(s.Boards ?? []) { [Key(repo)] = options } });
 
-    private static string Key(string repo) => Path.GetFullPath(repo).TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
+    internal static string Key(string repo) => Path.GetFullPath(repo).TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

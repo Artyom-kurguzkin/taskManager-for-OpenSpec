@@ -35,6 +35,28 @@ public sealed class Workspace : IDisposable
         return (true, "");
     }
 
+    /// <summary>Repositories open as tabs; falls back to just the active one once settings have any value at all.</summary>
+    public IReadOnlyList<string> OpenRepos =>
+        settings.Current.OpenRepos is { Count: > 0 } list ? list : (Root is string r ? [r] : []);
+
+    /// <summary>Opens a repository as a new tab (or switches to it if already open) and makes it active.</summary>
+    public (bool Success, string Message) OpenTab(string root)
+    {
+        List<string> before = OpenRepos.ToList();   // snapshot before Open() switches Root, which OpenRepos falls back on
+        (bool ok, string message) = Open(root);
+        if (ok) settings.Update(s => s with { OpenRepos = [.. before.Where(p => SettingsStore.Key(p) != SettingsStore.Key(root)), root] });
+        return (ok, message);
+    }
+
+    /// <summary>Closes a tab; the last remaining one can't be closed. Switches to another tab if the active one closes.</summary>
+    public void CloseTab(string repo)
+    {
+        if (OpenRepos.Count <= 1) return;
+        List<string> remaining = OpenRepos.Where(p => SettingsStore.Key(p) != SettingsStore.Key(repo)).ToList();
+        settings.Update(s => s with { OpenRepos = remaining });
+        if (Root is string r && SettingsStore.Key(r) == SettingsStore.Key(repo)) Open(remaining[^1]);
+    }
+
     /// <summary>Who the app writes as: the name in Settings, else git user.name, else the OS user.</summary>
     public string Me => settings.Current.Name ?? GitHistoryApi.UserName() ?? Environment.UserName;
 

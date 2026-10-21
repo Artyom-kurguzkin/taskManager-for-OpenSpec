@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-10-21
+x-rtm:
+  title: Open several repositories as tabs
+  status: In Progress
+  label: feature
+  contributors: [Artyom-kurguzkin]

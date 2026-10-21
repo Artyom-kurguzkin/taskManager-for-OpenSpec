@@ -31,6 +31,18 @@ public sealed class RememberingSettingsTests
         File.Delete(file);
     }
 
+    [Fact(DisplayName = "Which repositories are open as tabs is remembered between sessions")]
+    public void OpenReposRoundTrip()
+    {
+        SettingsStore store = new(file);
+        store.Update(s => s with { OpenRepos = [@"C:\repo1", @"C:\repo2"] });
+
+        SettingsStore reopened = new(file);
+
+        Assert.Equal([@"C:\repo1", @"C:\repo2"], reopened.Current.OpenRepos);
+        File.Delete(file);
+    }
+
     [Fact(DisplayName = "A missing or unreadable settings file starts with defaults")]
     public void Defaults()
     {

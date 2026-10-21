@@ -47,7 +47,7 @@ document.addEventListener("keydown", (e) => {
   if (location.pathname !== "/") history.back();
 });
 
-// ── Hint mode: hold Alt to see keyboard shortcuts for every clickable element ──
+// ── Hint mode: press Alt to show keyboard shortcuts for every clickable element, Alt again (or Esc) to hide ──
 const _hints = {
   active: false,
   overlay: null,   // container div
@@ -62,7 +62,7 @@ const _hints = {
     this.overlay.className = "hint-overlay";
     document.body.appendChild(this.overlay);
 
-    const els = [...document.querySelectorAll(
+    const matches = [...document.querySelectorAll(
       "button, a[href], input:not([type=hidden]), select, textarea, " +
       "[onclick], .menu-item, .chip.x, .nav-btn, .row-title, .log-e, .card, " +
       "header.col-h, .seg-o, label.check input"
@@ -71,6 +71,11 @@ const _hints = {
       const r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0;
     });
+    // The side nav's own buttons go first, in their fixed markup order, so they always land on the same
+    // letters regardless of how much page content (cards, rows, …) is hinted alongside them.
+    const nav = matches.filter(el => el.closest("nav.side"));
+    const page = matches.filter(el => !el.closest("nav.side"));
+    const els = [...nav, ...page];
 
     const labels = this._labels(els.length);
     this.map.clear();
@@ -123,16 +128,17 @@ const _hints = {
 };
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Alt") { e.preventDefault(); _hints.show(); return; }
+  if (e.key === "Alt") {
+    e.preventDefault();
+    if (e.repeat) return;   // ignore OS auto-repeat while the key is held down
+    if (_hints.active) _hints.hide(); else _hints.show();
+    return;
+  }
   if (_hints.active && e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
     e.preventDefault();
     _hints.type(e.key);
   }
 }, true);
-
-document.addEventListener("keyup", (e) => {
-  if (e.key === "Alt" && _hints.active && _hints.typed === "") _hints.hide();
-});
 
 // HTML5 drag-and-drop: a drop only happens where dragover is cancelled. Blazor can't do that without a .NET
 // round-trip per mouse move, so board columns/lanes are marked data-drop and cancelled here.
