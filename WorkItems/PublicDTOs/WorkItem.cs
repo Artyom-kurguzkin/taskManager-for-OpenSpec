@@ -24,7 +24,8 @@ public sealed record WorkItem(
     IReadOnlyList<string>? Assigned = null,
     string? Label = null,                       // x-rtm.label: bug, feature, enhancement
     IReadOnlyList<string>? Commits = null,     // picked by hand (x-rtm.commits); commits mentioning #wiN come from git
-    IReadOnlyList<TestLink>? Tests = null);    // x-rtm.tests
+    IReadOnlyList<TestLink>? Tests = null,     // x-rtm.tests
+    IReadOnlyList<int>? DependsOn = null);     // x-rtm.dependsOn: ids this item is waiting on
 
 /// <summary>A test linked to a work item, by suite and test name as the results file names them; Note = #n id describing it.</summary>
 public sealed record TestLink(string Suite, string Test, int? Note);

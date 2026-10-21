@@ -22,6 +22,8 @@ internal sealed class Rtm
     public bool? Hidden { get; set; }
     public List<string>? Commits { get; set; }
     public List<RtmTest>? Tests { get; set; }
+    /// <summary>Ids of work items that must be done before this one can leave Blocked.</summary>
+    public List<int>? DependsOn { get; set; }
 }
 
 internal sealed class RtmTest

@@ -217,6 +217,23 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains(WorkItemsApi.GetAll(), w => w.Subtasks is [{ Number: "1.1", Text: "Ping test in suite 543" }]);
     }
 
+    [Fact(DisplayName = "Selecting a subtask also offers to make it a dependency, which blocks the parent and links the two pages")]
+    public async Task SplitAsDependency()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        page.FindAll(".sub .s-t")[2].Click();
+        page.Find(".actionbar button.dep").Click();
+
+        Assert.Equal("Blocked", WorkItemsApi.Get(123)!.Status);
+        int newId = WorkItemsApi.GetAll().Single(w => w.Subtasks is [{ Number: "1.1", Text: "Ping test in suite 543" }]).Id;
+        Assert.Contains($"#wi{newId}", page.Find(".warning.waiting-on").TextContent);
+
+        IRenderedComponent<WorkItemPage> dependency = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, newId));
+        Assert.Contains("#wi123", dependency.Find(".blocking").TextContent);
+    }
+
     [Fact(DisplayName = "+ link commit lists recent commits; the picked one is linked and can be removed")]
     public async Task LinkCommit()
     {

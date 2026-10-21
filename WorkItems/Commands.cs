@@ -53,6 +53,8 @@ internal static partial class Commands
         if (!WorkItemsApi.Statuses.Contains(status)) return (false, $"Unknown status \"{status}\"");
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
         if (item.Archived) return item.Status == status ? (true, "") : (false, Archived);
+        if (status != "Blocked" && (item.DependsOn ?? []).Select(Queries.Get).OfType<WorkItem>().FirstOrDefault(d => !d.Archived) is WorkItem dep)
+            return (false, $"Waiting on #wi{dep.Id} \"{dep.Title}\" — can't change status until it's resolved");
         if (status != "Completed") return Update(id, m => m.Status = status);
 
         // Completed = archived. Stamp the number first so the archived copy keeps it.
@@ -172,6 +174,18 @@ internal static partial class Commands
         (ok, message) = EditTasks(id, text => TasksFile.Remove(text, numbers));
         return (ok, message, newId);
     }
+
+    /// <summary>Like MoveSubtasksToNew, but the new item becomes a dependency: the source is blocked until it is archived.</summary>
+    internal static (bool Success, string Message, int NewId) MoveSubtasksToDependency(int id, IReadOnlyCollection<string> numbers)
+    {
+        (bool ok, string message, int newId) = MoveSubtasksToNew(id, numbers);
+        if (!ok) return (ok, message, 0);
+        (ok, message) = Update(id, m => { m.DependsOn = [.. m.DependsOn ?? [], newId]; m.Status = "Blocked"; });
+        return ok ? (true, "", newId) : (false, message, 0);
+    }
+
+    internal static (bool Success, string Message) SetDependencies(int id, IEnumerable<int> ids) =>
+        Update(id, m => m.DependsOn = ids.Distinct().ToList());
 
     internal static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids)
     {

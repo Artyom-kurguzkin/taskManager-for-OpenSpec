@@ -57,6 +57,11 @@ public static class WorkItemsApi
     public static (bool Success, string Message) SetSubtaskDone(int id, string number, bool done) => Commands.SetSubtaskDone(id, number, done);
     public static (bool Success, string Message) AddSubtask(int id, string text) => Commands.AddSubtask(id, text);
     public static (bool Success, string Message, int NewId) MoveSubtasksToNew(int id, IReadOnlyCollection<string> numbers) => Commands.MoveSubtasksToNew(id, numbers);
+    /// <summary>Like MoveSubtasksToNew, but the new item becomes a dependency and the source moves to Blocked until it is archived.</summary>
+    public static (bool Success, string Message, int NewId) MoveSubtasksToDependency(int id, IReadOnlyCollection<string> numbers) => Commands.MoveSubtasksToDependency(id, numbers);
+    public static (bool Success, string Message) SetDependencies(int id, IEnumerable<int> ids) => Commands.SetDependencies(id, ids);
+    /// <summary>Work items that depend on this one (its x-rtm.dependsOn names them).</summary>
+    public static IReadOnlyList<WorkItem> GetBlocking(int id) => Queries.GetBlocking(id);
 
     // ── Whole items ──
     public static (bool Success, string Message, int Id) Create(string title, string status = "Backlog", IEnumerable<string>? features = null, IEnumerable<string>? contributors = null)

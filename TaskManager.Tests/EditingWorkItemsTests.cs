@@ -174,6 +174,65 @@ public sealed class EditingWorkItemsTests
         Assert.Equal(Item(123).Contributors, Item(newId).Contributors);
     }
 
+    [Fact(DisplayName = "Turning a subtask into a dependency creates a new item and blocks the parent on it")]
+    public void SplitAsDependency()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string _, int newId) = WorkItemsApi.MoveSubtasksToDependency(123, ["1.3"]);
+
+        Assert.True(ok);
+        Assert.Equal(["1.1", "1.2", "2.1"], Item(123).Subtasks.Select(s => s.Number));
+        Assert.Equal("Blocked", Item(123).Status);
+        Assert.Equal([newId], Item(123).DependsOn);
+    }
+
+    [Fact(DisplayName = "A work item blocked by an unresolved dependency refuses other status changes")]
+    public void BlockedByDependencyRefusesStatus()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int newId) = WorkItemsApi.MoveSubtasksToDependency(123, ["1.3"]);
+
+        (bool ok, string message) = WorkItemsApi.SetStatus(123, "Planned");
+
+        Assert.False(ok);
+        Assert.Contains($"#wi{newId}", message);
+        Assert.Equal("Blocked", Item(123).Status);
+    }
+
+    [Fact(DisplayName = "Once the dependency is archived, the parent can change status again")]
+    public void DependencyResolvedUnblocks()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureArchiver(folder => { Directory.Move(repo.PathOf($"openspec/changes/{folder}"), repo.PathOf($"openspec/changes/archive/2026-10-21-{folder}")); return (true, ""); });
+        try
+        {
+            (bool _, string _, int newId) = WorkItemsApi.MoveSubtasksToDependency(123, ["1.3"]);
+            WorkItemsApi.SetStatus(newId, "Completed");
+
+            (bool ok, string message) = WorkItemsApi.SetStatus(123, "Planned");
+
+            Assert.True(ok, message);
+            Assert.Equal("Planned", Item(123).Status);
+        }
+        finally { WorkItemsApi.ConfigureArchiver(null); }
+    }
+
+    [Fact(DisplayName = "A dependency's work items list shows what it is blocking")]
+    public void BlockingList()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int newId) = WorkItemsApi.MoveSubtasksToDependency(123, ["1.3"]);
+
+        IReadOnlyList<WorkItem> blocking = WorkItemsApi.GetBlocking(newId);
+
+        Assert.Equal([123], blocking.Select(b => b.Id));
+    }
+
     [Fact(DisplayName = "Merging work items combines proposals, subtasks, specs and people, and removes the sources")]
     public void Merge()
     {

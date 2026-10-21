@@ -47,6 +47,9 @@ internal static partial class Queries
 
     internal static int NextId() => All().Select(w => w.Id).DefaultIfEmpty(0).Max() + 1;
 
+    /// <summary>Work items whose x-rtm.dependsOn names this one, i.e. what this item is blocking.</summary>
+    internal static IReadOnlyList<WorkItem> GetBlocking(int id) => GetAll(includeHidden: true).Where(w => (w.DependsOn ?? []).Contains(id)).ToList();
+
     internal static IReadOnlyList<string> GetWarnings() =>
         All().GroupBy(w => w.Id).Where(g => g.Count() > 1)
             .Select(g => $"#wi{g.Key} is used by {string.Join(" and ", g.Select(w => w.Folder))}")
@@ -97,7 +100,7 @@ internal static partial class Queries
             TasksFile.Parse(OpenSpecStoreApi.ReadText(Path.Combine(dir, "tasks.md"))),
             meta.Lanes ?? [],
             archived, created, modified, warning, meta.Hidden == true, meta.Contributors ?? [],
-            meta.Label, meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList());
+            meta.Label, meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList(), meta.DependsOn ?? []);
     }
 
     [GeneratedRegex(@"^created:\s*(?<d>\S+)", RegexOptions.Multiline)]
