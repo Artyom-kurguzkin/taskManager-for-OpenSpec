@@ -6,3 +6,4 @@ x-rtm:
   title: this thing is slow
   status: Planned
   contributors: [Artyom-kurguzkin]
+  hidden: true

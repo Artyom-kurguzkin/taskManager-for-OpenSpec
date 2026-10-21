@@ -6,4 +6,5 @@ x-rtm:
   status: In Progress
   priority: low
   contributors: [Artyom-kurguzkin]
+  hidden: true
   tests: [{suite: UsingThePagesTests, test: Selecting one subtask offers to make it a work item of its own}]

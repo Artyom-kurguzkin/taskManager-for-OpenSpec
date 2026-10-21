@@ -232,6 +232,20 @@ public sealed class UsingTheBoardTests : IDisposable
         overlays!.WaitForAssertion(() => Assert.Contains("Merged into #wi", overlays.Find(".toast").TextContent));
     }
 
+    [Fact(DisplayName = "Hiding selected work items removes them from the board and clears the selection")]
+    public async Task HideSelectedCards()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        int before = board.FindAll("article.card").Count;
+        board.FindAll("article.card input.pick").First().Change(true);
+
+        board.Find(".actionbar button.hide-sel").Click();
+
+        Assert.Empty(board.FindAll(".actionbar"));
+        Assert.Equal(before - 1, board.FindAll("article.card").Count);
+    }
+
     [Fact(DisplayName = "Clicking a column header opens its menu")]
     public async Task ColumnMenuOpens()
     {

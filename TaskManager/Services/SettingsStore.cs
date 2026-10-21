@@ -28,8 +28,11 @@ public sealed class SettingsStore(string path)
         Changed?.Invoke();
     }
 
-    public BoardOptions Board(string repo) =>
-        Current.Boards?.GetValueOrDefault(Key(repo)) ?? new BoardOptions(View: Current.DefaultView);
+    public BoardOptions Board(string repo)
+    {
+        BoardOptions o = Current.Boards?.GetValueOrDefault(Key(repo)) ?? new BoardOptions(View: Current.DefaultView);
+        return o.GroupBy == "feature" ? o with { GroupBy = "bucket" } : o;   // "feature" was renamed to "bucket"; keep old saved boards working
+    }
 
     public void SaveBoard(string repo, BoardOptions options) =>
         Update(s => s with { Boards = new Dictionary<string, BoardOptions>(s.Boards ?? []) { [Key(repo)] = options } });

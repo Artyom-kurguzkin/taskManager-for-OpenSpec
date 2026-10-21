@@ -211,6 +211,19 @@ public partial class BoardPage
         Popups.Toast($"Merged into #wi{id}", ToastKind.Success);
     }
 
+    private void HideSelected()
+    {
+        List<string> failed = [];
+        foreach (int id in selected.Order().ToList())
+        {
+            (bool ok, string message) = WorkItemsApi.Hide(id);
+            if (!ok) failed.Add($"#wi{id}: {message}");
+        }
+        selected.Clear();
+        Workspace.Notify();
+        if (failed.Count > 0) Popups.Toast(string.Join("; ", failed), ToastKind.Warning);
+    }
+
     public void Dispose()
     {
         Workspace.Changed -= OnChanged;

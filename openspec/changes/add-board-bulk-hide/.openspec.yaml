@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-10-21
+x-rtm:
+  title: Hide selected work items from the board
+  status: In Progress
+  label: enhancement
+  contributors: [Artyom-kurguzkin]

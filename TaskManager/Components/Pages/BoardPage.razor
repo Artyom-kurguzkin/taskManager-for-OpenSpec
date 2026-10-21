@@ -148,6 +148,7 @@ else
         <span class="n">@selected.Count selected</span>
         @if (selected.Count >= 2) { <button class="btn primary" data-sk @onclick="Merge">Merge into one work item</button> }
         else { <span class="muted">select one more to merge</span> }
+        <button class="btn ghost hide-sel" data-sk @onclick="HideSelected">Delete (hide)</button>
         <button class="btn ghost" @onclick="() => selected.Clear()">Clear</button>
     </div>
 }

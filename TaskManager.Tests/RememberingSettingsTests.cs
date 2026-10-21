@@ -12,12 +12,22 @@ public sealed class RememberingSettingsTests
     {
         SettingsStore store = new(file);
         store.Update(s => s with { Theme = "dark", LastRepo = @"C:\repo", Name = "Artyom" });
-        store.SaveBoard(@"C:\repo", new BoardOptions(GroupBy: "feature", Category: "Functional", View: "list"));
+        store.SaveBoard(@"C:\repo", new BoardOptions(GroupBy: "bucket", Category: "Functional", View: "list"));
 
         SettingsStore reopened = new(file);
 
         Assert.Equal(("dark", @"C:\repo", "Artyom"), (reopened.Current.Theme, reopened.Current.LastRepo, reopened.Current.Name));
-        Assert.Equal(new BoardOptions(GroupBy: "feature", Category: "Functional", View: "list"), reopened.Board(@"C:\repo"));
+        Assert.Equal(new BoardOptions(GroupBy: "bucket", Category: "Functional", View: "list"), reopened.Board(@"C:\repo"));
+        File.Delete(file);
+    }
+
+    [Fact(DisplayName = "A board grouped by the old name \"feature\" (renamed to \"bucket\") still loads, as \"bucket\"")]
+    public void LegacyFeatureGroupByMigrates()
+    {
+        SettingsStore store = new(file);
+        store.SaveBoard(@"C:\repo", new BoardOptions(GroupBy: "feature"));
+
+        Assert.Equal("bucket", store.Board(@"C:\repo").GroupBy);
         File.Delete(file);
     }
 
