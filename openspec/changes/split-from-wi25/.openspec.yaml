@@ -1,0 +1,10 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-23
+x-rtm:
+  id: 26
+  title: subtasks loose their heading when created
+  status: In Progress
+  contributors: [Artyom-kurguzkin]
+  features: [work-item-editor]
+  label: bug

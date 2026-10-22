@@ -1,7 +1,9 @@
 schema: spec-driven
 created: 2026-10-21
 x-rtm:
+  id: 25
   title: Subtask dependencies that block the parent item
-  status: In Progress
-  label: feature
+  status: Blocked
   contributors: [Artyom-kurguzkin]
+  label: feature
+  dependsOn: [26]

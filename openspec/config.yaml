@@ -19,7 +19,7 @@ rules:
     - Each task group must leave the app building and its tests passing on its own
 x-rtm:
   features:
-    []
+    - ux
   lanes:
     board: [test, test-2]
   testResults:

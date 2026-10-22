@@ -1,0 +1,11 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-23
+x-rtm:
+  id: 28
+  title: add contributors does not list other git users
+  status: Planned
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [work-item-editor]
+  label: bug

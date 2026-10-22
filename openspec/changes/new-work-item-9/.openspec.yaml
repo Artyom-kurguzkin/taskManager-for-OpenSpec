@@ -1,0 +1,10 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-23
+x-rtm:
+  id: 30
+  title: bucket view is unusable
+  status: Planned
+  contributors: [Artyom-kurguzkin]
+  features: [board]
+  label: enhancement
