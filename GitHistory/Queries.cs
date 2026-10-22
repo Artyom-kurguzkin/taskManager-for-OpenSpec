@@ -47,7 +47,54 @@ internal static class Queries
             a = (head, ReadAuthors());
             GitHistoryModule.Authors = a;
         }
-        return a.ByChange.TryGetValue(ChangeName(folder), out List<string>? authors) ? authors : [];
+        return a.ByChange.TryGetValue(ChangeName(folder), out List<string>? authors) ? [.. authors.Select(PersonName).Distinct()] : [];
+    }
+
+    internal static IReadOnlyList<string> AllAuthors() => People().Names;
+
+    internal static string PersonName(string name) => People().Canonical.GetValueOrDefault(name, name);
+
+    /// <summary>
+    /// Everyone who committed (all branches). Names equal apart from case and - _ . and emails equal apart from case are
+    /// one person, shown under the name they committed with most.
+    /// ponytail: unrelated names on unrelated emails (work vs personal account) can't be told apart; a .mailmap merges those.
+    /// Keyed on the current branch's HEAD, so a commit on another branch shows after the next local commit or reopen.
+    /// </summary>
+    private static (IReadOnlyList<string> Names, Dictionary<string, string> Canonical) People()
+    {
+        if (!IsRepository()) return ([], []);
+        string head = HeadToken();
+        if (GitHistoryModule.People is { } cached && cached.Head == head) return (cached.Names, cached.Canonical);
+
+        var rows = GitCli.Run("log", "--all", "--format=%aN%x1f%aE").Output.Split('\n')
+            .Select(l => l.TrimEnd('\r').Split('\x1f')).Where(p => p.Length == 2 && p[0].Trim().Length > 0)
+            .GroupBy(p => (Name: p[0].Trim(), Email: p[1].Trim().ToLowerInvariant()))
+            .Select(g => (g.Key.Name, g.Key.Email, Count: g.Count()));
+
+        List<(HashSet<string> Keys, List<(string Name, int Count)> Names)> people = [];
+        foreach (var (name, email, count) in rows)
+        {
+            HashSet<string> keys = ["n:" + Regex.Replace(name.ToLowerInvariant(), @"[\s\-_.]+", " ").Trim()];
+            if (email.Length > 0) keys.Add("e:" + email);
+            (HashSet<string> Keys, List<(string, int)> Names) merged = (keys, [(name, count)]);
+            foreach (var same in people.Where(p => p.Keys.Overlaps(keys)).ToList())
+            {
+                merged.Keys.UnionWith(same.Keys);
+                merged.Names.AddRange(same.Names);
+                people.Remove(same);
+            }
+            people.Add(merged);
+        }
+
+        Dictionary<string, string> canonical = [];
+        foreach (var person in people)
+        {
+            string main = person.Names.GroupBy(n => n.Name).OrderByDescending(g => g.Sum(n => n.Count)).First().Key;
+            foreach ((string name, int _) in person.Names) canonical[name] = main;
+        }
+        List<string> names = [.. canonical.Values.Distinct().Order(StringComparer.OrdinalIgnoreCase)];
+        GitHistoryModule.People = (head, names, canonical);
+        return (names, canonical);
     }
 
     // One "git log --name-only" over openspec/changes: each commit is "\x1e<author>" followed by the files it touched.
@@ -55,7 +102,7 @@ internal static class Queries
     {
         Dictionary<string, List<string>> byChange = [];
         string? author = null;
-        foreach (string raw in GitCli.Run("log", "--format=%x1e%an", "--name-only", "--", "openspec/changes").Output.Split('\n'))
+        foreach (string raw in GitCli.Run("log", "--format=%x1e%aN", "--name-only", "--", "openspec/changes").Output.Split('\n'))
         {
             string line = raw.TrimEnd('\r');
             if (line.StartsWith('\x1e')) { author = line[1..]; continue; }

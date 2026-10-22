@@ -14,6 +14,8 @@ internal sealed class Rtm
     public string? Title { get; set; }
     public string? Status { get; set; }
     public string? Priority { get; set; }
+    /// <summary>Written even when empty: <c>[]</c> means "nobody", while a missing list lets git commit authors fill in.</summary>
+    [YamlMember(DefaultValuesHandling = DefaultValuesHandling.OmitNull)]
     public List<string>? Contributors { get; set; }
     public List<string>? Features { get; set; }
     public Dictionary<string, string>? Lanes { get; set; }

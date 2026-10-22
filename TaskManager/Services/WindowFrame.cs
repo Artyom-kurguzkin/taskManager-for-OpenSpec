@@ -32,7 +32,13 @@ public sealed partial class WindowFrame(Func<IntPtr> windowHandle, Action<string
     {
         string icon = Path.Combine(AppContext.BaseDirectory, "wwwroot", IconFor(dark));
         if (setIcon is not null) setIcon(icon);
-        else if (OperatingSystem.IsWindows() && windowHandle() is var h && h != IntPtr.Zero) SetIcon(h, icon);
+        else if (OperatingSystem.IsWindows() && windowHandle() is var h && h != IntPtr.Zero)
+        {
+            SetIcon(h, icon);
+            // The bar keeps dragging and min/max/close but draws no title text; taskbar and Alt-Tab still show it.
+            WtaOptions bare = new() { Flags = NoDrawCaption | NoDrawIcon, Mask = NoDrawCaption | NoDrawIcon };
+            SetWindowThemeAttribute(h, NonClient, ref bare, (uint)Marshal.SizeOf<WtaOptions>());
+        }
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;   // caption colours need Windows 11
         IntPtr hwnd = windowHandle();
         if (hwnd == IntPtr.Zero) return;
@@ -43,22 +49,37 @@ public sealed partial class WindowFrame(Func<IntPtr> windowHandle, Action<string
         Set(hwnd, BorderColor, ToColorRef(c.Border));
     }
 
-    // Photino's SetIconFile only takes effect before the window opens, so a theme switch sets WM_SETICON directly.
+    // Set here rather than with Photino's SetIconFile, which only works before the window opens and sets a small icon too.
     private static void SetIcon(IntPtr hwnd, string path)
     {
         const uint ImageIcon = 1, LoadFromFile = 0x10, WmSetIcon = 0x80;
-        foreach ((int which, int size) in new[] { (0, 16), (1, 32) })   // ICON_SMALL (title bar), ICON_BIG (taskbar, Alt-Tab)
-        {
-            IntPtr icon = LoadImageW(IntPtr.Zero, path, ImageIcon, size, size, LoadFromFile);
-            if (icon != IntPtr.Zero) SendMessageW(hwnd, WmSetIcon, which, icon);
-        }
+        IntPtr big = LoadImageW(IntPtr.Zero, path, ImageIcon, 32, 32, LoadFromFile);
+        if (big != IntPtr.Zero) SendMessageW(hwnd, WmSetIcon, 1, big);   // ICON_BIG: taskbar, Alt-Tab
+        // ICON_SMALL (title bar) is a fully transparent icon: with none set, Windows derives one from the big icon
+        // when the window first shows, so clearing it doesn't stick.
+        SendMessageW(hwnd, WmSetIcon, 0, Blank.Value);
     }
+
+    private static readonly Lazy<IntPtr> Blank = new(() => CreateIcon(IntPtr.Zero, 16, 16, 1, 1,
+        [.. Enumerable.Repeat((byte)0xFF, 32)], new byte[32]));   // AND mask all set + XOR all clear = see-through
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr CreateIcon(IntPtr instance, int width, int height, byte planes, byte bitsPerPixel, byte[] andBits, byte[] xorBits);
 
     [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
     private static partial IntPtr LoadImageW(IntPtr instance, string name, uint type, int cx, int cy, uint load);
 
     [LibraryImport("user32.dll")]
     private static partial IntPtr SendMessageW(IntPtr hwnd, uint msg, nint wParam, IntPtr lParam);
+
+    private const int NonClient = 1;                                // WTA_NONCLIENT
+    private const uint NoDrawCaption = 0x1, NoDrawIcon = 0x2;      // WTNCA_*
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WtaOptions { public uint Flags; public uint Mask; }
+
+    [LibraryImport("uxtheme.dll")]
+    private static partial int SetWindowThemeAttribute(IntPtr hwnd, int attribute, ref WtaOptions options, uint size);
 
     private const int DarkMode = 20, BorderColor = 34, CaptionColor = 35, TextColor = 36;   // DWMWINDOWATTRIBUTE
 

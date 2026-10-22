@@ -9,24 +9,39 @@ Selecting one or more subtasks SHALL also offer "Make it a dependency" (one) / "
 - **WHEN** the user selects subtask 1.3 of #wi123 and picks "Make it a dependency"
 - **THEN** a new work item holds that subtask, #wi123's status becomes Blocked, and `x-rtm.dependsOn` in #wi123's `.openspec.yaml` lists the new item's id
 
-### Requirement: Waiting on and blocking panels
-A work item with one or more dependencies SHALL show a "Waiting on" banner naming each one and its current status. A work item named in another item's `x-rtm.dependsOn` SHALL show a "You are blocking" panel naming each of them and its current status. Both SHALL link to the named item's page.
+### Requirement: Related work items under Subtasks
+The Subtasks panel SHALL list, after the subtasks, each work item this one waits on ("waits on", highlighted while unresolved, struck through once In Review or Completed, with a control to remove it) and each work item waiting on this one ("blocks"), with its current status. Each SHALL open the named item's page.
 
-#### Scenario: Waiting on
+#### Scenario: Waits on
 - **WHEN** #wi123's `x-rtm.dependsOn` lists #wi124
-- **THEN** #wi123's page shows a "Waiting on" banner naming #wi124 and its status
+- **THEN** #wi123's Subtasks panel shows a highlighted "waits on" row for #wi124 with its status, and removing it clears it from `x-rtm.dependsOn`
 
-#### Scenario: You are blocking
+#### Scenario: Blocks
 - **WHEN** #wi123's `x-rtm.dependsOn` lists #wi124
-- **THEN** #wi124's page shows a "You are blocking" panel naming #wi123 and its status
+- **THEN** #wi124's Subtasks panel shows a "blocks" row for #wi123 with its status
 
 ### Requirement: Status locked while a dependency is unresolved
-A work item SHALL refuse to change status away from Blocked while any item in its `x-rtm.dependsOn` is not yet archived; the refusal SHALL name the unresolved dependency. Picking Blocked again SHALL always be allowed. Once every dependency is archived, status changes SHALL be allowed again.
+A dependency SHALL count as resolved once it is In Review or Completed (archived). A work item SHALL refuse to change status away from Blocked while any item in its `x-rtm.dependsOn` is unresolved; the refusal SHALL name the unresolved dependency. Picking Blocked again SHALL always be allowed. Once every dependency is resolved, status changes SHALL be allowed again.
 
 #### Scenario: Refused
-- **WHEN** #wi123 depends on #wi124, not yet archived, and the user picks Planned
+- **WHEN** #wi123 depends on #wi124, which is In Progress, and the user picks Planned
 - **THEN** #wi123's status stays Blocked and the message names #wi124
 
 #### Scenario: Unblocked
-- **WHEN** #wi124, the only item in #wi123's `x-rtm.dependsOn`, is archived
+- **WHEN** #wi124, the only item in #wi123's `x-rtm.dependsOn`, moves to In Review or is archived
 - **THEN** #wi123 can change to any status again
+
+### Requirement: Depend on an existing item
+Typing another work item's id (`#wi12`, `wi12` or `12`) in the subtask box SHALL make that item a dependency instead of adding a subtask. This item SHALL move to Blocked only when that dependency is unresolved; a dependency that is already In Review or Completed SHALL be linked without blocking. It SHALL be refused, with a message, when that item doesn't exist, is this item, is already a dependency, or already waits on this item.
+
+#### Scenario: Wait on an existing item
+- **WHEN** the user types `#wi123` in the subtask box of #wi107 and adds it
+- **THEN** #wi107 gains `x-rtm.dependsOn: [123]`, becomes Blocked, lists #wi123 as "waits on" under Subtasks, and no subtask is added
+
+#### Scenario: Already in review
+- **WHEN** the user types the id of an item that is In Review
+- **THEN** it is added to `x-rtm.dependsOn`, this item's status is unchanged, and a message says it doesn't block
+
+#### Scenario: Only done dependencies
+- **WHEN** every item in #wi107's `x-rtm.dependsOn` is In Review or Completed
+- **THEN** their "waits on" rows under Subtasks are struck through, like done subtasks

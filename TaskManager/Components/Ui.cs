@@ -40,6 +40,9 @@ public static class Ui
         ["menu"] = "<path d=\"M2.5 4h11M2.5 8h11M2.5 12h11\"/>",
         ["board"] = "<rect x=\"2\" y=\"2.5\" width=\"3.4\" height=\"11\" rx=\"1\"/><rect x=\"6.3\" y=\"2.5\" width=\"3.4\" height=\"7\" rx=\"1\"/><rect x=\"10.6\" y=\"2.5\" width=\"3.4\" height=\"9\" rx=\"1\"/>",
         ["plus"] = "<path d=\"M8 3v10M3 8h10\"/>",
+        ["compact"] = "<rect x=\"2\" y=\"2.5\" width=\"12\" height=\"2.6\" rx=\"1\"/><rect x=\"2\" y=\"6.7\" width=\"12\" height=\"2.6\" rx=\"1\"/><rect x=\"2\" y=\"10.9\" width=\"12\" height=\"2.6\" rx=\"1\"/>",
+        ["back"] = "<path d=\"M14 8H2M6 4L2 8l4 4\"/>",   // <-: previous page
+        ["swap"] = "<path d=\"M2 8h12M5 5L2 8l3 3M11 5l3 3-3 3\"/>",   // <->: switch repository
         ["eye"] = "<path d=\"M1.5 8S3.9 3.5 8 3.5 14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z\"/><circle cx=\"8\" cy=\"8\" r=\"2\"/>",
         ["eyeoff"] = "<path d=\"M1.5 8S3.9 3.5 8 3.5 14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8zM2.5 13.5l11-11\"/>",
         ["up"] = "<path d=\"M4 10l4-4 4 4\"/>",

@@ -42,27 +42,38 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal(4, page.FindAll(".sub").Count);
         Assert.Contains("Ping test", page.Find(".change-log").TextContent);
         Assert.DoesNotContain(page.FindAll("h3"), h => h.TextContent.Trim() == "Notes");   // no separate notes panel
-        Assert.Contains("openspec/changes/add-health-check", page.Markup.Replace('\\', '/'));
     }
 
-    [Fact(DisplayName = "Commit authors show as contributors without a remove button; people assigned in the app can be removed")]
+    [Fact(DisplayName = "Every contributor can be removed, including one who has commits on the change")]
     public async Task GitContributors()
     {
         await using BunitContext ctx = NewContext();
         try
         {
-            WorkItemsApi.ConfigureContributors(() => ("t1", folder => folder == "add-health-check" ? ["Alice"] : []));
-            IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-            List<AngleSharp.Dom.IElement> chips = page.FindAll(".kv:has(label) .chip").Where(c => c.ParentElement!.TextContent.Contains("contributors")).ToList();
+            WorkItemsApi.ConfigureContributors(() => ("t1", folder => folder == "plain-change" ? ["Alice"] : []));
+            IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 125));
+            AngleSharp.Dom.IElement alice = page.FindAll(".contributors .chip").Single();
 
-            Assert.Equal(["Alice", "Artyom", "Tom"], chips.Select(c => c.TextContent.Trim()));
-            Assert.DoesNotContain("x", chips[0].ClassList);   // Alice has commits: not removable
-            Assert.Contains("x", chips[1].ClassList);
+            Assert.Equal("Alice", alice.TextContent.Trim());
+            Assert.Contains("x", alice.ClassList);
 
-            chips[1].Click();   // unassign Artyom
-            Assert.Equal(["Tom"], WorkItemsApi.Get(123)!.Assigned);
+            alice.Click();
+            Assert.Empty(WorkItemsApi.Get(125)!.Contributors);
         }
         finally { WorkItemsApi.ConfigureContributors(null); }
+    }
+
+    [Fact(DisplayName = "+ add on contributors accepts a name typed in, not only people already on other items")]
+    public async Task AddNewPerson()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
+
+        page.Find("button[aria-label='Add a contributor']").Click();
+        page.Find(".contributors .menu-filter").Input("Zed");
+        page.FindAll(".contributors .menu-item").Single(i => i.TextContent.Contains("Zed")).Click();
+
+        Assert.Equal(["Tom", "Zed"], WorkItemsApi.Get(107)!.Contributors);
     }
 
     [Fact(DisplayName = "Ticking a subtask on the work item page saves it to tasks.md")]
@@ -88,14 +99,15 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains(WorkItemsApi.GetAll(), w => w.Title == "Split from #wi123");
     }
 
-    [Fact(DisplayName = "Deleting from the work item page hides it, and Restore brings it back")]
+    [Fact(DisplayName = "A hidden item's page offers Restore; a visible item's page does not offer hiding")]
     public async Task HideFromPage()
     {
         await using BunitContext ctx = NewContext();
-        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
+        IRenderedComponent<WorkItemPage> visible = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
+        Assert.Empty(visible.FindAll("button.hide-item"));   // hiding only happens from the board's selection bar
 
-        page.Find("button.hide-item").Click();
-        Assert.True(WorkItemsApi.Get(107)!.Hidden);
+        WorkItemsApi.Hide(107);
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
         page.Find("button.hide-item").Click();
         Assert.False(WorkItemsApi.Get(107)!.Hidden);
     }
@@ -147,7 +159,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Empty(page.FindAll(".status-field button.dd"));
         // Other fields are editable: priority, label, feature and contributor dropdowns
         Assert.NotEmpty(page.FindAll("button.dd"));
-        Assert.Contains("click to edit", page.Markup);
+        Assert.NotEmpty(page.FindAll(".desc.edit"));
     }
 
     [Fact(DisplayName = "Typing never re-writes the editor's text, so fast typing can't be overwritten")]
@@ -262,10 +274,44 @@ public sealed class UsingThePagesTests : IDisposable
 
         Assert.Equal("Blocked", WorkItemsApi.Get(123)!.Status);
         int newId = WorkItemsApi.GetAll().Single(w => w.Subtasks is [{ Number: "1.1", Text: "Ping test in suite 543" }]).Id;
-        Assert.Contains($"#wi{newId}", page.Find(".warning.waiting-on").TextContent);
+        Assert.Contains($"#wi{newId}", page.Find(".sub.dep.waits.blocking-me").TextContent);
 
         IRenderedComponent<WorkItemPage> dependency = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, newId));
-        Assert.Contains("#wi123", dependency.Find(".blocking").TextContent);
+        Assert.Contains("#wi123", dependency.Find(".sub.dep.blocks").TextContent);
+    }
+
+    [Theory(DisplayName = "Typing another item's id in Add a subtask makes it a dependency instead of a subtask")]
+    [InlineData("#wi123")]
+    [InlineData("wi123")]
+    [InlineData("123")]
+    public async Task DependencyFromSubtaskBox(string typed)
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
+
+        page.Find("input[aria-label='New subtask']").Change(typed);
+        page.Find("form.add-line").Submit();
+
+        Assert.Equal([123], WorkItemsApi.Get(107)!.DependsOn);
+        Assert.Equal(2, WorkItemsApi.Get(107)!.Subtasks.Count);
+        Assert.Contains("#wi123", page.Find(".sub.dep.waits.blocking-me").TextContent);
+    }
+
+    [Fact(DisplayName = "Dependencies are listed under Subtasks: a done one struck through, and × removes it")]
+    public async Task DependenciesUnderSubtasks()
+    {
+        await using BunitContext ctx = NewContext();
+        WorkItemsApi.AddDependency(107, 124);   // archived, so done
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
+
+        AngleSharp.Dom.IElement row = page.Find(".panel .sub.dep.waits");
+        Assert.Contains("#wi124", row.TextContent);
+        Assert.Contains("done", row.ClassList);
+
+        row.QuerySelector("button[aria-label='Remove dependency']")!.Click();
+
+        Assert.Empty(WorkItemsApi.Get(107)!.DependsOn!);
+        Assert.Empty(page.FindAll(".sub.dep"));
     }
 
     [Fact(DisplayName = "+ link commit lists recent commits; the picked one is linked and can be removed")]

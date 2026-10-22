@@ -221,6 +221,76 @@ public sealed class EditingWorkItemsTests
         finally { WorkItemsApi.ConfigureArchiver(null); }
     }
 
+    [Fact(DisplayName = "An existing work item can be made a dependency by its id, which blocks this one")]
+    public void AddExistingDependency()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message) = WorkItemsApi.AddDependency(107, 123);
+
+        Assert.True(ok, message);
+        Assert.Equal([123], Item(107).DependsOn);
+        Assert.Equal("Blocked", Item(107).Status);
+        Assert.Equal(2, Item(107).Subtasks.Count);   // no subtask line added
+    }
+
+    [Theory(DisplayName = "A dependency is refused when it's unknown or this item itself")]
+    [InlineData(999, "No work item")]
+    [InlineData(107, "itself")]
+    public void RefusedDependencies(int dependency, string expected)
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message) = WorkItemsApi.AddDependency(107, dependency);
+
+        Assert.False(ok);
+        Assert.Contains(expected, message);
+        Assert.Empty(Item(107).DependsOn!);
+        Assert.Equal("Planned", Item(107).Status);
+    }
+
+    [Theory(DisplayName = "A completed or in-review item is linked as a dependency but doesn't block, so status stays free")]
+    [InlineData(124)]   // archived (Completed)
+    [InlineData(125)]   // set to In Review below
+    public void DoneDependencyDoesNotBlock(int dependency)
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.SetStatus(125, "In Review");
+
+        Assert.True(WorkItemsApi.AddDependency(107, dependency).Success);
+
+        Assert.Equal([dependency], Item(107).DependsOn);
+        Assert.Equal("Planned", Item(107).Status);
+        Assert.True(WorkItemsApi.SetStatus(107, "In Progress").Success);
+    }
+
+    [Fact(DisplayName = "A dependency moving to In Review unblocks the item waiting on it")]
+    public void InReviewUnblocks()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.AddDependency(107, 123);
+        Assert.False(WorkItemsApi.SetStatus(107, "Planned").Success);
+
+        WorkItemsApi.SetStatus(123, "In Review");
+
+        Assert.True(WorkItemsApi.SetStatus(107, "Planned").Success);
+    }
+
+    [Fact(DisplayName = "The same dependency isn't added twice, and two items can't wait on each other")]
+    public void RefusedDuplicatesAndCycles()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.True(WorkItemsApi.AddDependency(107, 123).Success);
+        Assert.Contains("Already", WorkItemsApi.AddDependency(107, 123).Message);
+        Assert.Contains("waits on", WorkItemsApi.AddDependency(123, 107).Message);
+    }
+
     [Fact(DisplayName = "A dependency's work items list shows what it is blocking")]
     public void BlockingList()
     {
@@ -391,7 +461,7 @@ public sealed class EditingWorkItemsTests
         Assert.DoesNotContain(Features.FeaturesApi.GetAll(), f => f.Path == "functional/payments");
     }
 
-    [Fact(DisplayName = "In a git repo contributors are the commit authors plus anyone assigned in the app")]
+    [Fact(DisplayName = "Commit authors fill in contributors until the list is edited in the app; after that the saved list wins")]
     public void ContributorsFromGit()
     {
         using TestRepo repo = new();
@@ -400,17 +470,35 @@ public sealed class EditingWorkItemsTests
         IReadOnlyList<string> authors = ["Alice"];
         try
         {
-            WorkItemsApi.ConfigureContributors(() => (token, folder => folder == "add-health-check" ? authors : []));
-            Assert.Equal(["Alice", "Artyom", "Tom"], Item(123).Contributors);   // git first, then x-rtm assignees
-            Assert.Equal(["Artyom", "Tom"], Item(123).Assigned);
+            WorkItemsApi.ConfigureContributors(() => (token, _ => authors));
+            Assert.Equal(["Alice"], Item(125).Contributors);            // plain-change: nothing saved, so git authors
+            Assert.Null(Item(125).Assigned);
+            Assert.Equal(["Artyom", "Tom"], Item(123).Contributors);    // saved x-rtm list, Alice not added
 
             authors = ["Bob", "Alice"];
             token = "t2";   // a new commit
-            Assert.Equal(["Bob", "Alice", "Artyom", "Tom"], Item(123).Contributors);
+            Assert.Equal(["Bob", "Alice"], Item(125).Contributors);
         }
         finally { WorkItemsApi.ConfigureContributors(null); }
 
-        Assert.Equal(["Artyom", "Tom"], Item(123).Contributors);   // outside git only the assignees
+        Assert.Empty(Item(125).Contributors);   // outside git nobody
+    }
+
+    [Fact(DisplayName = "Removing every contributor leaves nobody, even when someone has commits on the change")]
+    public void RemoveEveryone()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        try
+        {
+            WorkItemsApi.ConfigureContributors(() => ("t1", _ => ["Alice"]));
+
+            Assert.True(WorkItemsApi.SetContributors(125, []).Success);
+
+            Assert.Empty(Item(125).Contributors);
+            Assert.Contains("contributors: []", repo.Read("openspec/changes/plain-change/.openspec.yaml"));
+        }
+        finally { WorkItemsApi.ConfigureContributors(null); }
     }
 
     [Fact(DisplayName = "A newcomer with no commits yet can assign themselves")]

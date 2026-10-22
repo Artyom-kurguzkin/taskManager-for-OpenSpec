@@ -34,7 +34,7 @@ internal static partial class Queries
                 NoteMeta meta = NoteFile.Meta(front);
                 int id = meta.Id > 0 ? meta.Id : int.TryParse(Path.GetFileNameWithoutExtension(file)[1..], out int n) ? n : 0;
                 DateTime created = DateTime.TryParse(meta.Created, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime c) ? c : File.GetCreationTime(file);
-                notes.Add(new Note(id, wi.Id, file, NoteFile.Title(body, id), meta.By ?? "", created, File.GetLastWriteTime(file), body, meta.Links ?? []));
+                notes.Add(new Note(id, wi.Id, file, NoteFile.Title(body, id), meta.By ?? "", created, File.GetLastWriteTime(file), body, meta.Links ?? [], meta.Commits ?? []));
             }
         }
         return notes;

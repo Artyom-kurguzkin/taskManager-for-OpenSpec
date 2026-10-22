@@ -10,7 +10,8 @@ public sealed record Note(
     DateTime Created,
     DateTime Modified,
     string Body,
-    IReadOnlyList<string> ManualLinks);
+    IReadOnlyList<string> ManualLinks,
+    IReadOnlyList<string> Commits);
 
 /// <summary>A reference found in note text. Kind is "doc" ([[path]]), "item" (#wiN) or "note" (#nN).</summary>
 public sealed record NoteLink(string Kind, string Target, bool Resolved);

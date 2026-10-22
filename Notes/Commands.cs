@@ -39,4 +39,14 @@ internal static class Commands
         (meta.Links ??= []).Add(link.Trim());
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
     }
+
+    internal static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes)
+    {
+        if (NotesApi.Get(id) is not Note note) return (false, NotFound);
+        (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
+        NoteMeta meta = NoteFile.Meta(front);
+        meta.Id = id;
+        meta.Commits = hashes.Distinct().ToList();
+        return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+    }
 }

@@ -14,7 +14,7 @@
         <Menu Label="Switch repository">
             <Activator>
                 <button class="nav-btn tabs-btn" aria-label="Open repositories" title="Switch repository" aria-haspopup="menu">
-                    @Ui.Icon("board")<span class="nav-l">@Workspace.OpenRepos.Count open</span>
+                    @Ui.Icon("swap")<span class="nav-l">@Workspace.OpenRepos.Count open</span>
                 </button>
             </Activator>
             <Items>
@@ -43,6 +43,14 @@
             </Items>
         </Menu>
         <button class="nav-btn" aria-label="New work item" title="New work item" @onclick="NewItem">@Ui.Icon("plus")<span class="nav-l">New work item</span></button>
+        @if (!expanded)
+        {
+            @* the expanded menu has the same switch as a checkbox; always rendered so hint letters below it don't shift *@
+            bool boardView = OnBoard && O.View == "board";
+            <button class="nav-btn compact-btn @(boardView && O.Compact ? "is-sel" : "")" aria-label="Compact cards" aria-pressed="@(O.Compact ? "true" : "false")"
+                    title="@(boardView ? (O.Compact ? "Compact cards: on" : "Compact cards: off") : "Compact cards (board view only)")"
+                    disabled="@(!boardView)" @onclick="() => Set(O with { Compact = !O.Compact })">@Ui.Icon("compact")</button>
+        }
         <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="() => expanded = !expanded">@Ui.Icon("sliders")</button>
         @if (expanded && OnBoard)
         {

@@ -82,13 +82,14 @@ public sealed class ReadingGitHistoryTests : IDisposable
         Assert.Empty(GitHistoryApi.Mentioning("#wi1"));
     }
 
-    private void CommitAs(string author, string file, string text, string message)
+    private void CommitAs(string author, string file, string text, string message, string? email = null)
     {
+        email ??= author.Replace(' ', '.') + "@example.com";   // different people, different emails (shared email = same person)
         string path = Path.Combine(root, file);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, text);
         Git("add", "-A");
-        Git("-c", $"user.name={author}", "commit", "-q", "-m", message);
+        Git("-c", $"user.name={author}", "-c", $"user.email={email}", "commit", "-q", "-m", message);
     }
 
     [Fact(DisplayName = "A change's contributors are the authors of commits that touched its folder, also after it is archived")]
@@ -105,6 +106,40 @@ public sealed class ReadingGitHistoryTests : IDisposable
         Assert.Equal(["Alice", "Carol"], GitHistoryApi.AuthorsOfChange("2026-09-18-session-timeout"));
         Assert.Equal(["Bob"], GitHistoryApi.AuthorsOfChange("other"));
         Assert.Empty(GitHistoryApi.AuthorsOfChange("never-committed"));
+    }
+
+    [Fact(DisplayName = "Everyone who ever committed to the repo, on any branch and any file, is listed once, alphabetically")]
+    public void AllAuthors()
+    {
+        InitRepo();
+        CommitAs("Carol", "README.md", "a", "Readme");
+        CommitAs("Alice", "src/x.cs", "b", "Code");
+        CommitAs("Carol", "src/y.cs", "c", "More");
+        Git("checkout", "-q", "-b", "side");
+        CommitAs("Bob", "side.txt", "d", "Side work");
+        Git("checkout", "-q", "-");
+
+        Assert.Equal(["Alice", "Bob", "Carol"], GitHistoryApi.AllAuthors());
+
+        CommitAs("Dan", "z.txt", "e", "New person");
+        Assert.Equal(["Alice", "Bob", "Carol", "Dan"], GitHistoryApi.AllAuthors());   // a new commit refreshes it
+    }
+
+    [Fact(DisplayName = "One person committing under name variants or differently-cased emails is listed once, by their most-used name")]
+    public void SamePersonOnce()
+    {
+        InitRepo();
+        CommitAs("Ann Lee", "a.txt", "1", "work", "ann@work.org");
+        CommitAs("ann-lee", "openspec/changes/x/a.md", "2", "home", "ann@home.com");   // same name apart from case and hyphen
+        CommitAs("ann-lee", "b.txt", "3", "home", "ann@home.com");
+        CommitAs("Bob Stone", "c.txt", "4", "work", "bob@work.org");
+        CommitAs("bstone", "d.txt", "5", "laptop", "BOB@Work.org");                      // same email apart from case
+        CommitAs("Cy", "e.txt", "6", "other", "cy@x.org");
+
+        Assert.Equal(["ann-lee", "Bob Stone", "Cy"], GitHistoryApi.AllAuthors());
+        Assert.Equal(["ann-lee"], GitHistoryApi.AuthorsOfChange("x"));
+        Assert.Equal("ann-lee", GitHistoryApi.PersonName("Ann Lee"));
+        Assert.Equal("Someone Else", GitHistoryApi.PersonName("Someone Else"));
     }
 
     [Fact(DisplayName = "A new commit shows up in a change's contributors without reopening the repo")]

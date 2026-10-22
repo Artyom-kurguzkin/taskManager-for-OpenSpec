@@ -25,7 +25,7 @@ internal static class Program
         builder.RootComponents.Add<App>("#app");
 
         app = builder.Build();
-        app.MainWindow.SetTitle("Repo tasks").SetIconFile(Path.Combine(AppContext.BaseDirectory, "wwwroot", "icon.ico")).SetUseOsDefaultSize(true).SetMaximized(true);
+        app.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(true).SetMaximized(true);   // icons: WindowFrame
         AppDomain.CurrentDomain.UnhandledException += (_, e) => app.MainWindow.ShowMessage("Error", e.ExceptionObject.ToString());
 
         // Reopen the last repository; otherwise try the folder the app was started from.

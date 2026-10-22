@@ -47,7 +47,7 @@ document.addEventListener("keydown", (e) => {
   if (location.pathname !== "/") history.back();
 });
 
-// ── Hint mode: press Alt to show keyboard shortcuts for every clickable element, Alt again (or Esc) to hide ──
+// ── Hint mode: press Ctrl+Alt to show keyboard shortcuts for every clickable element, Ctrl+Alt again (or Esc) to hide ──
 const _hints = {
   active: false,
   overlay: null,   // container div
@@ -66,11 +66,7 @@ const _hints = {
       "button, a[href], input:not([type=hidden]), select, textarea, " +
       "[onclick], .menu-item, .chip.x, .nav-btn, .row-title, .log-e, .card, " +
       "header.col-h, .seg-o, label.check input"
-    )].filter(el => {
-      if (el.offsetParent === null && !el.closest("nav.side")) return false;
-      const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    });
+    )].filter(el => this._spot(el));   // only what's on screen: not scrolled out of a board column or hidden under the side menu
     // The side nav's own buttons go first, in their fixed markup order, so they always land on the same
     // letters regardless of how much page content (cards, rows, …) is hinted alongside them.
     const nav = matches.filter(el => el.closest("nav.side"));
@@ -86,11 +82,26 @@ const _hints = {
       badge.className = "hint-badge";
       badge.textContent = label;
       badge.dataset.hint = label;
-      const r = el.getBoundingClientRect();
-      badge.style.left = `${r.right - 6 + scrollX}px`;
-      badge.style.top = `${r.bottom - 6 + scrollY}px`;
+      const [x, y] = this._spot(el);
+      badge.style.left = `${x + scrollX}px`;
+      badge.style.top = `${y + scrollY}px`;
       this.overlay.appendChild(badge);
     });
+  },
+
+  // A point where the element is actually visible (bottom-right corner preferred, for the badge), or null when
+  // it's clipped by a scroll area, covered by something else, or off screen.
+  _spot(el) {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return null;
+    const corner = [[r.right - 4, r.bottom - 4], [r.right - 14, r.bottom - 14]];   // the second clears rounded corners
+    const inside = [[.5, .5], [.1, .5], [.9, .5], [.5, .1], [.5, .9]].map(([fx, fy]) => [r.left + r.width * fx, r.top + r.height * fy]);
+    for (const [i, [x, y]] of [...corner, ...inside].entries()) {
+      if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
+      const hit = document.elementFromPoint(x, y);
+      if (hit && (hit === el || el.contains(hit))) return i < corner.length ? [r.right - 6, r.bottom - 6] : [x, y];
+    }
+    return null;
   },
 
   hide() {
@@ -128,9 +139,10 @@ const _hints = {
 };
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Alt") {
+  // Ctrl+Alt in either order: the second key's keydown carries the first as a modifier.
+  if ((e.key === "Alt" && e.ctrlKey) || (e.key === "Control" && e.altKey)) {
     e.preventDefault();
-    if (e.repeat) return;   // ignore OS auto-repeat while the key is held down
+    if (e.repeat) return;   // ignore OS auto-repeat while the keys are held down
     if (_hints.active) _hints.hide(); else _hints.show();
     return;
   }
@@ -139,6 +151,22 @@ document.addEventListener("keydown", (e) => {
     _hints.type(e.key);
   }
 }, true);
+
+// Edge fades on scroll areas (.scx): on only while content continues past the right / bottom edge.
+// Checked on scroll, resize, and whenever Blazor changes the DOM (one check per frame at most).
+let _fadeQueued = false;
+function _updateFades() {
+  _fadeQueued = false;
+  for (const box of document.querySelectorAll(".scx")) {
+    const s = box.firstElementChild;
+    box.classList.toggle("more-right", !!s && s.scrollLeft + s.clientWidth < s.scrollWidth - 1);
+    box.classList.toggle("more-bottom", !!s && s.scrollTop + s.clientHeight < s.scrollHeight - 1);
+  }
+}
+function _queueFades() { if (!_fadeQueued) { _fadeQueued = true; requestAnimationFrame(_updateFades); } }
+document.addEventListener("scroll", _queueFades, true);
+addEventListener("resize", _queueFades);
+new MutationObserver(_queueFades).observe(document.documentElement, { childList: true, subtree: true });
 
 // HTML5 drag-and-drop: a drop only happens where dragover is cancelled. Blazor can't do that without a .NET
 // round-trip per mouse move, so board columns/lanes are marked data-drop and cancelled here.

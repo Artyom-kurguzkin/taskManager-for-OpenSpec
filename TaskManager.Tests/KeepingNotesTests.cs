@@ -87,4 +87,17 @@ public sealed class KeepingNotesTests
         Assert.Equal(["PR #42 on GitHub"], NotesApi.Get(123)!.ManualLinks);
         Assert.Contains("# Ping test", repo.Read(NoteFile));
     }
+
+    [Fact(DisplayName = "Commits linked by hand are saved in the note's frontmatter and can be unlinked")]
+    public void LinkedCommits()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.True(NotesApi.SetLinkedCommits(123, ["a1b2c3d"]).Success);
+        Assert.Equal(["a1b2c3d"], NotesApi.Get(123)!.Commits);
+
+        Assert.True(NotesApi.SetLinkedCommits(123, []).Success);
+        Assert.Empty(NotesApi.Get(123)!.Commits);
+    }
 }

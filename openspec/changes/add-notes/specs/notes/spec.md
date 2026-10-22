@@ -32,11 +32,18 @@ In note text, `[[path]]` SHALL link to a file in the repository (the `.md` exten
 - **THEN** the work item page for #wi106 opens and Esc returns to the note
 
 ### Requirement: Linked docs and commits
-The note page SHALL list every resolved and unresolved link found in the note, the commits linked to its work item, and entries the user added by hand. Manual entries SHALL be stored in the note's frontmatter under `links`. The list SHALL update as the user types.
+The note page SHALL list every resolved and unresolved link found in the note, commits that mention its work item, commits linked by hand, and free-text entries the user added by hand. Manual text entries SHALL be stored in the note's frontmatter under `links`. The list SHALL update as the user types.
 
 #### Scenario: Live update
 - **WHEN** the user types `[[runbook/uptime]]` and `docs/runbook/uptime.md` exists
 - **THEN** the list gains a doc entry for it without saving or reloading
+
+### Requirement: Link a commit by hand
+The note page SHALL offer "+ link commit", browsing and filtering recent commits the same way the work item page does, and linking the picked one. Commits linked this way SHALL be stored in the note's frontmatter under `commits` and SHALL show an unlink control; commits only found by mentioning the work item SHALL not.
+
+#### Scenario: Link a commit by hand
+- **WHEN** the user picks a commit from "+ link commit" on a note
+- **THEN** it appears in the linked commits list with an unlink control, and the note's frontmatter gains its hash under `commits`
 
 ### Requirement: Notes are the change log
 A work item's notes SHALL be its change log entries: the Change log panel on the work item page SHALL list them newest first, each showing its id, title (the first heading), created date and author, and SHALL offer "+ Add entry", which creates a note and opens it. There SHALL be no separate notes list.

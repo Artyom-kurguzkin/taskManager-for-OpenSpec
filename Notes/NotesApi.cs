@@ -18,4 +18,5 @@ public static class NotesApi
     public static (bool Success, string Message, int Id) Create(int workItemId, string by) => Commands.Create(workItemId, by);
     public static (bool Success, string Message) SaveBody(int id, string body) => Commands.SaveBody(id, body);
     public static (bool Success, string Message) AddManualLink(int id, string link) => Commands.AddManualLink(id, link);
+    public static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes) => Commands.SetLinkedCommits(id, hashes);
 }

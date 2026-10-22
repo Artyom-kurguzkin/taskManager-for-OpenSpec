@@ -2,8 +2,8 @@ namespace WorkItems.PublicDTOs;
 
 /// <summary>
 /// An OpenSpec change seen as a work item. <paramref name="Path"/> is the change folder (active or archived).
-/// <paramref name="Contributors"/> = git commit authors of the folder plus <paramref name="Assigned"/> (x-rtm.contributors,
-/// people added in the app, e.g. a newcomer who has not committed yet).
+/// <paramref name="Contributors"/> = <paramref name="Assigned"/> (x-rtm.contributors, edited in the app) when it is saved,
+/// otherwise the git commit authors of the folder.
 /// </summary>
 public sealed record WorkItem(
     int Id,

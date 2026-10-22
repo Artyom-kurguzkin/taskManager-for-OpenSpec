@@ -18,7 +18,8 @@ internal static partial class Queries
         string token = git?.Token ?? "";
         if (WorkItemsModule.Cache is { } c && c.Version == version && c.Git == token) return c.Items;
         IReadOnlyList<WorkItem> items = Load();
-        if (git is { } g) items = items.Select(i => i with { Contributors = [.. g.AuthorsOf(i.Folder).Union(i.Contributors)] }).ToList();
+        // Commit authors only stand in until someone edits the list in the app (x-rtm.contributors, possibly []).
+        if (git is { } g) items = items.Select(i => i.Assigned is null ? i with { Contributors = [.. g.AuthorsOf(i.Folder)] } : i).ToList();
         WorkItemsModule.Cache = (version, token, items);
         WorkItemsModule.Loads++;
         return items;
@@ -99,7 +100,7 @@ internal static partial class Queries
             features,
             TasksFile.Parse(OpenSpecStoreApi.ReadText(Path.Combine(dir, "tasks.md"))),
             meta.Lanes ?? [],
-            archived, created, modified, warning, meta.Hidden == true, meta.Contributors ?? [],
+            archived, created, modified, warning, meta.Hidden == true, meta.Contributors,
             meta.Label, meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList(), meta.DependsOn ?? []);
     }
 

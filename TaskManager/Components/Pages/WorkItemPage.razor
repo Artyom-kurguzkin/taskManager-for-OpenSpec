@@ -13,18 +13,16 @@
     return;
 }
 
-<div class="crumbs">
-    <button class="btn ghost" @onclick="Back">← back</button><span class="esc-hint"><kbd>esc</kbd> goes to previous page ·</span>
-    <span class="mono">@RelativePath(item.Path)</span>
-</div>
-
 <div class="sheet" data-sk="soft">
     <div class="head">
         <h2 class="num">#wi@(item.Id)</h2>
         <input class="title-in hov" data-sk value="@item.Title" aria-label="Title"
                @onchange="e => Run(WorkItemsApi.SetTitle(item.Id, (string)e.Value!))" />
-        <button class="btn ghost hide-item" title="Hides it from the app; the change folder stays in openspec/"
-                @onclick="() => Run(item.Hidden ? WorkItemsApi.Unhide(item.Id) : WorkItemsApi.Hide(item.Id))">@(item.Hidden ? "Restore" : "Delete (hide)")</button>
+        @if (item.Hidden)
+        {
+            <button class="btn ghost hide-item" title="Shows it on the board again" @onclick="() => Run(WorkItemsApi.Unhide(item.Id))">Restore</button>
+        }
+        <button class="sheet-close" aria-label="Back" title="Back to the previous page (Esc)" @onclick="Back">@Ui.Icon("back")</button>
     </div>
     @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
     <div class="head kvs">
@@ -36,14 +34,27 @@
             }
             <Dropdown Label="add feature" Class="mini" Placeholder="+ add" Options="FeatureChoices" ValueChanged="AddFeature" />
         </div>
-        <div class="kv"><label>contributors</label>
-            @* commit authors come from git and can't be removed here; assigned people (x-rtm) can *@
+        <div class="kv contributors"><label>contributors</label>
             @foreach (string p in item.Contributors)
             {
-                if (!Assigned.Contains(p)) { <span class="chip" title="has commits on this change (from git)">@p</span> }
-                else { <span class="chip x" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, Assigned.Where(x => x != p)))">@p</span> }
+                <span class="chip x" title="Remove" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Where(x => x != p)))">@p</span>
             }
-            <Dropdown Label="add contributor" Class="mini" Placeholder="+ add" Options="PeopleChoices" ValueChanged="v => Run(WorkItemsApi.SetContributors(item.Id, Assigned.Append(v)))" />
+            @* known people, or any name typed in the filter *@
+            <Menu Label="Add a contributor">
+                <Activator><button type="button" class="box dd mini" data-sk aria-label="Add a contributor"><span>+ add</span>@Ui.Icon("caret")</button></Activator>
+                <Items>
+                    <input class="menu-filter" placeholder="Type a name…" aria-label="Contributor name" @bind="pickFilter" @bind:event="oninput"
+                           @onkeydown="AddTypedOnEnter" />
+                    @foreach (string p in PeopleChoices.Where(p => Matches(p)))
+                    {
+                        <MenuItem OnClick="() => AddContributor(p)">@p</MenuItem>
+                    }
+                    @if (pickFilter.Trim() is { Length: > 0 } typed && !item.Contributors.Contains(typed) && !PeopleChoices.Contains(typed))
+                    {
+                        <MenuItem OnClick="() => AddContributor(typed)">+ add “@typed”</MenuItem>
+                    }
+                </Items>
+            </Menu>
         </div>
         <div class="kv status-field"><label>status</label>
             @if (item.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(item.Status))">@item.Status</span> }
@@ -57,20 +68,10 @@
         </div>
     </div>
     @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
-    @if (WaitingOn.Count > 0)
-    {
-        <div class="warning waiting-on">
-            <b>Waiting on:</b>
-            @foreach (WorkItem d in WaitingOn)
-            {
-                <button class="log-e hov" data-sk @onclick="@(() => Nav.NavigateTo($"item/{d.Id}"))"><b>#wi@(d.Id) · @d.Title</b><span class="muted">@d.Status</span></button>
-            }
-        </div>
-    }
 
     <div class="grid2">
         <section class="panel">
-            <h3>Description <span class="muted">proposal.md · click to edit</span></h3>
+            <h3>Description</h3>
             @if (editingDescription)
             {
                 <textarea @ref="descriptionBox" class="desc-in" rows="10" @bind="description" @onblur="SaveDescription" aria-label="Description"></textarea>
@@ -108,11 +109,27 @@
                         <span class="mono">@s.Number</span><span class="s-t" @onclick="() => ToggleSub(s.Number)">@s.Text</span>
                     </div>
                 }
+                @* related work items: ones this waits on (struck through once in review or done, so they no longer block) and ones it blocks *@
+                @foreach (WorkItem d in WaitingOn)
+                {
+                    bool done = WorkItemsApi.IsResolved(d);
+                    <div class="sub dep waits @(done ? "done" : "blocking-me")" data-sk @onclick="@(() => Nav.NavigateTo($"item/{d.Id}"))">
+                        <span class="dep-k">waits on</span><span class="s-t">#wi@(d.Id) · @d.Title</span><span class="dep-s">@d.Status</span>
+                        <button class="ic" aria-label="Remove dependency" title="Remove dependency" @onclick:stopPropagation="true"
+                                @onclick="() => Run(WorkItemsApi.RemoveDependency(item.Id, d.Id))">×</button>
+                    </div>
+                }
+                @foreach (WorkItem b in Blocking)
+                {
+                    <div class="sub dep blocks" data-sk @onclick="@(() => Nav.NavigateTo($"item/{b.Id}"))">
+                        <span class="dep-k">blocks</span><span class="s-t">#wi@(b.Id) · @b.Title</span><span class="dep-s">@b.Status</span>
+                    </div>
+                }
             </div>
             <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
-                <input @bind="newSubtask" placeholder="Add a subtask…" aria-label="New subtask" /><button class="btn" data-sk type="submit">add</button>
+                <input @bind="newSubtask" placeholder="Add a subtask, or #wi12…" aria-label="New subtask" /><button class="btn" data-sk type="submit">add</button>
             </form>
-            @if (!item.Archived) { <span class="muted">Click a subtask's text to select it (or several), then make it a work item of its own.</span> }
+            @if (!item.Archived) { <span class="muted">Type another item's id (#wi12) to wait on it. Click a subtask's text to select it (or several), then make it a work item of its own.</span> }
         </section>
 
         <section class="panel">
@@ -130,7 +147,7 @@
                 @if (GitHistoryApi.IsRepository())
                 {
                     <Menu Label="Link a commit">
-                        <Activator><button class="btn ghost" aria-label="Link a commit">+ link commit</button></Activator>
+                        <Activator><button class="btn" data-sk aria-label="Link a commit">+ link commit</button></Activator>
                         <Items>
                             <input class="menu-filter" placeholder="Filter commits…" aria-label="Filter commits" @bind="pickFilter" @bind:event="oninput" />
                             @foreach (CommitInfo c in GitHistoryApi.Recent(50).Where(c => !commits.Any(x => x.Hash == c.Hash) && Matches(c.Hash, c.Subject, c.Author)))
@@ -164,7 +181,7 @@
                 @if (run.File is not null)
                 {
                     <Menu Label="Link a test">
-                        <Activator><button class="btn ghost" aria-label="Link a test">+ link test</button></Activator>
+                        <Activator><button class="btn" data-sk aria-label="Link a test">+ link test</button></Activator>
                         <Items>
                             <input class="menu-filter" placeholder="Filter tests…" aria-label="Filter tests" @bind="pickFilter" @bind:event="oninput" />
                             @foreach (LinkedTestRuns.PublicDTOs.TestResult r in run.Results.Where(r => !(item.Tests ?? []).Any(t => t.Suite == r.Suite && t.Test == r.Test) && Matches(r.Suite, r.Test))
@@ -178,18 +195,6 @@
             </div>
         </section>
 
-        @if (Blocking.Count > 0)
-        {
-            <section class="panel">
-                <h3>You are blocking</h3>
-                <div class="change-log blocking">
-                    @foreach (WorkItem b in Blocking)
-                    {
-                        <button class="log-e hov" data-sk @onclick="@(() => Nav.NavigateTo($"item/{b.Id}"))"><b>#wi@(b.Id) · @b.Title</b><span class="muted">@b.Status</span></button>
-                    }
-                </div>
-            </section>
-        }
     </div>
 </div>
 
@@ -232,10 +237,17 @@
     private IReadOnlyList<(string, string)> FeatureChoices =>
         Features.FeaturesApi.GetAll().Where(f => item!.Features.All(x => x.Path != f.Path)).Select(f => (f.Path, $"{f.Group} · {f.Name}")).ToList();
 
-    private IReadOnlyList<string> Assigned => item!.Assigned ?? item.Contributors;
+    private IReadOnlyList<string> PeopleChoices =>
+        GitHistoryApi.AllAuthors().Concat(WorkItemsApi.GetAll().SelectMany(w => w.Contributors)).Append(Workspace.Me)
+            .Select(GitHistoryApi.PersonName).Distinct().Except(item!.Contributors.Select(GitHistoryApi.PersonName))
+            .Order(StringComparer.OrdinalIgnoreCase).ToList();
 
-    private IReadOnlyList<(string, string)> PeopleChoices =>
-        WorkItemsApi.GetAll().SelectMany(w => w.Contributors).Append(Workspace.Me).Distinct().Except(item!.Contributors).Order().Select(p => (p, p)).ToList();
+    private void AddContributor(string person) => Run(WorkItemsApi.SetContributors(Id, item!.Contributors.Append(person)));
+
+    private void AddTypedOnEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && pickFilter.Trim() is { Length: > 0 } typed) AddContributor(typed);
+    }
 
     protected override void OnInitialized() => Workspace.Changed += OnChanged;
 
@@ -254,8 +266,6 @@
         pickFilter = "";
         subSel.IntersectWith(item.Subtasks.Select(s => s.Number));
     }
-
-    private string RelativePath(string path) => Workspace.Root is string root ? Path.GetRelativePath(root, path).Replace('\\', '/') + "/" : path;
 
     private void Run((bool Success, string Message) result)
     {
@@ -303,9 +313,19 @@
         if (!subSel.Remove(number)) subSel.Add(number);
     }
 
+    // "#wi12", "wi12" or "12" names another work item: wait on it instead of adding a subtask line.
     private void AddSubtask()
     {
-        Run(WorkItemsApi.AddSubtask(Id, newSubtask));
+        if (System.Text.RegularExpressions.Regex.Match(newSubtask.Trim(), @"^#?(?:wi)?(\d+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } m)
+        {
+            int dep = int.Parse(m.Groups[1].Value);
+            (bool ok, string message) = WorkItemsApi.AddDependency(Id, dep);
+            Run((ok, message));
+            if (ok) Popups.Toast(WorkItemsApi.Get(dep) is { } d && WorkItemsApi.IsResolved(d)
+                ? $"Linked #wi{dep} — it's already {(d.Archived ? "Completed" : d.Status)}, so it doesn't block this item"
+                : $"Waiting on #wi{dep} — this item is Blocked until it's in review or done", ToastKind.Success);
+        }
+        else Run(WorkItemsApi.AddSubtask(Id, newSubtask));
         newSubtask = "";
     }
 

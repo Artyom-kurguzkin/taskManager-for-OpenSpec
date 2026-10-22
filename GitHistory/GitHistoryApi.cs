@@ -14,6 +14,7 @@ public static class GitHistoryApi
         GitHistoryModule.IsRepo = null;
         GitHistoryModule.UserName = (null, false);
         GitHistoryModule.Authors = null;
+        GitHistoryModule.People = null;
     }
 
     public static bool IsRepository() => Queries.IsRepository();
@@ -30,6 +31,12 @@ public static class GitHistoryApi
 
     /// <summary>Authors of commits that touched openspec/changes/&lt;folder&gt; (or its archived copy), newest first.</summary>
     public static IReadOnlyList<string> AuthorsOfChange(string folder) => Queries.AuthorsOfChange(folder);
+
+    /// <summary>Everyone who has ever committed to the repository (all branches), one name per person, alphabetically.</summary>
+    public static IReadOnlyList<string> AllAuthors() => Queries.AllAuthors();
+
+    /// <summary>The name AllAuthors lists for this commit-author name variant; other names come back unchanged.</summary>
+    public static string PersonName(string name) => Queries.PersonName(name);
 
     /// <summary>Changes whenever a commit is made (read from .git files, no process); "" when there is no commit.</summary>
     public static string HeadToken() => Queries.HeadToken();

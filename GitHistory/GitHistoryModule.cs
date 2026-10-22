@@ -16,4 +16,7 @@ internal static class GitHistoryModule
 
     /// <summary>Commit authors per change name (archive date prefix dropped), read with one git log and kept until HEAD moves.</summary>
     internal static (string Head, Dictionary<string, List<string>> ByChange)? Authors;
+
+    /// <summary>Every commit author in the repo, one name per person, plus each name variant → that name; kept until HEAD moves.</summary>
+    internal static (string Head, IReadOnlyList<string> Names, Dictionary<string, string> Canonical)? People;
 }

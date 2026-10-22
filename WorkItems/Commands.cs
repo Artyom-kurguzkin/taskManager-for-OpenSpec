@@ -53,7 +53,7 @@ internal static partial class Commands
         if (!WorkItemsApi.Statuses.Contains(status)) return (false, $"Unknown status \"{status}\"");
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
         if (item.Archived) return item.Status == status ? (true, "") : (false, Archived);
-        if (status != "Blocked" && (item.DependsOn ?? []).Select(Queries.Get).OfType<WorkItem>().FirstOrDefault(d => !d.Archived) is WorkItem dep)
+        if (status != "Blocked" && (item.DependsOn ?? []).Select(Queries.Get).OfType<WorkItem>().FirstOrDefault(d => !WorkItemsApi.IsResolved(d)) is WorkItem dep)
             return (false, $"Waiting on #wi{dep.Id} \"{dep.Title}\" — can't change status until it's resolved");
         if (status != "Completed") return Update(id, m => m.Status = status);
 
@@ -182,6 +182,19 @@ internal static partial class Commands
         if (!ok) return (ok, message, 0);
         (ok, message) = Update(id, m => { m.DependsOn = [.. m.DependsOn ?? [], newId]; m.Status = "Blocked"; });
         return ok ? (true, "", newId) : (false, message, 0);
+    }
+
+    /// <summary>Makes an existing item a dependency of this one; this one is blocked only while that item is unresolved.</summary>
+    internal static (bool Success, string Message) AddDependency(int id, int dependencyId)
+    {
+        if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
+        if (item.Archived) return (false, Archived);
+        if (dependencyId == id) return (false, "A work item can't depend on itself");
+        if (Queries.Get(dependencyId) is not WorkItem dep) return (false, $"No work item #wi{dependencyId}");
+        if ((item.DependsOn ?? []).Contains(dependencyId)) return (false, $"Already waiting on #wi{dep.Id}");
+        if ((dep.DependsOn ?? []).Contains(id)) return (false, $"#wi{dep.Id} already waits on #wi{id}, so they can't wait on each other");
+        bool blocks = !WorkItemsApi.IsResolved(dep);
+        return Update(id, m => { m.DependsOn = [.. m.DependsOn ?? [], dependencyId]; if (blocks) m.Status = "Blocked"; });
     }
 
     internal static (bool Success, string Message) SetDependencies(int id, IEnumerable<int> ids) =>

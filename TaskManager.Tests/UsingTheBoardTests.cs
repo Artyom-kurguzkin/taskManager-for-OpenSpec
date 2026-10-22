@@ -110,6 +110,22 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Single(board.FindAll("article.card.hidden-item"));
     }
 
+    [Fact(DisplayName = "The collapsed side menu has a compact-cards button that toggles it and shows when it's on")]
+    public async Task CompactFromRail()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        Assert.Empty(board.FindAll("article.card.collapsed"));
+
+        nav!.Find("button.compact-btn").Click();
+
+        Assert.Equal(board.FindAll("article.card").Count, board.FindAll("article.card.collapsed").Count);
+        Assert.Contains("is-sel", nav.Find("button.compact-btn").ClassList);
+
+        nav.Find("button.compact-btn").Click();
+        Assert.Empty(board.FindAll("article.card.collapsed"));
+    }
+
     [Fact(DisplayName = "A dropdown whose current value isn't in its options still shows that value, not blank")]
     public void DropdownShowsUnknownValue()
     {

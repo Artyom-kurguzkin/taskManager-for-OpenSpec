@@ -1,0 +1,9 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-23
+x-rtm:
+  id: 34
+  title: see which items have changed based on git diff
+  status: Backlog
+  contributors: [Artyom-kurguzkin]
+  label: feature

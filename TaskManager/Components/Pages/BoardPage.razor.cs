@@ -153,9 +153,7 @@ public partial class BoardPage
         }
         else if (O.GroupBy == "contributor" && from != col.Key)
         {
-            // only assignments move; commit authors stay contributors whatever column the card is dropped on
-            Run(WorkItemsApi.SetContributors(it.Id, (it.Assigned ?? it.Contributors).Where(p => p != from).Append(col.Key).Where(p => p != BoardModel.Unassigned)));
-            if (from != BoardModel.Unassigned && !(it.Assigned ?? []).Contains(from)) Popups.Toast($"{from} has commits on #wi{it.Id}, so they stay a contributor", ToastKind.Info);
+            Run(WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(p => p != from).Append(col.Key).Where(p => p != BoardModel.Unassigned)));
         }
 
         if (lane is not null) Run(WorkItemsApi.SetLane(it.Id, col.Key, lane));

@@ -16,7 +16,7 @@ public static class WorkItemsApi
     /// How a change gets archived. Default runs <c>openspec archive &lt;folder&gt; --yes</c> in the repo root;
     /// pass null to restore it. Returns the CLI's message on failure.
     /// </summary>
-    /// <summary>Adds git commit authors to contributors. The token must change on each commit so the cache refreshes.</summary>
+    /// <summary>Git commit authors stand in as contributors until the list is edited. The token must change on each commit so the cache refreshes.</summary>
     public static void ConfigureContributors(Func<(string Token, Func<string, IReadOnlyList<string>> AuthorsOf)?>? git)
     {
         WorkItemsModule.Git = git;
@@ -62,6 +62,16 @@ public static class WorkItemsApi
     public static (bool Success, string Message) SetDependencies(int id, IEnumerable<int> ids) => Commands.SetDependencies(id, ids);
     /// <summary>Work items that depend on this one (its x-rtm.dependsOn names them).</summary>
     public static IReadOnlyList<WorkItem> GetBlocking(int id) => Queries.GetBlocking(id);
+
+    /// <summary>A dependency stops blocking once it's In Review or Completed (archived).</summary>
+    public static bool IsResolved(WorkItem dependency) => dependency.Archived || dependency.Status is "Completed" or "In Review";
+
+    /// <summary>Makes an existing work item a dependency of this one; this one goes to Blocked only if that item is unresolved.</summary>
+    public static (bool Success, string Message) AddDependency(int id, int dependencyId) => Commands.AddDependency(id, dependencyId);
+
+    /// <summary>Stops waiting on that item. The status is left as it is (Blocked stays Blocked until changed).</summary>
+    public static (bool Success, string Message) RemoveDependency(int id, int dependencyId) =>
+        Get(id) is { } item ? Commands.SetDependencies(id, (item.DependsOn ?? []).Where(d => d != dependencyId)) : (false, "That work item no longer exists");
 
     // ── Whole items ──
     public static (bool Success, string Message, int Id) Create(string title, string status = "Backlog", IEnumerable<string>? features = null, IEnumerable<string>? contributors = null)
