@@ -1,11 +1,8 @@
 schema: spec-driven
 skip_specs: true
-created: 2026-10-23
+created: 2026-10-24
 x-rtm:
-  id: 27
-  title: can't rearange work items within the collumn
+  id: 54
+  title: board expanded view work item design
   status: Planned
-  priority: high
   contributors: [Artyom-kurguzkin]
-  features: [board]
-  label: bug

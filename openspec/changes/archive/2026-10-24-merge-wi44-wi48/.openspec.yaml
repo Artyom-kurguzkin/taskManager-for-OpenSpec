@@ -1,0 +1,10 @@
+schema: spec-driven
+created: 2026-10-24
+x-rtm:
+  id: 49
+  title: navigation hotkeys patches
+  status: Backlog
+  contributors: [Artyom-kurguzkin]
+  label: enhancement
+  mergedFrom: [44, 48, 32, 43]
+  unlinkedFeatures: [app-shell]

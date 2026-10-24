@@ -70,10 +70,11 @@
                 @* hide from a column header on the board; only hidden columns are listed here, to bring back *@
                 <div class="nav-hidden">
                     <div class="nav-h">Hidden</div>
+                    @{ Dictionary<string, int> held = BoardModel.HiddenCounts(WorkItemsApi.GetAll(includeHidden: O.ShowHidden), FeaturesApi.GetAll(), WorkItemsApi.GetLanes(), O); }
                     @foreach (string key in HiddenHere)
                     {
                         string name = BoardModel.KeyLabel(key, FeaturesApi.GetAll());
-                        <div class="grp-row"><span class="nm">@name</span>
+                        <div class="grp-row"><span class="nm">@name</span><span class="count" title="@(O.Unit == "subtasks" ? "subtasks" : "work items") in this column">@held.GetValueOrDefault(key)</span>
                             <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(O, key))">@Ui.Icon("eye")</button></div>
                     }
                 </div>

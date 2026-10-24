@@ -25,15 +25,14 @@ public partial class BoardPage
     private readonly HashSet<int> openRows = [];
     private readonly HashSet<string> shutGroups = [];
     private bool expandAll;
-    private (WorkItem Item, string From)? dragging;
+    private IReadOnlyList<(WorkItem Item, string From)>? dragging;   // the dragged card, or every selected card
     private (IReadOnlyList<string> Siblings, string Key)? draggingColumn;   // a column header or group name being dragged
-    private string? dropTarget;
 
     internal static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List")];
     internal static readonly IReadOnlyList<(string, string)> Units = [("tasks", "Work items"), ("subtasks", "Subtasks")];
     internal static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("bucket", "bucket"), ("label", "label"), ("contributor", "contributor")];
     internal static readonly IReadOnlyList<(string, string)> SortBys =
-        [("priority", "priority"), ("feature", "feature"), ("label", "label"), ("who", "contributor"), ("modified", "date modified"), ("created", "date created"), ("status", "status"), ("title", "title"), ("id", "id")];
+        [("priority", "priority"), ("feature", "feature"), ("label", "label"), ("who", "contributor"), ("modified", "date modified"), ("created", "date created"), ("status", "status"), ("title", "title"), ("id", "id"), ("manual", "my order")];
     private static readonly IReadOnlyList<(string, string)> Priorities = [("high", "high"), ("low", "lower")];
     private static readonly IReadOnlyList<(string, string)> Statuses = WorkItemsApi.Statuses.Select(s => (s, s)).ToList();
     private static readonly IReadOnlyList<(string Key, string Label)> Columns =
@@ -91,16 +90,19 @@ public partial class BoardPage
     }
 
     /// <summary>Shows a module command's failure as a toast; successes refresh through Workspace.Changed.</summary>
-    private void Run((bool Success, string Message) result)
+    private bool Run((bool Success, string Message) result)
     {
-        if (!Workspace.Do(result).Success) Popups.Toast(result.Message, ToastKind.Warning);
+        if (Workspace.Do(result).Success) return true;
+        Popups.Toast(result.Message, ToastKind.Warning);
+        return false;
     }
 
     private void OpenItem(int id) => Nav.NavigateTo($"item/{id}");
 
+    /// <summary>A click opens the card; Shift-click (or Ctrl/⌘-click) adds it to the selection or removes it. A drag fires no click.</summary>
     private void CardClick(WorkItem it, MouseEventArgs e)
     {
-        if (e.CtrlKey || e.MetaKey || e.ShiftKey || selected.Count > 0) ToggleSelect(it);
+        if (e.ShiftKey || e.CtrlKey || e.MetaKey) ToggleSelect(it);
         else OpenItem(it.Id);
     }
 
@@ -108,16 +110,21 @@ public partial class BoardPage
 
     private void SelectAll(BoardColumn col) => selected.UnionWith(col.Items.Select(i => i.Id));
 
-    private async Task SetStatus(WorkItem it, string status)
+    /// <summary>False when the user backs out of archiving or the change fails.</summary>
+    private async Task<bool> SetStatus(WorkItem it, string status)
     {
         if (status == "Completed" && !it.Archived)
         {
             if (!await Popups.Confirm("Complete and archive?",
                 $"#wi{it.Id} {it.Title} will be archived with the OpenSpec CLI and its delta specs merged into openspec/specs. This can't be undone from the board.",
-                yes: "Archive")) return;
+                yes: "Archive")) return false;
+            return Run(await Popups.Busy($"Archiving #wi{it.Id} with the OpenSpec CLI…", () => WorkItemsApi.SetStatus(it.Id, status)));
         }
-        Run(WorkItemsApi.SetStatus(it.Id, status));
+        return Run(WorkItemsApi.SetStatus(it.Id, status));
     }
+
+    // The drag script in wwwroot/js/app.js delivers every drop to what sits right after the gap it opened:
+    // a card, a column, or the lane / column / row itself when the gap is at the end.
 
     private void StartColumnDrag(IReadOnlyList<string> siblings, string key)
     {
@@ -125,38 +132,83 @@ public partial class BoardPage
         draggingColumn = (siblings, key);
     }
 
-    /// <summary>A header dropped onto another column takes that one's place, if they are siblings.</summary>
-    private void DropOn(string targetKey)
+    /// <summary>A card drag carries the whole selection when the dragged card is part of it (as in a file manager).</summary>
+    private void StartCardDrag(WorkItem it, string from)
     {
-        dropTarget = null;
-        if (draggingColumn is not (IReadOnlyList<string> siblings, string key)) return;
         draggingColumn = null;
-        if (siblings.Contains(targetKey)) Set(BoardModel.MoveTo(O, siblings, key, targetKey));
+        dragging = selected.Contains(it.Id) && selected.Count > 1
+            ? Flat.SelectMany(f => f.Column.Items.Select(i => (Item: i, From: f.Column.Key)))   // board order
+                .Where(t => selected.Contains(t.Item.Id))
+                .GroupBy(t => t.Item.Id)   // an item in several columns (features, people) leaves the one dragged from
+                .Select(g => g.FirstOrDefault(t => t.From == from, g.First()))
+                .ToList()
+            : [(it, from)];
     }
 
-    private async Task Drop(BoardColumn col, string? lane)
+    /// <summary>A header dropped in front of a column in its own row (<paramref name="before"/>), or at the row's end (null).</summary>
+    private void DropColumn(IReadOnlyList<string> row, string? before)
     {
-        if (draggingColumn is not null) { DropOn(BoardModel.ColumnKey(O, col.Key)); return; }
-        dropTarget = null;
-        if (dragging is not (WorkItem it, string from)) return;
+        if (draggingColumn is not (IReadOnlyList<string> siblings, string key)) return;
+        draggingColumn = null;
+        if (row.Contains(key)) Set(BoardModel.Insert(O, siblings, [key], before));
+    }
+
+    private Task Drop(BoardColumn col, string? lane) => DropBefore(col, lane, null);
+
+    private async Task DropBefore(BoardColumn col, string? lane, WorkItem? before)
+    {
+        if (draggingColumn is (IReadOnlyList<string> siblings, _)) { DropColumn(siblings, BoardModel.ColumnKey(O, col.Key)); return; }
+        if (dragging is not { } moving) return;
         dragging = null;
+        await Land(moving, col, lane, before?.Id);
+    }
 
-        if (O.GroupBy == "status" && from != col.Key) await SetStatus(it, col.Key);
-        else if (O.GroupBy is "bucket" or "feature" && from != col.Key)
-        {
-            if (it.Features.Any(f => f.Path == from && f.Locked)) { Popups.Toast("This feature comes from the change's specs/ folder", ToastKind.Info); return; }
-            Run(WorkItemsApi.SetManualFeatures(it.Id, it.Features.Select(f => f.Path).Where(p => p != from).Append(col.Key).Where(p => p != BoardModel.Unassigned)));
-        }
-        else if (O.GroupBy == "label" && from != col.Key)
-        {
-            Run(WorkItemsApi.SetLabel(it.Id, col.Key == BoardModel.Unassigned ? null : col.Key));
-        }
-        else if (O.GroupBy == "contributor" && from != col.Key)
-        {
-            Run(WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(p => p != from).Append(col.Key).Where(p => p != BoardModel.Unassigned)));
-        }
+    /// <summary>Moves cards into a column, then places the ones that made it at the gap (in front of <paramref name="before"/>, or last).</summary>
+    private async Task Land(IEnumerable<(WorkItem Item, string From)> moving, BoardColumn col, string? lane, int? before)
+    {
+        List<int> landed = [];
+        foreach ((WorkItem it, string from) in moving)
+            if (await MoveInto(it, from, col, lane)) landed.Add(it.Id);
+        if (landed.Count > 0) Set(BoardModel.PlaceCards(O, col.Items.Select(i => i.Id).ToList(), landed, before));
+    }
 
-        if (lane is not null) Run(WorkItemsApi.SetLane(it.Id, col.Key, lane));
+    /// <summary>Arrow keys move the selection: up/down a step in its column, left/right into the neighbouring column at the same height.</summary>
+    private async Task KeyDown(KeyboardEventArgs e)
+    {
+        int dir = e.Key switch { "ArrowUp" => -1, "ArrowDown" => 1, "ArrowLeft" => -2, "ArrowRight" => 2, _ => 0 };
+        if (dir == 0 || selected.Count == 0 || O.Unit == "subtasks") return;
+        List<BoardColumn> columns = Flat.Select(f => f.Column).ToList();
+        BoardColumn? col = columns.FirstOrDefault(c => selected.All(id => c.Items.Any(i => i.Id == id)));
+        if (col is null) { Popups.Toast("Select cards in one column to move them with the arrow keys", ToastKind.Info); return; }
+        List<int> ids = col.Items.Select(i => i.Id).ToList();
+        if (Math.Abs(dir) == 1) { Set(BoardModel.Step(O, ids, ids.Where(selected.Contains).ToList(), dir)); return; }
+
+        int to = columns.IndexOf(col) + Math.Sign(dir);
+        if (to < 0 || to >= columns.Count) return;
+        BoardColumn target = columns[to];
+        int row = ids.FindIndex(selected.Contains);
+        await Land(col.Items.Where(i => selected.Contains(i.Id)).Select(i => (i, col.Key)), target, null, row < target.Items.Count ? target.Items[row].Id : null);
+    }
+
+    /// <summary>Sets the dimension the column stands for (and its lane); false when the card can't move there.</summary>
+    private async Task<bool> MoveInto(WorkItem it, string from, BoardColumn col, string? lane)
+    {
+        bool ok = from == col.Key || O.GroupBy switch
+        {
+            "bucket" or "feature" when it.Features.Any(f => f.Path == from && f.Locked) => Locked(),
+            "bucket" or "feature" => Run(WorkItemsApi.SetManualFeatures(it.Id, it.Features.Select(f => f.Path).Where(p => p != from).Append(col.Key).Where(p => p != BoardModel.Unassigned))),
+            "label" => Run(WorkItemsApi.SetLabel(it.Id, col.Key == BoardModel.Unassigned ? null : col.Key)),
+            "contributor" => Run(WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(p => p != from).Append(col.Key).Where(p => p != BoardModel.Unassigned))),
+            _ => await SetStatus(it, col.Key),
+        };
+        if (ok && lane is not null) Run(WorkItemsApi.SetLane(it.Id, col.Key, lane));
+        return ok;
+    }
+
+    private bool Locked()
+    {
+        Popups.Toast("This feature comes from the change's specs/ folder", ToastKind.Info);
+        return false;
     }
 
     private async Task NewItem(string? columnKey)

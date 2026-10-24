@@ -75,7 +75,7 @@ The system SHALL read each checkbox line in a change's `tasks.md` as a subtask, 
 - **THEN** subtasks 1.1 and 1.2 are done and 1.3 is not
 
 ### Requirement: Live sync with disk
-The system SHALL update the index within 2 seconds when files under `openspec/` change on disk. An edit the app is writing SHALL NOT be reported back to the user as an outside change.
+The system SHALL update the index within 2 seconds when files under `openspec/` change on disk. An edit the app is writing SHALL NOT be reported back to the user as an outside change. A file that was read and has since been moved or deleted SHALL NOT count as changed, since writing there overwrites nothing.
 
 #### Scenario: Edited in another editor
 - **WHEN** the user ticks a checkbox in tasks.md in their code editor
@@ -84,6 +84,10 @@ The system SHALL update the index within 2 seconds when files under `openspec/` 
 #### Scenario: Conflicting edit
 - **WHEN** a file changed on disk after the app read it and before the app writes it
 - **THEN** the app does not overwrite it, reloads the file, and tells the user "This file changed on disk; your edit was not saved"
+
+#### Scenario: Folder name reused after archiving
+- **WHEN** the change folder `new-work-item` was archived and the user creates another "New work item"
+- **THEN** the new change is written to `openspec/changes/new-work-item` without a "changed on disk" message
 
 ### Requirement: Work item numbers
 The system SHALL give each work item a unique positive `id`, allocated as one more than the highest id among active and archived changes. Duplicate ids found on disk SHALL be reported and not changed automatically.
@@ -106,3 +110,26 @@ In a git repository, a work item's contributors SHALL be the authors of commits 
 #### Scenario: Newcomer
 - **WHEN** someone who just cloned the repository (no commits yet) assigns themselves to #wi12
 - **THEN** their git `user.name` is added to `x-rtm.contributors` and #wi12 shows them as a contributor
+
+### Requirement: Open repositories as tabs
+Building on "Open a repository", the side nav SHALL let the user keep several repositories open as tabs, switch between them, and close a tab. The last remaining tab SHALL NOT be closable. The set of open tabs SHALL be remembered between sessions. Only the active tab's data SHALL be loaded at a time; switching re-reads that repository's files.
+
+#### Scenario: Open a second tab
+- **WHEN** the user picks "Open another repository…" and chooses a folder with an `openspec/` directory
+- **THEN** it becomes a new tab and the active one, while the previously open tab stays listed
+
+#### Scenario: Switch tabs
+- **WHEN** the user clicks a different open tab
+- **THEN** the board shows that repository's work items, with that tab's own remembered board view
+
+#### Scenario: Close a tab
+- **WHEN** the user closes a tab that isn't the only one open
+- **THEN** it is removed from the list, and if it was active, another open tab becomes active
+
+#### Scenario: Can't close the last tab
+- **WHEN** only one tab is open
+- **THEN** it has no close control
+
+#### Scenario: Tabs persist
+- **WHEN** the app restarts
+- **THEN** the same tabs are listed, with the previously active one shown

@@ -35,6 +35,10 @@ internal static partial class TasksFile
     internal static string SetDone(string text, string number, bool done) =>
         MapCheckboxes(text, (m, line) => Num(m) == number ? $"{m.Groups["indent"].Value}- [{(done ? "x" : " ")}] {line[(m.Groups["num"].Index)..]}" : line);
 
+    /// <summary>Replaces one subtask's text, keeping its indent, box and number.</summary>
+    internal static string SetText(string text, string number, string task) =>
+        MapCheckboxes(text, (m, line) => Num(m) == number ? line[..m.Groups["text"].Index] + task : line);
+
     internal static string Append(string text, string task)
     {
         IReadOnlyList<Subtask> subs = Parse(text);
@@ -80,6 +84,20 @@ internal static partial class TasksFile
     /// <summary>A fresh tasks.md holding the given subtasks as group 1.</summary>
     internal static string Create(IEnumerable<Subtask> subtasks) =>
         "# Tasks\n\n## 1. Tasks\n\n" + string.Concat(subtasks.Select((s, i) => $"- [{(s.Done ? "x" : " ")}] 1.{i + 1} {s.Text}\n"));
+
+    /// <summary>A tasks.md with one numbered group per entry (heading text without its number), its subtasks numbered n.1, n.2, …</summary>
+    internal static string CreateGrouped(IEnumerable<(string Heading, IReadOnlyList<Subtask> Subtasks)> groups)
+    {
+        System.Text.StringBuilder sb = new("# Tasks\n");
+        int g = 0;
+        foreach ((string heading, IReadOnlyList<Subtask> subs) in groups)
+        {
+            g++;
+            sb.Append($"\n## {g}. {heading}\n\n");
+            for (int i = 0; i < subs.Count; i++) sb.Append($"- [{(subs[i].Done ? "x" : " ")}] {g}.{i + 1} {subs[i].Text}\n");
+        }
+        return sb.ToString();
+    }
 
     private static string Num(Match m) => m.Groups["num"].Value;
 

@@ -8,7 +8,7 @@ namespace TaskManager.Board;
 /// <summary>What the board/list is showing. Remembered per repository in the settings file.</summary>
 public sealed record BoardOptions(
     string GroupBy = "status",     // status | bucket | label | contributor
-    string SortBy = "priority",    // priority | feature | who | modified | created | status | title | id
+    string SortBy = "priority",    // priority | feature | who | modified | created | status | title | id | manual (my order)
     int SortDir = 1,
     string Who = "all",
     string Category = "all",       // legacy; kept for deserialization but unused by bucket grouping
@@ -17,7 +17,7 @@ public sealed record BoardOptions(
     bool Compact = false,
     bool ShowHidden = false,       // include work items "deleted" (hidden) in the app
     IReadOnlyList<string>? Hidden = null,   // ColumnKey of columns taken off the board
-    IReadOnlyList<string>? Order = null);   // keys in the user's order; anything not listed keeps its usual place after them
+    IReadOnlyList<string>? Order = null);   // column and card (item:<id>) keys in the user's order; anything not listed keeps its usual place after them
 
 public sealed record BoardColumn(string Key, string Label, IReadOnlyList<WorkItem> Items, IReadOnlyList<string> Lanes);
 
@@ -92,6 +92,16 @@ public static class BoardModel
         _ => key,
     };
 
+    /// <summary>How many items (or subtasks, per the unit) each hidden column would hold, under the current filters.</summary>
+    public static Dictionary<string, int> HiddenCounts(
+        IReadOnlyList<WorkItem> items, IReadOnlyList<Feature> features, IReadOnlyDictionary<string, IReadOnlyList<string>> lanes, BoardOptions o)
+    {
+        Dictionary<string, int> counts = [];
+        foreach (BoardColumn col in Build(items, features, lanes, o with { Hidden = null }).SelectMany(s => s.Columns))
+            if (IsHidden(o, ColumnKey(o, col.Key))) counts[ColumnKey(o, col.Key)] = Count(col.Items, o.Unit);
+        return counts;
+    }
+
     public static bool IsHidden(BoardOptions o, string key) => o.Hidden?.Contains(key) ?? false;
 
     public static BoardOptions ToggleHidden(BoardOptions o, string key) =>
@@ -108,16 +118,42 @@ public static class BoardModel
     }
 
     /// <summary>
-    /// Drag-and-drop reorder: <paramref name="dragged"/> takes <paramref name="target"/>'s place among <paramref name="siblings"/>
-    /// (given in their current order), so dropping onto a later column lands after it and onto an earlier one lands before it.
+    /// Drag-and-drop: <paramref name="moving"/> keys land together, in their given order, in front of <paramref name="before"/>
+    /// among <paramref name="siblings"/> (given in their shown order), or at the end when it is null.
+    /// Returns <paramref name="o"/> itself when nothing would change.
     /// </summary>
-    public static BoardOptions MoveTo(BoardOptions o, IReadOnlyList<string> siblings, string dragged, string target)
+    public static BoardOptions Insert(BoardOptions o, IReadOnlyList<string> siblings, IReadOnlyList<string> moving, string? before)
     {
-        List<string> list = siblings.ToList();
-        int to = list.IndexOf(target);
-        if (dragged == target || to < 0 || !list.Remove(dragged)) return o;
-        list.Insert(to, dragged);
-        return o with { Order = [.. (o.Order ?? []).Except(list), .. list] };
+        List<string> list = siblings.Except(moving).ToList();
+        int at = before is null ? list.Count : list.IndexOf(before);
+        if (at < 0) return o;   // dropped in front of itself, or of a column it doesn't share a row with
+        list.InsertRange(at, moving);
+        return list.SequenceEqual(siblings) ? o : o with { Order = [.. (o.Order ?? []).Except(list), .. list] };
+    }
+
+    /// <summary>Key of a card in the saved order (same list as column keys; the prefixes never collide).</summary>
+    public static string ItemKey(int id) => "item:" + id;
+
+    /// <summary>Cards dropped into <paramref name="column"/> (ids in their shown order) at the gap; any change switches the sort to "my order".</summary>
+    public static BoardOptions PlaceCards(BoardOptions o, IReadOnlyList<int> column, IReadOnlyList<int> moving, int? before) =>
+        Insert(o, [.. column.Select(ItemKey)], [.. moving.Select(ItemKey)], before is int b ? ItemKey(b) : null) is var placed && !ReferenceEquals(placed, o)
+            ? placed with { SortBy = "manual", SortDir = 1 }
+            : o;
+
+    /// <summary>
+    /// Arrow key: the selected cards (<paramref name="moving"/>, a subset of <paramref name="column"/>) move one step up (-1) or down (+1).
+    /// A scattered selection first gathers into a block, at its top card going up or its bottom card going down.
+    /// </summary>
+    public static BoardOptions Step(BoardOptions o, IReadOnlyList<int> column, IReadOnlyList<int> moving, int dir)
+    {
+        List<int> all = column.ToList(), block = all.Where(moving.Contains).ToList();
+        if (block.Count == 0) return o;
+        int top = all.IndexOf(block[0]), bottom = all.IndexOf(block[^1]);
+        bool together = bottom - top + 1 == block.Count;
+        List<int> others = column.Except(block).ToList();
+        int at = !together ? (dir < 0 ? top : bottom - block.Count + 1)   // gather: the block starts where its top (or ends where its bottom) card is
+               : Math.Clamp(top + dir, 0, others.Count);
+        return PlaceCards(o, column, block, at < others.Count ? others[at] : null);
     }
 
     /// <summary>Items in one subgroup of a column; items whose stored lane is unknown fall into the first lane.</summary>
@@ -128,6 +164,9 @@ public static class BoardModel
 
     public static IEnumerable<WorkItem> Sort(IEnumerable<WorkItem> items, BoardOptions o)
     {
+        Comparison<WorkItem> byPriority = (a, b) => (a.Priority == b.Priority ? 0 : a.Priority == "high" ? -1 : 1) is int p && p != 0 ? p : b.Modified.CompareTo(a.Modified);
+        List<string> placed = o.Order?.ToList() ?? [];   // ponytail: IndexOf per compare, a dictionary if boards reach thousands of cards
+        int Rank(WorkItem w) => placed.IndexOf(ItemKey(w.Id)) is int r and >= 0 ? r : int.MaxValue;
         Comparison<WorkItem> cmp = o.SortBy switch
         {
             "feature" => (a, b) => string.CompareOrdinal(a.Features.FirstOrDefault()?.Path ?? "~", b.Features.FirstOrDefault()?.Path ?? "~"),
@@ -138,7 +177,8 @@ public static class BoardModel
             "status" => (a, b) => IndexOf(a.Status).CompareTo(IndexOf(b.Status)),
             "title" => (a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase),
             "id" => (a, b) => a.Id.CompareTo(b.Id),
-            _ => (a, b) => (a.Priority == b.Priority ? 0 : a.Priority == "high" ? -1 : 1) is int p && p != 0 ? p : b.Modified.CompareTo(a.Modified),
+            "manual" => (a, b) => Rank(a).CompareTo(Rank(b)) is int r && r != 0 ? r : byPriority(a, b),
+            _ => byPriority,
         };
         List<WorkItem> list = items.ToList();
         list.Sort((a, b) => (cmp(a, b) is int c && c != 0 ? c : a.Id.CompareTo(b.Id)) * o.SortDir);

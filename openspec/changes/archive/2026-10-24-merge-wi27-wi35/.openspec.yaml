@@ -1,0 +1,12 @@
+schema: spec-driven
+created: 2026-10-24
+x-rtm:
+  id: 50
+  title: board UI patches
+  status: Backlog
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [board]
+  label: bug
+  mergedFrom: [27, 35]
+  unlinkedFeatures: [workspace]

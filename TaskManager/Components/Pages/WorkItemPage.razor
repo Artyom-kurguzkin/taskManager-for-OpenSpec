@@ -29,8 +29,8 @@
         <div class="kv"><label>linked features</label>
             @foreach (FeatureLink f in item.Features)
             {
-                <span class="chip @(f.Locked ? "" : "x")" title="@(f.Locked ? "From the change's specs/ folder" : "Remove")"
-                      @onclick="() => { if (!f.Locked) RemoveFeature(f.Path); }">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span>
+                <span class="chip x @(f.Locked ? "spec" : "")" title="@(f.Locked ? "From the change's specs/ folder. Remove hides it here; the spec stays." : "Remove")"
+                      @onclick="() => RemoveFeature(f)">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span>
             }
             <Dropdown Label="add feature" Class="mini" Placeholder="+ add" Options="FeatureChoices" ValueChanged="AddFeature" />
         </div>
@@ -69,12 +69,18 @@
     </div>
     @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
 
-    <div class="grid2">
-        <section class="panel">
-            <h3>Description</h3>
-            @if (editingDescription)
+    @* Bento: every list is a tile of the same rank. The focused tile is large and fully editable (the description by
+       default); the others are compact previews of their last few entries, and clicking one focuses it. *@
+    <div class="bento" style="--rows:@(Blocking.Count > 0 ? 5 : 4)">
+        <section class="tile @Focused("description")" data-tile="description" @onclick="@(() => FocusTile("description"))">
+            @Head("description", "Description", null)
+            @if (focus != "description")
             {
-                <textarea @ref="descriptionBox" class="desc-in" rows="10" @bind="description" @onblur="SaveDescription" aria-label="Description"></textarea>
+                <div class="peek-desc">@if (string.IsNullOrWhiteSpace(description)) { <span class="muted">No description yet</span> } else { @Ui.Markdown(description) }</div>
+            }
+            else if (editingDescription)
+            {
+                <textarea @ref="descriptionBox" class="desc-in" rows="14" @bind="description" @onblur="SaveDescription" aria-label="Description"></textarea>
             }
             else
             {
@@ -85,116 +91,188 @@
             }
         </section>
 
-        @* the work item's notes are its change log entries (newest first); commits are listed separately under Linked commits *@
-        <section class="panel changelog">
-            <h3>Change log <span class="muted">notes</span></h3>
-            <div class="change-log">
-                @foreach (Note n in notes)
-                {
-                    <button class="log-e hov" data-sk @onclick="@(() => Nav.NavigateTo($"note/{n.Id}"))"><b>#n@(n.Id) · @n.Title</b><span class="muted">@n.Created.ToString("d.M.yyyy") · @n.By</span></button>
-                }
-                @if (notes.Count == 0) { <p class="muted">No entries yet.</p> }
-            </div>
-            <button class="btn" data-sk @onclick="AddNote">+ Add entry</button>
-        </section>
-
-        <section class="panel">
-            <h3>Subtasks <span class="muted">tasks.md · @item.Subtasks.Count(s => s.Done)/@item.Subtasks.Count</span></h3>
-            <div>
-                @foreach (Subtask s in item.Subtasks)
-                {
-                    <div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "")" data-sk>
-                        <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
-                               @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
-                        <span class="mono">@s.Number</span><span class="s-t" @onclick="() => ToggleSub(s.Number)">@s.Text</span>
-                    </div>
-                }
-                @* related work items: ones this waits on (struck through once in review or done, so they no longer block) and ones it blocks *@
-                @foreach (WorkItem d in WaitingOn)
-                {
-                    bool done = WorkItemsApi.IsResolved(d);
-                    <div class="sub dep waits @(done ? "done" : "blocking-me")" data-sk @onclick="@(() => Nav.NavigateTo($"item/{d.Id}"))">
-                        <span class="dep-k">waits on</span><span class="s-t">#wi@(d.Id) · @d.Title</span><span class="dep-s">@d.Status</span>
-                        <button class="ic" aria-label="Remove dependency" title="Remove dependency" @onclick:stopPropagation="true"
-                                @onclick="() => Run(WorkItemsApi.RemoveDependency(item.Id, d.Id))">×</button>
-                    </div>
-                }
-                @foreach (WorkItem b in Blocking)
-                {
-                    <div class="sub dep blocks" data-sk @onclick="@(() => Nav.NavigateTo($"item/{b.Id}"))">
-                        <span class="dep-k">blocks</span><span class="s-t">#wi@(b.Id) · @b.Title</span><span class="dep-s">@b.Status</span>
-                    </div>
-                }
-            </div>
-            <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
-                <input @bind="newSubtask" placeholder="Add a subtask, or #wi12…" aria-label="New subtask" /><button class="btn" data-sk type="submit">add</button>
-            </form>
-            @if (!item.Archived) { <span class="muted">Type another item's id (#wi12) to wait on it. Click a subtask's text to select it (or several), then make it a work item of its own.</span> }
-        </section>
-
-        <section class="panel">
-            <h3>Linked commits</h3>
-            @* commits that mention #wiN (from git) plus ones picked by hand (x-rtm.commits, removable) *@
-            <div class="linked-commits">
-                @if (!GitHistoryApi.IsRepository()) { <p class="muted">Not a git repository, so there are no commits to show.</p> }
-                else if (commits.Count == 0) { <p class="muted">Commits that mention #wi@(item.Id), or that you link here, show up here.</p> }
-                @foreach (CommitInfo c in commits)
-                {
-                    bool picked = (item.Commits ?? []).Contains(c.Hash);
-                    <div class="commit hov" data-sk tabindex="0"><span class="mono">@c.Hash</span><span>@c.Subject</span>
-                        @if (picked) { <button class="ic" aria-label="Unlink commit" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedCommits(item.Id, item.Commits!.Where(h => h != c.Hash)))">×</button> }</div>
-                }
-                @if (GitHistoryApi.IsRepository())
-                {
-                    <Menu Label="Link a commit">
-                        <Activator><button class="btn" data-sk aria-label="Link a commit">+ link commit</button></Activator>
-                        <Items>
-                            <input class="menu-filter" placeholder="Filter commits…" aria-label="Filter commits" @bind="pickFilter" @bind:event="oninput" />
-                            @foreach (CommitInfo c in GitHistoryApi.Recent(50).Where(c => !commits.Any(x => x.Hash == c.Hash) && Matches(c.Hash, c.Subject, c.Author)))
-                            {
-                                <MenuItem OnClick="() => Run(WorkItemsApi.SetLinkedCommits(item.Id, [.. item.Commits ?? [], c.Hash]))"><span class="mono">@c.Hash</span> @c.Subject <span class="muted">· @c.Author</span></MenuItem>
-                            }
-                        </Items>
-                    </Menu>
-                }
-            </div>
-            <h3>Linked tests</h3>
-            @* tests picked from the newest results file (x-rtm.tests), each with its last result and an optional note *@
-            <div class="linked-tests">
-                @foreach (IGrouping<string, TestLink> suite in (item.Tests ?? []).GroupBy(t => t.Suite))
-                {
-                    List<string> outcomes = suite.Select(Outcome).ToList();
-                    <div class="suite-h"><b>@suite.Key</b>
-                        <span class="muted">@(run.Results.Where(r => r.Suite == suite.Key).Max(r => r.Finished) is DateTime ran ? $"· last ran {ran.ToLocalTime():d.M.yyyy HH:mm}" : "")
-                            · @(outcomes.Count(o => o == "failed") is int failed and > 0 ? $"{failed} failed" : outcomes.All(o => o == "passed") ? "all passed" : "not all run")</span></div>
-                    @foreach (TestLink t in suite)
+        <section class="tile @Focused("subtasks")" data-tile="subtasks" @onclick="@(() => FocusTile("subtasks"))">
+            @Head("subtasks", "Subtasks", $"{item.Subtasks.Count(s => s.Done)}/{item.Subtasks.Count}")
+            @if (focus != "subtasks")
+            {
+                <span class="prog wide"><i style="width:@(item.Subtasks.Count == 0 ? 0 : item.Subtasks.Count(s => s.Done) * 100 / item.Subtasks.Count)%"></i></span>
+                @foreach (Subtask s in PeekSubtasks) { <div class="peek @(s.Done ? "done" : "")"><span class="mono">@s.Number</span><span class="t">@s.Text</span></div> }
+                @foreach (WorkItem d in WaitingOn.Where(d => !WorkItemsApi.IsResolved(d)).Take(2)) { <div class="peek waits"><span class="mono">waits on</span><span class="t">#wi@(d.Id) · @d.Title</span></div> }
+                @if (item.Subtasks.Count == 0 && WaitingOn.Count == 0) { <p class="muted">No subtasks yet.</p> }
+            }
+            else
+            {
+                <div>
+                    @foreach (Subtask s in item.Subtasks)
                     {
-                        <div class="test @Outcome(t)">
-                            @if (t.Note is int note) { <button class="row-title" @onclick="@(() => Nav.NavigateTo($"note/{note}"))">@t.Test</button> } else { <span>@t.Test</span> }
-                            <span class="muted">@Outcome(t)</span>
-                            @if (t.Note is null) { <button class="btn ghost" aria-label="Add a note for this test" @onclick="() => AddTestNote(t)">+ note</button> }
-                            <button class="ic" aria-label="Unlink test" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, item.Tests!.Where(x => x != t)))">×</button>
+                        <div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "")" data-sk>
+                            <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
+                                   @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
+                            <span class="mono">@s.Number</span>
+                            @if (editingSub == s.Number)
+                            {
+                                @* Enter or leaving the box saves, Esc cancels *@
+                                <input @ref="subBox" class="sub-edit" data-own-esc value="@s.Text" aria-label="Subtask @s.Number" @oninput="e => subText = (string)e.Value!"
+                                       @onkeydown="e => SubKey(e, s)" @onblur="() => SaveSub(s)" />
+                            }
+                            else
+                            {
+                                @* click edits it; Shift/Ctrl/⌘-click selects it, as cards on the board *@
+                                <span class="s-t" title="Click to edit · Shift-click to select" @onclick="e => SubClick(e, s)">@s.Text</span>
+                            }
                         </div>
                     }
-                }
-                @if (run.File is null) { <p class="muted">@(run.Globs.Count == 0 ? "No test results configured: list result files under x-rtm.testResults in openspec/config.yaml." : $"No results file found at {string.Join(", ", run.Globs)}.")</p> }
-                @if (run.File is not null)
+                    @* items this one waits on (struck through once in review or done, so they no longer block) *@
+                    @foreach (WorkItem d in WaitingOn)
+                    {
+                        bool done = WorkItemsApi.IsResolved(d);
+                        <div class="sub dep waits @(done ? "done" : "blocking-me")" data-sk @onclick="@(() => Nav.NavigateTo($"item/{d.Id}"))">
+                            <span class="dep-k">waits on</span><span class="s-t">#wi@(d.Id) · @d.Title</span><span class="dep-s">@d.Status</span>
+                            <button class="ic" aria-label="Remove dependency" title="Remove dependency" @onclick:stopPropagation="true"
+                                    @onclick="() => Run(WorkItemsApi.RemoveDependency(item.Id, d.Id))">×</button>
+                        </div>
+                    }
+                </div>
+                <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
+                    <input @bind="newSubtask" placeholder="Add a subtask, or #wi12…" aria-label="New subtask" /><button class="btn" data-sk type="submit">add</button>
+                </form>
+                @if (!item.Archived)
                 {
-                    <Menu Label="Link a test">
-                        <Activator><button class="btn" data-sk aria-label="Link a test">+ link test</button></Activator>
+                    @* an existing work item this one has to wait on (typing its id above does the same) *@
+                    <Menu Label="Wait on another work item">
+                        <Activator><button type="button" class="btn" data-sk aria-label="Wait on another work item">+ wait on another work item</button></Activator>
                         <Items>
-                            <input class="menu-filter" placeholder="Filter tests…" aria-label="Filter tests" @bind="pickFilter" @bind:event="oninput" />
-                            @foreach (LinkedTestRuns.PublicDTOs.TestResult r in run.Results.Where(r => !(item.Tests ?? []).Any(t => t.Suite == r.Suite && t.Test == r.Test) && Matches(r.Suite, r.Test))
-                                .OrderBy(r => r.Suite, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Test, StringComparer.OrdinalIgnoreCase))
+                            <input class="menu-filter" placeholder="Filter work items…" aria-label="Filter work items" @bind="pickFilter" @bind:event="oninput" />
+                            @foreach (WorkItem w in DependencyChoices.Where(w => Matches($"#wi{w.Id}", w.Title, w.Status)))
                             {
-                                <MenuItem OnClick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, [.. item.Tests ?? [], new TestLink(r.Suite, r.Test, null)]))"><span class="muted">@r.Suite /</span> @r.Test</MenuItem>
+                                <MenuItem OnClick="() => LinkDependency(w.Id)"><span class="mono">#wi@(w.Id)</span> @w.Title <span class="muted">· @w.Status</span></MenuItem>
                             }
                         </Items>
                     </Menu>
                 }
-            </div>
+                @if (!item.Archived) { <span class="muted">Type another item's id (#wi12) to wait on it. Click a subtask to edit it. Shift-click to select it (or several), then make it a work item of its own.</span> }
+            }
         </section>
 
+        @if (Blocking.Count > 0)
+        {
+            <section class="tile @Focused("blocks")" data-tile="blocks" @onclick="@(() => FocusTile("blocks"))">
+                @Head("blocks", "Waiting on this", Blocking.Count.ToString())
+                @foreach (WorkItem b in focus == "blocks" ? Blocking : Blocking.Take(3))
+                {
+                    @if (focus == "blocks")
+                    {
+                        <div class="sub dep blocks" data-sk @onclick="@(() => Nav.NavigateTo($"item/{b.Id}"))">
+                            <span class="dep-k">blocks</span><span class="s-t">#wi@(b.Id) · @b.Title</span><span class="dep-s">@b.Status</span>
+                        </div>
+                    }
+                    else { <div class="peek"><span class="mono">#wi@(b.Id)</span><span class="t">@b.Title</span></div> }
+                }
+            </section>
+        }
+
+        <section class="tile @Focused("commits")" data-tile="commits" @onclick="@(() => FocusTile("commits"))">
+            @Head("commits", "Linked commits", commits.Count > 0 ? commits.Count.ToString() : null)
+            @if (focus != "commits")
+            {
+                @foreach (CommitInfo c in commits.Take(3)) { <div class="peek"><span class="mono">@c.Hash</span><span class="t">@c.Subject</span></div> }
+                @if (commits.Count == 0) { <p class="muted">@(GitHistoryApi.IsRepository() ? $"None yet. Mention #wi{item.Id} in a commit." : "Not a git repository.")</p> }
+            }
+            else
+            {
+                @* commits that mention #wiN (from git) plus ones picked by hand (x-rtm.commits, removable) *@
+                <div class="linked-commits">
+                    @if (!GitHistoryApi.IsRepository()) { <p class="muted">Not a git repository, so there are no commits to show.</p> }
+                    else if (commits.Count == 0) { <p class="muted">Commits that mention #wi@(item.Id), or that you link here, show up here.</p> }
+                    @foreach (CommitInfo c in commits)
+                    {
+                        bool picked = (item.Commits ?? []).Contains(c.Hash);
+                        <div class="commit hov" data-sk tabindex="0"><span class="mono">@c.Hash</span><span>@c.Subject</span>
+                            @if (picked) { <button class="ic" aria-label="Unlink commit" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedCommits(item.Id, item.Commits!.Where(h => h != c.Hash)))">×</button> }</div>
+                    }
+                    @if (GitHistoryApi.IsRepository())
+                    {
+                        <Menu Label="Link a commit">
+                            <Activator><button class="btn" data-sk aria-label="Link a commit">+ link commit</button></Activator>
+                            <Items>
+                                <input class="menu-filter" placeholder="Filter commits…" aria-label="Filter commits" @bind="pickFilter" @bind:event="oninput" />
+                                @foreach (CommitInfo c in GitHistoryApi.Recent(50).Where(c => !commits.Any(x => x.Hash == c.Hash) && Matches(c.Hash, c.Subject, c.Author)))
+                                {
+                                    <MenuItem OnClick="() => Run(WorkItemsApi.SetLinkedCommits(item.Id, [.. item.Commits ?? [], c.Hash]))"><span class="mono">@c.Hash</span> @c.Subject <span class="muted">· @c.Author</span></MenuItem>
+                                }
+                            </Items>
+                        </Menu>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="tile @Focused("tests")" data-tile="tests" @onclick="@(() => FocusTile("tests"))">
+            @Head("tests", "Linked tests", TestsSummary)
+            @if (focus != "tests")
+            {
+                @foreach (TestLink t in (item.Tests ?? []).OrderBy(t => Outcome(t) == "failed" ? 0 : 1).Take(3)) { <div class="peek test-@Outcome(t)"><span class="dot" aria-label="@Outcome(t)"></span><span class="t">@t.Test</span></div> }
+                @if ((item.Tests ?? []).Count == 0) { <p class="muted">@(run.File is null ? "No test results file configured." : "None linked yet.")</p> }
+            }
+            else
+            {
+                @* tests picked from the newest results file (x-rtm.tests), each with its last result and an optional note *@
+                <div class="linked-tests">
+                    @foreach (IGrouping<string, TestLink> suite in (item.Tests ?? []).GroupBy(t => t.Suite))
+                    {
+                        List<string> outcomes = suite.Select(Outcome).ToList();
+                        <div class="suite-h"><b>@suite.Key</b>
+                            <span class="muted">@(run.Results.Where(r => r.Suite == suite.Key).Max(r => r.Finished) is DateTime ran ? $"· last ran {ran.ToLocalTime():d.M.yyyy HH:mm}" : "")
+                                · @(outcomes.Count(o => o == "failed") is int failed and > 0 ? $"{failed} failed" : outcomes.All(o => o == "passed") ? "all passed" : "not all run")</span></div>
+                        @foreach (TestLink t in suite)
+                        {
+                            <div class="test @Outcome(t)">
+                                @if (t.Note is int note) { <button class="row-title" @onclick="@(() => Nav.NavigateTo($"note/{note}"))">@t.Test</button> } else { <span>@t.Test</span> }
+                                <span class="muted">@Outcome(t)</span>
+                                @if (t.Note is null) { <button class="btn ghost" aria-label="Add a note for this test" @onclick="() => AddTestNote(t)">+ note</button> }
+                                <button class="ic" aria-label="Unlink test" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, item.Tests!.Where(x => x != t)))">×</button>
+                            </div>
+                        }
+                    }
+                    @if (run.File is null) { <p class="muted">@(run.Globs.Count == 0 ? "No test results configured: list result files under x-rtm.testResults in openspec/config.yaml." : $"No results file found at {string.Join(", ", run.Globs)}.")</p> }
+                    @if (run.File is not null)
+                    {
+                        <Menu Label="Link a test">
+                            <Activator><button class="btn" data-sk aria-label="Link a test">+ link test</button></Activator>
+                            <Items>
+                                <input class="menu-filter" placeholder="Filter tests…" aria-label="Filter tests" @bind="pickFilter" @bind:event="oninput" />
+                                @foreach (LinkedTestRuns.PublicDTOs.TestResult r in run.Results.Where(r => !(item.Tests ?? []).Any(t => t.Suite == r.Suite && t.Test == r.Test) && Matches(r.Suite, r.Test))
+                                    .OrderBy(r => r.Suite, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Test, StringComparer.OrdinalIgnoreCase))
+                                {
+                                    <MenuItem OnClick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, [.. item.Tests ?? [], new TestLink(r.Suite, r.Test, null)]))"><span class="muted">@r.Suite /</span> @r.Test</MenuItem>
+                                }
+                            </Items>
+                        </Menu>
+                    }
+                </div>
+            }
+        </section>
+
+        @* the work item's notes are its change log entries (newest first) *@
+        <section class="tile @Focused("log")" data-tile="log" @onclick="@(() => FocusTile("log"))">
+            @Head("log", "Change log", notes.Count > 0 ? notes.Count.ToString() : null)
+            @if (focus != "log")
+            {
+                @foreach (Note n in notes.Take(3)) { <div class="peek"><span class="mono">@n.Created.ToString("d.M")</span><span class="t">@n.Title</span></div> }
+                @if (notes.Count == 0) { <p class="muted">No entries yet.</p> }
+            }
+            else
+            {
+                <div class="change-log">
+                    @foreach (Note n in notes)
+                    {
+                        <button class="log-e hov" data-sk @onclick="@(() => Nav.NavigateTo($"note/{n.Id}"))"><b>#n@(n.Id) · @n.Title</b><span class="muted">@n.Created.ToString("d.M.yyyy") · @n.By</span></button>
+                    }
+                    @if (notes.Count == 0) { <p class="muted">No entries yet.</p> }
+                </div>
+                <button class="btn" data-sk @onclick="AddNote">+ Add entry</button>
+            }
+        </section>
     </div>
 </div>
 
@@ -261,7 +339,7 @@
         if (item is null) return;
         if (!editingDescription) description = WorkItemsApi.GetDescription(Id);
         notes = NotesApi.GetForWorkItem(Id).OrderByDescending(n => n.Created).ThenByDescending(n => n.Id).ToList();
-        commits = [.. GitHistoryApi.Mentioning($"#wi{Id}").Concat(GitHistoryApi.Commits(item.Commits ?? [])).DistinctBy(c => c.Hash)];
+        commits = [.. (item.MergedFrom ?? []).Prepend(Id).SelectMany(n => GitHistoryApi.Mentioning($"#wi{n}")).Concat(GitHistoryApi.Commits(item.Commits ?? [])).DistinctBy(c => c.Hash)];   // a merged item also owns what mentions its sources
         run = LinkedTestRuns.LinkedTestRunsApi.Latest();
         pickFilter = "";
         subSel.IntersectWith(item.Subtasks.Select(s => s.Number));
@@ -279,15 +357,70 @@
         {
             if (!await Popups.Confirm("Complete and archive?",
                 $"#wi{item.Id} will be archived with the OpenSpec CLI and its delta specs merged into openspec/specs.", yes: "Archive")) return;
+            Run(await Popups.Busy($"Archiving #wi{item.Id} with the OpenSpec CLI…", () => WorkItemsApi.SetStatus(Id, status)));
+            return;
         }
         Run(WorkItemsApi.SetStatus(Id, status));
     }
 
-    private void AddFeature(string path) => Run(WorkItemsApi.SetManualFeatures(Id, item!.Features.Select(f => f.Path).Append(path)));
-    private void RemoveFeature(string path) => Run(WorkItemsApi.SetManualFeatures(Id, item!.Features.Select(f => f.Path).Where(p => p != path)));
+    // a feature from specs/ comes back by relinking it; any other is added to x-rtm.features
+    private void AddFeature(string path) => Run(item!.UnlinkedFeatures?.Contains(path) == true
+        ? WorkItemsApi.RelinkFeature(Id, path)
+        : WorkItemsApi.SetManualFeatures(Id, item.Features.Select(f => f.Path).Append(path)));
+    private void RemoveFeature(FeatureLink f) => Run(f.Locked
+        ? WorkItemsApi.UnlinkFeature(Id, f.Path)
+        : WorkItemsApi.SetManualFeatures(Id, item!.Features.Select(x => x.Path).Where(p => p != f.Path)));
 
     private ElementReference descriptionBox;
     private bool focusDescription;
+
+    // ── Bento: one focused tile, the rest compact ──
+    private string? focus = "description";   // null: every tile minimised (narrow windows only)
+    private bool narrow;
+
+    private async Task<bool> IsNarrow()
+    {
+        try { return await Js.InvokeAsync<bool>("rtm.isNarrow"); }
+        catch (JSException) { return false; }
+    }
+
+    private string Focused(string tile) => focus == tile ? "focus" : "";
+
+    /// <summary>A tile header: focuses a compact tile; on a narrow window it also minimises the open one (desktop keeps one open).</summary>
+    private void HeaderClick(string tile)
+    {
+        if (focus != tile) FocusTile(tile);
+        else if (narrow) { if (editingDescription) SaveDescription(); focus = null; }
+    }
+
+    /// <summary>Clicking a compact tile focuses it. Leaving the description saves it first (its textarea blur may not fire).</summary>
+    private void FocusTile(string tile)
+    {
+        if (focus == tile) return;
+        if (editingDescription) SaveDescription();
+        focus = tile;
+    }
+
+    /// <summary>A tile's header: its name and count. On a compact tile it is the button that focuses it.</summary>
+    private RenderFragment Head(string tile, string title, string? count) => __builder =>
+    {
+        @* its own click (not the tile's), so on a narrow window the open tile's header can minimise it *@
+        bool open = focus == tile;
+        <button type="button" class="tile-h" aria-expanded="@open" aria-label="@(open ? (narrow ? $"Minimise {title}" : title) : $"Show {title}")" tabindex="@(open && !narrow ? -1 : 0)"
+                @onclick="() => HeaderClick(tile)" @onclick:stopPropagation="true">
+            <h3>@title</h3>
+            @if (count is not null) { <span class="count">@count</span> }
+            @if (!open || narrow) { <span class="open" aria-hidden="true">@Ui.Icon(open ? "collapse" : "expand")</span> }
+        </button>
+    };
+
+    /// <summary>Compact subtasks: the next three still open, or the last three when all are done.</summary>
+    private IEnumerable<Subtask> PeekSubtasks =>
+        item!.Subtasks.Any(s => !s.Done) ? item.Subtasks.Where(s => !s.Done).Take(3) : item.Subtasks.TakeLast(3);
+
+    private string? TestsSummary => (item?.Tests ?? []) is { Count: > 0 } tests
+        ? tests.Count(t => Outcome(t) == "failed") is int failed and > 0 ? $"{failed} failed" : $"{tests.Count}"
+        : null;
 
     private void EditDescription()
     {
@@ -297,6 +430,9 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Narrow windows (one-column bento) open with every tile minimised; desktop keeps the description open.
+        if (firstRender && await IsNarrow()) { narrow = true; focus = null; StateHasChanged(); }
+        if (focusSub) { focusSub = false; try { await subBox.FocusAsync(); } catch (InvalidOperationException) { } }
         if (!focusDescription) return;
         focusDescription = false;
         await descriptionBox.FocusAsync();
@@ -313,20 +449,57 @@
         if (!subSel.Remove(number)) subSel.Add(number);
     }
 
+    // ── Editing a subtask's text in place ──
+    private string? editingSub;   // number of the subtask being edited
+    private string subText = "";
+    private ElementReference subBox;
+    private bool focusSub;
+
+    private void SubClick(MouseEventArgs e, Subtask s)
+    {
+        if (e.ShiftKey || e.CtrlKey || e.MetaKey) { ToggleSub(s.Number); return; }
+        editingSub = s.Number;
+        subText = s.Text;
+        focusSub = true;
+    }
+
+    private void SubKey(KeyboardEventArgs e, Subtask s)
+    {
+        if (e.Key == "Enter") SaveSub(s);
+        else if (e.Key == "Escape") editingSub = null;
+    }
+
+    /// <summary>Saves on Enter or blur; an unchanged text writes nothing. Blank text is refused with a message.</summary>
+    private void SaveSub(Subtask s)
+    {
+        if (editingSub != s.Number) return;   // already saved by Enter, or cancelled by Esc
+        editingSub = null;
+        if (subText.Trim() != s.Text) Run(WorkItemsApi.SetSubtaskText(Id, s.Number, subText));
+    }
+
     // "#wi12", "wi12" or "12" names another work item: wait on it instead of adding a subtask line.
     private void AddSubtask()
     {
         if (System.Text.RegularExpressions.Regex.Match(newSubtask.Trim(), @"^#?(?:wi)?(\d+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } m)
         {
-            int dep = int.Parse(m.Groups[1].Value);
-            (bool ok, string message) = WorkItemsApi.AddDependency(Id, dep);
-            Run((ok, message));
-            if (ok) Popups.Toast(WorkItemsApi.Get(dep) is { } d && WorkItemsApi.IsResolved(d)
-                ? $"Linked #wi{dep} — it's already {(d.Archived ? "Completed" : d.Status)}, so it doesn't block this item"
-                : $"Waiting on #wi{dep} — this item is Blocked until it's in review or done", ToastKind.Success);
+            LinkDependency(int.Parse(m.Groups[1].Value));
         }
         else Run(WorkItemsApi.AddSubtask(Id, newSubtask));
         newSubtask = "";
+    }
+
+    /// <summary>Active work items this one could wait on: not itself, not already waited on, and not one that waits on this (a loop).</summary>
+    private IEnumerable<WorkItem> DependencyChoices =>
+        WorkItemsApi.GetAll(includeHidden: false).Where(w => !w.Archived && w.Id != Id && !(item!.DependsOn ?? []).Contains(w.Id) && !(w.DependsOn ?? []).Contains(Id));
+
+    private void LinkDependency(int dep)
+    {
+        (bool ok, string message) = WorkItemsApi.AddDependency(Id, dep);
+        Run((ok, message));
+        if (ok) Popups.Toast(WorkItemsApi.Get(dep) is { } d && WorkItemsApi.IsResolved(d)
+            ? $"Linked #wi{dep} — it's already {(d.Archived ? "Completed" : d.Status)}, so it doesn't block this item"
+            : $"Waiting on #wi{dep} — this item is Blocked until it's in review or done", ToastKind.Success);
+        pickFilter = "";
     }
 
     private void MoveSubtasks()

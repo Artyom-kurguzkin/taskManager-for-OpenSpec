@@ -121,26 +121,38 @@ public sealed class ArrangingTheBoardTests
         Assert.Equal(["Security", "Availability"], nf.Columns.Select(c => c.Label));
     }
 
-    [Fact(DisplayName = "Dropping Backlog onto Completed moves the Backlog column to after Completed")]
+    [Fact(DisplayName = "Dropping Backlog past the last column moves it to the end")]
     public void DragStatusColumn()
     {
         BoardOptions o = new();
         List<string> keys = Build(o)[0].Columns.Select(c => BoardModel.ColumnKey(o, c.Key)).ToList();
 
-        BoardOptions moved = BoardModel.MoveTo(o, keys, BoardModel.ColumnKey(o, "Backlog"), BoardModel.ColumnKey(o, "Completed"));
+        BoardOptions moved = BoardModel.Insert(o, keys, [BoardModel.ColumnKey(o, "Backlog")], null);
 
         Assert.Equal(["Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed", "Backlog"], Build(moved)[0].Columns.Select(c => c.Label));
     }
 
-    [Fact(DisplayName = "Dropping a column onto an earlier one puts it in front of that one")]
+    [Fact(DisplayName = "Dropping a column at a gap puts it in front of the column after the gap")]
     public void DragLeft()
     {
         BoardOptions o = new();
         List<string> keys = Build(o)[0].Columns.Select(c => BoardModel.ColumnKey(o, c.Key)).ToList();
 
-        BoardOptions moved = BoardModel.MoveTo(o, keys, BoardModel.ColumnKey(o, "Blocked"), BoardModel.ColumnKey(o, "Planned"));
+        BoardOptions moved = BoardModel.Insert(o, keys, [BoardModel.ColumnKey(o, "Blocked")], BoardModel.ColumnKey(o, "Planned"));
 
         Assert.Equal(["Backlog", "Blocked", "Planned", "Confirmed", "In Progress", "In Review", "Completed"], Build(moved)[0].Columns.Select(c => c.Label));
+    }
+
+    [Fact(DisplayName = "Hidden columns report how many items they hold, following the contributor filter and the work items / subtasks switch")]
+    public void HiddenCounts()
+    {
+        BoardOptions o = new(Hidden: ["status:In Progress", "status:Backlog", "status:Blocked"]);
+
+        Dictionary<string, int> counts = BoardModel.HiddenCounts(Items, Features, Lanes, o);
+
+        Assert.Equal(new Dictionary<string, int> { ["status:In Progress"] = 2, ["status:Backlog"] = 1, ["status:Blocked"] = 0 }, counts);
+        Assert.Equal(1, BoardModel.HiddenCounts(Items, Features, Lanes, o with { Who = "Tom" })["status:In Progress"]);
+        Assert.Equal(5, BoardModel.HiddenCounts(Items, Features, Lanes, o with { Unit = "subtasks" })["status:In Progress"]);   // 3 + 2 subtasks
     }
 
     [Fact(DisplayName = "A hidden status column leaves the board")]
@@ -171,5 +183,78 @@ public sealed class ArrangingTheBoardTests
 
         Assert.Equal("No contributors", s.Columns[0].Label);
         Assert.Equal([5], s.Columns[0].Items.Select(i => i.Id));
+    }
+
+    private static IEnumerable<int> InProgress(BoardOptions o) => Build(o)[0].Columns.Single(c => c.Key == "In Progress").Items.Select(i => i.Id);
+
+    [Fact(DisplayName = "Dropping a card at the end of its column puts it last, and the column sorts by my order")]
+    public void PlaceCardAtEnd()
+    {
+        BoardOptions o = BoardModel.PlaceCards(new BoardOptions(), [2, 3], [2], null);
+
+        Assert.Equal("manual", o.SortBy);
+        Assert.Equal([3, 2], InProgress(o));
+    }
+
+    [Fact(DisplayName = "A card from another column lands in front of the card after the gap; cards never placed follow in priority order")]
+    public void PlaceCardFromElsewhere()
+    {
+        BoardOptions o = BoardModel.PlaceCards(new BoardOptions(), [2, 3], [1], 3);
+
+        Assert.Equal([2, 1, 3, 4], BoardModel.Sort(Items, o).Select(i => i.Id));
+    }
+
+    [Fact(DisplayName = "Several selected cards land together at the gap, in their board order")]
+    public void PlaceSeveral()
+    {
+        BoardOptions o = BoardModel.PlaceCards(new BoardOptions(), [2, 3], [1, 4], 3);
+
+        Assert.Equal([2, 1, 4, 3], BoardModel.Sort(Items, o).Select(i => i.Id));
+    }
+
+    [Fact(DisplayName = "Dropping a card back where it was changes nothing, not even the sort")]
+    public void DropInPlace()
+    {
+        BoardOptions o = new(SortBy: "id");
+
+        Assert.Same(o, BoardModel.PlaceCards(o, [2, 3], [2], 2));
+        Assert.Equal("id", BoardModel.PlaceCards(o, [2, 3], [2], 3).SortBy);   // already right in front of 3
+    }
+
+    private static readonly WorkItem[] Five = [.. Enumerable.Range(1, 5).Select(i => W(i, "Backlog", [], ["Tom"], day: 6 - i))];   // 1..5 by priority order
+
+    private static IEnumerable<int> Backlog(BoardOptions o) => BoardModel.Sort(Five, o).Select(i => i.Id);
+
+    [Fact(DisplayName = "Arrow up/down moves a selected card one step inside its column; it stops at the ends")]
+    public void StepOne()
+    {
+        BoardOptions o = BoardModel.Step(new BoardOptions(), [1, 2, 3, 4, 5], [3], -1);
+        Assert.Equal([1, 3, 2, 4, 5], Backlog(o));
+        Assert.Equal("manual", o.SortBy);
+
+        Assert.Equal([1, 2, 3, 4, 5], Backlog(BoardModel.Step(new BoardOptions(), [1, 2, 3, 4, 5], [3], -1) is var up ? BoardModel.Step(up, [1, 3, 2, 4, 5], [3], +1) : up));
+        Assert.Equal([1, 2, 3, 4, 5], Backlog(BoardModel.Step(new BoardOptions(), [1, 2, 3, 4, 5], [1], -1)));
+        Assert.Equal([1, 2, 3, 4, 5], Backlog(BoardModel.Step(new BoardOptions(), [1, 2, 3, 4, 5], [5], +1)));
+    }
+
+    [Fact(DisplayName = "A scattered selection first gathers: up at its top card, down at its bottom card; then it moves as a block")]
+    public void StepGroup()
+    {
+        BoardOptions up = BoardModel.Step(new BoardOptions(), [1, 2, 3, 4, 5], [2, 4], -1);
+        Assert.Equal([1, 2, 4, 3, 5], Backlog(up));
+        Assert.Equal([2, 4, 1, 3, 5], Backlog(BoardModel.Step(up, [1, 2, 4, 3, 5], [2, 4], -1)));
+
+        BoardOptions down = BoardModel.Step(new BoardOptions(), [1, 2, 3, 4, 5], [2, 4], +1);
+        Assert.Equal([1, 3, 2, 4, 5], Backlog(down));
+        Assert.Equal([1, 3, 5, 2, 4], Backlog(BoardModel.Step(down, [1, 3, 2, 4, 5], [2, 4], +1)));
+    }
+
+    [Fact(DisplayName = "Picking another sort ignores my order but keeps it for later")]
+    public void OtherSortKeepsMyOrder()
+    {
+        BoardOptions mine = BoardModel.PlaceCards(new BoardOptions(), [2, 3], [2], null);
+
+        Assert.Equal([2, 3], InProgress(mine with { SortBy = "id" }));
+        Assert.Equal([3, 2], InProgress(mine with { SortBy = "id" } with { SortBy = "manual" }));
     }
 }

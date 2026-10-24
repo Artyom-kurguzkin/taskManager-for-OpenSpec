@@ -26,6 +26,10 @@ internal sealed class Rtm
     public List<RtmTest>? Tests { get; set; }
     /// <summary>Ids of work items that must be done before this one can leave Blocked.</summary>
     public List<int>? DependsOn { get; set; }
+    /// <summary>Numbers of the work items this one was merged from: git commits mentioning them still belong here.</summary>
+    public List<int>? MergedFrom { get; set; }
+    /// <summary>Features from the change's specs/ folder that the user removed from this item (the specs stay).</summary>
+    public List<string>? UnlinkedFeatures { get; set; }
 }
 
 internal sealed class RtmTest

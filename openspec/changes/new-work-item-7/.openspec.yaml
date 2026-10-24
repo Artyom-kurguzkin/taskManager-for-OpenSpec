@@ -4,7 +4,7 @@ created: 2026-10-23
 x-rtm:
   id: 29
   title: color coding is hard to understand
-  status: Backlog
+  status: Planned
   contributors: [Artyom-kurguzkin]
   features: [board]
   label: enhancement

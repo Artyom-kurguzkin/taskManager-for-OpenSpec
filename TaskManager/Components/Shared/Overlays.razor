@@ -20,6 +20,12 @@
     </div>
 }
 
+@if (Ui.BusyText is string busy)
+{
+    <div class="dialog-backdrop busy-backdrop"></div>
+    <div class="dialog busy" data-sk role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span>@busy</span></div>
+}
+
 @if (Ui.Toasts.Count > 0)
 {
     <div class="toasts" aria-live="polite">

@@ -20,6 +20,22 @@ public sealed class UiService
 
     public DialogRequest? Dialog { get; private set; }
 
+    /// <summary>The message of the slow step running now (Overlays shows it with a spinner), or null.</summary>
+    public string? BusyText { get; private set; }
+
+    /// <summary>
+    /// Runs a slow synchronous step (the OpenSpec CLI) behind a busy panel. The short delay lets the panel reach the
+    /// screen first; its spinner is CSS, so it keeps turning while the step blocks .NET.
+    /// </summary>
+    public async Task<T> Busy<T>(string text, Func<T> work)
+    {
+        BusyText = text;
+        Changed?.Invoke();
+        await Task.Delay(50);   // ponytail: one render round trip; move work to Task.Run if steps ever need live progress
+        try { return work(); }
+        finally { BusyText = null; Changed?.Invoke(); }
+    }
+
     public IReadOnlyList<Toast> Toasts { get { lock (toasts) return toasts.ToList(); } }
 
     public async Task<bool> Confirm(string title, string text, string yes = "OK", string no = "Cancel") =>

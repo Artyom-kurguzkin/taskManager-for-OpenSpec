@@ -55,6 +55,9 @@ public static class WorkItemsApi
 
     // ── Subtasks ──
     public static (bool Success, string Message) SetSubtaskDone(int id, string number, bool done) => Commands.SetSubtaskDone(id, number, done);
+    public static (bool Success, string Message) UnlinkFeature(int id, string path) => Commands.UnlinkFeature(id, path);
+    public static (bool Success, string Message) RelinkFeature(int id, string path) => Commands.RelinkFeature(id, path);
+    public static (bool Success, string Message) SetSubtaskText(int id, string number, string text) => Commands.SetSubtaskText(id, number, text);
     public static (bool Success, string Message) AddSubtask(int id, string text) => Commands.AddSubtask(id, text);
     public static (bool Success, string Message, int NewId) MoveSubtasksToNew(int id, IReadOnlyCollection<string> numbers) => Commands.MoveSubtasksToNew(id, numbers);
     /// <summary>Like MoveSubtasksToNew, but the new item becomes a dependency and the source moves to Blocked until it is archived.</summary>

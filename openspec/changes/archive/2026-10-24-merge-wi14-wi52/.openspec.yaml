@@ -1,0 +1,10 @@
+schema: spec-driven
+created: 2026-10-24
+x-rtm:
+  id: 53
+  title: item details ui patches
+  status: Backlog
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  label: bug
+  mergedFrom: [14, 52, 37, 38, 41]

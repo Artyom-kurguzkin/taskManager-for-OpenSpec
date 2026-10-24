@@ -3,17 +3,21 @@
 @using WorkItems.PublicDTOs
 @inject TaskManager.Services.Workspace Workspace
 
-<article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @(Item.Hidden ? "hidden-item" : "")" data-sk
-         draggable="true" @ondragstart="() => OnDragStart.InvokeAsync(Item)" @onclick="OnClick">
-    <input type="checkbox" class="pick" checked="@Selected" @onclick:stopPropagation="true"
-           @onchange="() => OnToggleSelect.InvokeAsync(Item)" aria-label="Select #wi@(Item.Id)" />
+@* data-id: the drag script (wwwroot/js/app.js) animates cards from their old to their new place by it *@
+<article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @(Item.Hidden ? "hidden-item" : "")" data-sk data-id="@Item.Id"
+         @ondragstart="() => OnDragStart.InvokeAsync(Item)" @onclick="OnClick"
+         @ondrop="() => OnDrop.InvokeAsync(Item)" @ondrop:stopPropagation="true">
     <span class="band" style="--band:var(@Ui.Band(Item.Status))">@Item.Title</span>
     @if (!Options.Compact)
     {
-        <span class="muted card-features">@(Options.GroupBy is "bucket" or "feature" ? Item.Status : FeatureText)</span>
+        @* features as chips (the column already is the feature when grouped by bucket, so the status goes there) *@
+        <span class="card-features">
+            @if (Options.GroupBy is "bucket" or "feature") { <span class="muted">@Item.Status</span> }
+            else if (Item.Features.Count == 0) { <span class="muted">no feature</span> }
+            else { @foreach (string name in FeatureNames) { <span class="feat">@name</span> } }
+        </span>
         <span class="meta-row">
             <span class="ico">@Ui.Icon("cal")</span>@Item.Modified.ToString("d MMM")
-            <span class="ico">@Ui.Icon("list")</span>@Item.Subtasks.Count(s => s.Done)/@Item.Subtasks.Count
             <span class="ico">@Ui.Icon("user")</span>@string.Join(", ", Item.Contributors)
         </span>
         <span class="tags">
@@ -34,15 +38,8 @@
     [Parameter, EditorRequired] public BoardOptions Options { get; set; } = default!;
     [Parameter] public bool Selected { get; set; }
     [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
-    [Parameter] public EventCallback<WorkItem> OnToggleSelect { get; set; }
     [Parameter] public EventCallback<WorkItem> OnDragStart { get; set; }
+    [Parameter] public EventCallback<WorkItem> OnDrop { get; set; }   // another card dropped onto this one
 
-    private string FeatureText
-    {
-        get
-        {
-            IReadOnlyDictionary<string, string> names = Workspace.FeatureNames;
-            return Item.Features.Count == 0 ? "no feature" : string.Join(", ", Item.Features.Select(f => names.GetValueOrDefault(f.Path, f.Path)));
-        }
-    }
+    private IEnumerable<string> FeatureNames => Item.Features.Select(f => Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path));
 }

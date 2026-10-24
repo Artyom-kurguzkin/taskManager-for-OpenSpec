@@ -78,7 +78,8 @@
 }
 else
 {
-    <div class="scx"><div class="board-wrap @(selected.Count > 0 ? "selecting" : "")">
+    @* tabindex: clicking a card focuses the wrapper, so the arrow keys reach KeyDown (app.js stops them scrolling) *@
+    <div class="scx"><div class="board-wrap" tabindex="0" @onkeydown="KeyDown">
         <div class="board">
             @foreach (BoardSection sec in Sections)
             {
@@ -90,15 +91,16 @@ else
                             @if (O.GroupBy is "bucket" or "feature") { <button class="btn ghost sm" @onclick="() => AddFeature(sec.Category)">+ feature</button> }
                         </div>
                     }
-                    <div class="cat-cols">
+                    @* a header dropped past the last column (the drag script sends that drop to the row) *@
+                    <div class="cat-cols" @ondrop="() => DropColumn(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), null)">
                         @foreach (BoardColumn col in sec.Columns)
                         {
-                            @* data-drop: wwwroot/js/app.js cancels dragover here (Blazor has no dragover handler, so its preventDefault never runs) *@
-                            <section class="col @(dropTarget == col.Key ? "over" : "")" data-drop @ondragenter="() => dropTarget = col.Key" @ondrop="() => Drop(col, null)">
+                            @* data-drop / data-key: wwwroot/js/app.js drags with pointer events and sends synthetic dragstart / drop events to these handlers *@
+                            <section class="col" data-drop data-key="@col.Key" @ondrop="() => Drop(col, null)" @ondrop:stopPropagation="true">
                                 <Menu Label="Column options">
                                     <Activator>
-                                        @* drag a header onto another column to reorder columns *@
-                                        <header class="col-h hov" data-sk title="Column options · drag to reorder" draggable="@(col.Key != BoardModel.Unassigned ? "true" : "false")"
+                                        @* drag a header along the row to reorder columns *@
+                                        <header class="col-h hov" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
                                                 @ondragstart="() => StartColumnDrag(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), BoardModel.ColumnKey(O, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
                                     </Activator>
                                     <Items>
@@ -125,12 +127,12 @@ else
                                     {
                                         List<WorkItem> inLane = BoardModel.InLane(col, lane).ToList();
                                         <div class="lane-h"><span>@lane</span><span class="count">@BoardModel.Count(inLane, O.Unit)</span></div>
-                                        <div class="lane" data-drop @ondrop="() => Drop(col, lane)" @ondrop:stopPropagation="true">@Cards(col, inLane)</div>
+                                        <div class="lane" data-drop @ondrop="() => Drop(col, lane)" @ondrop:stopPropagation="true">@Cards(col, inLane, lane)</div>
                                     }
                                 }
                                 else
                                 {
-                                    <div class="lane" data-drop>@Cards(col, col.Items)</div>
+                                    <div class="lane" data-drop>@Cards(col, col.Items, null)</div>
                                 }
                             </section>
                         }
@@ -152,9 +154,14 @@ else
         <button class="btn ghost" @onclick="() => selected.Clear()">Clear</button>
     </div>
 }
+else if (O.View == "board" && O.Unit == "tasks")
+{
+    @* shown by the drag script while Shift is held (body.shift-held), so select mode announces itself before the first click *@
+    <div class="actionbar select-hint"><span class="n">Select mode</span><span class="muted">Shift-click cards to select them</span></div>
+}
 
 @code {
-    private RenderFragment Cards(BoardColumn col, IEnumerable<WorkItem> items) => __builder =>
+    private RenderFragment Cards(BoardColumn col, IEnumerable<WorkItem> items, string? lane) => __builder =>
     {
         foreach (WorkItem it in items)
         {
@@ -174,7 +181,7 @@ else
             else
             {
                 <WorkItemCard Item="it" Options="O" Selected="selected.Contains(it.Id)"
-                              OnClick="e => CardClick(it, e)" OnToggleSelect="ToggleSelect" OnDragStart="i => { dragging = (i, col.Key); draggingColumn = null; }" />
+                              OnClick="e => CardClick(it, e)" OnDragStart="i => StartCardDrag(i, col.Key)" OnDrop="t => DropBefore(col, lane, t)" />
             }
         }
     };

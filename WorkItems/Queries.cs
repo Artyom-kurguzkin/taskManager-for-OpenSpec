@@ -87,7 +87,8 @@ internal static partial class Queries
         if (!WorkItemsApi.Statuses.Contains(status)) status = "Backlog";
 
         List<string> derived = DeltaCapabilities(dir).ToList();
-        List<FeatureLink> features = [.. derived.Select(p => new FeatureLink(p, true)), .. (meta.Features ?? []).Except(derived).Select(p => new FeatureLink(p, false))];
+        List<string> unlinked = [.. (meta.UnlinkedFeatures ?? []).Intersect(derived)];
+        List<FeatureLink> features = [.. derived.Except(unlinked).Select(p => new FeatureLink(p, true)), .. (meta.Features ?? []).Except(derived).Select(p => new FeatureLink(p, false))];
 
         DateTime created = CreatedLine().Match(yaml) is { Success: true } c && DateTime.TryParse(c.Groups["d"].Value, out DateTime d) ? d : Directory.GetCreationTime(dir);
         DateTime modified = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Select(File.GetLastWriteTime).DefaultIfEmpty(created).Max();
@@ -101,7 +102,7 @@ internal static partial class Queries
             TasksFile.Parse(OpenSpecStoreApi.ReadText(Path.Combine(dir, "tasks.md"))),
             meta.Lanes ?? [],
             archived, created, modified, warning, meta.Hidden == true, meta.Contributors,
-            meta.Label, meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList(), meta.DependsOn ?? []);
+            meta.Label, meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList(), meta.DependsOn ?? [], meta.MergedFrom ?? [], unlinked);
     }
 
     [GeneratedRegex(@"^created:\s*(?<d>\S+)", RegexOptions.Multiline)]

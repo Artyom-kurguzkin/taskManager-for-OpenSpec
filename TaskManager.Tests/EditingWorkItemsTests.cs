@@ -107,6 +107,40 @@ public sealed class EditingWorkItemsTests
         Assert.Equal([new FeatureLink("non-functional/availability", true), new FeatureLink("functional/banking", false)], Item(123).Features);
     }
 
+    [Fact(DisplayName = "A feature that comes from specs/ can be unlinked: it leaves the item, the spec stays, and it can be linked again")]
+    public void UnlinkSpecFeature()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string spec = "openspec/changes/add-health-check/specs/non-functional/availability/spec.md";
+        string before = repo.Read(spec);
+
+        Assert.True(WorkItemsApi.UnlinkFeature(123, "non-functional/availability").Success);
+
+        Assert.Equal([new FeatureLink("non-functional/security", false)], Item(123).Features);   // the manual one stays
+        Assert.Equal(["non-functional/availability"], Item(123).UnlinkedFeatures);
+        Assert.Contains("unlinkedFeatures: [non-functional/availability]", repo.Read(HealthYaml));
+        Assert.Equal(before, repo.Read(spec));
+
+        Assert.True(WorkItemsApi.RelinkFeature(123, "non-functional/availability").Success);
+
+        Assert.Equal([new FeatureLink("non-functional/availability", true), new FeatureLink("non-functional/security", false)], Item(123).Features);
+        Assert.Empty(Item(123).UnlinkedFeatures!);
+        Assert.DoesNotContain("unlinkedFeatures", repo.Read(HealthYaml));
+    }
+
+    [Fact(DisplayName = "Only a linked feature from specs/ can be unlinked")]
+    public void UnlinkRefusals()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.SetManualFeatures(123, ["functional/banking"]);
+
+        Assert.False(WorkItemsApi.UnlinkFeature(123, "functional/banking").Success);   // manual ones are removed with SetManualFeatures
+        Assert.False(WorkItemsApi.UnlinkFeature(123, "functional/nothing").Success);
+        Assert.Equal(2, Item(123).Features.Count);
+    }
+
     [Fact(DisplayName = "Creating a work item makes a change folder with the next number")]
     public void Create()
     {
@@ -174,6 +208,59 @@ public sealed class EditingWorkItemsTests
         Assert.Equal(Item(123).Contributors, Item(newId).Contributors);
     }
 
+    [Fact(DisplayName = "Renaming a subtask rewrites only its text in tasks.md, keeping its box, number and the rest of the file")]
+    public void RenameSubtask()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string before = repo.Read(HealthTasks);
+
+        Assert.True(WorkItemsApi.SetSubtaskText(123, "1.1", "  Add /healthz route  ").Success);
+
+        Assert.Equal(before.Replace("- [x] 1.1 Add /health route", "- [x] 1.1 Add /healthz route"), repo.Read(HealthTasks));
+        Assert.Equal("Add /healthz route", Item(123).Subtasks[0].Text);
+        Assert.True(Item(123).Subtasks[0].Done);
+    }
+
+    [Fact(DisplayName = "A subtask can't be renamed to nothing")]
+    public void RenameSubtaskBlank()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string before = repo.Read(HealthTasks);
+
+        (bool ok, string message) = WorkItemsApi.SetSubtaskText(123, "2.1", "   ");
+
+        Assert.False(ok);
+        Assert.Equal("A subtask needs some text", message);
+        Assert.Equal(before, repo.Read(HealthTasks));
+    }
+
+    [Fact(DisplayName = "A single subtask made into a work item or a dependency keeps its text as the new item's title")]
+    public void SplitOneKeepsText()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool _, string _, int item) = WorkItemsApi.MoveSubtasksToNew(123, ["1.3"]);
+        (bool _, string _, int dependency) = WorkItemsApi.MoveSubtasksToDependency(123, ["2.1"]);
+
+        Assert.Equal("Ping test in suite 543", Item(item).Title);
+        Assert.Equal("Hide internals from anonymous callers", Item(dependency).Title);
+        Assert.EndsWith("ping-test-in-suite-543", Item(item).Path);
+    }
+
+    [Fact(DisplayName = "Several subtasks moved together get a title that names the item they came from")]
+    public void SplitSeveralNamesSource()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool _, string _, int newId) = WorkItemsApi.MoveSubtasksToNew(123, ["1.3", "2.1"]);
+
+        Assert.Equal("Split from #wi123", Item(newId).Title);
+    }
+
     [Fact(DisplayName = "Turning a subtask into a dependency creates a new item and blocks the parent on it")]
     public void SplitAsDependency()
     {
@@ -200,6 +287,27 @@ public sealed class EditingWorkItemsTests
         Assert.False(ok);
         Assert.Contains($"#wi{newId}", message);
         Assert.Equal("Blocked", Item(123).Status);
+    }
+
+    [Fact(DisplayName = "After a change folder is archived, a new work item with the same title can take its old folder name")]
+    public void FolderNameReusedAfterArchive()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureArchiver(folder => { Directory.Move(repo.PathOf($"openspec/changes/{folder}"), repo.PathOf($"openspec/changes/archive/2026-10-23-{folder}")); return (true, ""); });
+        try
+        {
+            (bool _, string _, int first) = WorkItemsApi.Create("New work item", "Backlog", null, null);
+            Assert.True(WorkItemsApi.SetStatus(first, "Completed").Success);
+            Assert.True(Directory.Exists(repo.PathOf("openspec/changes/archive/2026-10-23-new-work-item")));
+
+            (bool ok, string message, int second) = WorkItemsApi.Create("New work item", "Backlog", null, null);
+
+            Assert.True(ok, message);
+            Assert.Equal(repo.PathOf("openspec/changes/new-work-item"), Item(second).Path);
+            Assert.Contains($"id: {second}", repo.Read("openspec/changes/new-work-item/.openspec.yaml"));
+        }
+        finally { WorkItemsApi.ConfigureArchiver(null); }
     }
 
     [Fact(DisplayName = "Once the dependency is archived, the parent can change status again")]
@@ -318,6 +426,96 @@ public sealed class EditingWorkItemsTests
         Assert.Equal(["functional/banking", "functional/remittances"], merged.Features.Select(f => f.Path).Order());
         Assert.Contains("Finance needs a monthly export.", WorkItemsApi.GetDescription(id));
         Assert.Contains("Created with the openspec CLI only.", WorkItemsApi.GetDescription(id));
+    }
+
+    [Fact(DisplayName = "Merging keeps every note (the change log) of the sources, under their own numbers")]
+    public void MergeKeepsNotes()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int extra) = Notes.NotesApi.Create(107, "Tom");
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123]);
+
+        Assert.True(ok, message);
+        Assert.Equal([123, extra], Notes.NotesApi.GetForWorkItem(id).Select(n => n.Id).Order());
+        Assert.Contains("See [[runbook/uptime]] and #wi107.", Notes.NotesApi.Get(123)!.Body);
+    }
+
+    [Fact(DisplayName = "Merging keeps the label, linked commits and tests, lanes and dependencies of the sources")]
+    public void MergeKeepsLinks()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.SetLabel(125, "bug");
+        WorkItemsApi.SetLinkedCommits(107, ["abc1234"]);
+        WorkItemsApi.SetLinkedCommits(125, ["abc1234", "def5678"]);
+        WorkItemsApi.SetLinkedTests(123, [new TestLink("Suite", "Ping test", null)]);
+        WorkItemsApi.SetLinkedTests(107, [new TestLink("Suite", "Ping test", 7), new TestLink("Suite", "Other", null)]);
+        WorkItemsApi.AddLane("In Progress", "Needs review");
+        WorkItemsApi.SetLane(123, "In Progress", "Needs review");
+        (bool _, string _, int dep) = WorkItemsApi.Create("Dependency", "Backlog", null, null);
+        WorkItemsApi.AddDependency(107, dep);
+        WorkItemsApi.AddDependency(123, 125);   // inside the merge: must not point at itself afterwards
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123, 125]);
+
+        Assert.True(ok, message);
+        WorkItem merged = Item(id);
+        Assert.Equal("bug", merged.Label);
+        Assert.Equal(["abc1234", "def5678"], merged.Commits);
+        Assert.Equal(2, merged.Tests!.Count);
+        Assert.Equal(7, merged.Tests!.Single(t => t.Test == "Ping test").Note);   // the copy that has a note wins
+        Assert.Equal("Needs review", merged.Lanes["In Progress"]);
+        Assert.Equal([dep], merged.DependsOn);
+        Assert.Equal([107, 123, 125], merged.MergedFrom);
+    }
+
+    [Fact(DisplayName = "Merging points items that waited on a source at the merged item instead")]
+    public void MergeRepointsDependants()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int waiting) = WorkItemsApi.Create("Waits on 107", "Backlog", null, null);
+        WorkItemsApi.AddDependency(waiting, 107);
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123]);
+
+        Assert.True(ok, message);
+        Assert.Equal([id], Item(waiting).DependsOn);
+    }
+
+    [Fact(DisplayName = "Merging keeps each source's task groups, headed by the item they came from")]
+    public void MergeKeepsTaskGroups()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123]);
+
+        Assert.True(ok, message);
+        string tasks = repo.Read($"openspec/changes/{Path.GetFileName(Item(id).Path)}/tasks.md");
+        Assert.Contains("## 1. Monthly remittance export", tasks);
+        Assert.Contains("## 2. Health-check endpoint · Endpoint", tasks);
+        Assert.Contains("## 3. Health-check endpoint · Hardening", tasks);
+        Assert.Contains("- [ ] 3.1 Hide internals from anonymous callers", tasks);
+        Assert.Equal(["1. Monthly remittance export", "2. Health-check endpoint · Endpoint", "3. Health-check endpoint · Hardening"], Item(id).Subtasks.Select(s => s.Group).Distinct());
+    }
+
+    [Fact(DisplayName = "Merging keeps other files in a source's folder, under from-wi<id>/")]
+    public void MergeKeepsOtherFiles()
+    {
+        using TestRepo repo = new();
+        repo.Write("openspec/changes/export-remittances/design.md", "# Design\n\nUse a queue.\n");
+        repo.Write("openspec/changes/export-remittances/extra/diagram.txt", "a -> b\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123]);
+
+        Assert.True(ok, message);
+        string folder = Path.GetFileName(Item(id).Path);
+        Assert.Contains("Use a queue.", repo.Read($"openspec/changes/{folder}/from-wi107/design.md"));
+        Assert.Contains("a -> b", repo.Read($"openspec/changes/{folder}/from-wi107/extra/diagram.txt"));
     }
 
     [Fact(DisplayName = "Merging is refused when two items change the same requirement")]
@@ -443,6 +641,55 @@ public sealed class EditingWorkItemsTests
         Assert.Contains("archive", merged.Path.Replace('\\', '/'));
         Assert.Contains("Session timeout", WorkItemsApi.GetDescription(id));
         Assert.Contains("Cleanup", WorkItemsApi.GetDescription(id));
+    }
+
+    // An archived change as the OpenSpec CLI leaves it: the delta specs stay in its folder, already merged into openspec/specs.
+    private static void Archived(TestRepo repo, string folder, int id, string title, string requirement, string text)
+    {
+        string dir = repo.PathOf($"openspec/changes/archive/{folder}");
+        Directory.CreateDirectory(Path.Combine(dir, "specs", "board"));
+        File.WriteAllText(Path.Combine(dir, ".openspec.yaml"), $"schema: spec-driven\ncreated: 2026-09-01\nx-rtm:\n  id: {id}\n  title: {title}\n  contributors: [Tom]\n");
+        File.WriteAllText(Path.Combine(dir, "proposal.md"), $"# Proposal\n\n{title} body.\n");
+        File.WriteAllText(Path.Combine(dir, "tasks.md"), "# Tasks\n\n## 1. Tasks\n\n- [x] 1.1 Done step\n");
+        File.WriteAllText(Path.Combine(dir, "specs", "board", "spec.md"),
+            $"## MODIFIED Requirements\n\n### Requirement: {requirement}\n{text}\n\n#### Scenario: Works\n- **WHEN** a\n- **THEN** b\n");
+    }
+
+    [Fact(DisplayName = "Archived items that changed the same requirement can still be merged: their specs are already in openspec/specs")]
+    public void MergeArchivedSameRequirement()
+    {
+        using TestRepo repo = new();
+        Archived(repo, "2026-09-20-first", 201, "First", "Keyboard hints", "Ctrl+Alt toggles hints.");
+        Archived(repo, "2026-09-21-second", 202, "Second", "Keyboard hints", "F toggles hints.");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([201, 202]);
+
+        Assert.True(ok, message);
+        Assert.True(Item(id).Archived);
+        string spec = repo.Read($"openspec/changes/archive/{Path.GetFileName(Item(id).Path)}/specs/board/spec.md");
+        Assert.Contains("Ctrl+Alt toggles hints.", spec);   // nothing is dropped
+        Assert.Contains("F toggles hints.", spec);
+        Assert.Null(WorkItemsApi.Get(201));
+    }
+
+    [Fact(DisplayName = "Merging an archived item into an active one keeps its specs out of the active change, so archiving can't apply them twice")]
+    public void MergeArchivedIntoActive()
+    {
+        using TestRepo repo = new();
+        Archived(repo, "2026-09-20-old", 201, "Old", "Session timeout", "Sessions end after 30 minutes.");
+        OpenSpecStoreApi.Open(repo.Root);
+        string active = Item(107).Path;
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 201]);
+
+        Assert.True(ok, message);
+        WorkItem merged = Item(id);
+        Assert.False(merged.Archived);
+        string folder = $"openspec/changes/{Path.GetFileName(merged.Path)}";
+        Assert.DoesNotContain("Sessions end after 30 minutes.", File.Exists(repo.PathOf($"{folder}/specs/board/spec.md")) ? repo.Read($"{folder}/specs/board/spec.md") : "");
+        Assert.Contains("Sessions end after 30 minutes.", repo.Read($"{folder}/from-wi201/specs/board/spec.md"));
+        Assert.Contains("Old body.", WorkItemsApi.GetDescription(id));
     }
 
     [Fact(DisplayName = "Deleting a custom feature unlinks it from its work items, which become unassigned")]

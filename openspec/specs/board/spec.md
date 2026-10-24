@@ -28,7 +28,7 @@ Work items with no feature (when grouped by bucket) or no contributor (when grou
 - **THEN** it shows in the Unassigned column at the front, and dragging a card there removes its manual feature
 
 ### Requirement: Sort and filter
-The board SHALL sort the cards within each column by priority, feature, contributor, date modified, date created, status, title or id, and SHALL filter them by contributor. The chosen grouping, sort, filter and view SHALL be remembered per repository.
+The board SHALL sort the cards within each column by priority, feature, contributor, date modified, date created, status, title, id or the user's own order, and SHALL filter them by contributor. The chosen grouping, sort, filter and view SHALL be remembered per repository.
 
 #### Scenario: Contributor board sorted by feature
 - **WHEN** the board is grouped by contributor and sorted by feature
@@ -39,7 +39,7 @@ The board SHALL sort the cards within each column by priority, feature, contribu
 - **THEN** only work items whose contributors include Tom are shown, and column counts update
 
 ### Requirement: Board and list views
-The side menu's layout dropdown SHALL switch between Board and List; it is one control, not two buttons. The view options (group by, sort by, contributor filter, work items or subtasks, compact cards, show hidden) SHALL be in the expanded side menu. "Compact cards" SHALL show only the title band.
+The side menu's layout dropdown SHALL switch between Board and List; it is one control, not two buttons. The view options (group by, sort by, contributor filter, work items or subtasks, compact cards, show hidden) SHALL be in the expanded side menu. "Compact cards" SHALL show only the title band. The collapsed side menu SHALL also have a compact-cards button, highlighted while compact cards are on and disabled outside the board view.
 
 #### Scenario: Switch to list
 - **WHEN** the user opens the layout dropdown in the side menu and picks List
@@ -48,6 +48,10 @@ The side menu's layout dropdown SHALL switch between Board and List; it is one c
 #### Scenario: Compact cards
 - **WHEN** the user ticks "compact cards"
 - **THEN** each card shows only its coloured title band
+
+#### Scenario: Compact from the collapsed menu
+- **WHEN** the side menu is collapsed and the user clicks the compact-cards button on the board
+- **THEN** the cards show only their title bands, and the button stays highlighted until clicked again
 
 ### Requirement: Subtasks as cards
 The board SHALL offer "show: work items | subtasks". In subtask mode every tasks.md checkbox SHALL be its own card, placed in the column (and sub-category) of its work item, showing its parent `#wi` and title, with a tick box that writes to tasks.md.
@@ -133,7 +137,7 @@ Clicking a column header SHALL open a menu with: add a work item in this column,
 - **THEN** a new change is created with status Blocked and its detail page opens
 
 ### Requirement: Merge work items
-The user SHALL be able to select several cards (Ctrl/⌘-click or the card checkbox) and merge them. The merged work item SHALL combine the proposals, tasks, delta specs, features and contributors of the sources, take the highest priority, and replace the sources. Merging SHALL be refused when two sources change the same requirement.
+The user SHALL be able to select several cards (Ctrl/⌘/Shift-click) and merge them. The merged work item SHALL combine the proposals, tasks, delta specs, features and contributors of the sources, take the highest priority, and replace the sources. Merging SHALL be refused when two sources change the same requirement.
 
 #### Scenario: Merge two
 - **WHEN** the user selects #wi107 and #wi105 and picks "Merge into one work item"
@@ -151,11 +155,11 @@ When grouped by bucket, the board SHALL show one section per bucket (the first f
 - **THEN** both sections appear with their feature columns, and each section has a heading
 
 ### Requirement: Reorder columns
-The user SHALL reorder columns in any grouping by dragging a column header onto another column: onto a later column places it after, onto an earlier one before. The order SHALL be remembered per repository and grouping in the user's settings file, not in the repository.
+The user SHALL reorder columns in any grouping by dragging a column header along its row: the column lands at the gap the other columns open, in front of the column after the gap, or at the end of the row. The order SHALL be remembered per repository and grouping in the user's settings file, not in the repository.
 
 #### Scenario: Move Backlog to the end
-- **WHEN** the user drags the Backlog header onto the Completed column
-- **THEN** the columns read Planned, Confirmed, In Progress, Blocked, Completed, Backlog, and stay so after a restart
+- **WHEN** the user drags the Backlog header past the Completed column
+- **THEN** the columns read Planned, Confirmed, In Progress, Blocked, In Review, Completed, Backlog, and stay so after a restart
 
 ### Requirement: Hide columns
 "Hide column" in a column's header menu SHALL remove it from the board and the list. The expanded side menu SHALL list only the hidden columns of the current grouping, each with a control to show it again. Hidden columns SHALL be remembered like the column order.
@@ -176,8 +180,88 @@ When grouped by bucket, "+ feature" next to a bucket heading SHALL add a feature
 - **THEN** the Payments column is gone, `functional/payments` is removed from config.yaml, and #wi21 shows under Unassigned
 
 ### Requirement: Hide selected work items
-The selection action bar SHALL offer "Delete (hide)", enabled with one or more cards selected, which hides every selected item the same way the per-item "Delete (hide)" control does. Hiding SHALL clear the selection.
+The selection action bar SHALL offer "Delete (hide)", enabled with one or more cards selected, which hides every selected item. This is the only way to hide an item; the work item page offers no hide control of its own. Hiding SHALL clear the selection.
 
 #### Scenario: Hide several
 - **WHEN** the user selects three cards and picks "Delete (hide)"
 - **THEN** all three items gain `x-rtm.hidden: true`, disappear from the board unless "show hidden" is on, and the selection clears
+
+### Requirement: Select cards by clicking
+A click on a card SHALL open its work item. Shift-click (or Ctrl/⌘-click) SHALL add the card to the selection or remove it, without opening it. Cards SHALL have no selection tick box. Holding Shift SHALL show that select mode is on before any click. Releasing a drag SHALL not count as a click.
+
+#### Scenario: Select with Shift
+- **WHEN** the user Shift-clicks a card, then Shift-clicks another
+- **THEN** both are outlined as selected and the action bar shows "2 selected"
+
+#### Scenario: Plain click opens
+- **WHEN** a card is selected and the user clicks it, or any other card, without Shift
+- **THEN** that work item opens
+
+#### Scenario: Holding Shift
+- **WHEN** the user presses and holds Shift over the board
+- **THEN** a bar says select mode is on, and cards under the pointer show they can be picked, before anything is clicked
+
+### Requirement: Drop preview
+A card or column header SHALL be dragged with the pointer: the real card or column follows it, the items it passes slide aside to close the hole it left and open a gap its size where it will land, and the drop lands in that gap. After the drop, and after an arrow-key move, cards and columns SHALL slide from their old place to their new one rather than jump. Escape SHALL cancel a drag, sliding everything back. Users who prefer reduced motion SHALL see the changes without animation.
+
+#### Scenario: Gap between cards
+- **WHEN** the user drags a card over the lower half of the second card in a column
+- **THEN** the third and later cards slide down, opening a gap below the second, and the card settles into it on release
+
+#### Scenario: Cancel
+- **WHEN** the user presses Escape while dragging
+- **THEN** the card and the cards that moved aside slide back to where they were
+
+### Requirement: Move with the arrow keys
+With cards selected, the up and down arrows SHALL move them one step inside their column, and the left and right arrows SHALL move them into the neighbouring column at the same height, changing its status (or feature, label, contributor) as a drop there would. The selection SHALL stay, so the next key moves it again.
+
+#### Scenario: Step up
+- **WHEN** the user selects the third Planned card and presses the up arrow
+- **THEN** it becomes the second
+
+#### Scenario: Into the next column
+- **WHEN** a Planned card is selected and the user presses the right arrow
+- **THEN** it moves to Confirmed at the same row, or last if Confirmed is shorter
+
+### Requirement: Move a group with the arrow keys
+Moving with the arrow keys SHALL require the selected cards to share a column; otherwise a message says so. A scattered selection SHALL first gather into a block, at its top card when moving up or its bottom card when moving down, and move as a block from then on.
+
+#### Scenario: Gather, then move
+- **WHEN** the first and third Planned cards are selected and the user presses the down arrow twice
+- **THEN** after the first press they sit together as the second and third cards, and after the second press as the last two
+
+#### Scenario: Different columns
+- **WHEN** a Planned card and an In Progress card are selected and the user presses an arrow
+- **THEN** nothing moves and a message asks for cards in one column
+
+### Requirement: Reorder cards
+A dragged card SHALL land at the gap: in front of the card after it, or at the end of the column, moving to that column first if it came from another one. The first drop that changes an order SHALL switch the sort to "my order"; dropping a card back where it was SHALL change nothing.
+
+#### Scenario: Move a card to the top
+- **WHEN** the user drags the last Planned card above the first
+- **THEN** it is now first and the sort reads "my order"
+
+### Requirement: Drag selected cards
+Dragging a selected card SHALL move every selected card, landing together at the gap in their board order. Dragging a card that is not selected SHALL move only that card.
+
+#### Scenario: Move two selected cards
+- **WHEN** the user selects both Backlog cards and drags one in front of the first In Progress card
+- **THEN** both become In Progress and sit above it, in their previous order
+
+### Requirement: My order
+In "my order", cards never placed SHALL follow in priority order. The order SHALL be remembered per repository in the user's settings file, not in the repository. Picking another sort SHALL ignore it but keep it.
+
+#### Scenario: Remembered
+- **WHEN** the user arranges the Planned cards and restarts the app
+- **THEN** the cards keep that order
+
+#### Scenario: Back to another sort
+- **WHEN** the user picks sort by id, then "my order" again
+- **THEN** cards show by id, then in the order the user arranged
+
+### Requirement: Archiving shows progress
+While the OpenSpec CLI archives a work item, a panel with a spinner SHALL say "Archiving #wi<id> with the OpenSpec CLI…" and block other input until it finishes. The CLI SHALL run from npx's cached copy when one exists at the pinned version, skipping npx's package resolution.
+
+#### Scenario: Archive from the confirm dialog
+- **WHEN** the user picks Completed and clicks Archive
+- **THEN** the busy panel appears at once, and closes when the item shows as Completed

@@ -73,6 +73,17 @@ internal static partial class Commands
         return Update(id, m => m.Features = featurePaths.Where(p => !locked.Contains(p)).Distinct().ToList());
     }
 
+    /// <summary>Removes a feature that comes from the change's specs/ folder from this item. The spec stays; only x-rtm remembers the removal.</summary>
+    internal static (bool Success, string Message) UnlinkFeature(int id, string path)
+    {
+        if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
+        if (!item.Features.Any(f => f.Path == path && f.Locked)) return (false, "Only a feature from the change's specs/ folder needs unlinking; others are removed directly");
+        return Update(id, m => m.UnlinkedFeatures = [.. (m.UnlinkedFeatures ?? []).Append(path).Distinct()]);
+    }
+
+    internal static (bool Success, string Message) RelinkFeature(int id, string path) =>
+        Update(id, m => m.UnlinkedFeatures = (m.UnlinkedFeatures ?? []).Where(p => p != path).ToList());
+
     /// <summary>Deletes a custom feature and unlinks it from active work items (they become unassigned). Archived items are left as they are.</summary>
     internal static (bool Success, string Message) DeleteFeature(string path)
     {
@@ -96,6 +107,9 @@ internal static partial class Commands
     internal static (bool Success, string Message) SetSubtaskDone(int id, string number, bool done) =>
         EditTasks(id, text => TasksFile.SetDone(text, number, done));
 
+    internal static (bool Success, string Message) SetSubtaskText(int id, string number, string text) =>
+        string.IsNullOrWhiteSpace(text) ? (false, "A subtask needs some text") : EditTasks(id, t => TasksFile.SetText(t, number, text.Trim()));
+
     internal static (bool Success, string Message) AddSubtask(int id, string text) =>
         string.IsNullOrWhiteSpace(text) ? (false, "Type the subtask first") : EditTasks(id, t => TasksFile.Append(t, text.Trim()));
 
@@ -111,7 +125,7 @@ internal static partial class Commands
 
     private static (bool Success, string Message, int Id) CreateFolder(
         string title, string status, IEnumerable<string>? features, IEnumerable<string>? contributors, string? priority,
-        string proposalBody, string tasks, IReadOnlyDictionary<string, string> deltas, string? folder = null, bool inArchive = false)
+        string proposalBody, string tasks, IReadOnlyDictionary<string, string> deltas, string? folder = null, bool inArchive = false, Action<Rtm>? more = null)
     {
         if (OpenSpecStoreApi.OpenSpecRoot is not string root) return (false, "No repository is open", 0);
         if (string.IsNullOrWhiteSpace(title)) return (false, "Give the work item a title", 0);
@@ -129,6 +143,7 @@ internal static partial class Commands
             Id = id, Title = title.Trim(), Status = status == "Completed" ? "Backlog" : status, Priority = priority,
             Contributors = contributors?.Distinct().ToList(), Features = features?.Distinct().ToList(),
         };
+        more?.Invoke(meta);
         string yaml = Queries.Yaml(dir);
         foreach ((string path, string text) in new[]
         {
@@ -168,7 +183,9 @@ internal static partial class Commands
         List<Subtask> moved = item.Subtasks.Where(s => numbers.Contains(s.Number)).ToList();
         if (moved.Count == 0) return (false, "Select the subtasks to move first", 0);
 
-        (bool ok, string message, int newId) = CreateFolder($"Split from #wi{id}", item.Status, item.Features.Select(f => f.Path), item.Contributors, null,
+        // one subtask becomes the item it describes, so its text is the title; several get a title naming where they came from
+        string title = moved is [Subtask only] ? only.Text : $"Split from #wi{id}";
+        (bool ok, string message, int newId) = CreateFolder(title, item.Status, item.Features.Select(f => f.Path), item.Contributors, null,
             $"## Why\n\nSplit out of #wi{id} {item.Title}.\n\n## What Changes\n\n- {string.Join("\n- ", moved.Select(s => s.Text))}\n", TasksFile.Create(moved), deltas: new Dictionary<string, string>());
         if (!ok) return (ok, message, 0);
         (ok, message) = EditTasks(id, text => TasksFile.Remove(text, numbers));
@@ -206,15 +223,17 @@ internal static partial class Commands
         if (items.Count < 2) return (false, "Select at least two work items to merge", 0);
         bool allArchived = items.All(i => i.Archived);
 
-        // Delta specs: refuse when two items change the same requirement; otherwise concatenate per capability.
-        // Archived items have no deltas (already merged into specs/), so they contribute nothing here.
+        // Delta specs: refuse when two active items change the same requirement; otherwise concatenate per capability.
+        // An archived item keeps its specs/ folder, but they are already merged into openspec/specs: they can't conflict, and
+        // putting them in an active change would apply them twice when it is archived. So they join the merged change only when
+        // it is archived too; otherwise they are kept under from-wi<id>/specs/ (see CopyExtras).
         Dictionary<string, string> deltas = [];
         Dictionary<(string Cap, string Req), int> owner = [];
-        foreach (WorkItem it in items)
+        foreach (WorkItem it in items.Where(i => !i.Archived || allArchived))
         foreach (string cap in Queries.DeltaCapabilities(it.Path))
         {
             string text = OpenSpecStoreApi.ReadText(Path.Combine(it.Path, "specs", cap.Replace('/', Path.DirectorySeparatorChar), "spec.md"));
-            foreach (string req in Proposal.RequirementNames(text))
+            foreach (string req in it.Archived ? [] : Proposal.RequirementNames(text))
             {
                 if (owner.TryGetValue((cap, req), out int other) && other != it.Id)
                     return (false, $"#wi{other} and #wi{it.Id} both change requirement \"{req}\" in {cap}", 0);
@@ -226,16 +245,61 @@ internal static partial class Commands
 
         string status = items.FirstOrDefault(i => !i.Archived)?.Status ?? items[0].Status;
         string body = string.Join("\n\n", items.Select(it => $"<!-- merged from #wi{it.Id} {it.Title} -->\n{Queries.GetDescription(it.Id).Trim()}")) + "\n";
-        string tasks = TasksFile.Create(items.SelectMany(it => it.Subtasks));
+        // Task groups stay groups, headed by the item they came from ("Title · Group" when an item had several).
+        string tasks = TasksFile.CreateGrouped(items.SelectMany(it =>
+            it.Subtasks.GroupBy(s => s.Group).ToList() is { Count: > 0 } groups
+                ? groups.Select(g => (Heading: groups.Count > 1 && GroupName(g.Key) is { Length: > 0 } n ? $"{it.Title} · {n}" : it.Title, Subtasks: (IReadOnlyList<Subtask>)g.ToList()))
+                : []));
+        HashSet<int> sources = [.. items.Select(i => i.Id)];
         (bool ok, string message, int id) = CreateFolder(
             string.Join(" + ", items.Select(i => i.Title)), status,
             items.SelectMany(i => i.Features.Where(f => !f.Locked).Select(f => f.Path)),
             items.SelectMany(i => i.Contributors),
             items.Any(i => i.Priority == "high") ? "high" : null,
-            body, tasks, deltas, folder: "merge-" + string.Join("-", items.Select(i => $"wi{i.Id}")), inArchive: allArchived);
+            body, tasks, deltas, folder: "merge-" + string.Join("-", items.Select(i => $"wi{i.Id}")), inArchive: allArchived,
+            more: m => KeepLinks(m, items, sources));
         if (!ok) return (ok, message, 0);
+
+        // Nothing but the folders is dropped: notes and any other files move over, and items that waited on a source now wait on this one.
+        string merged = Queries.Get(id)!.Path;
+        foreach (WorkItem it in items) CopyExtras(it.Path, merged, it.Id, keepSpecs: it.Archived && !allArchived);
+        foreach (WorkItem w in Queries.GetAll(includeHidden: true).Where(w => !sources.Contains(w.Id) && (w.DependsOn ?? []).Any(sources.Contains)).ToList())
+            Update(w.Id, m => m.DependsOn = [.. m.DependsOn!.Select(d => sources.Contains(d) ? id : d).Distinct()]);
         foreach (WorkItem it in items) OpenSpecStoreApi.DeleteFolder(it.Path);
         return (true, "", id);
+    }
+
+    private static string GroupName(string group) => Regex.Replace(group, @"^\d+\.\s*", "").Trim();
+
+    /// <summary>What the sources carried in x-rtm besides the fields CreateFolder sets: label, links, tests, lanes, dependencies, old numbers.</summary>
+    private static void KeepLinks(Rtm m, IReadOnlyList<WorkItem> items, HashSet<int> sources)
+    {
+        m.Label = items.Select(i => i.Label).FirstOrDefault(l => !string.IsNullOrEmpty(l));   // one label: the first set
+        if (items.SelectMany(i => i.Commits ?? []).Distinct().ToList() is { Count: > 0 } commits) m.Commits = commits;
+        List<RtmTest> tests = [.. items.SelectMany(i => i.Tests ?? []).GroupBy(t => (t.Suite, t.Test))
+            .Select(g => g.FirstOrDefault(t => t.Note is not null) ?? g.First()).Select(t => new RtmTest { Suite = t.Suite, Test = t.Test, Note = t.Note })];
+        if (tests.Count > 0) m.Tests = tests;
+        Dictionary<string, string> lanes = [];
+        foreach ((string column, string lane) in items.SelectMany(i => i.Lanes)) lanes.TryAdd(column, lane);   // first source wins per column
+        if (lanes.Count > 0) m.Lanes = lanes;
+        if (items.SelectMany(i => i.DependsOn ?? []).Where(d => !sources.Contains(d)).Distinct().ToList() is { Count: > 0 } deps) m.DependsOn = deps;
+        m.MergedFrom = [.. items.SelectMany(i => (i.MergedFrom ?? []).Prepend(i.Id)).Distinct()];
+    }
+
+    /// <summary>Copies a source's notes into the merged change as they are, and its other files under from-wi&lt;id&gt;/.</summary>
+    private static void CopyExtras(string from, string to, int id, bool keepSpecs)
+    {
+        string[] own = [".openspec.yaml", "proposal.md", "tasks.md"];
+        foreach (string file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
+        {
+            string rel = Path.GetRelativePath(from, file);
+            string top = rel.Split(Path.DirectorySeparatorChar)[0];
+            if ((top == "specs" && !keepSpecs) || own.Contains(rel)) continue;   // specs are merged per capability (an archived source's only when the result is not archived), the rest is rebuilt
+            string target = top == "notes" ? Path.Combine(to, rel) : Path.Combine(to, $"from-wi{id}", rel);
+            if (File.Exists(target)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
     }
 
     internal static (bool Success, string Message) EditLanes(string column, Action<List<string>> edit)

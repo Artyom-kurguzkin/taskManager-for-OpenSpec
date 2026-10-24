@@ -1,0 +1,8 @@
+schema: spec-driven
+created: 2026-10-24
+x-rtm:
+  id: 51
+  title: Feature chips on cards, and removable spec features
+  status: In Review
+  contributors: [Artyom-kurguzkin]
+  label: enhancement

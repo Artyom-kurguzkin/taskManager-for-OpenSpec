@@ -28,8 +28,9 @@ internal static class Commands
     {
         string full = Path.GetFullPath(path);
         string? onDisk = File.Exists(full) ? File.ReadAllText(full) : null;
-        // Only files the app has read are guarded; a brand-new file has nothing to conflict with.
-        if (OpenSpecStoreModule.LastSeen.TryGetValue(full, out string? seen) && seen != onDisk) return (false, StaleMessage);
+        // Only files the app has read are guarded. A file that has since been moved or deleted (an archived change folder
+        // whose name a new change reuses) is not a conflict: writing there overwrites nothing.
+        if (OpenSpecStoreModule.LastSeen.TryGetValue(full, out string? seen) && onDisk is not null && seen != onDisk) return (false, StaleMessage);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         OpenSpecStoreModule.MarkOwn(full);
         File.WriteAllText(full, content);

@@ -1,4 +1,6 @@
 using Bunit;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using TaskManager.Board;
 using TaskManager.Components.Layout;
@@ -43,7 +45,8 @@ public sealed class UsingTheBoardTests : IDisposable
 
         Assert.Equal("Health-check endpoint", card.Find(".band").TextContent.Trim());
         Assert.Contains("--sun", card.Find(".band").GetAttribute("style"));
-        Assert.Contains("Availability", card.Find(".card-features").TextContent);
+        Assert.Equal(["Availability", "Security"], card.FindAll(".card-features .feat").Select(f => f.TextContent.Trim()));   // each feature is a chip
+        Assert.DoesNotContain("/", card.Find(".meta-row").TextContent);   // no done/total subtask count in the expanded card
         Assert.Contains("#wi123", card.Find(".tags").TextContent);
         Assert.Contains("high priority", card.Find(".tags").TextContent);
     }
@@ -254,7 +257,7 @@ public sealed class UsingTheBoardTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        foreach (AngleSharp.Dom.IElement pick in board.FindAll("article.card input.pick").Take(2).ToList()) pick.Change(true);
+        for (int i = 0; i < 2; i++) board.FindAll("article.card")[i].Click(new MouseEventArgs { CtrlKey = true });   // re-found: each click re-renders
 
         board.Find(".actionbar button.primary").Click();
 
@@ -267,11 +270,11 @@ public sealed class UsingTheBoardTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         int before = board.FindAll("article.card").Count;
-        board.FindAll("article.card input.pick").First().Change(true);
+        board.FindAll("article.card").First().Click(new MouseEventArgs { ShiftKey = true });
 
         board.Find(".actionbar button.hide-sel").Click();
 
-        Assert.Empty(board.FindAll(".actionbar"));
+        Assert.Empty(board.FindAll(".actionbar:not(.select-hint)"));   // only the Shift hint bar is left
         Assert.Equal(before - 1, board.FindAll("article.card").Count);
     }
 
@@ -352,22 +355,168 @@ public sealed class UsingTheBoardTests : IDisposable
         board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Hide column").Click();
 
         Assert.DoesNotContain("Blocked", Columns(board));
+        Assert.Equal("0", nav.Find(".nav-hidden .grp-row .count").TextContent.Trim());   // how many items it holds
         nav.Find("button[aria-label='Show Blocked']").Click();
         Assert.Contains("Blocked", Columns(board));
         Assert.Empty(nav.FindAll(".nav-hidden"));
     }
 
-    [Fact(DisplayName = "Dragging the Backlog header onto Completed moves Backlog next to Completed")]
+    // The drag script (wwwroot/js/app.js) delivers each drop to what sits right after the gap: a column, a card, or the
+    // row / lane itself when the gap is at the end. These tests drop on those elements directly.
+    [Fact(DisplayName = "Dragging the Backlog header past the last column moves it to the end; onto a column puts it in front")]
     public async Task DragColumn()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Backlog")).DragStart();
-        board.FindAll("section.col").Single(c => c.QuerySelector("h3")!.TextContent == "Completed").Drop();
-
+        board.Find(".cat-cols").Drop();
         Assert.Equal(["Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed", "Backlog"], Columns(board));
+
+        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Completed")).DragStart();
+        board.FindAll("section.col").Single(c => c.QuerySelector("h3")!.TextContent == "Planned").Drop();
+        Assert.Equal(["Completed", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Backlog"], Columns(board));
     }
+
+    [Fact(DisplayName = "Dragging the last card in front of the first moves it to the top of its column, and it stays there")]
+    public async Task DragCardWithinColumn()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        List<string> before = CardsIn(board, "Planned");
+        Assert.Equal(3, before.Count);
+
+        Col(board, "Planned").QuerySelectorAll("article.card")[2].DragStart();
+        Col(board, "Planned").QuerySelectorAll("article.card")[0].Drop();
+
+        Assert.Equal([before[2], before[0], before[1]], CardsIn(board, "Planned"));
+        Assert.Equal([before[2], before[0], before[1]], CardsIn(ctx.Render<BoardPage>(), "Planned"));   // remembered in the settings file
+    }
+
+    [Fact(DisplayName = "Dragging one of several selected cards moves them all to the gap in another column")]
+    public async Task DragSelectedCards()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.CreateItem("Backlog").Ok);
+        Assert.True(workspace.CreateItem("Backlog").Ok);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        List<string> moving = CardsIn(board, "Backlog");
+        List<string> staying = CardsIn(board, "In Progress");
+        for (int i = 0; i < moving.Count; i++) Col(board, "Backlog").QuerySelectorAll("article.card")[i].Click(new MouseEventArgs { CtrlKey = true });
+
+        Col(board, "Backlog").QuerySelectorAll("article.card")[1].DragStart();
+        Col(board, "In Progress").QuerySelectorAll("article.card")[0].Drop();
+
+        Assert.Empty(CardsIn(board, "Backlog"));
+        Assert.Equal([.. moving, .. staying], CardsIn(board, "In Progress"));
+    }
+
+    [Fact(DisplayName = "Clicking a card selects it; clicking it again opens it")]
+    public async Task ClickSelectsThenOpens()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        NavigationManager nav = ctx.Services.GetRequiredService<NavigationManager>();
+        string home = nav.Uri;
+
+        board.FindAll("article.card")[0].Click(new MouseEventArgs { ShiftKey = true });
+        Assert.Single(board.FindAll("article.card.selected"));
+        Assert.Equal(home, nav.Uri);
+        Assert.Empty(board.FindAll("article.card input"));   // no tick boxes
+
+        board.FindAll("article.card")[1].Click();   // a plain click opens, even while something is selected
+        Assert.Matches(@"/item/\d+$", nav.Uri);
+    }
+
+    [Fact(DisplayName = "Shift-click (or Ctrl/⌘-click) adds cards to the selection or removes them")]
+    public async Task ClickToSelectSeveral()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        board.FindAll("article.card")[1].Click(new MouseEventArgs { ShiftKey = true });
+        Assert.Equal([1], Selected(board));
+
+        board.FindAll("article.card")[0].Click(new MouseEventArgs { MetaKey = true });
+        Assert.Equal([0, 1], Selected(board));
+
+        board.FindAll("article.card")[1].Click(new MouseEventArgs { ShiftKey = true });
+        Assert.Equal([0], Selected(board));
+        Assert.Contains("1 selected", board.Find(".actionbar").TextContent);
+    }
+
+    [Fact(DisplayName = "Arrow keys move the selected card: up/down inside its column, left/right into the next column at the same height")]
+    public async Task ArrowKeysMoveCard()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        List<string> before = CardsIn(board, "Planned");
+        Col(board, "Planned").QuerySelectorAll("article.card")[2].Click(new MouseEventArgs { ShiftKey = true });
+
+        board.Find(".board-wrap").KeyDown("ArrowUp");
+        Assert.Equal([before[0], before[2], before[1]], CardsIn(board, "Planned"));
+
+        board.Find(".board-wrap").KeyDown("ArrowRight");   // Confirmed is empty, so it lands there as the only card
+        Assert.Equal([before[0], before[1]], CardsIn(board, "Planned"));
+        Assert.Equal([before[2]], CardsIn(board, "Confirmed"));
+        Assert.Equal("Confirmed", WorkItemsApi.GetAll().Single(i => i.Title == before[2]).Status);
+
+        board.Find(".board-wrap").KeyDown("ArrowLeft");   // back at row 0: the top of Planned
+        Assert.Equal([before[2], before[0], before[1]], CardsIn(board, "Planned"));
+        Assert.Single(board.FindAll("article.card.selected"));   // still selected, so the next arrow moves it again
+    }
+
+    [Fact(DisplayName = "Arrow keys move several selected cards only when they share a column; a scattered selection gathers first")]
+    public async Task ArrowKeysMoveGroup()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        List<string> before = CardsIn(board, "Planned");
+
+        Col(board, "Planned").QuerySelectorAll("article.card")[0].Click(new MouseEventArgs { ShiftKey = true });
+        Col(board, "In Progress").QuerySelectorAll("article.card")[0].Click(new MouseEventArgs { CtrlKey = true });
+        board.Find(".board-wrap").KeyDown("ArrowDown");
+        overlays!.WaitForAssertion(() => Assert.Contains("one column", overlays.Find(".toast").TextContent));
+        Assert.Equal(before, CardsIn(board, "Planned"));
+
+        Col(board, "In Progress").QuerySelectorAll("article.card")[0].Click(new MouseEventArgs { ShiftKey = true });   // toggles it off: only Planned 0 stays
+        Col(board, "Planned").QuerySelectorAll("article.card")[2].Click(new MouseEventArgs { CtrlKey = true });
+        board.Find(".board-wrap").KeyDown("ArrowDown");
+        Assert.Equal([before[1], before[0], before[2]], CardsIn(board, "Planned"));   // gathered at the bottom card
+    }
+
+    [Fact(DisplayName = "With nothing selected the board carries a select-mode hint bar for the Shift key; a selection replaces it")]
+    public async Task SelectModeHint()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        Assert.Contains("Select mode", board.Find(".actionbar.select-hint").TextContent);
+        Assert.Contains("body.shift-held .select-hint", File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")));   // shown only while Shift is held
+
+        board.FindAll("article.card")[0].Click(new MouseEventArgs { ShiftKey = true });
+        Assert.Empty(board.FindAll(".select-hint"));
+        Assert.Contains("1 selected", board.Find(".actionbar").TextContent);
+    }
+
+    private static List<int> Selected(IRenderedComponent<BoardPage> board) =>
+        board.FindAll("article.card").Select((c, i) => (c, i)).Where(t => t.c.ClassList.Contains("selected")).Select(t => t.i).ToList();
+
+    private static AngleSharp.Dom.IElement Col(IRenderedComponent<BoardPage> board, string name) =>
+        board.FindAll("section.col").Single(c => c.QuerySelector("h3")!.TextContent == name);
+
+    private static List<string> CardsIn(IRenderedComponent<BoardPage> board, string column) =>
+        Col(board, column).QuerySelectorAll("article.card .band").Select(b => b.TextContent).ToList();
 
     [Fact(DisplayName = "Deleting my own feature from its header asks first, then its work items move to Unassigned")]
     public async Task DeleteFeature()

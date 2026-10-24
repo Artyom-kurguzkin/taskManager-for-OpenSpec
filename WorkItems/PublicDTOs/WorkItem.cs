@@ -25,7 +25,9 @@ public sealed record WorkItem(
     string? Label = null,                       // x-rtm.label: bug, feature, enhancement
     IReadOnlyList<string>? Commits = null,     // picked by hand (x-rtm.commits); commits mentioning #wiN come from git
     IReadOnlyList<TestLink>? Tests = null,     // x-rtm.tests
-    IReadOnlyList<int>? DependsOn = null);     // x-rtm.dependsOn: ids this item is waiting on
+    IReadOnlyList<int>? DependsOn = null,      // x-rtm.dependsOn: ids this item is waiting on
+    IReadOnlyList<int>? MergedFrom = null,     // x-rtm.mergedFrom: numbers of the items merged into this one
+    IReadOnlyList<string>? UnlinkedFeatures = null);   // x-rtm.unlinkedFeatures: spec-derived features the user removed from this item
 
 /// <summary>A test linked to a work item, by suite and test name as the results file names them; Note = #n id describing it.</summary>
 public sealed record TestLink(string Suite, string Test, int? Note);
