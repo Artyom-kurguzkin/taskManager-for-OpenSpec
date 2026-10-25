@@ -46,10 +46,10 @@
         @if (!expanded)
         {
             @* the expanded menu has the same switch as a checkbox; always rendered so hint letters below it don't shift *@
-            bool boardView = OnBoard && O.View == "board";
-            <button class="nav-btn compact-btn @(boardView && O.Compact ? "is-sel" : "")" aria-label="Compact cards" aria-pressed="@(O.Compact ? "true" : "false")"
-                    title="@(boardView ? (O.Compact ? "Compact cards: on" : "Compact cards: off") : "Compact cards (board view only)")"
-                    disabled="@(!boardView)" @onclick="() => Set(O with { Compact = !O.Compact })">@Ui.Icon("compact")</button>
+            bool listView = OnBoard && O.View == "list";
+            <button class="nav-btn compact-btn @(OnBoard && O.Compact ? "is-sel" : "")" aria-label="Compact cards" aria-pressed="@(O.Compact ? "true" : "false")"
+                    title="@(listView ? (O.Compact ? "Compact list: on (subtasks hidden)" : "Compact list: off (subtasks shown)") : O.Compact ? "Compact cards: on" : "Compact cards: off")"
+                    disabled="@(!OnBoard)" @onclick="() => Set(O with { Compact = !O.Compact })">@Ui.Icon("compact")</button>
         }
         <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="() => expanded = !expanded">@Ui.Icon("sliders")</button>
         @if (expanded && OnBoard)
@@ -61,8 +61,8 @@
                 @if (O.View == "board")
                 {
                     <Seg Name="unit" Options="BoardPage.Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />
-                    <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> compact cards</label>
                 }
+                <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> @(O.View == "list" ? "compact list" : "compact cards")</label>
                 <label class="check"><input type="checkbox" id="f-hidden" checked="@O.ShowHidden" @onchange="e => Set(O with { ShowHidden = (bool)e.Value! })" /> show hidden</label>
             </div>
             @if (HiddenHere.Count > 0)
@@ -74,7 +74,7 @@
                     @foreach (string key in HiddenHere)
                     {
                         string name = BoardModel.KeyLabel(key, FeaturesApi.GetAll());
-                        <div class="grp-row"><span class="nm">@name</span><span class="count" title="@(O.Unit == "subtasks" ? "subtasks" : "work items") in this column">@held.GetValueOrDefault(key)</span>
+                        <div class="grp-row"><span class="nm">@name</span>@if (!key.StartsWith(BoardModel.ListColumnKey(""))) { <span class="count" title="@(O.Unit == "subtasks" ? "subtasks" : "work items") in this column">@held.GetValueOrDefault(key)</span> }
                             <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(O, key))">@Ui.Icon("eye")</button></div>
                     }
                 </div>
@@ -105,8 +105,8 @@
     private IReadOnlyList<(string, string)> People =>
         [("all", "everyone"), .. WorkItemsApi.GetAll(includeHidden: O.ShowHidden).SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
 
-    // Hidden columns of the current grouping.
-    private List<string> HiddenHere => (O.Hidden ?? []).Where(k => k.StartsWith(BoardModel.ColumnKey(O, ""))).ToList();
+    // Hidden columns of the current grouping, and in the list view the grid's hidden columns too.
+    private List<string> HiddenHere => (O.Hidden ?? []).Where(k => k.StartsWith(BoardModel.ColumnKey(O, "")) || (O.View == "list" && k.StartsWith(BoardModel.ListColumnKey("")))).ToList();
 
     protected override void OnInitialized()
     {

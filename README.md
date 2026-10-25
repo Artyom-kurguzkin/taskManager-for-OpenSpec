@@ -39,7 +39,7 @@ cd repo-task-manager
 dotnet build RepoTaskManager.slnx
 ```
 
-The first build downloads the NuGet packages (Photino.Blazor, YamlDotNet, Markdig, xunit, bUnit).
+The first build downloads the NuGet packages (Photino.Blazor, Radzen.Blazor for the list view's data grid, YamlDotNet, Markdig, xunit, bUnit).
 
 Run the tests:
 

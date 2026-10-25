@@ -1,8 +1,0 @@
-schema: spec-driven
-created: 2026-10-24
-x-rtm:
-  id: 46
-  title: 'Subtask dependencies that block the parent item + subtasks loose their heading when created + Split from #wi26 + Split from #wi39'
-  status: In Review
-  contributors: [Artyom-kurguzkin]
-  features: [work-item-editor]

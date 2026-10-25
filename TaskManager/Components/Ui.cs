@@ -45,6 +45,7 @@ public static class Ui
         ["swap"] = "<path d=\"M2 8h12M5 5L2 8l3 3M11 5l3 3-3 3\"/>",   // <->: switch repository
         ["eye"] = "<path d=\"M1.5 8S3.9 3.5 8 3.5 14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z\"/><circle cx=\"8\" cy=\"8\" r=\"2\"/>",
         ["eyeoff"] = "<path d=\"M1.5 8S3.9 3.5 8 3.5 14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8zM2.5 13.5l11-11\"/>",
+        ["grip"] = "<g fill=\"currentColor\" stroke=\"none\"><circle cx=\"6\" cy=\"3.5\" r=\"1.4\"/><circle cx=\"10\" cy=\"3.5\" r=\"1.4\"/><circle cx=\"6\" cy=\"8\" r=\"1.4\"/><circle cx=\"10\" cy=\"8\" r=\"1.4\"/><circle cx=\"6\" cy=\"12.5\" r=\"1.4\"/><circle cx=\"10\" cy=\"12.5\" r=\"1.4\"/></g>",   // list row drag handle
         ["expand"] = "<path d=\"M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9\"/>",   // focus a compact tile
         ["collapse"] = "<path d=\"M13.5 2.5L9 7M9 3.5V7h3.5M2.5 13.5L7 9M7 12.5V9H3.5\"/>",   // minimise the open tile (narrow windows)
         ["up"] = "<path d=\"M4 10l4-4 4 4\"/>",

@@ -1,8 +1,9 @@
 schema: spec-driven
-created: 2026-10-24
+created: 2026-10-26
 x-rtm:
-  id: 56
-  title: Pick an existing work item to wait on
+  id: 59
+  title: List view UX
   status: In Review
   contributors: [Artyom-kurguzkin]
   label: enhancement
+  mergedFrom: [57, 58]

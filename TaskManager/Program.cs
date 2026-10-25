@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using OpenSpecStore;
 using Photino.Blazor;
+using Radzen;
 using TaskManager.Services;
 
 namespace TaskManager;
@@ -16,6 +17,7 @@ internal static class Program
 
         // RTM_SETTINGS lets demos/tests run with their own settings file instead of the user's.
         SettingsStore settings = new(Environment.GetEnvironmentVariable("RTM_SETTINGS") ?? SettingsStore.DefaultPath);
+        builder.Services.AddRadzenComponents();   // the list view's data grid
         builder.Services.AddSingleton<UiService>();
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton<Workspace>();

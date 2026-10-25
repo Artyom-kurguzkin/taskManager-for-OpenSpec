@@ -17,11 +17,30 @@ public sealed record BoardOptions(
     bool Compact = false,
     bool ShowHidden = false,       // include work items "deleted" (hidden) in the app
     IReadOnlyList<string>? Hidden = null,   // ColumnKey of columns taken off the board
-    IReadOnlyList<string>? Order = null);   // column and card (item:<id>) keys in the user's order; anything not listed keeps its usual place after them
+    IReadOnlyList<string>? Order = null,    // column and card (item:<id>) keys in the user's order; anything not listed keeps its usual place after them
+    string? ListSettings = null);           // the list view's grid settings (column widths, order, sort, filters) as JSON
 
 public sealed record BoardColumn(string Key, string Label, IReadOnlyList<WorkItem> Items, IReadOnlyList<string> Lanes);
 
 public sealed record BoardSection(string? Category, IReadOnlyList<BoardColumn> Columns);
+
+/// <summary>
+/// One row of the list view: a work item in one of the board's columns (an item in several features appears once per column).
+/// An empty column gets one row with no item, so the column still shows as a group. The flat properties feed the grid's
+/// sorting and filtering.
+/// </summary>
+public sealed record GridRow(int Group, BoardColumn Column, string? Category, WorkItem? Item, int Position, string Features)
+{
+    public string Key => $"{Group}:{Item?.Id ?? 0}";
+    public int Id => Item?.Id ?? 0;
+    public string Title => Item?.Title ?? "";
+    public string Status => Item?.Status ?? "";
+    public string Label => Item?.Label ?? "";
+    public string Contributors => Item is null ? "" : string.Join(", ", Item.Contributors);
+    public string Priority => Item?.Priority ?? "";
+    public int Progress => Item is { Subtasks.Count: > 0 } i ? i.Subtasks.Count(s => s.Done) * 100 / i.Subtasks.Count : 0;
+    public DateTime? Modified => Item?.Modified;
+}
 
 /// <summary>Pure arrangement of work items into board sections and columns (no IO, so it is unit-tested directly).</summary>
 public static class BoardModel
@@ -64,6 +83,25 @@ public static class BoardModel
                 return [new(null, Arrange(WorkItemsApi.Statuses, s => ColumnKey(o, s), o).Select(s => Col(s, s, i => i.Status == s)).ToList())];
         }
     }
+
+    /// <summary>The list view's rows, in board order: column by column, each column's items in their sorted order.</summary>
+    public static IReadOnlyList<GridRow> Rows(IReadOnlyList<BoardSection> sections, IReadOnlyDictionary<string, string> featureNames)
+    {
+        List<GridRow> rows = [];
+        int group = 0, position = 0;
+        foreach (BoardSection s in sections)
+        foreach (BoardColumn c in s.Columns)
+        {
+            if (c.Items.Count == 0) rows.Add(new(group, c, s.Category, null, position++, ""));
+            foreach (WorkItem it in c.Items)
+                rows.Add(new(group, c, s.Category, it, position++, string.Join(", ", it.Features.Select(f => featureNames.GetValueOrDefault(f.Path, f.Path)))));
+            group++;
+        }
+        return rows;
+    }
+
+    /// <summary>Key of a list column (Title, Status, …) in the hidden list, next to the board columns' keys.</summary>
+    public static string ListColumnKey(string title) => "col:" + title;
 
     /// <summary>Column key for work items without a feature (grouping by feature) or without contributors (by contributor).</summary>
     public const string Unassigned = "";

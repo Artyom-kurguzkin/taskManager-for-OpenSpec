@@ -19,61 +19,106 @@
 
 @if (O.View == "list")
 {
-    <div class="scx"><div class="tbl-wrap" data-sk>
-        <table class="tbl">
-            <thead><tr><th></th><th><button class="chev @(expandAll ? "open" : "")" title="@(expandAll ? "Collapse all rows" : "Expand all rows")" @onclick="ToggleExpandAll">@Ui.Icon("chev")<span class="sr">@(expandAll ? "Collapse all rows" : "Expand all rows")</span></button></th>
-                @foreach ((string key, string label) in Columns)
+    @* The list is a Radzen DataGrid over the board's columns: one row per work item per column, in the board's order, grouped by
+       column. The grid brings sorting, filtering (a funnel in each header), column resize and reorder, and remembers them per
+       repository. A column is hidden from the × in its header and brought back from the side menu's Hidden list, like a board
+       column; the side menu's compact switch hides every row's subtasks. Grouping, row drag (app.js, by
+       the grip), arrow keys, cell copy and the subtask detail are the app's own, as on the board.
+       tabindex: a click in the table focuses the wrapper, so arrow keys reach KeyDown and Ctrl+C reaches the cell copy. *@
+    <div class="scx"><div class="tbl-wrap" tabindex="0" @onkeydown="KeyDown">
+        <RadzenDataGrid @ref="grid" TItem="GridRow" Data="rows" KeyProperty="Key" Density="Density.Compact"
+                        AllowSorting="true" AllowMultiColumnSorting="true" AllowFiltering="true" FilterMode="FilterMode.Advanced"
+                        FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" AllowColumnResize="true" AllowColumnReorder="true"
+                        GroupFootersAlwaysVisible="false" ExpandMode="DataGridExpandMode.Multiple" ShowExpandColumn="false"
+                        GroupRowExpand="g => shutGroups.Remove(GroupOf(g).Column.Key)" GroupRowCollapse="g => shutGroups.Add(GroupOf(g).Column.Key)"
+                        GridLines="DataGridGridLines.Horizontal" EmptyText="Nothing matches the filters."
+                        RowRender="RowRender" GroupRowRender="GroupRowRender" Settings="gridSettings" SettingsChanged="SaveGridSettings">
+            <GroupHeaderTemplate>
+                @{ (BoardColumn gcol, string? gcat) = GroupOf(context); }
+                <b class="gname" style="@(O.GroupBy == "status" ? $"--fill:var({Ui.Band(gcol.Label)})" : null)">@gcol.Label</b> <span class="count">@BoardModel.Count(gcol.Items, O.Unit)</span>@if (gcat is not null) { <span class="muted"> · @gcat</span> }
+            </GroupHeaderTemplate>
+            <Template Context="row">
+                @if (row.Item is WorkItem it)
                 {
-                    <th>@if (key == "progress") { @label } else {
-                        <button class="th-sort @(O.SortBy == key ? "on" : "")" @onclick="() => SortBy(key)">@label@(O.SortBy == key ? (O.SortDir > 0 ? " ↑" : " ↓") : "")</button> }</th>
+                    <div class="subtasks">
+                        @foreach (Subtask s in it.Subtasks)
+                        {
+                            <div class="subrow"><span class="muted num">@s.Number</span>
+                                <label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done"
+                                    @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" /> @s.Text</label></div>
+                        }
+                    </div>
                 }
-            </tr></thead>
-            @foreach ((string? cat, BoardColumn col) in Flat)
-            {
-                bool shut = shutGroups.Contains(col.Key);
-                <tbody>
-                    <tr class="grp"><td colspan="11"><button @onclick="() => Toggle(shutGroups, col.Key)" aria-expanded="@(!shut)">
-                        <span class="chev @(shut ? "" : "open")">@Ui.Icon("chev")</span><b>@col.Label</b> <span class="count">@col.Items.Count</span>
-                        @if (cat is not null) { <span class="muted"> · @cat</span> }</button></td></tr>
-                    @if (!shut)
-                    {
-                        @foreach (WorkItem it in col.Items)
+            </Template>
+            <Columns>
+                @* the left gutter: the drag grip, shown on hover. No tick boxes: Shift-click selects a row, as it does a card *@
+                <RadzenDataGridColumn TItem="GridRow" Title="" Width="28px" Sortable="false" Filterable="false" Pickable="false" Resizable="false" Reorderable="false" CssClass="rowctl">
+                    <Template Context="row">
+                        @if (row.Item is WorkItem it)
                         {
-                            bool open = expandAll || openRows.Contains(it.Id);
-                            <tr class="lrow @(selected.Contains(it.Id) ? "selected" : "") @(it.Hidden ? "hidden-item" : "")">
-                                <td><input type="checkbox" checked="@selected.Contains(it.Id)" @onchange="() => ToggleSelect(it)" aria-label="Select #wi@(it.Id)" /></td>
-                                <td>@if (it.Subtasks.Count > 0) {
-                                    <button class="chev @(open ? "open" : "")" @onclick="() => Toggle(openRows, it.Id)" aria-expanded="@open" aria-label="Subtasks">@Ui.Icon("chev")</button> }</td>
-                                <td class="muted num id">#wi@(it.Id)</td>
-                                <td><button class="row-title" @onclick="() => OpenItem(it.Id)">@it.Title</button></td>
-                                <td>@if (it.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(it.Status))">@it.Status</span> }
-                                    else { <Dropdown Label="status" Class="cell filled" Style="@($"--fill:var({Ui.Band(it.Status)})")" Swatch="Ui.Band" Options="Statuses" Value="@it.Status" ValueChanged="v => SetStatus(it, v)" /> }</td>
-                                <td><Dropdown Label="label" Class="cell" Options="LabelOptions" Value="@(it.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(it.Id, v))" /></td>
-                                <td>@foreach (FeatureLink f in it.Features) { <span class="tag">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span> }</td>
-                                <td>@string.Join(", ", it.Contributors)</td>
-                                <td><Dropdown Label="priority" Class="cell" Options="Priorities" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /></td>
-                                <td><span class="prog"><i style="width:@(it.Subtasks.Count == 0 ? 0 : it.Subtasks.Count(s => s.Done) * 100 / it.Subtasks.Count)%"></i></span>
-                                    <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span></td>
-                                <td class="muted num">@it.Modified.ToString("d MMM")</td>
-                            </tr>
-                            @if (open)
-                            {
-                                @foreach (Subtask s in it.Subtasks)
-                                {
-                                    <tr class="subrow"><td></td><td></td><td class="muted num">@s.Number</td>
-                                        <td colspan="8"><label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done"
-                                            @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" /> @s.Text</label></td></tr>
-                                }
-                            }
+                            <span class="grip" title="Drag to move">@Ui.Icon("grip")</span>
                         }
-                        @if (!(O.GroupBy == "status" && col.Label == "Completed"))   // completed = archived by the CLI, not created here
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="GridRow" Property="Id" Title="ID" Visible="@Shown("ID")" HeaderTemplate="@Head("ID")" Width="72px" CssClass="num" Filterable="false">
+                    <Template Context="row">@if (row.Item is not null) { <span class="muted num id">#wi@(row.Id)</span> }</Template>
+                </RadzenDataGridColumn>
+                @* the title: a chevron slot (subtasks fold out under the row) and the one-line title, like a task name in Asana or Linear *@
+                <RadzenDataGridColumn TItem="GridRow" Property="Title" Title="Title" Visible="@Shown("Title")" HeaderTemplate="@Head("Title")" MinWidth="260px" CssClass="title">
+                    <Template Context="row">
+                        @if (row.Item is WorkItem it)
                         {
-                            <tr class="addrow"><td></td><td colspan="10"><button class="btn ghost" @onclick="() => NewItem(col.Key)">+ Add item</button></td></tr>
+                            <span class="tcell">
+                                <span class="chev-slot">
+                                    @if (it.Subtasks.Count > 0)
+                                    {
+                                        bool open = grid?.IsRowExpanded(row) == true;
+                                        <button class="chev @(open ? "open" : "")" @onclick="() => ToggleRow(row)" aria-expanded="@open" aria-label="Subtasks">@Ui.Icon("chev")</button>
+                                    }
+                                </span>
+                                @* a modifier click is the row's (RowRender): it selects, as on a card; a plain click opens *@
+                                <button class="row-title" title="@it.Title" @onclick="e => { if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) OpenItem(it.Id); }">@it.Title</button>
+                            </span>
                         }
-                    }
-                </tbody>
-            }
-        </table>
+                        else { <span class="muted">No items</span> }
+                    </Template>
+                    <GroupFooterTemplate>
+                        @{ BoardColumn fcol = GroupOf(context).Column; }
+                        @if (!(O.GroupBy == "status" && fcol.Label == "Completed")) { <button class="add-row" @onclick="() => NewItem(fcol.Key)">+ Add item</button> }   @* completed = archived by the CLI, not created here *@
+                    </GroupFooterTemplate>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="GridRow" Property="Status" Title="Status" Visible="@Shown("Status")" HeaderTemplate="@Head("Status")" Width="120px">
+                    <Template Context="row">
+                        @if (row.Item is WorkItem it)
+                        {
+                            @if (it.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(it.Status))">@it.Status</span> }
+                            else { <Dropdown Label="status" Class="cell filled" Style="@($"--fill:var({Ui.Band(it.Status)})")" Swatch="Ui.Band" Options="Statuses" Value="@it.Status" ValueChanged="v => SetStatus(it, v)" /> }
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="GridRow" Property="Label" Title="Label" Visible="@Shown("Label")" HeaderTemplate="@Head("Label")" Width="126px">
+                    <Template Context="row">@if (row.Item is WorkItem it) { <Dropdown Label="label" Class="cell filled" Style="@($"--fill:var({Ui.LabelColor(it.Label ?? "")})")" Swatch="Ui.LabelColor" Options="LabelOptions" Value="@(it.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(it.Id, v))" /> }</Template>
+                </RadzenDataGridColumn>
+                @* features on one line: the first as a tag, the rest as "+N"; the tooltip names them all *@
+                <RadzenDataGridColumn TItem="GridRow" Property="Features" Title="Features" Visible="@Shown("Features")" HeaderTemplate="@Head("Features")" Width="132px">
+                    <Template Context="row">
+                        @if (row.Item is WorkItem { Features.Count: > 0 } it)
+                        {
+                            List<string> names = it.Features.Select(f => Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)).ToList();
+                            <div class="feat-line" title="@string.Join(", ", names)"><span class="tag">@names[0]</span>@if (names.Count > 1) { <span class="more muted num">+@(names.Count - 1)</span> }</div>
+                        }
+                    </Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="GridRow" Property="Contributors" Title="Contributors" Visible="@Shown("Contributors")" HeaderTemplate="@Head("Contributors")" Width="130px" />
+                <RadzenDataGridColumn TItem="GridRow" Property="Priority" Title="Priority" Visible="@Shown("Priority")" HeaderTemplate="@Head("Priority")" Width="100px">
+                    <Template Context="row">@if (row.Item is WorkItem it) { <Dropdown Label="priority" Class="cell filled" Style="@($"--fill:var({Ui.PriorityColor(it.Priority)})")" Swatch="Ui.PriorityColor" Options="Priorities" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /> }</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="GridRow" Property="Progress" Title="Progress" Visible="@Shown("Progress")" HeaderTemplate="@Head("Progress")" Width="96px" Filterable="false">
+                    <Template Context="row">@if (row.Item is WorkItem it) { <span class="prog"><i style="width:@(row.Progress)%"></i></span> <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span> }</Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="GridRow" Property="Modified" Title="Updated" Visible="@Shown("Updated")" HeaderTemplate="@Head("Updated")" Width="88px" FormatString="{0:d MMM}" CssClass="num muted" Filterable="false" />
+            </Columns>
+        </RadzenDataGrid>
     </div></div>
 }
 else
@@ -154,13 +199,22 @@ else
         <button class="btn ghost" @onclick="() => selected.Clear()">Clear</button>
     </div>
 }
-else if (O.View == "board" && O.Unit == "tasks")
+else if (O.View == "list" || O.Unit == "tasks")
 {
     @* shown by the drag script while Shift is held (body.shift-held), so select mode announces itself before the first click *@
-    <div class="actionbar select-hint"><span class="n">Select mode</span><span class="muted">Shift-click cards to select them</span></div>
+    <div class="actionbar select-hint"><span class="n">Select mode</span><span class="muted">@(O.View == "list" ? "Shift-click rows to select them" : "Shift-click cards to select them")</span></div>
 }
 
 @code {
+    // A list column's header: its title and a × that hides it (the side menu's Hidden list brings it back).
+    private RenderFragment Head(string column) => __builder =>
+    {
+        <span class="th-l">@column</span>
+        @* its own mouseup, or the header would also sort *@
+        <button type="button" class="th-hide" aria-label="Hide @column column" title="Hide column" @onmouseup:stopPropagation="true" @onclick:stopPropagation="true"
+                @onclick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ListColumnKey(column)))">×</button>
+    };
+
     private RenderFragment Cards(BoardColumn col, IEnumerable<WorkItem> items, string? lane) => __builder =>
     {
         foreach (WorkItem it in items)

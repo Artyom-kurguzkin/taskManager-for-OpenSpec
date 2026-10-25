@@ -11,6 +11,7 @@
 - Expanded cards show each feature as a dashed chip in the normal text colour. Grouped by bucket they show the status instead, as before.
 - Expanded cards no longer show the done/total subtask count.
 - Hidden columns listed in the side menu show how many items they hold.
+- In the list view an item's features stack in a column in their cell instead of stretching the table.
 - Every feature chip on the item page has a remove cross. Removing one that comes from specs/ records it in `x-rtm.unlinkedFeatures`, so the item stops listing it and the board stops placing it in that feature's column. The spec files are untouched. "+ add" offers the feature again, and adding it links it back.
 
 ## Capabilities

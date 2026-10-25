@@ -84,18 +84,129 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Equal(["High priority", "Lower priority"], board.FindAll(".lane-h span:first-child").Select(s => s.TextContent.Trim()));
     }
 
-    [Fact(DisplayName = "Switching to List shows a table row per work item, and clicking a header twice reverses its sort")]
+    [Fact(DisplayName = "Switching to List shows a grid row per work item, with sortable headers and a filter row")]
     public async Task ListView()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
 
-        Assert.Equal(4, board.FindAll("tr.lrow").Count);
-        board.FindAll("button.th-sort").Single(b => b.TextContent.StartsWith("Title")).Click();
-        Assert.Equal("Title ↑", board.Find("button.th-sort.on").TextContent.Trim());
-        board.FindAll("button.th-sort").Single(b => b.TextContent.StartsWith("Title")).Click();
-        Assert.Equal("Title ↓", board.Find("button.th-sort.on").TextContent.Trim());
+        Assert.Equal(4, board.FindAll("tr[data-id]").Count);
+        Assert.Contains(board.FindAll(".rz-sortable-column"), h => h.TextContent.Contains("Title"));   // the grid's own sort, checked in the real app (3-state)
+        Assert.Contains(board.FindAll("thead th"), h => h.QuerySelector("[class*=filter]") is not null);   // and a filter control per column
+    }
+
+    // The list is a Radzen DataGrid: one tbody, where each group row (tr[data-group]) is followed by its item rows (tr[data-id]).
+    private static AngleSharp.Dom.IElement Group(IRenderedComponent<BoardPage> board, string key) => board.Find($"tr[data-group='{key}']");
+
+    private static List<AngleSharp.Dom.IElement> GroupRows(IRenderedComponent<BoardPage> board, string key)
+    {
+        List<AngleSharp.Dom.IElement> rows = [];
+        bool inGroup = false;
+        foreach (AngleSharp.Dom.IElement tr in board.FindAll(".rz-data-grid tbody tr"))
+        {
+            if (tr.HasAttribute("data-group")) { inGroup = tr.GetAttribute("data-group") == key; continue; }
+            if (inGroup && tr.HasAttribute("data-id")) rows.Add(tr);
+        }
+        return rows;
+    }
+
+    private static List<string> RowsIn(IRenderedComponent<BoardPage> board, string group) =>
+        GroupRows(board, group).Select(r => r.QuerySelector(".row-title")!.TextContent).ToList();
+
+    [Fact(DisplayName = "List rows drag like cards: by their grip, in front of another row to reorder, onto a group to change status")]
+    public async Task ListRowDrag()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.Equal(3, RowsIn(board, "Planned").Count));
+        List<string> before = RowsIn(board, "Planned");
+        Assert.All(board.FindAll("tr[data-id]"), r => Assert.NotNull(r.QuerySelector(".grip")));   // the handle the drag script grabs
+
+        GroupRows(board, "Planned")[2].DragStart();
+        GroupRows(board, "Planned")[0].Drop();
+        board.WaitForAssertion(() => Assert.Equal([before[2], before[0], before[1]], RowsIn(board, "Planned")));
+
+        GroupRows(board, "Planned")[0].DragStart();
+        Group(board, "In Progress").Drop();   // the group row stands for the group's end
+        board.WaitForAssertion(() => Assert.Equal([before[0], before[1]], RowsIn(board, "Planned")));
+        Assert.Equal("In Progress", WorkItemsApi.GetAll().Single(i => i.Title == before[2]).Status);
+    }
+
+    [Fact(DisplayName = "In the list, arrow keys move the selected rows, and Ctrl+C copies the selected cells (the script's part)")]
+    public async Task ListArrowKeys()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.Equal(2, RowsIn(board, "Planned").Count));
+        List<string> before = RowsIn(board, "Planned");
+        GroupRows(board, "Planned")[1].QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true });   // selected as on the board: no tick boxes
+
+        board.Find(".tbl-wrap").KeyDown("ArrowUp");
+
+        board.WaitForAssertion(() => Assert.Equal([before[1], before[0]], RowsIn(board, "Planned")));
+        Assert.Equal("0", board.Find(".tbl-wrap").GetAttribute("tabindex"));   // focusable, so keys and Ctrl+C reach it
+        string js = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
+        Assert.Contains("addEventListener(\"copy\"", js);
+        Assert.Contains("tr[data-id] .grip", js);
+        Assert.Contains(".tbl-wrap thead .rz-column-drag", js);   // the whole header reorders, and a click on it still sorts
+        Assert.Contains("_cells.moved", js);
+        Assert.Contains("is-resizing", js);   // a column resize shows a guide line down the table, not a header highlight   // a drag from any cell selects cells; only a still click works the cell's control
+    }
+
+    [Fact(DisplayName = "In the list, Shift-click on a row selects it and a plain click on its title opens it, as on the board")]
+    public async Task ListRowShiftClick()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        AngleSharp.Dom.IElement row = board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123"));
+
+        row.QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true });
+        board.WaitForAssertion(() => Assert.NotNull(board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).GetAttribute("data-selected")));
+        Assert.Contains("1 selected", board.Find(".actionbar:not(.select-hint)").TextContent);
+        Assert.Empty(board.FindAll("tr[data-id] input[type=checkbox]"));   // no tick boxes, as on the board
+        board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector("td.num")!.Click(new MouseEventArgs { CtrlKey = true });
+        board.WaitForAssertion(() => Assert.Contains("Shift-click rows", board.Find(".select-hint").TextContent));   // the Shift hint is there in the list too
+
+        board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector(".row-title")!.Click(new MouseEventArgs { ShiftKey = true });
+        board.WaitForAssertion(() => Assert.Null(board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).GetAttribute("data-selected")));   // toggled off, not opened
+
+        board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector(".row-title")!.Click();
+        Assert.EndsWith("/item/123", ctx.Services.GetRequiredService<NavigationManager>().Uri);
+    }
+
+    [Fact(DisplayName = "List cells wear their colours: status, label and priority are filled pills, and a status group's name wears its band")]
+    public async Task ListColours()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+
+        AngleSharp.Dom.IElement row = board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123"));
+        Assert.Equal(3, row.QuerySelectorAll("button.box.cell.filled[style*='--fill']").Length);   // status, label, priority
+        Assert.Contains("--fill:var(--sun)", Group(board, "In Progress").QuerySelector(".gname")!.GetAttribute("style"));
+    }
+
+    [Fact(DisplayName = "In the list, an item's features stay on one line: the first as a tag, the rest as a count, all of them in the tooltip")]
+    public async Task ListFeaturesOneLine()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+
+        AngleSharp.Dom.IElement line = board.FindAll("tr[data-id]").Single(r => r.TextContent.Contains("Health-check")).QuerySelector("td .feat-line")!;
+
+        Assert.Equal(["Availability"], line.QuerySelectorAll(".tag").Select(t => t.TextContent.Trim()));
+        Assert.Equal("+1", line.QuerySelector(".more")!.TextContent.Trim());
+        Assert.Equal("Availability, Security", line.GetAttribute("title"));
     }
 
     [Fact(DisplayName = "Hidden work items leave the board until 'show hidden' is ticked")]
@@ -187,9 +298,12 @@ public sealed class UsingTheBoardTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
-        board.FindAll("tr.lrow").First(r => r.TextContent.Contains("#wi123")).QuerySelector("button.chev")!.Click();
+        nav!.Find("button.compact-btn").Click();   // compact: groups shut, no subtasks; open one group and one row by hand
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll(".subrow")));
+        board.Find("tr[data-group='In Progress'] button").Click();
+        board.WaitForAssertion(() => board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector("button.chev")!.Click());
 
-        Assert.Equal(["1.1", "1.2", "1.3", "2.1"], board.FindAll("tr.subrow td.num").Select(td => td.TextContent.Trim()));
+        board.WaitForAssertion(() => Assert.Equal(["1.1", "1.2", "1.3", "2.1"], board.FindAll(".subrow .num").Select(td => td.TextContent.Trim())));
     }
 
     [Fact(DisplayName = "Completed rows have editable label and priority but status stays read-only, and Completed has no '+ Add item'")]
@@ -199,28 +313,68 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
 
-        AngleSharp.Dom.IElement row = board.FindAll("tr.lrow").Single(r => r.TextContent.Contains("#wi124"));
+        AngleSharp.Dom.IElement row = board.FindAll("tr[data-id]").Single(r => r.TextContent.Contains("#wi124"));
         Assert.NotEmpty(row.QuerySelectorAll("button.dd"));   // label and priority dropdowns
         Assert.Contains("Completed", row.TextContent);
         // status cell is a read-only span, not a dropdown
         AngleSharp.Dom.IElement statusCell = row.QuerySelectorAll("td").First(td => td.QuerySelector(".filled") is not null);
         Assert.NotNull(statusCell.QuerySelector("span.box"));
         Assert.Null(statusCell.QuerySelector("button.dd"));
-        AngleSharp.Dom.IElement completed = board.FindAll("tbody").Single(b => b.QuerySelector(".grp")!.TextContent.Contains("Completed"));
-        Assert.Empty(completed.QuerySelectorAll("tr.addrow"));
+        int groups = board.FindAll("tr[data-group]").Count;
+        Assert.Equal(groups - 1, board.FindAll("button").Count(b => b.TextContent.Trim() == "+ Add item"));   // every group but Completed
     }
 
-    [Fact(DisplayName = "The expand-all chevron in the list header shows every subtask row")]
-    public async Task ExpandAllFromViewMenu()
+    [Fact(DisplayName = "In the list, the compact switch hides every row's subtasks and keeps the work items; off again, every subtask shows")]
+    public async Task CompactHidesOnlySubtasks()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
-        Assert.Empty(board.FindAll("tr.subrow"));
+        Assert.Equal(4, board.FindAll("tr[data-id]").Count);
 
-        board.FindAll("button").Single(b => b.TextContent.Trim() == "Expand all rows").Click();
+        nav!.Find("button.compact-btn").Click();
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll(".subrow")));
+        Assert.Equal(4, board.FindAll("tr[data-id]").Count);   // the work items stay; only their subtasks fold away
 
-        Assert.Equal(4 + 2 + 1 + 1, board.FindAll("tr.subrow").Count);
+        nav.Find("button.compact-btn").Click();
+        board.WaitForAssertion(() => Assert.Equal(4 + 2 + 1 + 1, board.FindAll(".subrow").Count));
+    }
+
+    [Fact(DisplayName = "A grid column is hidden from the × in its header and listed under Hidden in the side menu, where the eye brings it back")]
+    public async Task HideGridColumn()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        Assert.Contains(board.FindAll("thead th"), h => h.TextContent.Contains("Progress"));
+
+        board.Find("button[aria-label='Hide Progress column']").Click();
+
+        board.WaitForAssertion(() => Assert.DoesNotContain(board.FindAll("thead th"), h => h.TextContent.Contains("Progress")));
+        Assert.Contains("col:Progress", ctx.Services.GetRequiredService<SettingsStore>().Board(repo.Root).Hidden!);
+        nav!.Find("button.nav-toggle").Click();
+        Assert.Contains("Progress", nav.Find(".nav-hidden").TextContent);
+        nav.Find("button[aria-label='Show Progress']").Click();
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll("thead th"), h => h.TextContent.Contains("Progress")));
+        Assert.Empty(board.FindAll(".rz-column-picker"));   // no toolbar row
+    }
+
+    [Fact(DisplayName = "In the list, the side menu's compact button hides every subtask row; off again, every subtask shows")]
+    public async Task CompactHidesSubtasksInList()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.Equal(4 + 2 + 1 + 1, board.FindAll(".subrow").Count));   // details on by default
+
+        nav!.Find("button.compact-btn").Click();
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll(".subrow")));
+        board.Find("tr[data-group='In Progress'] button").Click();   // open that one group, then one row: its subtasks show, nothing else's
+        board.WaitForAssertion(() => board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector("button.chev")!.Click());
+        board.WaitForAssertion(() => Assert.Equal(4, board.FindAll(".subrow").Count));
+
+        nav.Find("button.compact-btn").Click();
+        board.WaitForAssertion(() => Assert.Equal(4 + 2 + 1 + 1, board.FindAll(".subrow").Count));
     }
 
     [Fact(DisplayName = "A hidden work item's row is marked as hidden in the list")]
@@ -233,7 +387,7 @@ public sealed class UsingTheBoardTests : IDisposable
         nav!.Find("button.nav-toggle").Click();   // the expanded side menu holds the view options
         nav.Find("input#f-hidden").Change(true);
 
-        Assert.Contains("hidden-item", board.FindAll("tr.lrow").Single(r => r.TextContent.Contains("#wi107")).ClassName);
+        Assert.True(board.FindAll("tr[data-id]").Single(r => r.TextContent.Contains("#wi107")).HasAttribute("data-hidden"));
     }
 
     [Fact(DisplayName = "Adding a subgroup asks for its name in a dialog")]
@@ -339,7 +493,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         ShowList();
 
-        Assert.NotEmpty(board.FindAll("tr.lrow"));
+        Assert.NotEmpty(board.FindAll("tr[data-id]"));
         Assert.Contains("List", nav.Find("button[aria-label=Layout]").TextContent);
     }
 

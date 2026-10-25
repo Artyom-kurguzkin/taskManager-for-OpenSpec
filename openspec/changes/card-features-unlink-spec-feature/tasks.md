@@ -11,6 +11,10 @@
 - [x] 2.2 Remove cross on every feature chip; "+ add" relinks an unlinked one
 - [x] 2.3 Verify in the real app
 
+## 4. List
+
+- [x] 4.1 Stack the features of a list row in their cell
+
 ## 3. Hidden columns
 
 - [x] 3.1 Show how many items each hidden column holds in the side menu, following the filters and the work items / subtasks switch

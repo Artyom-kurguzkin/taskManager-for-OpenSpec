@@ -2,6 +2,8 @@ using Features;
 using Features.PublicDTOs;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
+using Radzen;
+using Radzen.Blazor;
 using TaskManager.Board;
 using TaskManager.Components.Shared;
 using TaskManager.Services;
@@ -22,9 +24,9 @@ public partial class BoardPage
     private IReadOnlyList<Feature> features = [];
     private IReadOnlyList<BoardSection> Sections = [];
     private readonly HashSet<int> selected = [];
-    private readonly HashSet<int> openRows = [];
-    private readonly HashSet<string> shutGroups = [];
-    private bool expandAll;
+
+
+
     private IReadOnlyList<(WorkItem Item, string From)>? dragging;   // the dragged card, or every selected card
     private (IReadOnlyList<string> Siblings, string Key)? draggingColumn;   // a column header or group name being dragged
 
@@ -67,6 +69,10 @@ public partial class BoardPage
         features = FeaturesApi.GetAll();
         Sections = BoardModel.Build(items, features, WorkItemsApi.GetLanes(), O);
         selected.IntersectWith(items.Select(i => i.Id));
+        rows = BoardModel.Rows(Sections, Workspace.FeatureNames);
+        groups = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => (g.First().Column, g.First().Category));
+        if (gridSettings is null && O.ListSettings is string json)
+            try { gridSettings = System.Text.Json.JsonSerializer.Deserialize<DataGridSettings>(json); } catch (System.Text.Json.JsonException) { }
     }
 
     private void Set(BoardOptions options)
@@ -78,10 +84,77 @@ public partial class BoardPage
 
     private void SortBy(string key) => Set(O with { SortBy = key, SortDir = O.SortBy == key ? -O.SortDir : 1 });
 
-    private void ToggleExpandAll()
+    // ── List view: a Radzen DataGrid over the board's columns ──
+    private RadzenDataGrid<GridRow>? grid;
+    private IReadOnlyList<GridRow> rows = [];
+    private Dictionary<int, (BoardColumn Column, string? Category)> groups = [];
+    private DataGridSettings? gridSettings;   // column widths, order, visibility, sort and filters, remembered per repository
+    private readonly HashSet<string> shutGroups = [];   // collapsed groups, by column key (kept across re-renders and data reloads)
+
+    private bool Shown(string column) => !BoardModel.IsHidden(O, BoardModel.ListColumnKey(column));
+
+    private bool? compactApplied;             // the compact setting last pushed into the grid's expanded rows
+
+    private (BoardColumn Column, string? Category) GroupOf(Group g) => groups[Convert.ToInt32(g.Data.Key)];
+
+    /// <summary>Marks the row for the drag script, cell copy and styling, and gives it the board's drop handlers.</summary>
+    private void RowRender(RowRenderEventArgs<GridRow> args)
     {
-        expandAll = !expandAll;
-        if (!expandAll) openRows.Clear();
+        GridRow row = args.Data!;   // Radzen declares it nullable; a row always has one
+        args.Expandable = false;   // the row's own chevron expands it
+        if (row.Item is not WorkItem it)
+        {
+            args.Attributes["data-empty"] = "";   // an empty column's placeholder: dropping on it lands in that column
+            args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(row.Column, null));
+            return;
+        }
+        args.Attributes["data-id"] = it.Id;
+        args.Attributes["data-row"] = row.Key;
+        if (selected.Contains(it.Id)) args.Attributes["data-selected"] = "";
+        if (it.Hidden) args.Attributes["data-hidden"] = "";
+        args.Attributes["onclick"] = EventCallback.Factory.Create<MouseEventArgs>(this, e => { if (e.ShiftKey || e.CtrlKey || e.MetaKey) ToggleSelect(it); });   // the board's select click, anywhere on the row
+        args.Attributes["ondragstart"] = EventCallback.Factory.Create<DragEventArgs>(this, () => StartCardDrag(it, row.Column.Key));
+        args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => DropBefore(row.Column, null, it));
+    }
+
+    /// <summary>A group row stands for its column: a drop on it lands at the column's end.</summary>
+    private void GroupRowRender(GroupRowRenderEventArgs args)
+    {
+        BoardColumn col = GroupOf(args.Group!).Column;
+        args.Attributes["data-group"] = col.Key;
+        args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(col, null));
+        args.Expanded = !shutGroups.Contains(col.Key);
+    }
+
+    private async Task ToggleRow(GridRow row)
+    {
+        if (grid is null) return;
+        if (grid.IsRowExpanded(row)) await grid.CollapseRows([row]); else await grid.ExpandRow(row);
+    }
+
+    private void SaveGridSettings(DataGridSettings settings)
+    {
+        gridSettings = settings;
+        O = O with { ListSettings = System.Text.Json.JsonSerializer.Serialize(settings) };
+        if (Workspace.Root is string root) Settings.SaveBoard(root, O);   // no Load: nothing on the board changed
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (grid is null) return;
+        if (grid.Groups.Count == 0)   // the grid always groups by the board column; the group panel stays hidden (AllowGrouping is off)
+        {
+            grid.Groups.Add(new GroupDescriptor { Property = nameof(GridRow.Group), Title = "Column" });
+            await grid.Reload();
+            return;
+        }
+        if (compactApplied != O.Compact)   // compact off: every row shows its subtasks; on: only rows opened by hand
+        {
+            compactApplied = O.Compact;
+            List<GridRow> withSubtasks = rows.Where(r => r.Item is { Subtasks.Count: > 0 }).ToList();
+            if (O.Compact) await grid.CollapseRows(withSubtasks.Where(grid.IsRowExpanded));
+            else await grid.ExpandRows(withSubtasks.Where(r => !grid.IsRowExpanded(r)));
+        }
     }
 
     private static void Toggle<T>(HashSet<T> set, T value)
