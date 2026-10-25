@@ -1,5 +1,6 @@
 using Markdig;
 using Microsoft.AspNetCore.Components;
+using WorkItems;
 
 namespace TaskManager.Components;
 
@@ -18,6 +19,11 @@ public static class Ui
     };
 
     public static string PriorityColor(string priority) => priority == "high" ? "--peach" : "--stone";
+
+    /// <summary>The choices a Pill / Dropdown offers for each work item field, as (value, label).</summary>
+    public static readonly IReadOnlyList<(string Value, string Label)> StatusOptions = WorkItemsApi.Statuses.Select(s => (s, s)).ToList();
+    public static readonly IReadOnlyList<(string Value, string Label)> PriorityOptions = [("high", "high"), ("low", "lower")];
+    public static readonly IReadOnlyList<(string Value, string Label)> LabelOptions = [("", "none"), .. WorkItemsApi.Labels.Select(l => (l, l))];
 
     public static string LabelColor(string label) => label switch
     {

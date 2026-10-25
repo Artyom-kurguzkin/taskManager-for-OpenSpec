@@ -1,0 +1,7 @@
+@* The page's way back: the browser history, so it returns to wherever the page was opened from (board, list or another page). *@
+@inject IJSRuntime Js
+<button class="sheet-close" aria-label="Back" title="Back to the previous page (Esc)" @onclick="Back">@Ui.Icon("back")</button>
+
+@code {
+    private async Task Back() => await Js.InvokeVoidAsync("history.back");
+}

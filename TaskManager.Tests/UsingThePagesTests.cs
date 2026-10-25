@@ -131,8 +131,8 @@ public sealed class UsingThePagesTests : IDisposable
         WorkItemsApi.UnlinkFeature(123, "non-functional/availability");
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        page.Find("button[aria-label='add feature']").Click();
-        page.FindAll(".menu-item").Single(i => i.TextContent.Contains("Availability")).Click();
+        page.Find("[aria-label='add feature']").Click();
+        page.FindAll(".rz-dropdown-item").Single(i => i.TextContent.Contains("Availability")).Click();
 
         Assert.Contains(new WorkItems.PublicDTOs.FeatureLink("non-functional/availability", true), WorkItemsApi.Get(123)!.Features);
     }
@@ -303,9 +303,9 @@ public sealed class UsingThePagesTests : IDisposable
 
         // Status stays read-only
         Assert.Contains("Completed", page.Find(".status-field").TextContent);
-        Assert.Empty(page.FindAll(".status-field button.dd"));
+        Assert.Empty(page.FindAll(".status-field .dd"));
         // Other fields are editable: priority, label, feature and contributor dropdowns
-        Assert.NotEmpty(page.FindAll("button.dd"));
+        Assert.NotEmpty(page.FindAll(".dd"));
         Assert.NotEmpty(page.FindAll(".desc.edit"));
     }
 
@@ -377,11 +377,10 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
 
-        page.Find(".status-field button.dd").Click();
-        page.FindAll(".menu-item").First(i => i.TextContent.Trim() == "Completed").Click();
+        page.Find(".status-field .dd").Click();
+        page.FindAll(".status-field .rz-dropdown-item").First(i => i.TextContent.Trim() == "Completed").Click();
 
         overlays!.WaitForAssertion(() => Assert.Contains("Complete and archive?", overlays.Find(".dialog").TextContent));
-        Assert.Empty(page.FindAll(".menu-item"));   // the menu closed before the dialog opened
         overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Cancel").Click();
 
         overlays.WaitForAssertion(() => Assert.Empty(overlays.FindAll(".dialog")));

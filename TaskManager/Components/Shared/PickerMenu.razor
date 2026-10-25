@@ -1,0 +1,57 @@
+@typeparam TItem
+@* A "+ …" button that opens a list with a filter box; picking an entry closes it. Used wherever something existing is linked:
+   a contributor, a commit, a test, another work item. With OnTyped, text that matches nothing is offered as a new entry. *@
+<Menu Label="@Label" Class="@Class">
+    <Activator><button type="button" class="@ButtonClass" data-sk="@(Boxed ? "" : null)" aria-label="@Label">@ButtonText</button></Activator>
+    <Items>
+        <input class="menu-filter" placeholder="@Placeholder" aria-label="@Placeholder" @bind="filter" @bind:event="oninput" @onkeydown="OnKey" />
+        @foreach (TItem item in Items.Where(Matches))
+        {
+            <MenuItem OnClick="() => Pick(item)">@ItemTemplate(item)</MenuItem>
+        }
+        @if (OnTyped.HasDelegate && Typed is string typed && !Items.Any(i => Text(i).Any(f => f.Equals(typed, StringComparison.OrdinalIgnoreCase))))
+        {
+            <MenuItem OnClick="() => Add(typed)">+ add “@typed”</MenuItem>
+        }
+    </Items>
+</Menu>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string ButtonText { get; set; } = "+ add";
+    /// <summary>add: a quiet "+ …" text button. box dd mini: boxed, beside chips in a page header.</summary>
+    [Parameter] public string ButtonClass { get; set; } = "add";
+    [Parameter] public bool Boxed { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Filter…";
+    [Parameter] public string Class { get; set; } = "";
+    [Parameter, EditorRequired] public IEnumerable<TItem> Items { get; set; } = [];
+    /// <summary>The fields the filter text is matched against.</summary>
+    [Parameter, EditorRequired] public Func<TItem, string[]> Text { get; set; } = _ => [];
+    [Parameter, EditorRequired] public RenderFragment<TItem> ItemTemplate { get; set; } = default!;
+    [Parameter] public EventCallback<TItem> OnPick { get; set; }
+    /// <summary>Called with the typed text (Enter, or the "+ add" entry) when it names nothing in the list.</summary>
+    [Parameter] public EventCallback<string> OnTyped { get; set; }
+
+    private string filter = "";
+
+    private string? Typed => filter.Trim() is { Length: > 0 } t ? t : null;
+
+    private bool Matches(TItem item) => Typed is not string t || Text(item).Any(f => f.Contains(t, StringComparison.OrdinalIgnoreCase));
+
+    private async Task Pick(TItem item)
+    {
+        filter = "";
+        await OnPick.InvokeAsync(item);
+    }
+
+    private async Task Add(string typed)
+    {
+        filter = "";
+        await OnTyped.InvokeAsync(typed);
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && OnTyped.HasDelegate && Typed is string typed) await Add(typed);
+    }
+}

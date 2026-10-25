@@ -1,21 +1,10 @@
-@* Styled select: a boxed button that opens a Menu list (native <select> popups can't be styled). *@
-<Menu Label="@Label">
-    <Activator>
-        <button type="button" class="box dd @Class" data-sk style="@Style" aria-haspopup="listbox" aria-label="@Label">
-            @if (Swatch is not null) { <i class="sw-dot" style="background:var(@Swatch(Value))"></i> }
-            <span>@DisplayText</span>@Ui.Icon("caret")
-        </button>
-    </Activator>
-    <Items>
-        @foreach ((string value, string label) in Options)
-        {
-            <MenuItem OnClick="() => ValueChanged.InvokeAsync(value)" Class="@(value == Value ? "cur" : "")">
-                @if (Swatch is not null) { <i class="sw-dot" style="background:var(@Swatch(value))"></i> }
-                @label
-            </MenuItem>
-        }
-    </Items>
-</Menu>
+@* Styled select over RadzenDropDown, which brings keyboard navigation and the listbox roles; app.css dresses its trigger and
+   panel the same way as the list's filter dropdowns. Options are (value, label) pairs; an optional swatch colours each. *@
+<RadzenDropDown TValue="string" Data="Opts" TextProperty="Label" ValueProperty="Value" Value="@Value" ValueChanged="v => ValueChanged.InvokeAsync(v)"
+                Placeholder="@Placeholder" Name="@Label" aria-label="@Label" class="@($"dd {Class}")" Style="@Style" Disabled="Disabled">
+    <Template Context="o">@Row((Opt)o)</Template>
+    <ValueTemplate Context="o">@Row((Opt)o)</ValueTemplate>
+</RadzenDropDown>
 
 @code {
     [Parameter] public string Label { get; set; } = "";
@@ -25,13 +14,20 @@
     [Parameter] public string Placeholder { get; set; } = "";
     [Parameter] public string Class { get; set; } = "";
     [Parameter] public string? Style { get; set; }
+    [Parameter] public bool Disabled { get; set; }
     /// <summary>Optional colour token per value (e.g. status band) shown as a swatch.</summary>
     [Parameter] public Func<string, string>? Swatch { get; set; }
 
-    /// <summary>
-    /// The current value's label, so a selection is never shown as blank. Placeholder is for "nothing picked yet"
-    /// (an empty Value); a non-empty Value with no matching option (stale or legacy data) falls back to showing
-    /// the raw value rather than hiding it.
-    /// </summary>
-    private string DisplayText => Options.FirstOrDefault(o => o.Value == Value).Label ?? (string.IsNullOrEmpty(Value) ? Placeholder : Value);
+    private sealed record Opt(string Value, string Label);
+
+    // A non-empty value that no option names (stale or legacy data) is still shown, as itself, rather than as nothing.
+    private IEnumerable<Opt> Opts => Options.Any(o => o.Value == Value) || string.IsNullOrEmpty(Value)
+        ? Options.Select(o => new Opt(o.Value, o.Label))
+        : Options.Select(o => new Opt(o.Value, o.Label)).Append(new Opt(Value, Value));
+
+    private RenderFragment Row(Opt o) => __builder =>
+    {
+        @if (Swatch is not null) { <i class="sw-dot" style="background:var(@Swatch(o.Value))"></i> }
+        <span>@o.Label</span>
+    };
 }

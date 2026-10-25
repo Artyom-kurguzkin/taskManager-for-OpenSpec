@@ -1,0 +1,11 @@
+@* The page for an id that no longer exists (merged, deleted, or a stale link). *@
+<div class="sheet" data-sk>
+    <h2>@What not found</h2>
+    <p class="muted">@ChildContent <a href="">Back to the board</a></p>
+</div>
+
+@code {
+    /// <summary>What was looked for, e.g. "#wi12".</summary>
+    [Parameter, EditorRequired] public string What { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

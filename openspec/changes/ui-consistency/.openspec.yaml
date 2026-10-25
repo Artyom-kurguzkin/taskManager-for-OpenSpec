@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-10-26
+x-rtm:
+  id: 61
+  title: One look on every screen
+  status: In Review
+  tests: [{suite: UsingTheBoardTests, test: "A dropdown whose current value isn't in its options still shows that value, not blank"}, {suite: UsingTheBoardTests, test: "Opening the group-by dropdown and picking bucket regroups the board into sections"}, {suite: UsingTheBoardTests, test: "List cells wear their colours: status, label and priority are filled pills, and a status group's name wears its band"}, {suite: UsingTheBoardTests, test: "In the list, an item's features stay on one line: the first as a tag, the rest as a count, all of them in the tooltip"}, {suite: UsingThePagesTests, test: "Choosing Completed asks before archiving, and Cancel leaves the item as it was"}, {suite: UsingThePagesTests, test: "A feature unlinked from specs/ is offered again in + add, and adding it links it back"}]

@@ -2,7 +2,7 @@
 @using TaskManager.Board
 @using WorkItems
 @using WorkItems.PublicDTOs
-@implements IDisposable
+@inherits RepoPage
 
 @if (Workspace.Root is null)
 {
@@ -84,20 +84,19 @@
                     </Template>
                     <GroupFooterTemplate>
                         @{ BoardColumn fcol = GroupOf(context).Column; }
-                        @if (!(O.GroupBy == "status" && fcol.Label == "Completed")) { <button class="add-row" @onclick="() => NewItem(fcol.Key)">+ Add item</button> }   @* completed = archived by the CLI, not created here *@
+                        @if (!(O.GroupBy == "status" && fcol.Label == "Completed")) { <button class="add" @onclick="() => NewItem(fcol.Key)">+ Add item</button> }   @* completed = archived by the CLI, not created here *@
                     </GroupFooterTemplate>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Status" Title="Status" Visible="@Shown("Status")" HeaderTemplate="@Head("Status")" Width="120px">
                     <Template Context="row">
                         @if (row.Item is WorkItem it)
                         {
-                            @if (it.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(it.Status))">@it.Status</span> }
-                            else { <Dropdown Label="status" Class="cell filled" Style="@($"--fill:var({Ui.Band(it.Status)})")" Swatch="Ui.Band" Options="Statuses" Value="@it.Status" ValueChanged="v => SetStatus(it, v)" /> }
+                            <Pill Kind="status" Value="@it.Status" ReadOnly="it.Archived" ValueChanged="v => SetStatus(it, v)" />
                         }
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Label" Title="Label" Visible="@Shown("Label")" HeaderTemplate="@Head("Label")" Width="126px">
-                    <Template Context="row">@if (row.Item is WorkItem it) { <Dropdown Label="label" Class="cell filled" Style="@($"--fill:var({Ui.LabelColor(it.Label ?? "")})")" Swatch="Ui.LabelColor" Options="LabelOptions" Value="@(it.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(it.Id, v))" /> }</Template>
+                    <Template Context="row">@if (row.Item is WorkItem it) { <Pill Kind="label" Value="@(it.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(it.Id, v))" /> }</Template>
                 </RadzenDataGridColumn>
                 @* features on one line: the first as a tag, the rest as "+N"; the tooltip names them all *@
                 <RadzenDataGridColumn TItem="GridRow" Property="Features" Title="Features" Visible="@Shown("Features")" HeaderTemplate="@Head("Features")" Width="132px">
@@ -105,13 +104,13 @@
                         @if (row.Item is WorkItem { Features.Count: > 0 } it)
                         {
                             List<string> names = it.Features.Select(f => Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)).ToList();
-                            <div class="feat-line" title="@string.Join(", ", names)"><span class="tag">@names[0]</span>@if (names.Count > 1) { <span class="more muted num">+@(names.Count - 1)</span> }</div>
+                            <div class="feat-line" title="@string.Join(", ", names)"><span class="feat">@names[0]</span>@if (names.Count > 1) { <span class="more muted num">+@(names.Count - 1)</span> }</div>
                         }
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Contributors" Title="Contributors" Visible="@Shown("Contributors")" HeaderTemplate="@Head("Contributors")" Width="130px" />
                 <RadzenDataGridColumn TItem="GridRow" Property="Priority" Title="Priority" Visible="@Shown("Priority")" HeaderTemplate="@Head("Priority")" Width="100px">
-                    <Template Context="row">@if (row.Item is WorkItem it) { <Dropdown Label="priority" Class="cell filled" Style="@($"--fill:var({Ui.PriorityColor(it.Priority)})")" Swatch="Ui.PriorityColor" Options="Priorities" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /> }</Template>
+                    <Template Context="row">@if (row.Item is WorkItem it) { <Pill Kind="priority" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Progress" Title="Progress" Visible="@Shown("Progress")" HeaderTemplate="@Head("Progress")" Width="96px" Filterable="false">
                     <Template Context="row">@if (row.Item is WorkItem it) { <span class="prog"><i style="width:@(row.Progress)%"></i></span> <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span> }</Template>
@@ -133,7 +132,7 @@ else
                     {
                         <div class="cat-h">
                             <h2>@sec.Category</h2>
-                            @if (O.GroupBy is "bucket" or "feature") { <button class="btn ghost sm" @onclick="() => AddFeature(sec.Category)">+ feature</button> }
+                            @if (O.GroupBy is "bucket" or "feature") { <button class="add" @onclick="() => AddFeature(sec.Category)">+ feature</button> }
                         </div>
                     }
                     @* a header dropped past the last column (the drag script sends that drop to the row) *@

@@ -8,3 +8,4 @@ x-rtm:
   contributors: [Artyom-kurguzkin]
   features: [board]
   hidden: true
+  tests: [{suite: UsingTheBoardTests, test: "A grid column is hidden from the × in its header and listed under Hidden in the side menu, where the eye brings it back"}, {suite: UsingTheBoardTests, test: "Clicking a column header offers Hide; the hidden column then shows in the side menu to bring back"}, {suite: UsingTheBoardTests, test: "Dragging the Backlog header past the last column moves it to the end; onto a column puts it in front"}, {suite: ArrangingTheBoardTests, test: "Hidden columns report how many items they hold, following the contributor filter and the work items / subtasks switch"}]

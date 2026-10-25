@@ -5,11 +5,11 @@
 @using Notes.PublicDTOs
 @using WorkItems
 @using WorkItems.PublicDTOs
-@implements IDisposable
+@inherits RepoPage
 
 @if (item is null)
 {
-    <div class="sheet" data-sk><h2>#wi@(Id) not found</h2><p class="muted">It may have been merged or deleted. <a href="">Back to the board</a></p></div>
+    <NotFound What="@($"#wi{Id}")">It may have been merged or deleted.</NotFound>
     return;
 }
 
@@ -22,7 +22,7 @@
         {
             <button class="btn ghost hide-item" title="Shows it on the board again" @onclick="() => Run(WorkItemsApi.Unhide(item.Id))">Restore</button>
         }
-        <button class="sheet-close" aria-label="Back" title="Back to the previous page (Esc)" @onclick="Back">@Ui.Icon("back")</button>
+        <BackButton />
     </div>
     @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
     <div class="head kvs">
@@ -40,32 +40,12 @@
                 <span class="chip x" title="Remove" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Where(x => x != p)))">@p</span>
             }
             @* known people, or any name typed in the filter *@
-            <Menu Label="Add a contributor">
-                <Activator><button type="button" class="box dd mini" data-sk aria-label="Add a contributor"><span>+ add</span>@Ui.Icon("caret")</button></Activator>
-                <Items>
-                    <input class="menu-filter" placeholder="Type a name…" aria-label="Contributor name" @bind="pickFilter" @bind:event="oninput"
-                           @onkeydown="AddTypedOnEnter" />
-                    @foreach (string p in PeopleChoices.Where(p => Matches(p)))
-                    {
-                        <MenuItem OnClick="() => AddContributor(p)">@p</MenuItem>
-                    }
-                    @if (pickFilter.Trim() is { Length: > 0 } typed && !item.Contributors.Contains(typed) && !PeopleChoices.Contains(typed))
-                    {
-                        <MenuItem OnClick="() => AddContributor(typed)">+ add “@typed”</MenuItem>
-                    }
-                </Items>
-            </Menu>
+            <PickerMenu TItem="string" Label="Add a contributor" ButtonClass="box dd mini" Boxed Placeholder="Type a name…" Items="PeopleChoices" Text="p => [p]"
+                        OnPick="AddContributor" OnTyped="AddContributor"><ItemTemplate Context="p">@p</ItemTemplate></PickerMenu>
         </div>
-        <div class="kv status-field"><label>status</label>
-            @if (item.Archived) { <span class="box cell filled" data-sk style="--fill:var(@Ui.Band(item.Status))">@item.Status</span> }
-            else { <Dropdown Label="status" Options="Statuses" Value="@item.Status" Swatch="Ui.Band" Style="@($"--fill:var({Ui.Band(item.Status)})")" Class="cell filled" ValueChanged="SetStatus" /> }
-        </div>
-        <div class="kv"><label>priority</label>
-            <Dropdown Label="priority" Options="Priorities" Value="@item.Priority" Swatch="Ui.PriorityColor" Style="@($"--fill:var({Ui.PriorityColor(item.Priority)})")" Class="cell filled" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" />
-        </div>
-        <div class="kv"><label>label</label>
-            <Dropdown Label="label" Options="LabelChoices" Value="@(item.Label ?? "")" Swatch="Ui.LabelColor" Style="@($"--fill:var({Ui.LabelColor(item.Label ?? "")})")" Class="cell filled" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" />
-        </div>
+        <div class="kv status-field"><label>status</label><Pill Kind="status" Value="@item.Status" ReadOnly="item.Archived" ValueChanged="SetStatus" /></div>
+        <div class="kv"><label>priority</label><Pill Kind="priority" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" /></div>
+        <div class="kv"><label>label</label><Pill Kind="label" Value="@(item.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" /></div>
     </div>
     @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
 
@@ -139,16 +119,10 @@
                 @if (!item.Archived)
                 {
                     @* an existing work item this one has to wait on (typing its id above does the same) *@
-                    <Menu Label="Wait on another work item">
-                        <Activator><button type="button" class="btn" data-sk aria-label="Wait on another work item">+ wait on another work item</button></Activator>
-                        <Items>
-                            <input class="menu-filter" placeholder="Filter work items…" aria-label="Filter work items" @bind="pickFilter" @bind:event="oninput" />
-                            @foreach (WorkItem w in DependencyChoices.Where(w => Matches($"#wi{w.Id}", w.Title, w.Status)))
-                            {
-                                <MenuItem OnClick="() => LinkDependency(w.Id)"><span class="mono">#wi@(w.Id)</span> @w.Title <span class="muted">· @w.Status</span></MenuItem>
-                            }
-                        </Items>
-                    </Menu>
+                    <PickerMenu TItem="WorkItem" Label="Wait on another work item" ButtonText="+ wait on another work item" Placeholder="Filter work items…"
+                                Items="DependencyChoices" Text="@(w => [$"#wi{w.Id}", w.Title, w.Status])" OnPick="w => LinkDependency(w.Id)">
+                        <ItemTemplate Context="w"><span class="mono">#wi@(w.Id)</span> @w.Title <span class="muted">· @w.Status</span></ItemTemplate>
+                    </PickerMenu>
                 }
                 @if (!item.Archived) { <span class="muted">Type another item's id (#wi12) to wait on it. Click a subtask to edit it. Shift-click to select it (or several), then make it a work item of its own.</span> }
             }
@@ -192,16 +166,11 @@
                     }
                     @if (GitHistoryApi.IsRepository())
                     {
-                        <Menu Label="Link a commit">
-                            <Activator><button class="btn" data-sk aria-label="Link a commit">+ link commit</button></Activator>
-                            <Items>
-                                <input class="menu-filter" placeholder="Filter commits…" aria-label="Filter commits" @bind="pickFilter" @bind:event="oninput" />
-                                @foreach (CommitInfo c in GitHistoryApi.Recent(50).Where(c => !commits.Any(x => x.Hash == c.Hash) && Matches(c.Hash, c.Subject, c.Author)))
-                                {
-                                    <MenuItem OnClick="() => Run(WorkItemsApi.SetLinkedCommits(item.Id, [.. item.Commits ?? [], c.Hash]))"><span class="mono">@c.Hash</span> @c.Subject <span class="muted">· @c.Author</span></MenuItem>
-                                }
-                            </Items>
-                        </Menu>
+                        <PickerMenu TItem="CommitInfo" Label="Link a commit" ButtonText="+ link commit" Placeholder="Filter commits…"
+                                    Items="GitHistoryApi.Recent(50).Where(c => commits.All(x => x.Hash != c.Hash))" Text="c => [c.Hash, c.Subject, c.Author]"
+                                    OnPick="c => Run(WorkItemsApi.SetLinkedCommits(item.Id, [.. item.Commits ?? [], c.Hash]))">
+                            <ItemTemplate Context="c"><span class="mono">@c.Hash</span> @c.Subject <span class="muted">· @c.Author</span></ItemTemplate>
+                        </PickerMenu>
                     }
                 </div>
             }
@@ -229,7 +198,7 @@
                             <div class="test @Outcome(t)">
                                 @if (t.Note is int note) { <button class="row-title" @onclick="@(() => Nav.NavigateTo($"note/{note}"))">@t.Test</button> } else { <span>@t.Test</span> }
                                 <span class="muted">@Outcome(t)</span>
-                                @if (t.Note is null) { <button class="btn ghost" aria-label="Add a note for this test" @onclick="() => AddTestNote(t)">+ note</button> }
+                                @if (t.Note is null) { <button class="add" aria-label="Add a note for this test" @onclick="() => AddTestNote(t)">+ note</button> }
                                 <button class="ic" aria-label="Unlink test" title="Unlink" @onclick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, item.Tests!.Where(x => x != t)))">×</button>
                             </div>
                         }
@@ -237,17 +206,11 @@
                     @if (run.File is null) { <p class="muted">@(run.Globs.Count == 0 ? "No test results configured: list result files under x-rtm.testResults in openspec/config.yaml." : $"No results file found at {string.Join(", ", run.Globs)}.")</p> }
                     @if (run.File is not null)
                     {
-                        <Menu Label="Link a test">
-                            <Activator><button class="btn" data-sk aria-label="Link a test">+ link test</button></Activator>
-                            <Items>
-                                <input class="menu-filter" placeholder="Filter tests…" aria-label="Filter tests" @bind="pickFilter" @bind:event="oninput" />
-                                @foreach (LinkedTestRuns.PublicDTOs.TestResult r in run.Results.Where(r => !(item.Tests ?? []).Any(t => t.Suite == r.Suite && t.Test == r.Test) && Matches(r.Suite, r.Test))
-                                    .OrderBy(r => r.Suite, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Test, StringComparer.OrdinalIgnoreCase))
-                                {
-                                    <MenuItem OnClick="() => Run(WorkItemsApi.SetLinkedTests(item.Id, [.. item.Tests ?? [], new TestLink(r.Suite, r.Test, null)]))"><span class="muted">@r.Suite /</span> @r.Test</MenuItem>
-                                }
-                            </Items>
-                        </Menu>
+                        <PickerMenu TItem="LinkedTestRuns.PublicDTOs.TestResult" Label="Link a test" ButtonText="+ link test" Placeholder="Filter tests…"
+                                    Items="UnlinkedTests" Text="r => [r.Suite, r.Test]"
+                                    OnPick="r => Run(WorkItemsApi.SetLinkedTests(item.Id, [.. item.Tests ?? [], new TestLink(r.Suite, r.Test, null)]))">
+                            <ItemTemplate Context="r"><span class="muted">@r.Suite /</span> @r.Test</ItemTemplate>
+                        </PickerMenu>
                     }
                 </div>
             }
@@ -270,7 +233,7 @@
                     }
                     @if (notes.Count == 0) { <p class="muted">No entries yet.</p> }
                 </div>
-                <button class="btn" data-sk @onclick="AddNote">+ Add entry</button>
+                <button class="add" @onclick="AddNote">+ Add entry</button>
             }
         </section>
     </div>
@@ -288,9 +251,6 @@
 
 @code {
     [Parameter] public int Id { get; set; }
-    [Inject] private Workspace Workspace { get; set; } = default!;
-    [Inject] private NavigationManager Nav { get; set; } = default!;
-    [Inject] private UiService Popups { get; set; } = default!;
     [Inject] private IJSRuntime Js { get; set; } = default!;
 
     private WorkItem? item;
@@ -300,17 +260,15 @@
     private IReadOnlyList<CommitInfo> commits = [];
     private IReadOnlyList<Note> notes = [];
     private LinkedTestRuns.PublicDTOs.TestRun run = new(null, [], []);
-    private string pickFilter = "";   // text typed in the commit / test picker
-
-    private bool Matches(params string[] fields) => pickFilter.Trim().Length == 0 || fields.Any(f => f.Contains(pickFilter.Trim(), StringComparison.OrdinalIgnoreCase));
     private readonly HashSet<string> subSel = [];
+
+    /// <summary>Results in the newest run that are not linked yet, by suite and name.</summary>
+    private IEnumerable<LinkedTestRuns.PublicDTOs.TestResult> UnlinkedTests => run.Results
+        .Where(r => !(item!.Tests ?? []).Any(t => t.Suite == r.Suite && t.Test == r.Test))
+        .OrderBy(r => r.Suite, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Test, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A linked test's outcome in the newest results file: passed, failed, skipped, or "no result".</summary>
     private string Outcome(TestLink t) => run.Results.FirstOrDefault(r => r.Suite == t.Suite && r.Test == t.Test)?.Outcome ?? "no result";
-
-    private static readonly IReadOnlyList<(string, string)> Statuses = WorkItemsApi.Statuses.Select(s => (s, s)).ToList();
-    private static readonly IReadOnlyList<(string, string)> Priorities = [("high", "high"), ("low", "lower")];
-    private static readonly IReadOnlyList<(string, string)> LabelChoices = [("", "none"), .. WorkItemsApi.Labels.Select(l => (l, l))];
 
     private IReadOnlyList<(string, string)> FeatureChoices =>
         Features.FeaturesApi.GetAll().Where(f => item!.Features.All(x => x.Path != f.Path)).Select(f => (f.Path, $"{f.Group} · {f.Name}")).ToList();
@@ -322,18 +280,7 @@
 
     private void AddContributor(string person) => Run(WorkItemsApi.SetContributors(Id, item!.Contributors.Append(person)));
 
-    private void AddTypedOnEnter(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter" && pickFilter.Trim() is { Length: > 0 } typed) AddContributor(typed);
-    }
-
-    protected override void OnInitialized() => Workspace.Changed += OnChanged;
-
-    protected override void OnParametersSet() => Load();
-
-    private void OnChanged() => InvokeAsync(() => { Load(); StateHasChanged(); });
-
-    private void Load()
+    protected override void Load()
     {
         item = WorkItemsApi.Get(Id);
         if (item is null) return;
@@ -341,14 +288,7 @@
         notes = NotesApi.GetForWorkItem(Id).OrderByDescending(n => n.Created).ThenByDescending(n => n.Id).ToList();
         commits = [.. (item.MergedFrom ?? []).Prepend(Id).SelectMany(n => GitHistoryApi.Mentioning($"#wi{n}")).Concat(GitHistoryApi.Commits(item.Commits ?? [])).DistinctBy(c => c.Hash)];   // a merged item also owns what mentions its sources
         run = LinkedTestRuns.LinkedTestRunsApi.Latest();
-        pickFilter = "";
         subSel.IntersectWith(item.Subtasks.Select(s => s.Number));
-    }
-
-    private void Run((bool Success, string Message) result)
-    {
-        if (!Workspace.Do(result).Success) Popups.Toast(result.Message, ToastKind.Warning);
-        Load();
     }
 
     private async Task SetStatus(string status)
@@ -499,7 +439,6 @@
         if (ok) Popups.Toast(WorkItemsApi.Get(dep) is { } d && WorkItemsApi.IsResolved(d)
             ? $"Linked #wi{dep} — it's already {(d.Archived ? "Completed" : d.Status)}, so it doesn't block this item"
             : $"Waiting on #wi{dep} — this item is Blocked until it's in review or done", ToastKind.Success);
-        pickFilter = "";
     }
 
     private void MoveSubtasks()
@@ -540,7 +479,4 @@
         Workspace.Notify();
     }
 
-    private async Task Back() => await Js.InvokeVoidAsync("history.back");
-
-    public void Dispose() => Workspace.Changed -= OnChanged;
 }

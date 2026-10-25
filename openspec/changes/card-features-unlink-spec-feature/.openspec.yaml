@@ -6,3 +6,4 @@ x-rtm:
   status: In Review
   contributors: [Artyom-kurguzkin]
   label: enhancement
+  tests: [{suite: UsingTheBoardTests, test: "A card shows its title on a band coloured by status, its features and its #wi tag"}, {suite: UsingTheBoardTests, test: "In the list, an item's features stay on one line: the first as a tag, the rest as a count, all of them in the tooltip"}, {suite: UsingThePagesTests, test: "A feature unlinked from specs/ is offered again in + add, and adding it links it back"}, {suite: ArrangingTheBoardTests, test: "Hidden columns report how many items they hold, following the contributor filter and the work items / subtasks switch"}]

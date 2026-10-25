@@ -14,7 +14,7 @@ Each list row SHALL have a drag grip. Dragging it in front of another row of its
 ### Requirement: Move rows with the keyboard
 With rows selected (Shift-click, as on the board; the list has no tick boxes), the arrow keys SHALL move them as on the board, whatever has the keyboard focus, as long as the user is not typing in a field.
 
-#### Scenario: Arrow after checking a row
+#### Scenario: Arrow after selecting a row
 - **WHEN** the user Shift-clicks a row and presses the up arrow
 - **THEN** the row moves up one place and the page does not scroll
 
@@ -33,16 +33,16 @@ Dragging across the cells of work item rows, from any cell, SHALL select the rec
 - **WHEN** the user drags from the ID cell of the first Backlog row to the ID cell of the fourth and presses Ctrl+C
 - **THEN** the clipboard holds the four ids, one per line, and nothing else; a row's several features are joined by commas
 
-### Requirement: List header controls
-The last cell of the list header SHALL hold a chevron that collapses every group, and expands them all again. The side menu's compact switch SHALL work in the list too: off, every row shows its subtasks; on, only rows the user opened with their own chevron do.
+### Requirement: Groups and subtasks in the list
+Each group header in the list SHALL have a chevron that collapses that group to its heading and opens it again. The side menu's compact switch SHALL hide every row's subtasks and show them all again; it SHALL NOT collapse groups, and there SHALL be no separate "collapse all" control.
 
-#### Scenario: Collapse all groups
-- **WHEN** the user clicks the chevron at the right end of the header
-- **THEN** every group collapses to its heading, and clicking it again expands them all
+#### Scenario: Collapse one group
+- **WHEN** the user clicks the chevron of the Planned group
+- **THEN** Planned collapses to its heading; the other groups stay as they were
 
 #### Scenario: Subtasks follow the compact switch
 - **WHEN** the list shows every subtask and the user turns the compact switch on in the side menu
-- **THEN** the subtask rows disappear, and a row's own chevron still opens that row
+- **THEN** the subtask rows disappear while every work item row and group stays; off again, every subtask shows
 
 ## MODIFIED Requirements
 
@@ -91,7 +91,7 @@ The list SHALL be laid out like the list views of task managers (Asana, Linear, 
 
 #### Scenario: One-line rows
 - **WHEN** a title is longer than its column
-- **THEN** it is cut with an ellipsis and shown whole in a tooltip; the status is a coloured dot and name; features show the first by name and the rest as a count, all named in a tooltip
+- **THEN** it is cut with an ellipsis and shown whole in a tooltip; the status, label and priority are pills in their colours; features show the first by name and the rest as a count, all named in a tooltip
 
 #### Scenario: Quiet header
 - **WHEN** the user hovers the Title header

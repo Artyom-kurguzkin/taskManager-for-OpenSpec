@@ -18,9 +18,9 @@ Each hidden column listed in the expanded side menu SHALL show how many items it
 - **WHEN** Blocked, which holds one work item, is hidden
 - **THEN** the side menu lists Blocked with the number 1 before its show control
 
-### Requirement: Stacked features in the list
-In the list view, a work item's features SHALL be stacked on top of each other in the Features cell, one per line, so an item with many features makes its row taller and never widens the column beyond its longest feature name.
+### Requirement: Features in a list row
+In the list view, a work item's features SHALL stay on one line in the Features cell: the first as a dashed chip (as on a card) and the rest as a "+N" count, with every feature named in the cell's tooltip, so a row keeps its height and the column its width.
 
 #### Scenario: Three features
 - **WHEN** a work item is linked to App shell, Board and Work item editor
-- **THEN** its Features cell shows the three names one above the other
+- **THEN** its Features cell shows "App shell" as a dashed chip and "+2", and its tooltip names all three

@@ -191,7 +191,7 @@ public sealed class UsingTheBoardTests : IDisposable
         ShowList();
 
         AngleSharp.Dom.IElement row = board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123"));
-        Assert.Equal(3, row.QuerySelectorAll("button.box.cell.filled[style*='--fill']").Length);   // status, label, priority
+        Assert.Equal(3, row.QuerySelectorAll(".cell.filled[style*='--fill']").Length);   // status, label, priority
         Assert.Contains("--fill:var(--sun)", Group(board, "In Progress").QuerySelector(".gname")!.GetAttribute("style"));
     }
 
@@ -204,7 +204,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         AngleSharp.Dom.IElement line = board.FindAll("tr[data-id]").Single(r => r.TextContent.Contains("Health-check")).QuerySelector("td .feat-line")!;
 
-        Assert.Equal(["Availability"], line.QuerySelectorAll(".tag").Select(t => t.TextContent.Trim()));
+        Assert.Equal(["Availability"], line.QuerySelectorAll(".feat").Select(t => t.TextContent.Trim()));
         Assert.Equal("+1", line.QuerySelector(".more")!.TextContent.Trim());
         Assert.Equal("Availability, Security", line.GetAttribute("title"));
     }
@@ -244,13 +244,14 @@ public sealed class UsingTheBoardTests : IDisposable
     public void DropdownShowsUnknownValue()
     {
         using BunitContext ctx = new();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         IRenderedComponent<Dropdown> dd = ctx.Render<Dropdown>(p => p
             .Add(c => c.Label, "example")
             .Add(c => c.Options, [("a", "Alpha"), ("b", "Beta")])
             .Add(c => c.Value, "mystery")
             .Add(c => c.Placeholder, "pick one"));
 
-        Assert.Equal("mystery", dd.Find("button.dd span").TextContent.Trim());
+        Assert.Equal("mystery", dd.Find(".dd .rz-dropdown-label").TextContent.Trim());
     }
 
     [Fact(DisplayName = "Opening the group-by dropdown and picking bucket regroups the board into sections")]
@@ -260,9 +261,9 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
         nav!.Find("button.nav-toggle").Click();
-        nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
-        nav.WaitForAssertion(() => Assert.Contains(nav.FindAll(".menu-item"), i => i.TextContent.Trim() == "bucket"));
-        nav.FindAll(".menu-item").First(i => i.TextContent.Trim() == "bucket").Click();
+        nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector(".dd")!.Click();
+        nav.WaitForAssertion(() => Assert.Contains(nav.FindAll(".rz-dropdown-item"), i => i.TextContent.Trim() == "bucket"));
+        nav.FindAll(".rz-dropdown-item").First(i => i.TextContent.Trim() == "bucket").Click();
 
         board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".cat-h")));
     }
@@ -314,12 +315,12 @@ public sealed class UsingTheBoardTests : IDisposable
         ShowList();
 
         AngleSharp.Dom.IElement row = board.FindAll("tr[data-id]").Single(r => r.TextContent.Contains("#wi124"));
-        Assert.NotEmpty(row.QuerySelectorAll("button.dd"));   // label and priority dropdowns
+        Assert.NotEmpty(row.QuerySelectorAll(".dd"));   // label and priority dropdowns
         Assert.Contains("Completed", row.TextContent);
         // status cell is a read-only span, not a dropdown
         AngleSharp.Dom.IElement statusCell = row.QuerySelectorAll("td").First(td => td.QuerySelector(".filled") is not null);
         Assert.NotNull(statusCell.QuerySelector("span.box"));
-        Assert.Null(statusCell.QuerySelector("button.dd"));
+        Assert.Null(statusCell.QuerySelector(".dd"));
         int groups = board.FindAll("tr[data-group]").Count;
         Assert.Equal(groups - 1, board.FindAll("button").Count(b => b.TextContent.Trim() == "+ Add item"));   // every group but Completed
     }
@@ -703,8 +704,8 @@ public sealed class UsingTheBoardTests : IDisposable
     private void GroupByBucket()
     {
         nav!.Find("button.nav-toggle").Click();
-        nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector("button.dd")!.Click();
-        nav.FindAll(".menu-item").First(i => i.TextContent.Trim() == "bucket").Click();
+        nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector(".dd")!.Click();
+        nav.FindAll(".rz-dropdown-item").First(i => i.TextContent.Trim() == "bucket").Click();
     }
 
     private static List<string> Columns(IRenderedComponent<BoardPage> board) => board.FindAll("section.col h3").Select(h => h.TextContent).ToList();

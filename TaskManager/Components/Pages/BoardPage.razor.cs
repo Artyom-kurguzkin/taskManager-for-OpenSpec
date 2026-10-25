@@ -14,10 +14,7 @@ namespace TaskManager.Components.Pages;
 
 public partial class BoardPage
 {
-    [Inject] private Workspace Workspace { get; set; } = default!;
     [Inject] private SettingsStore Settings { get; set; } = default!;
-    [Inject] private NavigationManager Nav { get; set; } = default!;
-    [Inject] private UiService Popups { get; set; } = default!;
 
     private BoardOptions O = new();
     private IReadOnlyList<WorkItem> items = [];
@@ -35,27 +32,20 @@ public partial class BoardPage
     internal static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("bucket", "bucket"), ("label", "label"), ("contributor", "contributor")];
     internal static readonly IReadOnlyList<(string, string)> SortBys =
         [("priority", "priority"), ("feature", "feature"), ("label", "label"), ("who", "contributor"), ("modified", "date modified"), ("created", "date created"), ("status", "status"), ("title", "title"), ("id", "id"), ("manual", "my order")];
-    private static readonly IReadOnlyList<(string, string)> Priorities = [("high", "high"), ("low", "lower")];
-    private static readonly IReadOnlyList<(string, string)> Statuses = WorkItemsApi.Statuses.Select(s => (s, s)).ToList();
     private static readonly IReadOnlyList<(string Key, string Label)> Columns =
         [("id", "ID"), ("title", "Title"), ("status", "Status"), ("label", "Label"), ("feature", "Features"), ("who", "Contributors"), ("priority", "Priority"), ("progress", "Progress"), ("modified", "Updated")];
 
     private IReadOnlyList<(string, string)> People =>
         [("all", "everyone"), .. items.SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
 
-    private static readonly IReadOnlyList<(string, string)> LabelOptions = [("", "none"), .. WorkItemsApi.Labels.Select(l => (l, l))];
-
     private IEnumerable<(string? Category, BoardColumn Column)> Flat => Sections.SelectMany(s => s.Columns.Select(c => (s.Category, c)));
 
     protected override void OnInitialized()
     {
-        Workspace.Changed += OnChanged;
+        base.OnInitialized();
         Settings.Changed += OnSettings;
         if (Workspace.Root is string root) O = Settings.Board(root);
-        Load();
     }
-
-    private void OnChanged() => InvokeAsync(() => { Load(); StateHasChanged(); });
 
     // The side menu edits the view options through the settings store.
     private void OnSettings() => InvokeAsync(() =>
@@ -63,7 +53,7 @@ public partial class BoardPage
         if (Workspace.Root is string root && Settings.Board(root) is var o && o != O) { O = o; Load(); StateHasChanged(); }
     });
 
-    private void Load()
+    protected override void Load()
     {
         items = WorkItemsApi.GetAll(includeHidden: O.ShowHidden);
         features = FeaturesApi.GetAll();
@@ -160,14 +150,6 @@ public partial class BoardPage
     private static void Toggle<T>(HashSet<T> set, T value)
     {
         if (!set.Remove(value)) set.Add(value);
-    }
-
-    /// <summary>Shows a module command's failure as a toast; successes refresh through Workspace.Changed.</summary>
-    private bool Run((bool Success, string Message) result)
-    {
-        if (Workspace.Do(result).Success) return true;
-        Popups.Toast(result.Message, ToastKind.Warning);
-        return false;
     }
 
     private void OpenItem(int id) => Nav.NavigateTo($"item/{id}");
@@ -347,9 +329,9 @@ public partial class BoardPage
         if (failed.Count > 0) Popups.Toast(string.Join("; ", failed), ToastKind.Warning);
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
-        Workspace.Changed -= OnChanged;
+        base.Dispose();
         Settings.Changed -= OnSettings;
     }
 }

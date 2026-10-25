@@ -13,7 +13,7 @@
 
 ## 4. List
 
-- [x] 4.1 Stack the features of a list row in their cell
+- [x] 4.1 Features of a list row on one line: the first as a dashed chip, the rest as "+N", all in the tooltip
 
 ## 3. Hidden columns
 

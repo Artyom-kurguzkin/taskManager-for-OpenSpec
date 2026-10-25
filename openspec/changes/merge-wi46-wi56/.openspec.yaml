@@ -7,3 +7,4 @@ x-rtm:
   contributors: [Artyom-kurguzkin]
   label: enhancement
   mergedFrom: [46, 56]
+  tests: [{suite: EditingWorkItemsTests, test: "An existing work item can be made a dependency by its id, which blocks this one"}, {suite: UsingThePagesTests, test: "Typing another item's id in Add a subtask makes it a dependency instead of a subtask(typed: \"#wi123\")"}]

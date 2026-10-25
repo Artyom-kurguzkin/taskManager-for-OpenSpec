@@ -1,0 +1,23 @@
+@* A work item field as a pill filled with its colour: status, label or priority. The one look for it on the list and the item page. *@
+@if (ReadOnly)
+{
+    <span class="box cell filled" data-sk style="@Fill">@Text</span>
+}
+else
+{
+    <Dropdown Label="@Kind" Class="cell filled" Style="@Fill" Swatch="Colour" Options="Options" Value="@Value" ValueChanged="ValueChanged" />
+}
+
+@code {
+    /// <summary>status, label or priority.</summary>
+    [Parameter, EditorRequired] public string Kind { get; set; } = "status";
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    /// <summary>Shown but not editable (an archived item's status).</summary>
+    [Parameter] public bool ReadOnly { get; set; }
+
+    private Func<string, string> Colour => Kind switch { "label" => Ui.LabelColor, "priority" => Ui.PriorityColor, _ => Ui.Band };
+    private IReadOnlyList<(string Value, string Label)> Options => Kind switch { "label" => Ui.LabelOptions, "priority" => Ui.PriorityOptions, _ => Ui.StatusOptions };
+    private string Fill => $"--fill:var({Colour(Value)})";
+    private string Text => Options.FirstOrDefault(o => o.Value == Value).Label ?? Value;
+}
