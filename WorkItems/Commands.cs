@@ -164,6 +164,31 @@ internal static partial class Commands
     /// Provisional numbers are "highest stored + n", so storing a new number would shift them. Before allocating,
     /// write every provisional number into its change so links like #wi125 never start pointing elsewhere.
     /// </summary>
+    /// <summary>
+    /// Two changes carrying one number (created in two places, a copied folder, a merge): every one but the keeper takes the
+    /// next free number. The keeper is an archived change first (its number is history), then the earliest created, then the
+    /// first folder name, so every copy of the repository resolves the same way. References other items hold to the number
+    /// stay as they are: they most likely meant the keeper. Returns what was renumbered.
+    /// </summary>
+    internal static IReadOnlyList<(int OldId, int NewId, string Folder)> ResolveDuplicateIds()
+    {
+        if (OpenSpecStoreApi.OpenSpecRoot is null) return [];
+        StampProvisionalIds();
+        List<(int, int, string)> renumbered = [];
+        foreach (IGrouping<int, WorkItem> twins in Queries.GetAll(includeHidden: true).GroupBy(w => w.Id).Where(g => g.Count() > 1).ToList())
+        {
+            foreach (WorkItem w in twins.OrderBy(w => w.Archived ? 0 : 1).ThenBy(w => w.Created).ThenBy(w => w.Folder, StringComparer.Ordinal).Skip(1))
+            {
+                int newId = Queries.NextId();
+                string yaml = Queries.Yaml(w.Path);
+                Rtm meta = Metadata.Read<Rtm>(yaml);
+                meta.Id = newId;
+                if (Metadata.Write(yaml, meta).Success) renumbered.Add((w.Id, newId, w.Folder));
+            }
+        }
+        return renumbered;
+    }
+
     private static void StampProvisionalIds()
     {
         foreach (WorkItem w in Queries.GetAll(includeHidden: true))

@@ -1,0 +1,8 @@
+schema: spec-driven
+created: 2026-10-28
+x-rtm:
+  id: 62
+  title: Numbers used twice resolve themselves
+  status: In Review
+  label: enhancement
+  tests: [{suite: EditingWorkItemsTests, test: "Two changes with one number: the one created later takes the next free number, the other keeps it, and the warning goes"}, {suite: EditingWorkItemsTests, test: "When numbers collide, an archived change keeps its number, whatever was created when"}, {suite: UsingTheBoardTests, test: "A number used twice is resolved as soon as the app sees it: a toast says which change was renumbered, and that change gets a note saying so"}]

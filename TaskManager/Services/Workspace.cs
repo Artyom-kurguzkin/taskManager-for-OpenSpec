@@ -1,5 +1,6 @@
 using Features;
 using GitHistory;
+using Notes;
 using OpenSpecStore;
 using WorkItems;
 
@@ -12,10 +13,13 @@ namespace TaskManager.Services;
 public sealed class Workspace : IDisposable
 {
     private readonly SettingsStore settings;
+    private readonly UiService ui;
+    private bool resolving;
 
-    public Workspace(SettingsStore settings)
+    public Workspace(SettingsStore settings, UiService ui)
     {
         this.settings = settings;
+        this.ui = ui;
         OpenSpecStoreApi.Changed += Notify;
     }
 
@@ -69,7 +73,28 @@ public sealed class Workspace : IDisposable
         return result;
     }
 
-    public void Notify() => Changed?.Invoke();
+    /// <summary>
+    /// Any change (an edit here, a file from outside, a folder copied in) first resolves numbers used twice, so a duplicate
+    /// never reaches a page: the later change is renumbered, told in a toast, and gets a note saying what happened.
+    /// </summary>
+    public void Notify()
+    {
+        if (!resolving)   // the writes below raise Changed again
+        {
+            resolving = true;
+            try
+            {
+                foreach ((int oldId, int newId, string folder) in WorkItemsApi.ResolveDuplicateIds())
+                {
+                    (bool ok, string _, int noteId) = NotesApi.Create(newId, "App");
+                    if (ok) NotesApi.SaveBody(noteId, $"# Renumbered from #wi{oldId}\n\nTwo changes carried the number #wi{oldId}. This one ({folder}) was created later, so it is now #wi{newId}. Anything that refers to #wi{oldId} means the other change.\n");
+                    ui.Toast($"#wi{oldId} was used twice: {folder} is now #wi{newId}", ToastKind.Warning);
+                }
+            }
+            finally { resolving = false; }
+        }
+        Changed?.Invoke();
+    }
 
     /// <summary>Creates "New work item" (assigned to me unless <paramref name="who"/> says otherwise) and refreshes every view.</summary>
     public (bool Ok, string Message, int Id) CreateItem(string status = "Backlog", string[]? features = null, string[]? who = null)

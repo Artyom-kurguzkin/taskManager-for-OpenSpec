@@ -25,7 +25,7 @@ public abstract class RepoPage : ComponentBase, IDisposable
     /// <summary>Runs a module command; a success refreshes every page through the workspace, a failure is shown as a toast.</summary>
     protected bool Run((bool Success, string Message) result)
     {
-        if (Workspace.Do(result).Success) return true;
+        if (Workspace.Do(result).Success) { Popups.Saved(); return true; }
         Popups.Toast(result.Message, ToastKind.Warning);
         return false;
     }

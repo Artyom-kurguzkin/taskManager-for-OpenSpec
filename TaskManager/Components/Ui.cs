@@ -60,7 +60,7 @@ public static class Ui
     };
 
     /// <summary>Markdown → HTML for display. Raw HTML in the file is not passed through.</summary>
-    public static readonly Markdig.MarkdownPipeline Pipeline = new Markdig.MarkdownPipelineBuilder().DisableHtml().Build();
+    public static readonly Markdig.MarkdownPipeline Pipeline = new Markdig.MarkdownPipelineBuilder().DisableHtml().UseEmphasisExtras().UseTaskLists().Build();
 
     public static MarkupString Markdown(string text) => new(Markdig.Markdown.ToHtml(text, Pipeline));
 

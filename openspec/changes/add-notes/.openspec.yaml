@@ -6,3 +6,4 @@ x-rtm:
   priority: low
   contributors: [Artyom-kurguzkin]
   hidden: true
+  tests: [{suite: UsingThePagesTests, test: "A note opens in preview; Edit shows the markdown editor; Done saves at once and returns to the updated preview"}, {suite: UsingThePagesTests, test: "A note is saved automatically shortly after typing stops"}, {suite: UsingThePagesTests, test: "Typing a [[doc]] link in a note adds it to the linked list straight away"}]

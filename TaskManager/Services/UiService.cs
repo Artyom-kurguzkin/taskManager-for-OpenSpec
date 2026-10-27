@@ -53,10 +53,27 @@ public sealed class UiService
         d?.Result.TrySetResult(result);
     }
 
+    private DateTime lastToast;
+
+    /// <summary>
+    /// "Saved", after any write to the repository. Skipped when a more specific toast just went up (Created, Merged, …),
+    /// and never shown twice at once.
+    /// </summary>
+    public void Saved()
+    {
+        lock (toasts) if ((DateTime.UtcNow - lastToast).TotalMilliseconds < 600 || toasts.Any(t => t.Text == "Saved")) return;
+        Toast("Saved", ToastKind.Success);
+    }
+
     public void Toast(string text, ToastKind kind = ToastKind.Info)
     {
         Toast t;
-        lock (toasts) toasts.Add(t = new Toast(++nextToast, text, kind));
+        lock (toasts)
+        {
+            if (text != "Saved") toasts.RemoveAll(x => x.Text == "Saved");   // the specific message replaces the plain one
+            lastToast = DateTime.UtcNow;
+            toasts.Add(t = new Toast(++nextToast, text, kind));
+        }
         Changed?.Invoke();
         _ = Task.Delay(3500).ContinueWith(_ =>
         {

@@ -1,3 +1,6 @@
+using Radzen.Blazor;
+using Radzen;
+using AngleSharp.Dom;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using Notes;
@@ -20,6 +23,7 @@ public sealed class UsingThePagesTests : IDisposable
         BunitContext ctx = new();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<UiService>();
+        ctx.Services.AddRadzenComponents();   // Radzen components ask for its services (the markdown editor wants DialogService)
         ctx.Services.AddSingleton(new SettingsStore(settingsFile));
         ctx.Services.AddSingleton<Workspace>();
         if (launcher is not null) ctx.Services.AddSingleton(launcher);
@@ -309,21 +313,59 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.NotEmpty(page.FindAll(".desc.edit"));
     }
 
-    [Fact(DisplayName = "Typing never re-writes the editor's text, so fast typing can't be overwritten")]
-    public async Task EditorIsNotRewrittenWhileTyping()
+    [Fact(DisplayName = "Saving anything on the work item page shows a Saved toast")]
+    public async Task SavedToast()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        page.Find("input.title-in").Change("Health-check endpoint v2");
+
+        overlays!.WaitForAssertion(() => Assert.Equal("Saved", overlays.Find(".toast.success").TextContent.Trim()));
+        Assert.Equal("Health-check endpoint v2", WorkItemsApi.Get(123)!.Title);
+    }
+
+    // The note opens as a rendered preview; Edit swaps in the markdown editor (Radzen's), Done goes back. Radzen's panes are
+    // driven by its script, so a test types by raising the editor's ValueChanged, which is what typing does.
+    private static Task Type(IRenderedComponent<NotePage> page, string text)
+    {
+        if (page.FindAll(".rz-markdown-editor").Count == 0) page.Find("button.edit-note").Click();
+        RadzenMarkdownEditor editor = page.FindComponent<RadzenMarkdownEditor>().Instance;
+        return page.InvokeAsync(() => editor.ValueChanged.InvokeAsync(text));
+    }
+
+    [Fact(DisplayName = "A note opens in preview; Edit shows the markdown editor; Done saves at once and returns to the updated preview")]
+    public async Task NotePreviewThenEdit()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
-        string loaded = page.Find("textarea.md").GetAttribute("value") ?? page.Find("textarea.md").TextContent;
+        Assert.NotEmpty(page.FindAll(".preview"));
+        Assert.Empty(page.FindAll(".rz-markdown-editor"));
 
-        page.Find("textarea.md").Input(loaded + "abc");
-        page.Find("textarea.md").Input(loaded + "abcdef");
+        await Type(page, "# Ping test\n\nchanged in test");
+        Assert.Empty(page.FindAll(".preview"));
+        page.Find("button.done-note").Click();
 
-        string now = page.Find("textarea.md").GetAttribute("value") ?? page.Find("textarea.md").TextContent;
-        Assert.Equal(loaded, now);   // the DOM keeps what the user typed; the app doesn't push its copy back
+        Assert.Empty(page.FindAll(".rz-markdown-editor"));
+        Assert.Contains("changed in test", page.Find(".preview").TextContent);
+        Assert.Contains("changed in test", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
     }
 
-    [Fact(DisplayName = "A note's own autosave doesn't reload the page under your cursor")]
+    [Fact(DisplayName = "Typing in the editor keeps every keystroke: the app binds the text, it never pushes an older copy back")]
+    public async Task EditorKeepsTyping()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+        page.Find("button.edit-note").Click();
+        string loaded = page.FindComponent<RadzenMarkdownEditor>().Instance.Value;
+
+        await Type(page, loaded + "abc");
+        await Type(page, loaded + "abcdef");
+
+        Assert.Equal(loaded + "abcdef", page.FindComponent<RadzenMarkdownEditor>().Instance.Value);
+    }
+
+    [Fact(DisplayName = "A note's own autosave doesn't reload the page under your cursor, and says Saved once it is on disk")]
     public async Task AutosaveDoesNotReload()
     {
         await using BunitContext ctx = NewContext();
@@ -331,11 +373,12 @@ public sealed class UsingThePagesTests : IDisposable
         ctx.Services.GetRequiredService<Workspace>().Changed += () => changes++;
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
 
-        page.Find("textarea.md").Input("# Ping test\n\nfirst");
+        await Type(page, "# Ping test\n\nfirst");
         await Task.Delay(1200);   // autosave has run
 
         Assert.Equal(0, changes);
         Assert.Contains("first", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
+        overlays!.WaitForAssertion(() => Assert.Contains("Saved", overlays.Find(".toast.success").TextContent));
     }
 
     [Fact(DisplayName = "Edit in <editor> opens the note's file in the already-configured external editor")]
@@ -574,7 +617,7 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
 
-        page.Find("textarea.md").Input("# Ping test\n\nSee [[runbook/uptime]] and #wi999");
+        await Type(page, "# Ping test\n\nSee [[runbook/uptime]] and #wi999");
 
         page.WaitForAssertion(() =>
         {
@@ -588,7 +631,7 @@ public sealed class UsingThePagesTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
-        page.Find("textarea.md").Input("# Ping test\n\nAutosaved text.\n");
+        await Type(page, "# Ping test\n\nAutosaved text.\n");
 
         await Task.Delay(1500);
 

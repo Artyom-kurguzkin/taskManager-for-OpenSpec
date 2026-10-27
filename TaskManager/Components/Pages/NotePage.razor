@@ -21,18 +21,31 @@
         <div class="kv"><label>by</label><span>@note.By</span></div>
         <BackButton />
     </div>
-    @* the same tiles as the work item page: a coloured heading pill on each *@
+    @* the same tiles as the work item page. The note is read until Edit is pressed; then Radzen's markdown editor takes its
+       place (design mode, with a source switch in its toolbar) and autosaves as you type; Done saves at once and reads again. *@
     <div class="note-grid">
-        <section class="tile" data-tile="markdown">
-            <div class="tile-h"><h3>Markdown</h3><span class="muted">@note.Title</span></div>
-            @* Uncontrolled: the text is set when the note loads and never pushed back while typing,
-               so a re-render can't overwrite keystrokes that haven't reached .NET yet. *@
-            <div data-sk="soft"><textarea class="md" value="@editorText" @oninput="OnInput" spellcheck="false" aria-label="Markdown editor"></textarea></div>
+        <section class="tile" data-tile="note">
+            <div class="tile-h"><h3>Note</h3><span class="muted">@note.Title</span>
+                @if (editing) { <button class="btn done-note" data-sk @onclick="Done">Done</button> }
+                else { <button class="add edit-note" @onclick="() => editing = true">Edit</button> }
+            </div>
+            @if (editing)
+            {
+                @* no link, image or table tools: those open dialogs; the Markdown is typed *@
+                <RadzenMarkdownEditor Value="@body" ValueChanged="OnInput" Immediate="true" Rows="18" @bind-Mode="mode">
+                    <RadzenMarkdownEditorUndo /><RadzenMarkdownEditorRedo /><RadzenMarkdownEditorSeparator />
+                    <RadzenMarkdownEditorFormatBlock /><RadzenMarkdownEditorSeparator />
+                    <RadzenMarkdownEditorBold /><RadzenMarkdownEditorItalic /><RadzenMarkdownEditorStrikethrough /><RadzenMarkdownEditorSeparator />
+                    <RadzenMarkdownEditorQuote /><RadzenMarkdownEditorCode /><RadzenMarkdownEditorCodeBlock /><RadzenMarkdownEditorSeparator />
+                    <RadzenMarkdownEditorUnorderedList /><RadzenMarkdownEditorOrderedList /><RadzenMarkdownEditorTaskList /><RadzenMarkdownEditorHorizontalRule /><RadzenMarkdownEditorSeparator />
+                    <RadzenMarkdownEditorSource />
+                </RadzenMarkdownEditor>
+            }
+            else
+            {
+                <div class="preview">@Preview</div>
+            }
             <button class="add edit-ext" @onclick="EditExternally">@(Settings.Current.Editor is string e ? $"Edit in {e}" : "Edit in…")</button>
-        </section>
-        <section class="tile" data-tile="preview">
-            <div class="tile-h"><h3>Preview</h3></div>
-            <div class="preview">@Preview</div>
         </section>
         <section class="tile" data-tile="links">
             <div class="tile-h"><h3>Linked docs and commits</h3></div>
@@ -76,9 +89,10 @@
     private EditorLauncher? Launcher => Services.GetService(typeof(EditorLauncher)) as EditorLauncher;
 
     private Note? note;
-    private string body = "";          // latest typed text (saved by autosave)
-    private string editorText = "";    // what the editor was loaded with; changes only on (re)load
+    private string body = "";          // the text, as typed (the editor binds to it; autosave writes it)
     private string previewBody = "";   // what preview/links show; refreshed after a short pause in typing
+    private bool editing;
+    private MarkdownEditorMode mode = MarkdownEditorMode.Design;
     private CancellationTokenSource? pendingPreview;
     private DateTime modified;
     private IReadOnlyList<NoteLink> links = [];
@@ -94,15 +108,15 @@
     {
         note = NotesApi.Get(Id);
         if (note is null) return;
-        body = editorText = previewBody = note.Body;
+        body = previewBody = note.Body;
         modified = note.Modified;
         links = NotesApi.ResolveLinks(body);
         commits = [.. GitHistoryApi.Mentioning($"#wi{note.WorkItemId}").Concat(GitHistoryApi.Commits(note.Commits)).DistinctBy(c => c.Hash)];
     }
 
-    private void OnInput(ChangeEventArgs e)
+    private void OnInput(string text)
     {
-        body = (string?)e.Value ?? "";
+        body = text;
         // ponytail: link resolution reads the repo, so do it on a 250 ms pause rather than per keystroke
         pendingPreview?.Cancel();
         CancellationTokenSource preview = pendingPreview = new();
@@ -128,7 +142,19 @@
         if (!ok) { saving = false; Popups.Toast(message, ToastKind.Warning); return; }
         modified = DateTime.Now;
         saving = body != saved;   // more typing arrived while saving: its own save is already scheduled
+        if (!saving) Popups.Saved();
         StateHasChanged();
+    }
+
+    /// <summary>Done: save now (the autosave may still be pending) and read the note again.</summary>
+    private void Done()
+    {
+        pendingSave?.Cancel();
+        pendingPreview?.Cancel();
+        editing = false;
+        previewBody = body;
+        links = NotesApi.ResolveLinks(previewBody);
+        Save();
     }
 
     private void AddLink()

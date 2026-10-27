@@ -12,6 +12,56 @@ public sealed class EditingWorkItemsTests
 
     private static WorkItem Item(int id) => WorkItemsApi.Get(id)!;
 
+    /// <summary>A second change carrying the same number, as a copied folder or one created elsewhere would.</summary>
+    internal static void Duplicate(TestRepo repo, string folder = "second-check", string created = "2026-10-20")
+    {
+        string from = repo.PathOf("openspec/changes/add-health-check"), to = repo.PathOf("openspec/changes/" + folder);
+        foreach (string f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+        {
+            if (f.Contains(Path.DirectorySeparatorChar + "notes" + Path.DirectorySeparatorChar)) continue;   // notes have numbers of their own
+            string target = Path.Combine(to, Path.GetRelativePath(from, f));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(f, target);
+        }
+        repo.Write("openspec/changes/" + folder + "/.openspec.yaml", repo.Read("openspec/changes/" + folder + "/.openspec.yaml").Replace("created: 2026-09-12", "created: " + created));
+    }
+
+    [Fact(DisplayName = "Two changes with one number: the one created later takes the next free number, the other keeps it, and the warning goes")]
+    public void DuplicateIdsAreResolved()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        Duplicate(repo);
+        Assert.Contains(WorkItemsApi.GetWarnings(), w => w.StartsWith("#wi123 is used by"));
+
+        IReadOnlyList<(int OldId, int NewId, string Folder)> renumbered = WorkItemsApi.ResolveDuplicateIds();
+
+        Assert.Equal([(123, 126, "second-check")], renumbered);   // the next free number after every change, archived and provisional ones included
+        Assert.Equal("add-health-check", Item(123).Folder);
+        Assert.Equal("second-check", Item(126).Folder);
+        Assert.Contains("  id: 126", repo.Read("openspec/changes/second-check/.openspec.yaml"));
+        Assert.Contains("  id: 125", repo.Read("openspec/changes/plain-change/.openspec.yaml"));   // its provisional number, stamped on the way
+        Assert.DoesNotContain(WorkItemsApi.GetWarnings(), w => w.Contains("is used by"));
+        Assert.Empty(WorkItemsApi.ResolveDuplicateIds());
+    }
+
+    [Fact(DisplayName = "When numbers collide, an archived change keeps its number, whatever was created when")]
+    public void ArchivedKeepsItsNumber()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string archived = "openspec/changes/archive/2026-10-01-old-check";
+        Directory.CreateDirectory(repo.PathOf(archived));
+        repo.Write(archived + "/.openspec.yaml", "schema: spec-driven\ncreated: 2026-10-25\nx-rtm:\n  id: 123\n  title: Old check\n");
+        repo.Write(archived + "/proposal.md", "## Why\n\nold\n");
+
+        IReadOnlyList<(int OldId, int NewId, string Folder)> renumbered = WorkItemsApi.ResolveDuplicateIds();
+
+        Assert.Equal([(123, 126, "add-health-check")], renumbered);
+        Assert.Equal("Old check", Item(123).Title);
+        Assert.Equal("Health-check endpoint", Item(126).Title);
+    }
+
     [Fact(DisplayName = "Changing the status saves it in x-rtm and keeps the rest of the file")]
     public void ChangeStatus()
     {

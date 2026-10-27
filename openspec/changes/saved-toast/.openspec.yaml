@@ -1,0 +1,8 @@
+schema: spec-driven
+created: 2026-10-28
+x-rtm:
+  id: 63
+  title: Saved toast after every write
+  status: In Review
+  label: enhancement
+  tests: [{suite: UsingThePagesTests, test: "Saving anything on the work item page shows a Saved toast"}, {suite: UsingThePagesTests, test: "A note's own autosave doesn't reload the page under your cursor, and says Saved once it is on disk"}]

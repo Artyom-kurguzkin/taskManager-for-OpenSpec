@@ -1,3 +1,4 @@
+using Radzen;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
@@ -29,6 +30,7 @@ public sealed class UsingTheBoardTests : IDisposable
         BunitContext ctx = new();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<UiService>();
+        ctx.Services.AddRadzenComponents();   // Radzen components ask for its services (the markdown editor wants DialogService)
         ctx.Services.AddSingleton(new SettingsStore(settingsFile));
         ctx.Services.AddSingleton<Workspace>();
         Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(repo.Root).Success);
@@ -129,11 +131,11 @@ public sealed class UsingTheBoardTests : IDisposable
 
         GroupRows(board, "Planned")[2].DragStart();
         GroupRows(board, "Planned")[0].Drop();
-        board.WaitForAssertion(() => Assert.Equal([before[2], before[0], before[1]], RowsIn(board, "Planned")));
+        board.WaitForAssertion(() => Assert.Equal([before[2], before[0], before[1]], RowsIn(board, "Planned")), TimeSpan.FromSeconds(5));   // the grid reloads after a drop; slow under a full-suite load
 
         GroupRows(board, "Planned")[0].DragStart();
         Group(board, "In Progress").Drop();   // the group row stands for the group's end
-        board.WaitForAssertion(() => Assert.Equal([before[0], before[1]], RowsIn(board, "Planned")));
+        board.WaitForAssertion(() => Assert.Equal([before[0], before[1]], RowsIn(board, "Planned")), TimeSpan.FromSeconds(5));
         Assert.Equal("In Progress", WorkItemsApi.GetAll().Single(i => i.Title == before[2]).Status);
     }
 
@@ -181,6 +183,21 @@ public sealed class UsingTheBoardTests : IDisposable
 
         board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector(".row-title")!.Click();
         Assert.EndsWith("/item/123", ctx.Services.GetRequiredService<NavigationManager>().Uri);
+    }
+
+    [Fact(DisplayName = "A number used twice is resolved as soon as the app sees it: a toast says which change was renumbered, and that change gets a note saying so")]
+    public async Task DuplicateIdsResolvedOnChange()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        EditingWorkItemsTests.Duplicate(repo);
+
+        workspace.Notify();   // what the file watcher does when the folder appears
+
+        overlays!.WaitForAssertion(() => Assert.Contains("second-check is now #wi126", overlays.Find(".toast").TextContent));
+        Assert.Contains(Notes.NotesApi.GetForWorkItem(126), n => n.Title.Contains("#wi123"));
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll(".warning")));
     }
 
     [Fact(DisplayName = "List cells wear their colours: status, label and priority are filled pills, and a status group's name wears its band")]

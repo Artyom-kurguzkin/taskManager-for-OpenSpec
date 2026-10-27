@@ -31,6 +31,9 @@ public static class WorkItemsApi
     public static WorkItem? Get(int id) => Queries.Get(id);
     public static int NextId() => Queries.NextId();
     public static IReadOnlyList<string> GetWarnings() => Queries.GetWarnings();
+
+    /// <summary>Gives every change that shares its number with an earlier one the next free number; returns what changed.</summary>
+    public static IReadOnlyList<(int OldId, int NewId, string Folder)> ResolveDuplicateIds() => Commands.ResolveDuplicateIds();
     public static string GetDescription(int id) => Queries.GetDescription(id);
     /// <summary>Sub-categories per board column, from openspec/config.yaml x-rtm.lanes.</summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> GetLanes() => Queries.GetLanes();

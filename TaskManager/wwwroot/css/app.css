@@ -414,10 +414,10 @@
   .bento { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-auto-flow: row dense; gap: var(--s4); align-items: stretch; }
   .tile { --tile: var(--stone); display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px 16px 16px;
     border: 2px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); }
-  .tile[data-tile="description"], .tile[data-tile="markdown"] { --tile: var(--sun); }
+  .tile[data-tile="description"], .tile[data-tile="note"] { --tile: var(--sun); }
   .tile[data-tile="subtasks"] { --tile: var(--sage); }
   .tile[data-tile="blocks"] { --tile: var(--peach); }
-  .tile[data-tile="commits"], .tile[data-tile="preview"] { --tile: var(--sky); }
+  .tile[data-tile="commits"] { --tile: var(--sky); }
   .tile[data-tile="tests"] { --tile: var(--mint); }
   .tile[data-tile="log"], .tile[data-tile="links"] { --tile: var(--lilac); }
   .tile.focus { grid-column: 1; grid-row: 1 / span var(--rows, 4); box-shadow: 4px 4px 0 var(--shadow); }   /* --rows: the number of compact tiles */
@@ -494,7 +494,26 @@
   .note-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(220px, .7fr); gap: var(--s4); align-items: start; }
   .note-grid .tile > [data-sk] { --stroke: var(--line-soft); }
   .note-grid .tile-h .muted { font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  textarea.md { min-height: 420px; line-height: 1.45; }
+  .note-grid { grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); }
+  .note-grid .tile-h .btn, .note-grid .tile-h .add { margin-left: auto; }
+  .note-grid .tile-h .btn { min-height: 28px; padding: 0 12px; font-size: 14px; }
+  /* Radzen's markdown editor (NotePage): toolbar of icon buttons (Material Symbols by name), the design pane, the source pane */
+  .rz-markdown-editor { border: 2px solid var(--line-soft); border-radius: var(--r); background: var(--card); overflow: hidden; }
+  .rz-markdown-editor .rz-toolbar, .rz-markdown-editor-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+  .rz-markdown-editor .rz-toolbar { padding: 4px 6px; border-bottom: 2px dashed var(--line-soft); }
+  .rz-markdown-editor .rz-button { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink); cursor: pointer; }
+  .rz-markdown-editor .rz-button:hover:not(:disabled), .rz-markdown-editor .rz-button.rz-state-active { background: var(--stone); color: var(--on-fill); }
+  .rz-markdown-editor .rz-button:disabled { opacity: .35; cursor: default; }
+  .rz-markdown-editor .rz-button .rzi { font-size: 20px; }
+  .rz-toolbar-separator { width: 1px; height: 20px; margin: 0 4px; background: var(--line-soft); }
+  .rz-markdown-editor .rz-dropdown { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; height: 28px; padding: 0 8px; border: 1.5px solid var(--line-soft); border-radius: 6px; background: var(--card); color: var(--ink); font-size: 13px; cursor: pointer; }
+  .rz-editor-dropdown-panel .rz-dropdown-item :is(h1, h2, h3, h4, h5, h6, p) { margin: 0; font-size: 14px; }
+  .rz-markdown-editor-design { min-height: 420px; padding: 12px 14px; outline: none; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }   /* pre-wrap: a trailing space stays, so the caret stays after it (otherwise the next letter lands before the space) */
+  .rz-markdown-editor-design :is(h1, h2, h3) { margin-block: .6em .3em; }
+  .rz-markdown-editor-design > :first-child { margin-block-start: 0; }
+  .rz-markdown-editor-design > :last-child { margin-block-end: 0; }
+  .rz-markdown-editor-design .rz-markdown-editor-gap { margin-block: 0; line-height: .5; }   /* Radzen's spacer between blocks */
+  .rz-markdown-editor-textarea { width: 100%; min-height: 420px; padding: 12px 14px; border: 0; background: transparent; color: var(--ink); font: 14px/1.5 var(--f-mono); outline: none; resize: vertical; }
   .preview { padding: var(--s2) var(--s3); overflow-wrap: anywhere; }
   .preview h1, .preview h2, .preview h3 { margin-block: .6em .3em; }
   .preview hr { border: 0; border-top: 1.5px dashed var(--ink-2); }

@@ -1,0 +1,8 @@
+schema: spec-driven
+created: 2026-10-28
+x-rtm:
+  id: 64
+  title: Note opens as a preview; Edit brings Radzen's markdown editor
+  status: In Review
+  label: enhancement
+  tests: [{suite: UsingThePagesTests, test: "A note opens in preview; Edit shows the markdown editor; Done saves at once and returns to the updated preview"}, {suite: UsingThePagesTests, test: "Typing in the editor keeps every keystroke: the app binds the text, it never pushes an older copy back"}, {suite: UsingThePagesTests, test: "A note is saved automatically shortly after typing stops"}, {suite: UsingThePagesTests, test: "Typing a [[doc]] link in a note adds it to the linked list straight away"}]
