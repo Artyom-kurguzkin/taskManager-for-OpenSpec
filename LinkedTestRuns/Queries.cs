@@ -13,16 +13,17 @@ internal static class Queries
     internal static TestRun Latest()
     {
         long version = OpenSpecStoreApi.Version;
-        if (LinkedTestRunsModule.Cache is { } c && c.Version == version && DateTime.UtcNow - c.Checked < TimeSpan.FromSeconds(2)) return c.Run;
+        string? root = OpenSpecStoreApi.RepoRoot;
+        bool cached = LinkedTestRunsModule.Cache.TryGetValue(root ?? "", out var c);
+        if (cached && c.Version == version && DateTime.UtcNow - c.Checked < TimeSpan.FromSeconds(2)) return c.Run;
 
         IReadOnlyList<string> globs = Globs();
-        string? root = OpenSpecStoreApi.RepoRoot;
         FileInfo? newest = root is null ? null : globs.SelectMany(g => Glob.Find(root, g)).Distinct().Select(f => new FileInfo(f)).MaxBy(f => f.LastWriteTimeUtc);
 
-        TestRun run = LinkedTestRunsModule.Cache is { } old && old.File == newest?.FullName && old.Written == newest?.LastWriteTimeUtc
-            ? old.Run with { Globs = globs }
+        TestRun run = cached && c.File == newest?.FullName && c.Written == newest?.LastWriteTimeUtc
+            ? c.Run with { Globs = globs }
             : new TestRun(newest?.FullName, globs, newest is null ? [] : ResultFile.Parse(newest.FullName));
-        LinkedTestRunsModule.Cache = (version, newest?.FullName, newest?.LastWriteTimeUtc ?? default, DateTime.UtcNow, run);
+        LinkedTestRunsModule.Cache[root ?? ""] = (version, newest?.FullName, newest?.LastWriteTimeUtc ?? default, DateTime.UtcNow, run);
         return run;
     }
 

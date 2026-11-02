@@ -55,4 +55,23 @@ public sealed class KeepingTheRepoValidForOpenSpecTests
 
         if (exit != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
     }
+
+    [Fact(DisplayName = "An item whose modified requirement went stale (the main spec gained scenarios since) still archives through the real CLI, with every scenario kept")]
+    public void StaleDeltaStillArchives()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        repo.Write("openspec/specs/functional/remittances/spec.md", EditingWorkItemsTests.RemittancesMain);
+        repo.Write("openspec/changes/export-remittances/specs/functional/remittances/spec.md", EditingWorkItemsTests.RemittancesDelta);
+
+        Ok(WorkItemsApi.SetStatus(107, "Completed"));
+
+        Assert.True(WorkItemsApi.Get(107)!.Archived);
+        string main = repo.Read("openspec/specs/functional/remittances/spec.md");
+        foreach (string s in new[] { "Works", "Fee shown", "Limit" }) Assert.Contains("#### Scenario: " + s, main);
+        Assert.Contains("it arrives and is exported", main);   // the change's text replaced the requirement
+        Assert.Contains("### Requirement: Export", main);
+        (int exit, string output) = OpenSpec(repo.Root, "validate --all --strict");
+        if (exit != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
+    }
 }

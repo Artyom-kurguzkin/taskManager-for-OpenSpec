@@ -14,13 +14,14 @@ internal static partial class Queries
     private static IReadOnlyList<WorkItem> All()
     {
         long version = OpenSpecStoreApi.Version;
+        string root = OpenSpecStoreApi.RepoRoot ?? "";
         var git = WorkItemsModule.Git?.Invoke();
         string token = git?.Token ?? "";
-        if (WorkItemsModule.Cache is { } c && c.Version == version && c.Git == token) return c.Items;
+        if (WorkItemsModule.Cache.TryGetValue(root, out var c) && c.Version == version && c.Git == token) return c.Items;
         IReadOnlyList<WorkItem> items = Load();
         // Commit authors only stand in until someone edits the list in the app (x-rtm.contributors, possibly []).
         if (git is { } g) items = items.Select(i => i.Assigned is null ? i with { Contributors = [.. g.AuthorsOf(i.Folder)] } : i).ToList();
-        WorkItemsModule.Cache = (version, token, items);
+        WorkItemsModule.Cache[root] = (version, token, items);
         WorkItemsModule.Loads++;
         return items;
     }
@@ -88,7 +89,9 @@ internal static partial class Queries
 
         List<string> derived = DeltaCapabilities(dir).ToList();
         List<string> unlinked = [.. (meta.UnlinkedFeatures ?? []).Intersect(derived)];
-        List<FeatureLink> features = [.. derived.Except(unlinked).Select(p => new FeatureLink(p, true)), .. (meta.Features ?? []).Except(derived).Select(p => new FeatureLink(p, false))];
+        // one feature per item: the one picked by hand wins over the change's specs, else its first spec (older files may list several)
+        List<FeatureLink> features = [.. (meta.Features ?? []).Except(derived).Select(p => new FeatureLink(p, false)), .. derived.Except(unlinked).Select(p => new FeatureLink(p, true))];
+        features = features.Take(1).ToList();
 
         DateTime created = CreatedLine().Match(yaml) is { Success: true } c && DateTime.TryParse(c.Groups["d"].Value, out DateTime d) ? d : Directory.GetCreationTime(dir);
         DateTime modified = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Select(File.GetLastWriteTime).DefaultIfEmpty(created).Max();
@@ -102,8 +105,13 @@ internal static partial class Queries
             TasksFile.Parse(OpenSpecStoreApi.ReadText(Path.Combine(dir, "tasks.md"))),
             meta.Lanes ?? [],
             archived, created, modified, warning, meta.Hidden == true, meta.Contributors,
-            meta.Label, meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList(), meta.DependsOn ?? [], meta.MergedFrom ?? [], unlinked);
+            meta.Label, meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList(), meta.DependsOn ?? [], meta.MergedFrom ?? [], unlinked,
+            meta.AgentBy, Time(meta.AgentAt), Time(meta.ReviewedAt), Day(meta.Started), Day(meta.Due));
     }
+
+    private static DateOnly? Day(string? text) => DateOnly.TryParseExact(text, "yyyy-MM-dd", out DateOnly d) ? d : null;
+
+    private static DateTime? Time(string? text) => DateTime.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime d) ? d : null;
 
     [GeneratedRegex(@"^created:\s*(?<d>\S+)", RegexOptions.Multiline)]
     private static partial Regex CreatedLine();

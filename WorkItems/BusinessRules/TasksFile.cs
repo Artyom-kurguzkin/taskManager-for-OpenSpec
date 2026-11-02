@@ -12,6 +12,10 @@ internal static partial class TasksFile
     [GeneratedRegex(@"^(?<indent>\s*)- \[(?<box>[^\]]*)\] (?:(?<num>\d+(?:\.\d+)*) )?(?<text>.*)$")]
     private static partial Regex Checkbox();
 
+    /// <summary>A trailing &lt;!-- agent: Claude --&gt; (the name is optional): who added the line.</summary>
+    [GeneratedRegex(@"\s*<!--\s*agent\s*(?::\s*(?<by>[^>]*?))?\s*-->\s*$")]
+    private static partial Regex AgentMark();
+
     [GeneratedRegex(@"^##\s+(?<g>.+)$")]
     private static partial Regex GroupHeading();
 
@@ -25,7 +29,10 @@ internal static partial class TasksFile
             if (GroupHeading().Match(line) is { Success: true } g) { group = g.Groups["g"].Value.Trim(); continue; }
             if (Checkbox().Match(line) is not { Success: true } m) continue;
             string num = m.Groups["num"].Success ? m.Groups["num"].Value : $"#{++unnumbered}";
-            list.Add(new Subtask(num, m.Groups["text"].Value.Trim(), IsDone(m.Groups["box"].Value), group));
+            string text1 = m.Groups["text"].Value;
+            Match mark = AgentMark().Match(text1);
+            list.Add(new Subtask(num, (mark.Success ? text1[..mark.Index] : text1).Trim(), IsDone(m.Groups["box"].Value), group,
+                mark.Success ? (mark.Groups["by"].Value is { Length: > 0 } by ? by : "agent") : null));
         }
         return list;
     }
@@ -38,6 +45,10 @@ internal static partial class TasksFile
     /// <summary>Replaces one subtask's text, keeping its indent, box and number.</summary>
     internal static string SetText(string text, string number, string task) =>
         MapCheckboxes(text, (m, line) => Num(m) == number ? line[..m.Groups["text"].Index] + task : line);
+
+    /// <summary>Takes the agent stamp off one subtask line (the user has reviewed it).</summary>
+    internal static string ClearAgent(string text, string number) =>
+        MapCheckboxes(text, (m, line) => Num(m) == number && AgentMark().Match(line) is { Success: true } mark ? line[..mark.Index] : line);
 
     internal static string Append(string text, string task)
     {

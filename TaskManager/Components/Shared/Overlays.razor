@@ -13,9 +13,15 @@
                 <input @ref="box" class="box text-in" data-sk @bind="text" @bind:event="oninput" placeholder="@d.Placeholder" aria-label="@d.Title" />
             </form>
         }
+        @if (d.Choices is { } choices)
+        {
+            <div class="choices">
+                @foreach ((string value, string label) in choices) { <button type="button" class="btn choice" data-sk @onclick="() => Ui.Close(value)">@label</button> }
+            </div>
+        }
         <div class="dialog-actions">
             <button type="button" class="btn ghost dialog-cancel" @onclick="() => Ui.Close(null)">@d.No</button>
-            <button @ref="okButton" type="button" class="btn primary" data-sk disabled="@(d.IsPrompt && string.IsNullOrWhiteSpace(text))" @onclick="Submit">@d.Yes</button>
+            @if (d.Choices is null) { <button @ref="okButton" type="button" class="btn primary" data-sk disabled="@(d.IsPrompt && string.IsNullOrWhiteSpace(text))" @onclick="Submit">@d.Yes</button> }
         </div>
     </div>
 }
@@ -46,7 +52,7 @@
 
     private void OnChanged() => InvokeAsync(() =>
     {
-        if (Ui.Dialog != shown) { shown = Ui.Dialog; text = ""; focus = shown is not null; }
+        if (Ui.Dialog != shown) { shown = Ui.Dialog; text = shown?.Value ?? ""; focus = shown is not null; }
         StateHasChanged();
     });
 
@@ -55,6 +61,7 @@
     {
         if (!focus || shown is null) return;
         focus = false;
+        if (shown.Choices is not null) return;
         try { await (shown.IsPrompt ? box : okButton).FocusAsync(); } catch (InvalidOperationException) { }
     }
 

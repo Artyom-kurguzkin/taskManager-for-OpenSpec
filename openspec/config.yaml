@@ -7,7 +7,7 @@ context: |
   Must run on Windows, macOS and Linux. Host: Photino.Blazor; UI: Blazor with a few own components (no UI library); .NET 10. MAUI is out (no Linux).
   Every edit is written to the repo files immediately, and files changed outside the app are picked up live.
   Never rewrite parts of a file the user did not change: keep formatting, comments and unknown keys.
-  Work items are referenced as #wi<number>, notes as #n<number>.
+  Work items are referenced as #wi<number>, notes as #n<number>. Agents follow the conventions in openspec/REPO-TASKS.md.
   Architecture: modular monolith. One static class library per domain entity (OpenSpecStore, GitHistory, Features, WorkItems, Notes, LinkedTestRuns);
   each exposes only `{Module}Api` + `{Module}.PublicDTOs`, everything else internal; no DI in modules; all UI in the TaskManager host.
   Tests are written first, named by user action, in TaskManager.Tests.
@@ -19,7 +19,7 @@ rules:
     - Each task group must leave the app building and its tests passing on its own
 x-rtm:
   features:
-    - ux
+    []
   lanes:
     board: [test, test-2]
   testResults:

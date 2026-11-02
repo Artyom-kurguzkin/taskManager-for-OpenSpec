@@ -20,6 +20,9 @@ internal sealed class Rtm
     public List<string>? Features { get; set; }
     public Dictionary<string, string>? Lanes { get; set; }
     public string? Label { get; set; }
+    /// <summary>Days as yyyy-MM-dd: when work started (stamped the first time the item moves to In Progress) and when it is due.</summary>
+    public string? Started { get; set; }
+    public string? Due { get; set; }
     /// <summary>"Deleted" in the app: hidden from the board, folder kept. Null (omitted) when visible.</summary>
     public bool? Hidden { get; set; }
     public List<string>? Commits { get; set; }
@@ -30,6 +33,11 @@ internal sealed class Rtm
     public List<int>? MergedFrom { get; set; }
     /// <summary>Features from the change's specs/ folder that the user removed from this item (the specs stay).</summary>
     public List<string>? UnlinkedFeatures { get; set; }
+    /// <summary>Written by an agent that created or changed this change: its name and the time (yyyy-MM-ddTHH:mm:ss).</summary>
+    public string? AgentBy { get; set; }
+    public string? AgentAt { get; set; }
+    /// <summary>Written by the app when the user marks the agent's work as reviewed.</summary>
+    public string? ReviewedAt { get; set; }
 }
 
 internal sealed class RtmTest

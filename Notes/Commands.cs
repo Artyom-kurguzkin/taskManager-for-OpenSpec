@@ -40,6 +40,19 @@ internal static class Commands
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
     }
 
+    /// <summary>The user has looked at what an agent wrote here: reviewedAt = now. Text and the agent's stamp stay.</summary>
+    internal static (bool Success, string Message) MarkReviewed(int id)
+    {
+        if (NotesApi.Get(id) is not Note note) return (false, NotFound);
+        (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
+        NoteMeta meta = NoteFile.Meta(front);
+        meta.Id = id;
+        DateTime at = DateTime.Now;   // after what it reviews, even when the agent's clock was ahead
+        if (DateTime.TryParse(meta.AgentAt, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime a) && a >= at) at = a.AddSeconds(1);
+        meta.ReviewedAt = at.ToString("s", CultureInfo.InvariantCulture);
+        return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+    }
+
     internal static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes)
     {
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);

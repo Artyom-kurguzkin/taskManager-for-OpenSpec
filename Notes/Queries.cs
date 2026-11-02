@@ -14,9 +14,10 @@ internal static partial class Queries
     internal static IReadOnlyList<Note> GetAll()
     {
         long version = OpenSpecStoreApi.Version;
-        if (NotesModule.Cache is { } c && c.Version == version) return c.Notes;
+        string root = OpenSpecStoreApi.RepoRoot ?? "";
+        if (NotesModule.Cache.TryGetValue(root, out var c) && c.Version == version) return c.Notes;
         IReadOnlyList<Note> notes = Load();
-        NotesModule.Cache = (version, notes);
+        NotesModule.Cache[root] = (version, notes);
         NotesModule.Loads++;
         return notes;
     }
@@ -34,11 +35,14 @@ internal static partial class Queries
                 NoteMeta meta = NoteFile.Meta(front);
                 int id = meta.Id > 0 ? meta.Id : int.TryParse(Path.GetFileNameWithoutExtension(file)[1..], out int n) ? n : 0;
                 DateTime created = DateTime.TryParse(meta.Created, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime c) ? c : File.GetCreationTime(file);
-                notes.Add(new Note(id, wi.Id, file, NoteFile.Title(body, id), meta.By ?? "", created, File.GetLastWriteTime(file), body, meta.Links ?? [], meta.Commits ?? []));
+                notes.Add(new Note(id, wi.Id, file, NoteFile.Title(body, id), meta.By ?? "", created, File.GetLastWriteTime(file), body, meta.Links ?? [], meta.Commits ?? [],
+                    meta.AgentBy, Time(meta.AgentAt), Time(meta.ReviewedAt)));
             }
         }
         return notes;
     }
+
+    private static DateTime? Time(string? text) => DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime d) ? d : null;
 
     internal static int NextId() => GetAll().Select(n => n.Id).DefaultIfEmpty(0).Max() + 1;
 

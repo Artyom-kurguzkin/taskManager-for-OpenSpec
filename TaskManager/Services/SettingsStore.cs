@@ -10,7 +10,10 @@ public sealed record AppSettings(
     string DefaultView = "board",
     Dictionary<string, BoardOptions>? Boards = null,
     string? Editor = null,      // command used by "Edit in …"; null = ask next time
-    List<string>? OpenRepos = null);   // repos open as tabs, in display order
+    List<string>? OpenRepos = null,    // repos open as tabs, in display order
+    bool Hints = false,                // F shows keyboard hints on every clickable element (off until switched on)
+    List<string>? HiddenProjects = null,      // tabs taken off the board and list (by Key); the side menu brings them back
+    List<string>? CollapsedProjects = null);  // tabs folded to their heading on the board (by Key)
 
 /// <summary>Per-user settings in a JSON file (AppData/RepoTaskManager/settings.json). Host-only, not repo data.</summary>
 public sealed class SettingsStore(string path)
@@ -32,11 +35,17 @@ public sealed class SettingsStore(string path)
     public BoardOptions Board(string repo)
     {
         BoardOptions o = Current.Boards?.GetValueOrDefault(Key(repo)) ?? new BoardOptions(View: Current.DefaultView);
-        return o.GroupBy == "feature" ? o with { GroupBy = "bucket" } : o;   // "feature" was renamed to "bucket"; keep old saved boards working
+        return o.GroupBy == "bucket" ? o with { GroupBy = "feature" } : o;   // "bucket" was a short-lived name for "feature"; keep those saved boards working
     }
 
     public void SaveBoard(string repo, BoardOptions options) =>
         Update(s => s with { Boards = new Dictionary<string, BoardOptions>(s.Boards ?? []) { [Key(repo)] = options } });
+
+    public bool ProjectHidden(string repo) => Current.HiddenProjects?.Contains(Key(repo)) ?? false;
+    public bool ProjectCollapsed(string repo) => Current.CollapsedProjects?.Contains(Key(repo)) ?? false;
+    public void ToggleProjectHidden(string repo) => Update(s => s with { HiddenProjects = Toggle(s.HiddenProjects, Key(repo)) });
+    public void ToggleProjectCollapsed(string repo) => Update(s => s with { CollapsedProjects = Toggle(s.CollapsedProjects, Key(repo)) });
+    private static List<string> Toggle(List<string>? list, string key) => list?.Contains(key) == true ? list.Where(k => k != key).ToList() : [.. list ?? [], key];
 
     internal static string Key(string repo) => Path.GetFullPath(repo).TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
 

@@ -113,32 +113,37 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal(25, page.FindAll(".tile.focus .sub").Count);
     }
 
-    [Fact(DisplayName = "Every linked feature has a remove control, including one that comes from specs/; the spec itself stays")]
-    public async Task RemoveSpecFeatureFromPage()
+    [Fact(DisplayName = "A work item has one feature, picked in one dropdown: another pick replaces it, \"no feature\" leaves it unassigned, and its spec stays")]
+    public async Task OneFeatureDropdown()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        AngleSharp.Dom.IElement chip = page.FindAll(".head.kvs .chip").Single(c => c.TextContent.Contains("Availability"));
-        Assert.Contains("x", chip.ClassList);
+        Assert.Empty(page.FindAll(".head.kvs .chip.spec"));
+        Assert.Contains("Security", page.Find(".head.kvs [aria-label='feature'] .rz-dropdown-label").TextContent);   // picked by hand, so it wins over its spec
 
-        chip.Click();
+        page.FindAll("[aria-label='feature'] .rz-dropdown-item").Single(i => i.TextContent.Trim() == "Banking").Click();
+        page.WaitForAssertion(() => Assert.Equal(["functional/banking"], WorkItemsApi.Get(123)!.Features.Select(f => f.Path)));
 
-        Assert.Empty(page.FindAll(".head.kvs .chip").Where(c => c.TextContent.Contains("Availability")));
-        Assert.Equal(["non-functional/security"], WorkItemsApi.Get(123)!.Features.Select(f => f.Path));
+        page.FindAll("[aria-label='feature'] .rz-dropdown-item").Single(i => i.TextContent.Trim() == "no feature").Click();
+        page.WaitForAssertion(() => Assert.Empty(WorkItemsApi.Get(123)!.Features));
         Assert.True(File.Exists(repo.PathOf("openspec/changes/add-health-check/specs/non-functional/availability/spec.md")));
     }
 
-    [Fact(DisplayName = "A feature unlinked from specs/ is offered again in + add, and adding it links it back")]
-    public async Task RelinkSpecFeatureFromPage()
+    [Fact(DisplayName = "The work item page has start and due date fields: picking a date saves it, clearing it removes it")]
+    public async Task StartAndDueDates()
     {
         await using BunitContext ctx = NewContext();
-        WorkItemsApi.UnlinkFeature(123, "non-functional/availability");
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        Assert.Equal("", page.Find("input[type='date'][aria-label='due']").GetAttribute("value"));
 
-        page.Find("[aria-label='add feature']").Click();
-        page.FindAll(".rz-dropdown-item").Single(i => i.TextContent.Contains("Availability")).Click();
+        page.Find("input[type='date'][aria-label='due']").Change("2026-11-05");
+        page.WaitForAssertion(() => Assert.Equal(new DateOnly(2026, 11, 5), WorkItemsApi.Get(123)!.Due));
+        page.Find("input[type='date'][aria-label='started']").Change("2026-10-20");
+        page.WaitForAssertion(() => Assert.Equal(new DateOnly(2026, 10, 20), WorkItemsApi.Get(123)!.Started));
+        page.WaitForAssertion(() => Assert.Equal("2026-11-05", page.Find("input[type='date'][aria-label='due']").GetAttribute("value")));
 
-        Assert.Contains(new WorkItems.PublicDTOs.FeatureLink("non-functional/availability", true), WorkItemsApi.Get(123)!.Features);
+        page.Find("input[type='date'][aria-label='due']").Change("");
+        page.WaitForAssertion(() => Assert.Null(WorkItemsApi.Get(123)!.Due));
     }
 
     [Fact(DisplayName = "Opening a work item shows its header, description, subtasks, and its notes as the change log")]
@@ -311,6 +316,28 @@ public sealed class UsingThePagesTests : IDisposable
         // Other fields are editable: priority, label, feature and contributor dropdowns
         Assert.NotEmpty(page.FindAll(".dd"));
         Assert.NotEmpty(page.FindAll(".desc.edit"));
+    }
+
+    [Fact(DisplayName = "On the work item page the agent's work is flagged: the item, its subtasks and its notes, each cleared by a click")]
+    public async Task AgentChipsOnThePage()
+    {
+        EditingWorkItemsTests.StampAgent(repo);
+        repo.Write("openspec/changes/add-health-check/tasks.md", repo.Read("openspec/changes/add-health-check/tasks.md").TrimEnd() + "\n- [ ] 2.2 Agent drafted this <!-- agent: Claude -->\n");
+        string note = "openspec/changes/add-health-check/notes/n123.md";
+        repo.Write(note, new System.Text.RegularExpressions.Regex("\n---\n").Replace(repo.Read(note), "\nagentBy: Claude\nagentAt: 2026-10-30T09:00:00\n---\n", 1));
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        Assert.NotNull(page.Find(".head .agent-chip").GetAttribute("title"));
+        Assert.Contains("Claude", page.Find(".head .agent-chip").GetAttribute("title"));
+        Focus(page, "subtasks");
+        page.Find(".sub .agent-chip").Click();
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".sub .agent-chip")));
+        Focus(page, "log");
+        page.Find(".change-log .agent-chip").Click();
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".change-log .agent-chip")));
+        page.Find(".head .agent-chip").Click();
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".agent-chip")));
     }
 
     [Fact(DisplayName = "Saving anything on the work item page shows a Saved toast")]
@@ -552,7 +579,7 @@ public sealed class UsingThePagesTests : IDisposable
 
         Focus(page, "commits");
 
-        Assert.Contains("Speed up the export #wi107", page.Find(".linked-commits").TextContent);
+        page.WaitForAssertion(() => Assert.Contains("Speed up the export #wi107", page.Find(".linked-commits").TextContent), TimeSpan.FromSeconds(5));   // a merged item's Load runs several git logs, so the click's render can lag on a busy machine
     }
 
     [Fact(DisplayName = "+ link commit lists recent commits; the picked one is linked and can be removed")]
@@ -648,6 +675,21 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
         page.Find("input[name=theme][value=dark]").Change("dark");
         Assert.Equal("dark", ctx.Services.GetRequiredService<SettingsStore>().Current.Theme);
+    }
+
+    [Fact(DisplayName = "Keyboard hints (F) are off until switched on in Settings; the switch is pushed to the page script")]
+    public async Task HintsSetting()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.False(ctx.Services.GetRequiredService<SettingsStore>().Current.Hints);
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+
+        page.Find("input#f-hints").Change(true);
+
+        Assert.True(ctx.Services.GetRequiredService<SettingsStore>().Current.Hints);
+        string js = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
+        Assert.Contains("setHints(", js);           // the layout tells the script whether F does anything
+        Assert.Contains("_hints.enabled", js);      // and F is ignored while it is off
     }
 
     [Fact(DisplayName = "Opening a folder without openspec/ in Settings shows how to fix it")]

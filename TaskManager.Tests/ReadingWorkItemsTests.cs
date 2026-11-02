@@ -61,12 +61,13 @@ public sealed class ReadingWorkItemsTests
         Assert.Equal("Marked Completed but not archived", it.Warning);
     }
 
-    [Fact(DisplayName = "Features from the change's specs/ folder are locked; features listed in x-rtm can be removed")]
+    [Fact(DisplayName = "A feature from the change's specs/ folder is locked; one picked by hand is not")]
     public void DerivedAndManualFeatures()
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
-        Assert.Equal([new FeatureLink("non-functional/availability", true), new FeatureLink("non-functional/security", false)], Item(123).Features);
+        Assert.Equal([new FeatureLink("non-functional/security", true)], Item(124).Features);
+        Assert.Equal([new FeatureLink("non-functional/security", false)], Item(123).Features);
     }
 
     [Fact(DisplayName = "Only a box holding just x counts as a done subtask")]

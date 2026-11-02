@@ -12,22 +12,22 @@ internal static class Queries
     /// <summary>True only when the configured folder is itself the top of a work tree (not just inside a parent repo).</summary>
     internal static bool IsRepository()
     {
-        if (GitHistoryModule.IsRepo is bool known) return known;
+        if (GitHistoryModule.State.IsRepo is bool known) return known;
         GitHistoryModule.RepoChecks++;
         (int exit, string output, string _) = GitCli.Run("rev-parse", "--show-toplevel");
         bool isRepo = exit == 0 && GitHistoryModule.RepoRoot is string root &&
                Path.GetFullPath(output.Trim()).TrimEnd(Path.DirectorySeparatorChar).Equals(root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
-        GitHistoryModule.IsRepo = isRepo;
+        GitHistoryModule.State.IsRepo = isRepo;
         return isRepo;
     }
 
     internal static string? UserName()
     {
-        if (GitHistoryModule.UserName.Known) return GitHistoryModule.UserName.Name;
+        if (GitHistoryModule.State.UserName.Known) return GitHistoryModule.State.UserName.Name;
         GitHistoryModule.UserNameLookups++;
         (int exit, string output, string _) = GitCli.Run("config", "user.name");
         string? name = exit == 0 && output.Trim().Length > 0 ? output.Trim() : null;
-        GitHistoryModule.UserName = (name, true);
+        GitHistoryModule.State.UserName = (name, true);
         return name;
     }
 
@@ -42,10 +42,10 @@ internal static class Queries
     {
         if (!IsRepository()) return [];
         string head = HeadToken();
-        if (GitHistoryModule.Authors is not { } a || a.Head != head)
+        if (GitHistoryModule.State.Authors is not { } a || a.Head != head)
         {
             a = (head, ReadAuthors());
-            GitHistoryModule.Authors = a;
+            GitHistoryModule.State.Authors = a;
         }
         return a.ByChange.TryGetValue(ChangeName(folder), out List<string>? authors) ? [.. authors.Select(PersonName).Distinct()] : [];
     }
@@ -64,7 +64,7 @@ internal static class Queries
     {
         if (!IsRepository()) return ([], []);
         string head = HeadToken();
-        if (GitHistoryModule.People is { } cached && cached.Head == head) return (cached.Names, cached.Canonical);
+        if (GitHistoryModule.State.People is { } cached && cached.Head == head) return (cached.Names, cached.Canonical);
 
         var rows = GitCli.Run("log", "--all", "--format=%aN%x1f%aE").Output.Split('\n')
             .Select(l => l.TrimEnd('\r').Split('\x1f')).Where(p => p.Length == 2 && p[0].Trim().Length > 0)
@@ -93,7 +93,7 @@ internal static class Queries
             foreach ((string name, int _) in person.Names) canonical[name] = main;
         }
         List<string> names = [.. canonical.Values.Distinct().Order(StringComparer.OrdinalIgnoreCase)];
-        GitHistoryModule.People = (head, names, canonical);
+        GitHistoryModule.State.People = (head, names, canonical);
         return (names, canonical);
     }
 

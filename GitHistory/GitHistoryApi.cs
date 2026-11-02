@@ -8,13 +8,20 @@ namespace GitHistory;
 /// </summary>
 public static class GitHistoryApi
 {
-    public static void Configure(string repoRoot)
+    /// <summary>Points the reads at a repository. What was learnt about it (is it git, user.name, authors) is kept while it
+    /// stays configured or open as a tab; <paramref name="reset"/> forgets it (a fresh open).</summary>
+    public static void Configure(string repoRoot, bool reset = false)
     {
-        GitHistoryModule.RepoRoot = Path.GetFullPath(repoRoot);
-        GitHistoryModule.IsRepo = null;
-        GitHistoryModule.UserName = (null, false);
-        GitHistoryModule.Authors = null;
-        GitHistoryModule.People = null;
+        string root = Path.GetFullPath(repoRoot);
+        GitHistoryModule.RepoRoot = root;
+        if (reset || !GitHistoryModule.States.ContainsKey(root)) GitHistoryModule.States[root] = new GitState();
+    }
+
+    /// <summary>Forgets repositories that are no longer open.</summary>
+    public static void Keep(IEnumerable<string> repoRoots)
+    {
+        HashSet<string> keep = new(repoRoots.Select(Path.GetFullPath), StringComparer.OrdinalIgnoreCase);
+        foreach (string root in GitHistoryModule.States.Keys.Where(k => !keep.Contains(k)).ToList()) GitHistoryModule.States.Remove(root);
     }
 
     public static bool IsRepository() => Queries.IsRepository();

@@ -6,5 +6,5 @@ x-rtm:
   title: work item changes
   status: Planned
   contributors: [Artyom-kurguzkin]
-  features: [board]
+  features: [organise-work-items]
   hidden: true

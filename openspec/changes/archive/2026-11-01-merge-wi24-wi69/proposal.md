@@ -1,0 +1,30 @@
+# Proposal
+
+<!-- merged from #wi24 Open several repositories as tabs -->
+## Why
+
+The app can only have one repository open at a time; switching to another means Settings → Repository → Open, which replaces whatever was open. Working across several projects meant losing the first one's place every time.
+
+## What Changes
+
+- The side nav gets a tab switcher: every repository you've opened this way stays listed, one click switches the active repo, and you can close a tab you're done with (except the last one). The set of open tabs is remembered between sessions.
+- Only the active tab's data is loaded at a time — switching is a fresh, fast read of that repo's files, not simultaneous background state for every open tab.
+
+<!-- merged from #wi69 Every open project on one board -->
+## Why
+
+Repositories opened as tabs could only be looked at one at a time. Working across projects means seeing them together: one board, one set of columns, each project a block under its name.
+
+## What Changes
+
+- The store keeps every tab open at once, each repository with its own content version and file watcher; switching the module Apis between them is a pointer move, and every module caches per repository. `Workspace.In(repo, …)` reads or writes another open repository and comes back to the active one.
+- The board stacks a block per visible project, named after its folder, with a chevron to collapse it and a menu to hide it (hidden projects return from the side menu's Hidden list). A lone project shows no header. When the projects' columns are the same (status or label grouping) one header row above serves them all; otherwise each block keeps its own headers.
+- Cards move within their project; a drop into another project's column is refused with a message. Selection and the arrow keys know which project a card belongs to. Opening a card of another project makes that project the active one.
+- The list groups rows by project first, then by column.
+
+## Capabilities
+
+### Modified Capabilities
+
+- `workspace`: several repositories open at once.
+- `board`: several projects on the board and in the list.

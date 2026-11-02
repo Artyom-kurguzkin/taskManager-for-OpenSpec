@@ -22,17 +22,13 @@
         {
             <button class="btn ghost hide-item" title="Shows it on the board again" @onclick="() => Run(WorkItemsApi.Unhide(item.Id))">Restore</button>
         }
+        @if (item.AgentUnreviewed) { <AgentChip By="@item.AgentBy" At="item.AgentAt" OnReview="() => Run(WorkItemsApi.MarkReviewed(item.Id))" /> }
         <BackButton />
     </div>
     @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
     <div class="head kvs">
-        <div class="kv"><label>linked features</label>
-            @foreach (FeatureLink f in item.Features)
-            {
-                <span class="chip x @(f.Locked ? "spec" : "")" title="@(f.Locked ? "From the change's specs/ folder. Remove hides it here; the spec stays." : "Remove")"
-                      @onclick="() => RemoveFeature(f)">@Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)</span>
-            }
-            <Dropdown Label="add feature" Class="mini" Placeholder="+ add" Options="FeatureChoices" ValueChanged="AddFeature" />
+        <div class="kv"><label>feature</label>
+            <Dropdown Label="feature" Class="mini" Placeholder="no feature" Options="FeatureChoices" Value="@(item.Features.FirstOrDefault()?.Path ?? "")" ValueChanged="SetFeature" />
         </div>
         <div class="kv contributors"><label>contributors</label>
             @foreach (string p in item.Contributors)
@@ -46,6 +42,9 @@
         <div class="kv status-field"><label>status</label><Pill Kind="status" Value="@item.Status" ReadOnly="item.Archived" ValueChanged="SetStatus" /></div>
         <div class="kv"><label>priority</label><Pill Kind="priority" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" /></div>
         <div class="kv"><label>label</label><Pill Kind="label" Value="@(item.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" /></div>
+        @* native date pickers; "" clears the date *@
+        <div class="kv"><label>started</label><input type="date" class="box date-in" aria-label="started" value="@(item.Started?.ToString("yyyy-MM-dd") ?? "")" @onchange="e => Run(WorkItemsApi.SetStarted(item.Id, Day(e)))" /></div>
+        <div class="kv"><label>due</label><input type="date" class="box date-in" aria-label="due" value="@(item.Due?.ToString("yyyy-MM-dd") ?? "")" @onchange="e => Run(WorkItemsApi.SetDue(item.Id, Day(e)))" /></div>
     </div>
     @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
 
@@ -89,6 +88,7 @@
                             <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
                                    @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
                             <span class="mono">@s.Number</span>
+                            @if (s.Agent is not null) { <AgentChip By="@s.Agent" OnReview="() => Run(WorkItemsApi.MarkSubtaskReviewed(item.Id, s.Number))" /> }
                             @if (editingSub == s.Number)
                             {
                                 @* Enter or leaving the box saves, Esc cancels *@
@@ -229,7 +229,8 @@
                 <div class="change-log">
                     @foreach (Note n in notes)
                     {
-                        <button class="log-e hov" data-sk @onclick="@(() => Nav.NavigateTo($"note/{n.Id}"))"><b>#n@(n.Id) · @n.Title</b><span class="muted">@n.Created.ToString("d.M.yyyy") · @n.By</span></button>
+                        <div class="log-e hov" data-sk role="button" tabindex="0" @onclick="@(() => Nav.NavigateTo($"note/{n.Id}"))"><b>#n@(n.Id) · @n.Title</b><span class="muted">@n.Created.ToString("d.M.yyyy") · @n.By</span>
+                            @if (n.AgentUnreviewed) { <AgentChip By="@n.AgentBy" At="n.AgentAt" OnReview="() => Run(NotesApi.MarkReviewed(n.Id))" /> }</div>
                     }
                     @if (notes.Count == 0) { <p class="muted">No entries yet.</p> }
                 </div>
@@ -270,8 +271,14 @@
     /// <summary>A linked test's outcome in the newest results file: passed, failed, skipped, or "no result".</summary>
     private string Outcome(TestLink t) => run.Results.FirstOrDefault(r => r.Suite == t.Suite && r.Test == t.Test)?.Outcome ?? "no result";
 
-    private IReadOnlyList<(string, string)> FeatureChoices =>
-        Features.FeaturesApi.GetAll().Where(f => item!.Features.All(x => x.Path != f.Path)).Select(f => (f.Path, $"{f.Group} · {f.Name}")).ToList();
+    private IReadOnlyList<(string, string)> FeatureChoices
+    {
+        get
+        {
+            List<Features.PublicDTOs.Feature> all = Features.FeaturesApi.GetAll().ToList();
+            return [("", "no feature"), .. all.Select(f => (f.Path, all.Count(x => x.Name == f.Name) > 1 ? $"{f.Name} ({f.Group})" : f.Name))];   // the group only tells two same-named features apart
+        }
+    }
 
     private IReadOnlyList<string> PeopleChoices =>
         GitHistoryApi.AllAuthors().Concat(WorkItemsApi.GetAll().SelectMany(w => w.Contributors)).Append(Workspace.Me)
@@ -303,13 +310,9 @@
         Run(WorkItemsApi.SetStatus(Id, status));
     }
 
-    // a feature from specs/ comes back by relinking it; any other is added to x-rtm.features
-    private void AddFeature(string path) => Run(item!.UnlinkedFeatures?.Contains(path) == true
-        ? WorkItemsApi.RelinkFeature(Id, path)
-        : WorkItemsApi.SetManualFeatures(Id, item.Features.Select(f => f.Path).Append(path)));
-    private void RemoveFeature(FeatureLink f) => Run(f.Locked
-        ? WorkItemsApi.UnlinkFeature(Id, f.Path)
-        : WorkItemsApi.SetManualFeatures(Id, item!.Features.Select(x => x.Path).Where(p => p != f.Path)));
+    private void SetFeature(string path) => Run(WorkItemsApi.MoveFeature(Id, path.Length == 0 ? null : path));
+
+    private static DateOnly? Day(ChangeEventArgs e) => DateOnly.TryParseExact(e.Value?.ToString(), "yyyy-MM-dd", out DateOnly d) ? d : null;   // "" clears the date
 
     private ElementReference descriptionBox;
     private bool focusDescription;

@@ -4,6 +4,6 @@ created: 2026-10-23
 x-rtm:
   id: 34
   title: see which items have changed based on git diff
-  status: Backlog
+  status: Planned
   contributors: [Artyom-kurguzkin]
   label: feature

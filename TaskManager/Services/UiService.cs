@@ -5,7 +5,8 @@ public enum ToastKind { Info, Success, Warning }
 public sealed record Toast(int Id, string Text, ToastKind Kind);
 
 /// <summary>A confirm or a one-line prompt; <see cref="Result"/> completes with the typed text / "yes", or null when cancelled.</summary>
-public sealed record DialogRequest(string Title, string Text, string Yes, string No, bool IsPrompt, string Placeholder, TaskCompletionSource<string?> Result);
+public sealed record DialogRequest(string Title, string Text, string Yes, string No, bool IsPrompt, string Placeholder, TaskCompletionSource<string?> Result,
+    IReadOnlyList<(string Value, string Label)>? Choices = null, string Value = "");   // Choices: a pick-one dialog, one button per choice, no OK; Value: a prompt's starting text
 
 /// <summary>
 /// App-wide dialogs and toasts, rendered by the Overlays component in the layout. Pages call
@@ -41,8 +42,12 @@ public sealed class UiService
     public async Task<bool> Confirm(string title, string text, string yes = "OK", string no = "Cancel") =>
         await Show(new DialogRequest(title, text, yes, no, false, "", new())) is not null;
 
-    public Task<string?> Prompt(string title, string placeholder, string action) =>
-        Show(new DialogRequest(title, "", action, "Cancel", true, placeholder, new()));
+    public Task<string?> Prompt(string title, string placeholder, string action, string value = "") =>
+        Show(new DialogRequest(title, "", action, "Cancel", true, placeholder, new(), Value: value));
+
+    /// <summary>Asks the user to pick one of the choices; the picked value, or null when cancelled.</summary>
+    public Task<string?> Choose(string title, string text, IReadOnlyList<(string Value, string Label)> choices) =>
+        Show(new DialogRequest(title, text, "", "Cancel", false, "", new(), choices));
 
     /// <summary>Closes the open dialog: a value means OK (the prompt text, or "yes" for a confirm), null means cancel.</summary>
     public void Close(string? result)

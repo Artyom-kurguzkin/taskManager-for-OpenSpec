@@ -96,8 +96,12 @@
   .hov { --stroke: transparent; --fill: transparent; cursor: pointer; }
   .hov:hover, .hov:focus-visible { --stroke: var(--line); --fill: var(--stone); color: var(--on-fill); outline: none; }
   .card:hover, .sub:hover, .btn:hover { box-shadow: 3px 3px 0 var(--shadow); transform: translate(-1px, -1px); outline: none; }
-  .selected, .selected:hover, .is-sel { --fill: var(--sun); --stroke: var(--line); color: var(--on-fill); }
-  .selected .muted, .is-sel .muted { color: var(--on-fill); opacity: .7; }
+  .is-sel { --fill: var(--sun); --stroke: var(--line); color: var(--on-fill); }   /* the current choice (a nav entry, a segment): not a selection */
+  .is-sel .muted { color: var(--on-fill); opacity: .7; }
+  /* selection (Shift-click): one look for a picked card, list row, project or subtask. The item keeps its own surface; a black
+     line hugs it and a dotted yellow line runs round that. Rows draw both inside their edge, so neighbours don't cover them. */
+  .card.selected, .sub.selected, .proj-h.selected, .tbl-wrap tr[data-selected] { outline: 3px dotted var(--sun); outline-offset: 2px; box-shadow: 0 0 0 2px var(--ink); }
+  .tbl-wrap tr[data-selected] { outline-offset: -5px; box-shadow: inset 0 0 0 2px var(--ink); }
   .is-group { --fill: var(--sage); color: var(--on-fill); }
 
   /* buttons: boxed (.btn), quiet (.btn.ghost), a quiet "+ …" that adds something (.add), an icon button (.ic) */
@@ -130,6 +134,8 @@
   .chip.x:hover::after { color: var(--on-fill); }
   .cell.filled, .cell.filled span { border: 0; background: var(--fill); color: var(--on-fill); }
   .cell.filled .sw-dot { display: none; }   /* the pill is the swatch */
+  .agent-chip { height: 20px; padding: 0 8px; font-size: 11.5px; font-weight: 600; cursor: pointer; flex: none; }   /* agent work to review: a small lilac pill; a click marks it reviewed */
+  .agent-chip:hover { box-shadow: 2px 2px 0 var(--shadow); }
   .cell.filled .rz-dropdown-trigger { opacity: 0; }
   .cell.filled:hover .rz-dropdown-trigger, .cell.filled:focus-visible .rz-dropdown-trigger, tr:hover .cell.filled .rz-dropdown-trigger { opacity: .6; }
   .tag { font-size: 12px; font-weight: 500; padding: 1px 8px; border: 1.5px solid var(--line); border-radius: 6px; background: var(--stone); color: var(--on-fill); }
@@ -252,9 +258,27 @@
   .board-wrap { overflow-x: auto; }
   .board-wrap:focus { outline: none; }   /* the selected card is the focus indicator */
   .board-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .board { display: flex; gap: var(--s4); align-items: stretch; width: max-content; padding: 2px; }
+  .board { display: flex; flex-direction: column; gap: var(--s3); align-items: stretch; width: max-content; padding: 2px; }
+  .cats { display: flex; gap: var(--s4); align-items: stretch; }   /* a project's row of categories (sections) */
+  /* several projects: each is a block under its heading (chevron folds it, the menu hides it); when their columns are the same
+     one header row above serves them all and the blocks show cards only */
+  .proj { display: flex; flex-direction: column; gap: 4px; }
+  .proj + .proj { border-top: 2px dashed var(--line-soft); padding-top: 8px; }
+  .proj-h { display: flex; align-items: center; gap: 8px; padding: 2px 4px; user-select: none; }   /* Shift-click selects the project, not its text */
+  .proj-h h2 { font-size: var(--t-md); }
+  .proj-h { border-radius: 8px; }
+  body.shift-held .proj-h, body.shift-held .tbl-wrap tr[data-group^="proj:"] td { cursor: cell; }
+  body.shift-held .proj-h:hover, body.shift-held .tbl-wrap tr[data-group^="proj:"]:hover td { background: color-mix(in srgb, var(--sun) 25%, transparent); }
+  .proj-h .chev { width: 22px; height: 22px; }
+  .proj-h .muted { font-size: 12px; }
+  .board-wrap.multi .col { min-height: 120px; }
+  .board-wrap.multi .head-row .col { min-height: 0; gap: 0; }
+  /* column headers stay at the top while the board scrolls: the shared row, or each column's own header */
+  .board-wrap .head-row, .board-wrap .col > .menu-wrap { position: sticky; top: 0; z-index: 3; background: var(--paper); }
+  .board-wrap .head-row { padding-bottom: 4px; }
   .cat { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
   .cat > .menu-wrap { align-self: flex-start; }
+  .cat-cols > .add-col { align-self: flex-start; flex: none; padding: 6px 12px; white-space: nowrap; }   /* "+ feature": a new column at the end of the row */
   .cat-h { display: flex; align-items: baseline; gap: 12px; padding: 1px 8px; font-size: var(--t-md); font-weight: 700; }
   .cat-cols { display: flex; gap: var(--s2); align-items: stretch; }
   /* columns fill the board's height, so the whole column is a drop target, not just the area around its cards */
@@ -271,8 +295,6 @@
   .card .band { padding: 7px 12px; background: var(--band, var(--stone)); color: var(--on-fill); font-weight: 700; line-height: 1.3; border-bottom: 2px solid var(--line); }
   .card.collapsed { padding-bottom: 0; }
   .card.collapsed .band { border-bottom: 0; }
-  .card.selected { --fill: var(--card); color: var(--ink); outline: 3px solid var(--ink); outline-offset: 2px; }   /* an outline only; the card keeps its own surface */
-  .card.selected .muted { color: var(--ink-2); opacity: 1; }
   .card.hidden-item { opacity: .55; border-style: dashed; }
   .card-features { display: flex; flex-wrap: wrap; gap: 4px 5px; }
   .meta-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 4px; font-size: 13px; }
@@ -356,7 +378,6 @@
   .tbl-wrap thead th:has(.rz-column-resizer:hover) .th-hide { width: 0; margin: 0; opacity: 0; }
   /* rows */
   .tbl-wrap tr[data-id]:hover td { background: color-mix(in srgb, var(--ink) 6%, transparent); }
-  .tbl-wrap tr[data-selected] td, .tbl-wrap tr[data-selected]:hover td { background: color-mix(in srgb, var(--sun) 40%, transparent); }
   .tbl-wrap tr[data-hidden] td { opacity: .55; }
   .tbl-wrap tr[data-hidden] .row-title::after { content: " (hidden)"; font-weight: 400; color: var(--ink-2); }
   body.shift-held .tbl-wrap tr[data-id] td { cursor: cell; }
@@ -377,9 +398,7 @@
   .tbl-wrap td.title .rz-cell-data { overflow: visible; }
   .tbl-wrap .id { font-size: 12.5px; }
   /* cells: pills in their colours; features on one line (the first by name, the rest as "+N") */
-  .tbl-wrap .feat-line { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; white-space: nowrap; }
-  .tbl-wrap .feat-line .feat { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .tbl-wrap .feat-line .more { font-size: 12px; }
+  .tbl-wrap .feat-one { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
   .tbl-wrap .prog { width: 56px; height: 6px; border-width: 1px; }
   .tbl-wrap .prog + .muted { font-size: 12px; margin-left: 4px; }
   /* group header: chevron, name (in its status band when grouped by status), count; groups are set apart by space above */
@@ -393,7 +412,7 @@
   .tbl-wrap tr[data-empty] td { height: 32px; color: var(--ink-2); font-size: 13px; border-bottom: 0; }
   .tbl-wrap tbody tr:has(.rz-column-footer) td { height: 32px; border-bottom: 0; }
   /* spreadsheet-style cell selection (app.js): drag across cells to select a rectangle; Ctrl+C copies it */
-  .tbl-wrap td { user-select: none; }
+  .tbl-wrap td, .tbl-wrap tr[data-group] { user-select: none; }
   .tbl-wrap td.cs { background: color-mix(in srgb, var(--sky) 45%, transparent); outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
   /* subtasks folded out under a row: indented rows of their own, in the row's rhythm.
      ponytail: the indent assumes the gutter, ID and title columns in their default order and widths */
@@ -478,7 +497,7 @@
   .test .muted, .test .add { white-space: nowrap; }
   /* change log */
   .change-log { display: flex; flex-direction: column; gap: var(--s2); }
-  button.log-e { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 6px 12px; margin-left: -12px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+  .log-e { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 6px 12px; margin-left: -12px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
   .log-e .muted { font-size: 15px; }
   @media (max-width: 860px) {
     .bento { grid-template-columns: minmax(0, 1fr); }
@@ -579,6 +598,8 @@
   .dialog p { margin: 0; color: var(--ink-2); line-height: 1.5; }
   .dialog .text-in { width: 100%; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
+  .choices { display: flex; flex-direction: column; gap: 6px; }
+  .choices .choice { text-align: left; }
   .busy-backdrop { cursor: progress; }
   .dialog.busy { flex-direction: row; align-items: center; gap: 14px; width: auto; max-width: calc(100vw - 32px); }
   /* toasts */
@@ -601,4 +622,32 @@
   /* pointer-driven drags and column resizes (app.js): the whole app shows the pointer for it and nothing gets text-selected */
   body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none !important; }
   body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-select: none !important; }
+
+  /* ── calendar view: a month in whole weeks; a dated item is a bar from its start to its due date ── */
+  .cal { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 12px 16px 0; border: 0; background: transparent; }
+  .cal-h { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .cal-h h2 { margin: 0 6px; min-width: 190px; text-align: center; font-size: 18px; }
+  .cal-h .btn.ghost { min-height: 30px; padding: 0 10px; font-size: 18px; line-height: 1; color: var(--ink); }
+  .cal-h .cal-today { font-size: var(--t-md); border: 1.5px solid var(--line); border-radius: 8px; padding: 0 12px; }
+  .cal-body { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 16px; min-height: 0; flex: 1; }
+  .cal-grid { overflow: auto; border-top: 2px solid var(--line); padding-bottom: 16px; }
+  .cal-dows { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .cal-dow { padding: 6px 8px 4px; font: 600 11.5px var(--f-body); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+  .cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: 26px repeat(var(--lanes, 0), 26px); min-height: 92px; padding-bottom: 8px; border-top: 1.5px solid var(--line-soft); }
+  .cal-day { grid-row: 1 / -1; border-right: 1px solid var(--line-soft); padding: 3px 8px; font: 600 13px var(--f-body); color: var(--ink-2); }
+  .cal-day:nth-child(7) { border-right: 0; }
+  .cal-day.other { color: var(--line-soft); }
+  .cal-day.today .num { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 999px; background: var(--sun); color: var(--on-fill); text-align: center; }
+  .cal-bar { z-index: 1; margin: 2px 3px; padding: 0 8px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--band); color: var(--on-fill);
+    font: 600 12.5px/21px var(--f-body); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .cal-bar:hover { filter: brightness(.95); }
+  .cal-bar.from { margin-left: 0; border-left-style: dashed; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+  .cal-bar.to { margin-right: 0; border-right-style: dashed; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .cal-unscheduled { overflow: auto; padding-top: 6px; }
+  .cal-unscheduled h3 { margin: 0 0 8px; font-size: 14px; }
+  .cal-item { display: block; width: 100%; margin-bottom: 6px; padding: 4px 8px 4px 10px; border: 1.5px solid var(--line); border-left: 6px solid var(--band); border-radius: 8px;
+    background: var(--card); color: var(--ink); font: 500 13px var(--f-body); text-align: left; cursor: pointer; }
+  .cal-item:hover { background: var(--stone); color: var(--on-fill); }
+  .date-in { padding: 2px 8px; font: 500 13px var(--f-body); color: var(--ink); background: var(--card); }
+  @media (max-width: 860px) { .cal-body { grid-template-columns: 1fr; } }
 }

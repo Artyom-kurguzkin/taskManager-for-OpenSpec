@@ -34,6 +34,16 @@ internal static class DeclaredFeatures
         return list.Remove(path) ? Write(c, list) : (true, "");
     }
 
+    internal static (bool Success, string Message) Rename(string from, string to)
+    {
+        if (Config is not string c) return (false, "No repository is open");
+        List<string> list = Read();
+        int i = list.IndexOf(from);
+        if (i < 0) return (true, "");
+        list[i] = to;
+        return Write(c, list);
+    }
+
     private static (bool Success, string Message) Write(string config, List<string> list) =>
         OpenSpecStoreApi.WriteRtmSection(config, Section, Writer.Serialize(list).Replace("\r\n", "\n"));
 }

@@ -19,6 +19,7 @@
         <div class="kv"><label>created</label><span class="num">@note.Created.ToString("yyyy-MM-dd HH:mm")</span></div>
         <div class="kv"><label>last modified</label><span class="num">@modified.ToString("yyyy-MM-dd HH:mm")</span>@if (saving) { <span class="muted"> · saving…</span> }</div>
         <div class="kv"><label>by</label><span>@note.By</span></div>
+        @if (note.AgentUnreviewed) { <div class="kv"><AgentChip By="@note.AgentBy" At="note.AgentAt" OnReview="() => Run(NotesApi.MarkReviewed(note.Id))" /></div> }
         <BackButton />
     </div>
     @* the same tiles as the work item page. The note is read until Edit is pressed; then Radzen's markdown editor takes its

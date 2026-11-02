@@ -15,6 +15,15 @@ public sealed class Workspace : IDisposable
     private readonly SettingsStore settings;
     private readonly UiService ui;
     private bool resolving;
+    private string? guideNotice;
+
+    /// <summary>What to tell the user about the agent guide the app just created (once), or null.</summary>
+    public string? TakeGuideNotice()
+    {
+        string? notice = guideNotice;
+        guideNotice = null;
+        return notice;
+    }
 
     public Workspace(SettingsStore settings, UiService ui)
     {
@@ -26,18 +35,63 @@ public sealed class Workspace : IDisposable
     /// <summary>Raised on any change; components re-read through the module Apis and re-render.</summary>
     public event Action? Changed;
 
+    /// <summary>The active repository: the one pages read and write, and the side menu names.</summary>
     public string? Root => OpenSpecStoreApi.RepoRoot;
+
+    /// <summary>The repositories open as tabs that exist on disk, in display order: what the board and list show together.</summary>
+    public IReadOnlyList<string> Projects
+    {
+        get
+        {
+            IReadOnlyList<string> open = OpenSpecStoreApi.OpenRoots;
+            return OpenRepos.Where(r => open.Any(o => SettingsStore.Key(o) == SettingsStore.Key(r))).ToList();
+        }
+    }
 
     public (bool Success, string Message) Open(string root)
     {
-        (bool ok, string message) = OpenSpecStoreApi.Open(root);
+        bool fresh = !OpenSpecStoreApi.OpenRoots.Any(r => SettingsStore.Key(r) == SettingsStore.Key(root));
+        (bool ok, string message) = OpenSpecStoreApi.Open(root, keepOthers: true);
         if (!ok) return (ok, message);
-        GitHistoryApi.Configure(root);
+        GitHistoryApi.Configure(root, reset: fresh);
         WorkItemsApi.ConfigureContributors(() => GitHistoryApi.IsRepository() ? (GitHistoryApi.HeadToken(), GitHistoryApi.AuthorsOfChange) : null);
         settings.Update(s => s with { LastRepo = OpenSpecStoreApi.RepoRoot });
+        if (AgentGuide.Ensure(root)) guideNotice = $"Created openspec/{AgentGuide.FileName} in {Path.GetFileName(root)}: the conventions agents should follow here. Add a line pointing to it in your CLAUDE.md / AGENTS.md.";
+        OpenTabs(root);
+        KeepTabs();
         Notify();
         return (true, "");
     }
+
+    /// <summary>The other tabs open in the store too (the board shows them all); one whose folder is gone is skipped.</summary>
+    private void OpenTabs(string active)
+    {
+        foreach (string tab in OpenRepos.Where(t => !OpenSpecStoreApi.OpenRoots.Any(o => SettingsStore.Key(o) == SettingsStore.Key(t))))
+            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) { GitHistoryApi.Configure(tab); AgentGuide.Ensure(tab); }
+        OpenSpecStoreApi.Use(active);
+        GitHistoryApi.Configure(active);
+    }
+
+    /// <summary>Closes what is neither a tab nor the active repository.</summary>
+    private void KeepTabs()
+    {
+        List<string> keep = [.. OpenRepos, .. Root is string r ? [r] : Array.Empty<string>()];
+        OpenSpecStoreApi.Keep(keep);
+        GitHistoryApi.Keep(keep);
+    }
+
+    /// <summary>Reads or writes another open repository, then comes back to the active one.</summary>
+    public T In<T>(string root, Func<T> work)
+    {
+        string? active = Root;
+        if (active is not null && SettingsStore.Key(active) == SettingsStore.Key(root)) return work();
+        if (!OpenSpecStoreApi.Use(root)) throw new InvalidOperationException($"{root} is not open");
+        GitHistoryApi.Configure(root);
+        try { return work(); }
+        finally { if (active is not null) { OpenSpecStoreApi.Use(active); GitHistoryApi.Configure(active); } }
+    }
+
+    public void In(string root, Action work) => In(root, () => { work(); return 0; });
 
     /// <summary>Repositories open as tabs; falls back to just the active one once settings have any value at all.</summary>
     public IReadOnlyList<string> OpenRepos =>
@@ -47,9 +101,29 @@ public sealed class Workspace : IDisposable
     public (bool Success, string Message) OpenTab(string root)
     {
         List<string> before = OpenRepos.ToList();   // snapshot before Open() switches Root, which OpenRepos falls back on
+        settings.Update(s => s with { OpenRepos = [.. before.Where(p => SettingsStore.Key(p) != SettingsStore.Key(root)), root] });   // first, so Open keeps every tab
         (bool ok, string message) = Open(root);
-        if (ok) settings.Update(s => s with { OpenRepos = [.. before.Where(p => SettingsStore.Key(p) != SettingsStore.Key(root)), root] });
+        if (!ok) settings.Update(s => s with { OpenRepos = before });
         return (ok, message);
+    }
+
+    /// <summary>
+    /// Moves the given tabs one place up (dir -1) or down (+1), each past the next tab that is not moving, as the arrow keys move
+    /// selected cards; a scattered selection closes up as it goes. False when nothing could move.
+    /// </summary>
+    public bool MoveTabs(IReadOnlyCollection<string> roots, int dir)
+    {
+        List<string> tabs = OpenRepos.ToList();
+        bool Moving(int i) => roots.Any(r => SettingsStore.Key(r) == SettingsStore.Key(tabs[i]));
+        bool moved = false;
+        IEnumerable<int> order = dir < 0 ? Enumerable.Range(1, Math.Max(0, tabs.Count - 1)) : Enumerable.Range(0, Math.Max(0, tabs.Count - 1)).Reverse();
+        foreach (int i in order)
+        {
+            int j = i + Math.Sign(dir);
+            if (Moving(i) && !Moving(j)) { (tabs[i], tabs[j]) = (tabs[j], tabs[i]); moved = true; }
+        }
+        if (moved) settings.Update(s => s with { OpenRepos = tabs });
+        return moved;
     }
 
     /// <summary>Closes a tab; the last remaining one can't be closed. Switches to another tab if the active one closes.</summary>
@@ -59,6 +133,8 @@ public sealed class Workspace : IDisposable
         List<string> remaining = OpenRepos.Where(p => SettingsStore.Key(p) != SettingsStore.Key(repo)).ToList();
         settings.Update(s => s with { OpenRepos = remaining });
         if (Root is string r && SettingsStore.Key(r) == SettingsStore.Key(repo)) Open(remaining[^1]);
+        else KeepTabs();
+        Notify();
     }
 
     /// <summary>Who the app writes as: the name in Settings, else git user.name, else the OS user.</summary>
@@ -84,22 +160,35 @@ public sealed class Workspace : IDisposable
             resolving = true;
             try
             {
-                foreach ((int oldId, int newId, string folder) in WorkItemsApi.ResolveDuplicateIds())
-                {
-                    (bool ok, string _, int noteId) = NotesApi.Create(newId, "App");
-                    if (ok) NotesApi.SaveBody(noteId, $"# Renumbered from #wi{oldId}\n\nTwo changes carried the number #wi{oldId}. This one ({folder}) was created later, so it is now #wi{newId}. Anything that refers to #wi{oldId} means the other change.\n");
-                    ui.Toast($"#wi{oldId} was used twice: {folder} is now #wi{newId}", ToastKind.Warning);
-                }
+                foreach (string project in OpenSpecStoreApi.OpenRoots)
+                    In(project, () =>
+                    {
+                        foreach ((int oldId, int newId, string folder) in WorkItemsApi.ResolveDuplicateIds())
+                        {
+                            (bool ok, string _, int noteId) = NotesApi.Create(newId, "App");
+                            if (ok) NotesApi.SaveBody(noteId, $"# Renumbered from #wi{oldId}\n\nTwo changes carried the number #wi{oldId}. This one ({folder}) was created later, so it is now #wi{newId}. Anything that refers to #wi{oldId} means the other change.\n");
+                            ui.Toast($"#wi{oldId} was used twice: {folder} is now #wi{newId}", ToastKind.Warning);
+                        }
+                    });
             }
             finally { resolving = false; }
         }
         Changed?.Invoke();
     }
 
-    /// <summary>Creates "New work item" (assigned to me unless <paramref name="who"/> says otherwise) and refreshes every view.</summary>
-    public (bool Ok, string Message, int Id) CreateItem(string status = "Backlog", string[]? features = null, string[]? who = null)
+    /// <summary>The project a new work item goes to: the only one, or the one the user picks (null when cancelled).</summary>
+    public async Task<string?> PickProject(string title)
     {
-        (bool ok, string message, int id) = WorkItemsApi.Create("New work item", status, features, who ?? [Me]);
+        IReadOnlyList<string> projects = Projects;
+        if (projects.Count <= 1) return Root;
+        return await ui.Choose(title, "", projects.Select(r => (r, Path.GetFileName(r))).ToList());
+    }
+
+    /// <summary>Creates "New work item" (assigned to me unless <paramref name="who"/> says otherwise) and refreshes every view.</summary>
+    public (bool Ok, string Message, int Id) CreateItem(string status = "Backlog", string[]? features = null, string[]? who = null, string? project = null)
+    {
+        (bool ok, string message, int id) = project is null ? WorkItemsApi.Create("New work item", status, features, who ?? [Me])
+            : In(project, () => WorkItemsApi.Create("New work item", status, features, who ?? [Me]));
         if (ok) Notify();
         return (ok, message, id);
     }

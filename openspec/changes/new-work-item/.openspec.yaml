@@ -4,5 +4,7 @@ created: 2026-10-24
 x-rtm:
   id: 54
   title: board expanded view work item design
-  status: Planned
+  status: In Progress
   contributors: [Artyom-kurguzkin]
+  started: 2026-11-02
+  due: 2026-11-08

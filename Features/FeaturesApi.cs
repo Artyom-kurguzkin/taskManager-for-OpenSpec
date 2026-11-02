@@ -17,4 +17,7 @@ public static class FeaturesApi
 
     /// <summary>Removes a custom feature (added from the board) from config.yaml. Features with a spec are refused (only OpenSpec removes those).</summary>
     public static (bool Success, string Message) DeleteFeature(string path) => Commands.DeleteFeature(path);
+
+    /// <summary>Renames a feature: moves its spec folder or its config.yaml entry. Work items are updated by WorkItemsApi.RenameFeature.</summary>
+    public static (bool Success, string Message, string? NewPath) RenameFeature(string path, string name) => Commands.RenameFeature(path, name);
 }

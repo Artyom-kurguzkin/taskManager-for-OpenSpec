@@ -145,50 +145,79 @@ public sealed class EditingWorkItemsTests
         Assert.Equal("# Proposal\n\n## Why\n\nNew text.\n", repo.Read("openspec/changes/add-health-check/proposal.md"));
     }
 
-    [Fact(DisplayName = "Manual features and contributors are saved; features from specs/ cannot be removed")]
-    public void FeaturesAndContributors()
+    [Fact(DisplayName = "Contributors are saved")]
+    public void Contributors()
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
-        WorkItemsApi.SetContributors(123, ["Mira"]);
-        (bool ok, string message) = WorkItemsApi.SetManualFeatures(123, ["functional/banking"]);
-        Assert.True(ok, message);
+        Assert.True(WorkItemsApi.SetContributors(123, ["Mira"]).Success);
         Assert.Equal(["Mira"], Item(123).Contributors);
-        Assert.Equal([new FeatureLink("non-functional/availability", true), new FeatureLink("functional/banking", false)], Item(123).Features);
     }
 
-    [Fact(DisplayName = "A feature that comes from specs/ can be unlinked: it leaves the item, the spec stays, and it can be linked again")]
-    public void UnlinkSpecFeature()
+    [Fact(DisplayName = "A work item has one feature: one picked by hand wins over its specs, otherwise its first spec")]
+    public void OneFeature()
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
-        string spec = "openspec/changes/add-health-check/specs/non-functional/availability/spec.md";
-        string before = repo.Read(spec);
 
-        Assert.True(WorkItemsApi.UnlinkFeature(123, "non-functional/availability").Success);
+        Assert.Equal([new FeatureLink("non-functional/security", false)], Item(123).Features);   // x-rtm lists Security; its spec is for Availability
+        Assert.True(WorkItemsApi.MoveFeature(123, null).Success);
+        Assert.Empty(Item(123).Features);   // Security left x-rtm, Availability is unlinked: none
+        Assert.True(WorkItemsApi.MoveFeature(123, "non-functional/availability").Success);
+        Assert.Equal([new FeatureLink("non-functional/availability", true)], Item(123).Features);
+    }
 
-        Assert.Equal([new FeatureLink("non-functional/security", false)], Item(123).Features);   // the manual one stays
+    [Fact(DisplayName = "Moving an item to a feature makes that its only feature, completed or open: spec features are unlinked (the spec stays), moving back relinks")]
+    public void MoveCompletedBetweenFeatures()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        const string yaml = "openspec/changes/archive/2026-09-18-session-timeout/.openspec.yaml";
+        Assert.Equal([new FeatureLink("non-functional/security", true)], Item(124).Features);
+
+        Assert.True(WorkItemsApi.MoveFeature(124, "non-functional/availability").Success);
+        Assert.Equal([new FeatureLink("non-functional/availability", false)], Item(124).Features);
+        Assert.Contains("unlinkedFeatures: [non-functional/security]", repo.Read(yaml));
+
+        Assert.True(WorkItemsApi.MoveFeature(124, "non-functional/security").Success);
+        Assert.Equal([new FeatureLink("non-functional/security", true)], Item(124).Features);
+
+        Assert.True(WorkItemsApi.MoveFeature(124, null).Success);   // to Unassigned
+        Assert.Empty(Item(124).Features);
+
+        // an item with a spec for Availability and Security picked by hand ends up in the target only; its spec stays
+        Assert.True(WorkItemsApi.MoveFeature(123, "functional/banking").Success);
+        Assert.Equal([new FeatureLink("functional/banking", false)], Item(123).Features);
         Assert.Equal(["non-functional/availability"], Item(123).UnlinkedFeatures);
-        Assert.Contains("unlinkedFeatures: [non-functional/availability]", repo.Read(HealthYaml));
-        Assert.Equal(before, repo.Read(spec));
-
-        Assert.True(WorkItemsApi.RelinkFeature(123, "non-functional/availability").Success);
-
-        Assert.Equal([new FeatureLink("non-functional/availability", true), new FeatureLink("non-functional/security", false)], Item(123).Features);
-        Assert.Empty(Item(123).UnlinkedFeatures!);
-        Assert.DoesNotContain("unlinkedFeatures", repo.Read(HealthYaml));
+        Assert.True(File.Exists(repo.PathOf("openspec/changes/add-health-check/specs/non-functional/availability/spec.md")));
+        Assert.True(WorkItemsApi.MoveFeature(123, "non-functional/availability").Success);
+        Assert.Equal([new FeatureLink("non-functional/availability", true)], Item(123).Features);
     }
 
-    [Fact(DisplayName = "Only a linked feature from specs/ can be unlinked")]
-    public void UnlinkRefusals()
+    [Fact(DisplayName = "Moving an item to In Progress stamps the day it started, once; start and due dates are set as dates and written as yyyy-MM-dd")]
+    public void StartedAndDue()
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
-        WorkItemsApi.SetManualFeatures(123, ["functional/banking"]);
+        string Yaml() => File.ReadAllText(Path.Combine(Item(107).Path, ".openspec.yaml"));
+        DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+        Assert.Null(Item(107).Started);
 
-        Assert.False(WorkItemsApi.UnlinkFeature(123, "functional/banking").Success);   // manual ones are removed with SetManualFeatures
-        Assert.False(WorkItemsApi.UnlinkFeature(123, "functional/nothing").Success);
-        Assert.Equal(2, Item(123).Features.Count);
+        Assert.True(WorkItemsApi.SetStatus(107, "In Progress").Success);
+        Assert.Equal(today, Item(107).Started);
+        Assert.Contains($"started: {today:yyyy-MM-dd}", Yaml());
+
+        Assert.True(WorkItemsApi.SetStarted(107, new DateOnly(2026, 10, 20)).Success);
+        Assert.True(WorkItemsApi.SetStatus(107, "Planned").Success);
+        Assert.True(WorkItemsApi.SetStatus(107, "In Progress").Success);
+        Assert.Equal(new DateOnly(2026, 10, 20), Item(107).Started);   // a start date already there is kept
+
+        Assert.True(WorkItemsApi.SetDue(107, new DateOnly(2026, 11, 5)).Success);
+        Assert.Equal(new DateOnly(2026, 11, 5), Item(107).Due);
+        Assert.Contains("due: 2026-11-05", Yaml());
+        Assert.True(WorkItemsApi.SetDue(107, null).Success);
+        Assert.Null(Item(107).Due);
+        Assert.DoesNotContain("due:", Yaml());
     }
 
     [Fact(DisplayName = "Creating a work item makes a change folder with the next number")]
@@ -473,7 +502,7 @@ public sealed class EditingWorkItemsTests
         WorkItem merged = Item(id);
         Assert.Null(WorkItemsApi.Get(107));
         Assert.Equal(["CSV columns agreed", "Export job", "First step"], merged.Subtasks.Select(s => s.Text));
-        Assert.Equal(["functional/banking", "functional/remittances"], merged.Features.Select(f => f.Path).Order());
+        Assert.Equal(["functional/banking"], merged.Features.Select(f => f.Path));   // both specs come along; one feature: the first
         Assert.Contains("Finance needs a monthly export.", WorkItemsApi.GetDescription(id));
         Assert.Contains("Created with the openspec CLI only.", WorkItemsApi.GetDescription(id));
     }
@@ -615,6 +644,44 @@ public sealed class EditingWorkItemsTests
         finally { WorkItemsApi.ConfigureArchiver(null); }
     }
 
+    internal const string RemittancesMain = "# Remittances Specification\n\n## Purpose\nSending money abroad from the sample finance app the tests use, fees and limits included.\n\n## Requirements\n\n### Requirement: Send money\nThe system SHALL send money.\n\n#### Scenario: Works\n- **WHEN** sent\n- **THEN** it arrives\n\n#### Scenario: Fee shown\n- **WHEN** the user enters an amount\n- **THEN** the fee is shown first\n\n#### Scenario: Limit\n- **WHEN** over the limit\n- **THEN** it is refused\n";
+    internal const string RemittancesDelta ="## MODIFIED Requirements\n\n### Requirement: Send money\nThe system SHALL send money and export it.\n\n#### Scenario: Works\n- **WHEN** sent\n- **THEN** it arrives and is exported\n\n## ADDED Requirements\n\n### Requirement: Export\nThe system SHALL export.\n\n#### Scenario: Export works\n- **WHEN** exported\n- **THEN** a file appears\n";
+
+    [Fact(DisplayName = "Completing an item first puts back into its modified requirements every scenario the main spec has gained, so the archive never drops one")]
+    public void CompleteRefreshesStaleDeltas()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        // another item's archive gave the main spec two more scenarios; #wi107's delta still holds the old one-scenario copy
+        repo.Write("openspec/specs/functional/remittances/spec.md", RemittancesMain);
+        const string delta = "openspec/changes/export-remittances/specs/functional/remittances/spec.md";
+        repo.Write(delta, RemittancesDelta);
+        string? seen = null;
+        WorkItemsApi.ConfigureArchiver(folder => { seen = repo.Read(delta); Directory.Move(repo.PathOf($"openspec/changes/{folder}"), repo.PathOf($"openspec/changes/archive/2026-11-01-{folder}")); return (true, ""); });
+        try
+        {
+            Assert.True(WorkItemsApi.SetStatus(107, "Completed").Success);
+            Assert.NotNull(seen);
+            Assert.Contains("it arrives and is exported", seen);   // the change's own text stays
+            Assert.True(seen.IndexOf("#### Scenario: Works") < seen.IndexOf("#### Scenario: Fee shown"), seen);
+            Assert.True(seen.IndexOf("#### Scenario: Fee shown") < seen.IndexOf("#### Scenario: Limit"), seen);
+            Assert.True(seen.IndexOf("- **THEN** it is refused") < seen.IndexOf("## ADDED Requirements"), seen);   // appended inside the block, before the next section
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(seen, "#### Scenario: Export works"));   // ADDED blocks untouched
+        }
+        finally { WorkItemsApi.ConfigureArchiver(null); }
+    }
+
+    [Fact(DisplayName = "Refreshing a delta changes nothing when it already has every scenario, and leaves a requirement the main spec no longer has alone")]
+    public void RefreshIsIdempotent()
+    {
+        string once = WorkItems.BusinessRules.DeltaSpec.Refresh(RemittancesDelta, RemittancesMain);
+        Assert.Equal(once, WorkItems.BusinessRules.DeltaSpec.Refresh(once, RemittancesMain));
+        Assert.Equal(RemittancesDelta, WorkItems.BusinessRules.DeltaSpec.Refresh(RemittancesDelta, RemittancesMain.Replace("Send money", "Receive money")));
+        string crlf = RemittancesDelta.Replace("\n", "\r\n");
+        Assert.DoesNotContain("\n\n\n", WorkItems.BusinessRules.DeltaSpec.Refresh(crlf, RemittancesMain).Replace("\r\n", "\n"));
+        Assert.Contains("\r\n#### Scenario: Limit\r\n", WorkItems.BusinessRules.DeltaSpec.Refresh(crlf, RemittancesMain));   // the file's own line endings
+    }
+
     [Fact(DisplayName = "A failed archive leaves the work item where it was and reports the CLI's message")]
     public void ArchiveFails()
     {
@@ -748,7 +815,7 @@ public sealed class EditingWorkItemsTests
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
         Features.FeaturesApi.CreateFeature("Functional", "Payments");
-        WorkItemsApi.SetManualFeatures(107, ["functional/payments"]);
+        WorkItemsApi.MoveFeature(107, "functional/payments");
         Assert.Contains(Item(107).Features, f => f.Path == "functional/payments");
 
         (bool ok, string _) = WorkItemsApi.DeleteFeature("functional/payments");
@@ -756,6 +823,68 @@ public sealed class EditingWorkItemsTests
         Assert.True(ok);
         Assert.DoesNotContain(Item(107).Features, f => f.Path == "functional/payments");
         Assert.DoesNotContain(Features.FeaturesApi.GetAll(), f => f.Path == "functional/payments");
+    }
+
+    /// <summary>What an agent writes when it creates or changes a work item: who and when, in x-rtm.</summary>
+    internal static void StampAgent(TestRepo repo, string yaml = HealthYaml, string at = "2026-10-30T09:00:00") =>
+        repo.Write(yaml, repo.Read(yaml).Replace("x-rtm:\n", $"x-rtm:\n  agentBy: Claude\n  agentAt: {at}\n"));
+
+    [Fact(DisplayName = "Work an agent stamped is flagged until the user marks it reviewed, and flagged again when the agent changes it later")]
+    public void AgentWorkUntilReviewed()
+    {
+        using TestRepo repo = new();
+        StampAgent(repo);
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.Equal(("Claude", true), (Item(123).AgentBy, Item(123).AgentUnreviewed));
+        Assert.False(Item(107).AgentUnreviewed);   // nobody stamped it
+
+        Assert.True(WorkItemsApi.MarkReviewed(123).Success);
+
+        Assert.False(Item(123).AgentUnreviewed);
+        string yaml = repo.Read(HealthYaml);
+        Assert.Contains("  reviewedAt: ", yaml);
+        Assert.Contains("  agentBy: Claude\n", yaml);   // the agent's stamp stays; only the user's review is added
+
+        repo.Write(HealthYaml, yaml.Replace("agentAt: 2026-10-30T09:00:00", "agentAt: 2999-01-01T00:00:00"));   // the agent edits it again
+        OpenSpecStoreApi.MarkOwnChange(repo.PathOf(HealthYaml));
+        Assert.True(Item(123).AgentUnreviewed);
+        Assert.True(WorkItemsApi.MarkReviewed(123).Success);   // reviewing an agent whose clock is far ahead still sticks
+        Assert.False(Item(123).AgentUnreviewed);
+    }
+
+    [Fact(DisplayName = "A subtask line ending in an agent comment is flagged; ticking keeps the stamp, editing its text or marking it reviewed removes it")]
+    public void AgentSubtasks()
+    {
+        using TestRepo repo = new();
+        repo.Write(HealthTasks, repo.Read(HealthTasks).TrimEnd() + "\n- [ ] 2.2 Agent drafted this <!-- agent: Claude -->\n- [ ] 2.3 And this <!-- agent: Claude -->\n");
+        OpenSpecStoreApi.Open(repo.Root);
+        Subtask s = Item(123).Subtasks.Single(x => x.Number == "2.2");
+        Assert.Equal(("Agent drafted this", "Claude"), (s.Text, s.Agent));
+        Assert.Null(Item(123).Subtasks.Single(x => x.Number == "2.1").Agent);
+
+        WorkItemsApi.SetSubtaskDone(123, "2.2", true);
+        Assert.Contains("- [x] 2.2 Agent drafted this <!-- agent: Claude -->", repo.Read(HealthTasks));
+
+        WorkItemsApi.MarkSubtaskReviewed(123, "2.2");
+        Assert.Contains("- [x] 2.2 Agent drafted this\n", repo.Read(HealthTasks));
+        Assert.Null(Item(123).Subtasks.Single(x => x.Number == "2.2").Agent);
+
+        WorkItemsApi.SetSubtaskText(123, "2.3", "Rewritten by me");
+        Assert.Contains("- [ ] 2.3 Rewritten by me\n", repo.Read(HealthTasks));
+        Assert.DoesNotContain("<!-- agent", repo.Read(HealthTasks));
+    }
+
+    [Fact(DisplayName = "A feature an open change still has a spec for can't be deleted, and the message names the change")]
+    public void DeleteFeatureWithOpenSpecRefused()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message) = WorkItemsApi.DeleteFeature("non-functional/availability");
+
+        Assert.False(ok);
+        Assert.Contains("#wi123", message);
+        Assert.Contains(Features.FeaturesApi.GetAll(), f => f.Path == "non-functional/availability");
     }
 
     [Fact(DisplayName = "Commit authors fill in contributors until the list is edited in the app; after that the saved list wins")]

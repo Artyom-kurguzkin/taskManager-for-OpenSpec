@@ -7,15 +7,18 @@ namespace TaskManager.Board;
 
 /// <summary>What the board/list is showing. Remembered per repository in the settings file.</summary>
 public sealed record BoardOptions(
-    string GroupBy = "status",     // status | bucket | label | contributor
+    string GroupBy = "status",     // status | feature | label | contributor | due | started
     string SortBy = "priority",    // priority | feature | who | modified | created | status | title | id | manual (my order)
     int SortDir = 1,
     string Who = "all",
-    string Category = "all",       // legacy; kept for deserialization but unused by bucket grouping
+    string Period = "all",         // due in: all | overdue | today | week | month | none
+    string Category = "all",       // legacy; kept for deserialization, unused
     string Unit = "tasks",         // tasks | subtasks
     string View = "board",         // board | list
-    bool Compact = false,
+    bool Compact = false,          // the board: cards show only their title band
+    bool ShowSubtasks = false,     // the list: every row shows its subtasks (otherwise only rows opened by their chevron)
     bool ShowHidden = false,       // include work items "deleted" (hidden) in the app
+    bool AgentOnly = false,        // only work with unreviewed agent changes
     IReadOnlyList<string>? Hidden = null,   // ColumnKey of columns taken off the board
     IReadOnlyList<string>? Order = null,    // column and card (item:<id>) keys in the user's order; anything not listed keeps its usual place after them
     string? ListSettings = null);           // the list view's grid settings (column widths, order, sort, filters) as JSON
@@ -29,7 +32,7 @@ public sealed record BoardSection(string? Category, IReadOnlyList<BoardColumn> C
 /// An empty column gets one row with no item, so the column still shows as a group. The flat properties feed the grid's
 /// sorting and filtering.
 /// </summary>
-public sealed record GridRow(int Group, BoardColumn Column, string? Category, WorkItem? Item, int Position, string Features)
+public sealed record GridRow(int Group, BoardColumn Column, string? Category, WorkItem? Item, int Position, string Feature, string Root = "", string Project = "")
 {
     public string Key => $"{Group}:{Item?.Id ?? 0}";
     public int Id => Item?.Id ?? 0;
@@ -40,15 +43,18 @@ public sealed record GridRow(int Group, BoardColumn Column, string? Category, Wo
     public string Priority => Item?.Priority ?? "";
     public int Progress => Item is { Subtasks.Count: > 0 } i ? i.Subtasks.Count(s => s.Done) * 100 / i.Subtasks.Count : 0;
     public DateTime? Modified => Item?.Modified;
+    public DateTime? Started => Item?.Started?.ToDateTime(TimeOnly.MinValue);
+    public DateTime? Due => Item?.Due?.ToDateTime(TimeOnly.MinValue);
 }
 
 /// <summary>Pure arrangement of work items into board sections and columns (no IO, so it is unit-tested directly).</summary>
 public static class BoardModel
 {
     public static IReadOnlyList<BoardSection> Build(
-        IReadOnlyList<WorkItem> items, IReadOnlyList<Feature> features, IReadOnlyDictionary<string, IReadOnlyList<string>> lanes, BoardOptions o)
+        IReadOnlyList<WorkItem> items, IReadOnlyList<Feature> features, IReadOnlyDictionary<string, IReadOnlyList<string>> lanes, BoardOptions o, DateOnly? today = null)
     {
-        List<WorkItem> visible = Sort(items.Where(i => o.Who == "all" || i.Contributors.Contains(o.Who)), o).ToList();
+        DateOnly now = today ?? DateOnly.FromDateTime(DateTime.Today);
+        List<WorkItem> visible = Sort(items.Where(i => (o.Who == "all" || i.Contributors.Contains(o.Who)) && (!o.AgentOnly || AgentFlag(i)) && InPeriod(i.Due, o.Period, now)), o).ToList();
         BoardColumn Col(string key, string label, Func<WorkItem, bool> match) =>
             new(key, label, visible.Where(match).ToList(), lanes.TryGetValue(key, out IReadOnlyList<string>? l) ? l : []);
 
@@ -60,18 +66,11 @@ public static class BoardModel
                 people.AddRange(Arrange(items.SelectMany(i => i.Contributors).Distinct().Order(StringComparer.OrdinalIgnoreCase), p => ColumnKey(o, p), o)
                     .Select(p => Col(p, p, i => i.Contributors.Contains(p))));
                 return [new(null, people)];
-            case "bucket":
-            case "feature":   // legacy saved setting
-                List<BoardSection> sections = [];
-                if (visible.Where(i => i.Features.Count == 0).ToList() is { Count: > 0 } loose)
-                    sections.Add(new(null, [new(Unassigned, "Unassigned", loose, [])]));
-                foreach (string bucket in Arrange(Categories(features), b => "bucket:" + b, o))
-                {
-                    List<BoardColumn> cols = Arrange(features.Where(f => f.Group == bucket), f => FeatureKey(f.Path), o)
-                        .Select(f => Col(f.Path, f.Name, i => i.Features.Any(x => x.Path == f.Path))).ToList();
-                    if (cols.Count > 0) sections.Add(new(bucket, cols));
-                }
-                return sections.Count > 0 ? sections : [new(null, [])];
+            case "feature":   // one flat row: work items without a feature first, then every feature (no supergroups)
+                List<BoardColumn> featureCols = [];
+                if (visible.Where(i => i.Features.Count == 0).ToList() is { Count: > 0 } loose) featureCols.Add(new(Unassigned, "Unassigned", loose, []));
+                featureCols.AddRange(Arrange(features, f => FeatureKey(f.Path), o).Select(f => Col(f.Path, f.Name, i => i.Features.Any(x => x.Path == f.Path))));
+                return [new(null, featureCols)];
             case "label":
                 List<BoardColumn> labelCols = [];
                 if (visible.Where(i => string.IsNullOrEmpty(i.Label)).ToList() is { Count: > 0 } unlabeled)
@@ -79,26 +78,79 @@ public static class BoardModel
                 labelCols.AddRange(Arrange(WorkItemsApi.Labels, l => "label:" + l, o)
                     .Select(l => Col(l, l, i => i.Label == l)));
                 return [new(null, labelCols)];
+            case "due":
+                return [new(null, Arrange(DuePeriods, p => ColumnKey(o, p.Key), o).Select(p => Col(p.Key, p.Label, i => Period(i.Due, now) == p.Key)).ToList())];
+            case "started":
+                return [new(null, Arrange(StartPeriods, p => ColumnKey(o, p.Key), o).Select(p => Col(p.Key, p.Label, i => StartPeriod(i.Started, now) == p.Key)).ToList())];
             default:
                 return [new(null, Arrange(WorkItemsApi.Statuses, s => ColumnKey(o, s), o).Select(s => Col(s, s, i => i.Status == s)).ToList())];
         }
     }
 
     /// <summary>The list view's rows, in board order: column by column, each column's items in their sorted order.</summary>
-    public static IReadOnlyList<GridRow> Rows(IReadOnlyList<BoardSection> sections, IReadOnlyDictionary<string, string> featureNames)
+    public static IReadOnlyList<GridRow> Rows(IReadOnlyList<BoardSection> sections, IReadOnlyDictionary<string, string> featureNames,
+        string root = "", string project = "", int firstGroup = 0)
     {
         List<GridRow> rows = [];
-        int group = 0, position = 0;
+        int group = firstGroup, position = 0;
         foreach (BoardSection s in sections)
         foreach (BoardColumn c in s.Columns)
         {
-            if (c.Items.Count == 0) rows.Add(new(group, c, s.Category, null, position++, ""));
+            if (c.Items.Count == 0) rows.Add(new(group, c, s.Category, null, position++, "", root, project));
             foreach (WorkItem it in c.Items)
-                rows.Add(new(group, c, s.Category, it, position++, string.Join(", ", it.Features.Select(f => featureNames.GetValueOrDefault(f.Path, f.Path)))));
+                rows.Add(new(group, c, s.Category, it, position++, it.Features.FirstOrDefault() is { } f ? featureNames.GetValueOrDefault(f.Path, f.Path) : "", root, project));
             group++;
         }
         return rows;
     }
+
+    /// <summary>The list column that repeats the grouping (every row of a group has the same value there), or null.</summary>
+    public static string? GroupedColumn(BoardOptions o) => o.GroupBy switch
+    {
+        "status" => "Status",
+        "label" => "Label",
+        "feature" => "Feature",
+        "contributor" => "Contributors",
+        "due" => "Due",
+        "started" => "Started",
+        _ => null,
+    };
+
+    // ── Time periods (due and start dates) ──
+    public static readonly IReadOnlyList<(string Key, string Label)> DuePeriods =
+        [("overdue", "Overdue"), ("today", "Today"), ("week", "This week"), ("next", "Next week"), ("later", "Later"), ("none", "No due date")];
+    public static readonly IReadOnlyList<(string Key, string Label)> StartPeriods =
+        [("earlier", "Earlier"), ("week", "This week"), ("next", "Next week"), ("later", "Later"), ("none", "Not started")];
+
+    /// <summary>Which due period a day falls in, seen from today: overdue | today | week (to Sunday) | next (next week) | later | none.</summary>
+    public static string Period(DateOnly? day, DateOnly today)
+    {
+        if (day is not DateOnly d) return "none";
+        DateOnly sunday = CalendarModel.Monday(today).AddDays(6);
+        return d < today ? "overdue" : d == today ? "today" : d <= sunday ? "week" : d <= sunday.AddDays(7) ? "next" : "later";
+    }
+
+    /// <summary>Which period work started in: earlier (before this week) | week | next | later | none.</summary>
+    public static string StartPeriod(DateOnly? day, DateOnly today)
+    {
+        if (day is not DateOnly d) return "none";
+        DateOnly monday = CalendarModel.Monday(today);
+        return d < monday ? "earlier" : d < monday.AddDays(7) ? "week" : d < monday.AddDays(14) ? "next" : "later";
+    }
+
+    /// <summary>The side menu's period filter, on the due date: all | overdue | today | week | month | none.</summary>
+    public static bool InPeriod(DateOnly? due, string period, DateOnly today) => period switch
+    {
+        "overdue" => due < today,
+        "today" => due == today,
+        "week" => due >= today && due <= CalendarModel.Monday(today).AddDays(6),
+        "month" => due >= today && due <= new DateOnly(today.Year, today.Month, 1).AddMonths(1).AddDays(-1),
+        "none" => due is null,
+        _ => true,
+    };
+
+    /// <summary>An agent changed this item, or added one of its subtasks, and the user has not reviewed it.</summary>
+    public static bool AgentFlag(WorkItem it) => it.AgentUnreviewed || it.Subtasks.Any(s => s.Agent is not null);
 
     /// <summary>Key of a list column (Title, Status, …) in the hidden list, next to the board columns' keys.</summary>
     public static string ListColumnKey(string title) => "col:" + title;
@@ -106,18 +158,16 @@ public static class BoardModel
     /// <summary>Column key for work items without a feature (grouping by feature) or without contributors (by contributor).</summary>
     public const string Unassigned = "";
 
-    /// <summary>The buckets features are organized into (folders under openspec/specs: Functional, Non-Functional; Ungrouped = no folder).</summary>
-    public static IReadOnlyList<string> Categories(IReadOnlyList<Feature> features) =>
-        features.Select(f => f.Group).Distinct().OrderBy(g => g == FeaturesApi.Ungrouped).ToList();   // named buckets first
-
     public static string FeatureKey(string path) => "feature:" + path;
 
     /// <summary>Key of a column under the current grouping, for the saved order / hidden lists.</summary>
     public static string ColumnKey(BoardOptions o, string column) => o.GroupBy switch
     {
-        "bucket" or "feature" => FeatureKey(column),
+        "feature" => FeatureKey(column),
         "label" => "label:" + column,
         "contributor" => "who:" + column,
+        "due" => "due:" + column,
+        "started" => "started:" + column,
         _ => "status:" + column,
     };
 
@@ -125,7 +175,8 @@ public static class BoardModel
     public static string KeyLabel(string key, IReadOnlyList<Feature> features) => key.Split(':', 2) switch
     {
         ["feature", string path] => features.FirstOrDefault(f => f.Path == path)?.Name ?? path,
-        ["bucket", string name] => name,
+        ["due", string p] => DuePeriods.FirstOrDefault(x => x.Key == p).Label ?? p,
+        ["started", string p] => StartPeriods.FirstOrDefault(x => x.Key == p).Label ?? p,
         [_, string name] => name,
         _ => key,
     };

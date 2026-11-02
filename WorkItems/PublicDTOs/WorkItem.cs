@@ -27,7 +27,16 @@ public sealed record WorkItem(
     IReadOnlyList<TestLink>? Tests = null,     // x-rtm.tests
     IReadOnlyList<int>? DependsOn = null,      // x-rtm.dependsOn: ids this item is waiting on
     IReadOnlyList<int>? MergedFrom = null,     // x-rtm.mergedFrom: numbers of the items merged into this one
-    IReadOnlyList<string>? UnlinkedFeatures = null);   // x-rtm.unlinkedFeatures: spec-derived features the user removed from this item
+    IReadOnlyList<string>? UnlinkedFeatures = null,   // x-rtm.unlinkedFeatures: spec-derived features the user removed from this item
+    string? AgentBy = null,                    // x-rtm.agentBy / agentAt: an agent created or changed this item, and when
+    DateTime? AgentAt = null,
+    DateTime? ReviewedAt = null,               // x-rtm.reviewedAt: the user looked at it (set by the app)
+    DateOnly? Started = null,                  // x-rtm.started: the day work started (stamped on the first move to In Progress)
+    DateOnly? Due = null)                      // x-rtm.due
+{
+    /// <summary>An agent stamped this item and the user has not reviewed it since.</summary>
+    public bool AgentUnreviewed => AgentBy is not null && (ReviewedAt is null || (AgentAt is DateTime a && ReviewedAt < a));
+}
 
 /// <summary>A test linked to a work item, by suite and test name as the results file names them; Note = #n id describing it.</summary>
 public sealed record TestLink(string Suite, string Test, int? Note);
@@ -36,4 +45,5 @@ public sealed record TestLink(string Suite, string Test, int? Note);
 public sealed record FeatureLink(string Path, bool Locked);
 
 /// <summary>One checkbox line of tasks.md.</summary>
-public sealed record Subtask(string Number, string Text, bool Done, string Group);
+/// <summary><paramref name="Agent"/> = who added it, from a trailing &lt;!-- agent: name --&gt; on the line; null when nobody stamped it.</summary>
+public sealed record Subtask(string Number, string Text, bool Done, string Group, string? Agent = null);

@@ -8,6 +8,8 @@
 
 @code {
     [Inject] private SettingsStore Settings { get; set; } = default!;
+    [Inject] private Workspace Workspace { get; set; } = default!;
+    [Inject] private UiService Popups { get; set; } = default!;
     [Inject] private IJSRuntime Js { get; set; } = default!;
     [Inject] private IServiceProvider Services { get; set; } = default!;
 
@@ -22,6 +24,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
+        if (Workspace.TakeGuideNotice() is string notice) Popups.Toast(notice, ToastKind.Info);   // an agent guide written while the app started
         self = DotNetObjectReference.Create(this);
         systemDark = await Js.InvokeAsync<bool>("rtm.watchDark", self);   // current OS setting + notify on change
         await ApplyTheme();
@@ -36,12 +39,14 @@
 
     private void OnSettings() => InvokeAsync(ApplyTheme);
 
-    /// <summary>Theme comes from Settings (Light / Dark / System); the CSS tokens switch on html[data-theme].</summary>
+    /// <summary>Theme comes from Settings (Light / Dark / System); the CSS tokens switch on html[data-theme]. The keyboard
+    /// hints switch goes to the script the same way.</summary>
     private async Task ApplyTheme()
     {
         string theme = Settings.Current.Theme;
         bool dark = theme == "dark" || (theme == "system" && systemDark);
         await Js.InvokeVoidAsync("rtm.setTheme", theme);
+        await Js.InvokeVoidAsync("rtm.setHints", Settings.Current.Hints);
         (Services.GetService(typeof(WindowFrame)) as WindowFrame)?.Apply(dark);   // desktop host only
     }
 

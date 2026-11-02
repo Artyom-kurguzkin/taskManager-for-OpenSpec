@@ -6,5 +6,5 @@ x-rtm:
   title: header should remain on top when scrolling
   status: Confirmed
   contributors: [Artyom-kurguzkin]
-  features: [board]
+  features: [organise-work-items]
   hidden: true

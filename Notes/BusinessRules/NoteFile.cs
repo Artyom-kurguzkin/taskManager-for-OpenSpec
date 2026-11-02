@@ -10,6 +10,9 @@ internal sealed class NoteMeta
     public string? Created { get; set; }
     public List<string>? Links { get; set; }
     public List<string>? Commits { get; set; }
+    public string? AgentBy { get; set; }
+    public string? AgentAt { get; set; }
+    public string? ReviewedAt { get; set; }
 }
 
 /// <summary>A note file: a <c>---</c> frontmatter block, then the markdown body.</summary>

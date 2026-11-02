@@ -22,6 +22,25 @@ public sealed class KeepingNotesTests
         Assert.StartsWith("# Ping test", note.Body);
     }
 
+    [Fact(DisplayName = "A note an agent stamped is flagged until reviewed; reviewing adds reviewedAt and leaves the text alone")]
+    public void AgentNote()
+    {
+        using TestRepo repo = new();
+        string text = repo.Read(NoteFile);
+        repo.Write(NoteFile, new System.Text.RegularExpressions.Regex("\n---\n").Replace(text, "\nagentBy: Claude\nagentAt: 2026-10-30T09:00:00\n---\n", 1));
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.Equal(("Claude", true), (NotesApi.Get(123)!.AgentBy, NotesApi.Get(123)!.AgentUnreviewed));
+
+        Assert.True(NotesApi.MarkReviewed(123).Success);
+
+        Assert.False(NotesApi.Get(123)!.AgentUnreviewed);
+        string after = repo.Read(NoteFile);
+        Assert.Contains("reviewedAt: ", after);
+        Assert.Contains("agentBy: Claude", after);
+        Assert.Contains("by: Artyom", after);
+        Assert.EndsWith("See [[runbook/uptime]] and #wi107.\n", after);
+    }
+
     [Fact(DisplayName = "Adding a note creates notes/n<next>.md with its author and time")]
     public void CreateNote()
     {

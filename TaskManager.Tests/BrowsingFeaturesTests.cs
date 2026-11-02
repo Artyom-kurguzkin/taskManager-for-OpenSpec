@@ -1,6 +1,8 @@
 using Features;
 using Features.PublicDTOs;
 using OpenSpecStore;
+using WorkItems;
+using WorkItems.PublicDTOs;
 
 namespace TaskManager.Tests;
 
@@ -110,16 +112,65 @@ public sealed class BrowsingFeaturesTests
         Assert.DoesNotContain("functional/payments", repo.Read("openspec/config.yaml"));
     }
 
-    [Fact(DisplayName = "A feature backed by a spec folder can't be deleted from the app")]
-    public void DeleteSpecRefused()
+    [Fact(DisplayName = "A feature backed by a spec folder is deleted with that folder")]
+    public void DeleteSpecFeature()
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
 
         (bool ok, string message) = FeaturesApi.DeleteFeature("functional/banking");
 
+        Assert.True(ok, message);
+        Assert.DoesNotContain(FeaturesApi.GetAll(), f => f.Path == "functional/banking");
+        Assert.False(Directory.Exists(repo.PathOf("openspec/specs/functional/banking")));
+        Assert.True(Directory.Exists(repo.PathOf("openspec/specs/functional/remittances")));   // its neighbours stay
+    }
+
+    [Fact(DisplayName = "Renaming a spec feature moves its folder and every change's delta folder for it, and the work items keep their link")]
+    public void RenameSpecFeature()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        const string archived = "openspec/changes/archive/2026-09-18-session-timeout/specs/non-functional";
+
+        (bool ok, string message, _) = WorkItemsApi.RenameFeature("non-functional/security", "Safety");
+
+        Assert.True(ok, message);
+        Assert.False(Directory.Exists(repo.PathOf("openspec/specs/non-functional/security")));
+        Assert.True(File.Exists(repo.PathOf("openspec/specs/non-functional/safety/spec.md")));
+        Assert.True(File.Exists(repo.PathOf($"{archived}/safety/spec.md")));
+        Assert.False(Directory.Exists(repo.PathOf($"{archived}/security")));
+        Assert.Contains(FeaturesApi.GetAll(), f => f.Path == "non-functional/safety" && f.Name == "Safety");
+        Assert.Contains(new FeatureLink("non-functional/safety", true), WorkItemsApi.Get(124)!.Features);   // its archived delta moved with it
+        Assert.Contains(new FeatureLink("non-functional/safety", false), WorkItemsApi.Get(123)!.Features);   // a manual link is renamed in x-rtm
+    }
+
+    [Fact(DisplayName = "Renaming a feature added from the board renames it in config.yaml; a name already taken is refused")]
+    public void RenameCustomFeature()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        FeaturesApi.CreateFeature(FeaturesApi.Ungrouped, "Exports");
+
+        Assert.True(WorkItemsApi.RenameFeature("exports", "Reports").Success);
+
+        Assert.Contains("- reports", repo.Read("openspec/config.yaml"));
+        Assert.DoesNotContain("- exports", repo.Read("openspec/config.yaml"));
+        Assert.False(WorkItemsApi.RenameFeature("reports", "Audit").Success);   // audit is a spec already
+        Assert.False(WorkItemsApi.RenameFeature("reports", " ").Success);
+    }
+
+    [Fact(DisplayName = "A feature whose folder holds other features is not deleted")]
+    public void DeleteNestedRefused()
+    {
+        using TestRepo repo = new();
+        repo.Write("openspec/specs/functional/banking/cards/spec.md", "# cards\n\n## Requirements\n\n### Requirement: Cards\nCards SHALL work.\n\n#### Scenario: S\n- **WHEN** a\n- **THEN** b\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message) = FeaturesApi.DeleteFeature("functional/banking");
+
         Assert.False(ok);
-        Assert.Equal("Banking has a spec in openspec/specs, so only OpenSpec can remove it", message);
-        Assert.Contains(FeaturesApi.GetAll(), f => f.Path == "functional/banking");
+        Assert.Contains("other features", message);
+        Assert.True(File.Exists(repo.PathOf("openspec/specs/functional/banking/spec.md")));
     }
 }

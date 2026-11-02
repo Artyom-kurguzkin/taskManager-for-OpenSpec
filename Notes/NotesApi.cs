@@ -19,4 +19,7 @@ public static class NotesApi
     public static (bool Success, string Message) SaveBody(int id, string body) => Commands.SaveBody(id, body);
     public static (bool Success, string Message) AddManualLink(int id, string link) => Commands.AddManualLink(id, link);
     public static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes) => Commands.SetLinkedCommits(id, hashes);
+
+    /// <summary>Marks an agent's note as reviewed (frontmatter reviewedAt = now).</summary>
+    public static (bool Success, string Message) MarkReviewed(int id) => Commands.MarkReviewed(id);
 }

@@ -11,23 +11,23 @@ public sealed class RememberingSettingsTests
     public void SaveAndReload()
     {
         SettingsStore store = new(file);
-        store.Update(s => s with { Theme = "dark", LastRepo = @"C:\repo", Name = "Artyom" });
-        store.SaveBoard(@"C:\repo", new BoardOptions(GroupBy: "bucket", Category: "Functional", View: "list"));
+        store.Update(s => s with { Theme = "dark", LastRepo = @"C:\repo", Name = "Artyom", Hints = true });
+        store.SaveBoard(@"C:\repo", new BoardOptions(GroupBy: "feature", Category: "Functional", View: "list"));
 
         SettingsStore reopened = new(file);
 
-        Assert.Equal(("dark", @"C:\repo", "Artyom"), (reopened.Current.Theme, reopened.Current.LastRepo, reopened.Current.Name));
-        Assert.Equal(new BoardOptions(GroupBy: "bucket", Category: "Functional", View: "list"), reopened.Board(@"C:\repo"));
+        Assert.Equal(("dark", @"C:\repo", "Artyom", true), (reopened.Current.Theme, reopened.Current.LastRepo, reopened.Current.Name, reopened.Current.Hints));
+        Assert.Equal(new BoardOptions(GroupBy: "feature", Category: "Functional", View: "list"), reopened.Board(@"C:\repo"));
         File.Delete(file);
     }
 
-    [Fact(DisplayName = "A board grouped by the old name \"feature\" (renamed to \"bucket\") still loads, as \"bucket\"")]
+    [Fact(DisplayName = "A board grouped by the old name \"bucket\" (it is called feature again) still loads, as \"feature\"")]
     public void LegacyFeatureGroupByMigrates()
     {
         SettingsStore store = new(file);
-        store.SaveBoard(@"C:\repo", new BoardOptions(GroupBy: "feature"));
+        store.SaveBoard(@"C:\repo", new BoardOptions(GroupBy: "bucket"));
 
-        Assert.Equal("bucket", store.Board(@"C:\repo").GroupBy);
+        Assert.Equal("feature", store.Board(@"C:\repo").GroupBy);
         File.Delete(file);
     }
 

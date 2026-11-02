@@ -17,25 +17,82 @@
 
 @foreach (string w in WorkItemsApi.GetWarnings()) { <p class="warning">@w</p> }
 
-@if (O.View == "list")
+@if (projects.Count == 0)
 {
-    @* The list is a Radzen DataGrid over the board's columns: one row per work item per column, in the board's order, grouped by
-       column. The grid brings sorting, filtering (a funnel in each header), column resize and reorder, and remembers them per
-       repository. A column is hidden from the × in its header and brought back from the side menu's Hidden list, like a board
-       column; the side menu's compact switch hides every row's subtasks. Grouping, row drag (app.js, by
-       the grip), arrow keys, cell copy and the subtask detail are the app's own, as on the board.
+    <p class="muted">Every project is hidden. Bring one back from the side menu.</p>
+}
+else if (O.View == "calendar")
+{
+    @* A month in whole weeks. A dated item is a bar from its start date to its due date (one day when only one is set), coloured
+       by status like a card's band, stacked so bars never overlap; dashed ends say it continues into the week before or after.
+       Items with no dates are listed at the side. The same filters as the board apply (contributor, period, agent work). *@
+    <div class="cal" data-sk>
+        <header class="cal-h">
+            <button type="button" class="btn ghost cal-prev" aria-label="Previous month" @onclick="() => calMonth = calMonth.AddMonths(-1)">‹</button>
+            <h2>@calMonth.ToString("MMMM yyyy")</h2>
+            <button type="button" class="btn ghost cal-next" aria-label="Next month" @onclick="() => calMonth = calMonth.AddMonths(1)">›</button>
+            <button type="button" class="btn ghost cal-today" @onclick="() => calMonth = ThisMonth">Today</button>
+        </header>
+        <div class="cal-body">
+            <div class="cal-grid">
+                <div class="cal-dows">@foreach (string d in new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }) { <span class="cal-dow">@d</span> }</div>
+                @foreach (IReadOnlyList<DateOnly> week in CalendarModel.Weeks(calMonth))
+                {
+                    IReadOnlyList<CalendarBar> bars = CalendarModel.Bars(CalItems.Keys, week);
+                    <div class="cal-week" style="--lanes:@(bars.Count == 0 ? 0 : bars.Max(b => b.Lane) + 1)">
+                        @for (int i = 0; i < 7; i++)
+                        {
+                            DateOnly d = week[i];
+                            <div class="cal-day @(d == Today ? "today" : "") @(d.Month != calMonth.Month ? "other" : "")" style="grid-column:@(i + 1)"><span class="num">@d.Day</span></div>
+                        }
+                        @foreach (CalendarBar b in bars)
+                        {
+                            Project bp = CalItems[b.Item];
+                            <button type="button" class="cal-bar @(b.StartsBefore ? "from" : "") @(b.EndsAfter ? "to" : "")" data-id="@b.Item.Id"
+                                    style="grid-column:@(b.Col + 1) / span @b.Span; grid-row:@(b.Lane + 2); --band:var(@Ui.Band(b.Item.Status))"
+                                    title="@BarTitle(b.Item)"
+                                    @onclick="() => OpenItem(bp, b.Item.Id)">@(Multi ? bp.Name + " · " : "")@b.Item.Title</button>
+                        }
+                    </div>
+                }
+            </div>
+            <aside class="cal-unscheduled">
+                <h3>No dates <span class="count">@Unscheduled.Count</span></h3>
+                @foreach ((Project up, WorkItem u) in Unscheduled)
+                {
+                    <button type="button" class="cal-item" data-id="@u.Id" style="--band:var(@Ui.Band(u.Status))" @onclick="() => OpenItem(up, u.Id)"><span class="mono muted">#wi@(u.Id)</span> @u.Title</button>
+                }
+            </aside>
+        </div>
+    </div>
+}
+else if (O.View == "list")
+{
+    @* The list is a Radzen DataGrid over the projects' columns: one row per work item per column, in the board's order, grouped by
+       project (when several are open) and column. The grid brings sorting, filtering (a funnel in each header), column resize and
+       reorder, and remembers them per repository. A column is hidden from the × in its header and brought back from the side
+       menu's Hidden list, like a board column; the side menu's compact switch hides every row's subtasks. Grouping, row drag
+       (app.js, by the grip), arrow keys, cell copy and the subtask detail are the app's own, as on the board.
        tabindex: a click in the table focuses the wrapper, so arrow keys reach KeyDown and Ctrl+C reaches the cell copy. *@
-    <div class="scx"><div class="tbl-wrap" tabindex="0" @onkeydown="KeyDown">
+    <div class="scx"><div class="tbl-wrap" tabindex="0" @onkeydown="KeyDown" @onclick="BackgroundClick">
         <RadzenDataGrid @ref="grid" TItem="GridRow" Data="rows" KeyProperty="Key" Density="Density.Compact"
                         AllowSorting="true" AllowMultiColumnSorting="true" AllowFiltering="true" FilterMode="FilterMode.Advanced"
                         FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" AllowColumnResize="true" AllowColumnReorder="true"
                         GroupFootersAlwaysVisible="false" ExpandMode="DataGridExpandMode.Multiple" ShowExpandColumn="false"
-                        GroupRowExpand="g => shutGroups.Remove(GroupOf(g).Column.Key)" GroupRowCollapse="g => shutGroups.Add(GroupOf(g).Column.Key)"
+                        GroupRowExpand="g => { if (IsProjectGroup(g)) SetProjectCollapsed(g, false); else shutGroups.Remove(ShutKey(g)); }" GroupRowCollapse="g => { if (IsProjectGroup(g)) SetProjectCollapsed(g, true); else shutGroups.Add(ShutKey(g)); }"
                         GridLines="DataGridGridLines.Horizontal" EmptyText="Nothing matches the filters."
                         RowRender="RowRender" GroupRowRender="GroupRowRender" Settings="gridSettings" SettingsChanged="SaveGridSettings">
             <GroupHeaderTemplate>
-                @{ (BoardColumn gcol, string? gcat) = GroupOf(context); }
-                <b class="gname" style="@(O.GroupBy == "status" ? $"--fill:var({Ui.Band(gcol.Label)})" : null)">@gcol.Label</b> <span class="count">@BoardModel.Count(gcol.Items, O.Unit)</span>@if (gcat is not null) { <span class="muted"> · @gcat</span> }
+                @if (IsProjectGroup(context))
+                {
+                    string pname = (string)context.Data.Key;
+                    <b class="gname proj-name">@pname</b>
+                }
+                else
+                {
+                    (BoardColumn gcol, string? gcat, _) = GroupOf(context);
+                    <b class="gname" style="@(O.GroupBy == "status" ? $"--fill:var({Ui.Band(gcol.Label)})" : null)">@gcol.Label</b> <span class="count">@BoardModel.Count(gcol.Items, O.Unit)</span>@if (gcat is not null) { <span class="muted"> · @gcat</span> }
+                }
             </GroupHeaderTemplate>
             <Template Context="row">
                 @if (row.Item is WorkItem it)
@@ -45,7 +102,8 @@
                         {
                             <div class="subrow"><span class="muted num">@s.Number</span>
                                 <label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done"
-                                    @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" /> @s.Text</label></div>
+                                    @onchange="e => Run(Workspace.In(row.Root, () => WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!)))" /> @s.Text</label>
+                                @if (s.Agent is not null) { <AgentChip By="@s.Agent" OnReview="() => Run(Workspace.In(row.Root, () => WorkItemsApi.MarkSubtaskReviewed(it.Id, s.Number)))" /> }</div>
                         }
                     </div>
                 }
@@ -77,115 +135,167 @@
                                     }
                                 </span>
                                 @* a modifier click is the row's (RowRender): it selects, as on a card; a plain click opens *@
-                                <button class="row-title" title="@it.Title" @onclick="e => { if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) OpenItem(it.Id); }">@it.Title</button>
+                                <button class="row-title" title="@it.Title" @onclick="e => { if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) OpenItem(ProjectOf(row.Root), it.Id); }">@it.Title</button>
+                                @if (BoardModel.AgentFlag(it)) { <AgentChip By="@(it.AgentBy ?? it.Subtasks.FirstOrDefault(s => s.Agent is not null)?.Agent)" At="it.AgentAt" OnReview="() => ReviewItem(ProjectOf(row.Root), it)" /> }
                             </span>
                         }
                         else { <span class="muted">No items</span> }
                     </Template>
                     <GroupFooterTemplate>
-                        @{ BoardColumn fcol = GroupOf(context).Column; }
-                        @if (!(O.GroupBy == "status" && fcol.Label == "Completed")) { <button class="add" @onclick="() => NewItem(fcol.Key)">+ Add item</button> }   @* completed = archived by the CLI, not created here *@
+                        @if (!IsProjectGroup(context))
+                        {
+                            (BoardColumn fcol, _, string froot) = GroupOf(context);
+                            @if (!(O.GroupBy == "status" && fcol.Label == "Completed")) { <button class="add" @onclick="() => NewItem(ProjectOf(froot), fcol.Key)">+ Add item</button> }   @* completed = archived by the CLI, not created here *@
+                        }
                     </GroupFooterTemplate>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Status" Title="Status" Visible="@Shown("Status")" HeaderTemplate="@Head("Status")" Width="120px">
                     <Template Context="row">
                         @if (row.Item is WorkItem it)
                         {
-                            <Pill Kind="status" Value="@it.Status" ReadOnly="it.Archived" ValueChanged="v => SetStatus(it, v)" />
+                            <Pill Kind="status" Value="@it.Status" ReadOnly="it.Archived" ValueChanged="v => SetStatus(ProjectOf(row.Root), it, v)" />
                         }
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Label" Title="Label" Visible="@Shown("Label")" HeaderTemplate="@Head("Label")" Width="126px">
-                    <Template Context="row">@if (row.Item is WorkItem it) { <Pill Kind="label" Value="@(it.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(it.Id, v))" /> }</Template>
+                    <Template Context="row">@if (row.Item is WorkItem it) { <Pill Kind="label" Value="@(it.Label ?? "")" ValueChanged="v => Run(Workspace.In(row.Root, () => WorkItemsApi.SetLabel(it.Id, v)))" /> }</Template>
                 </RadzenDataGridColumn>
-                @* features on one line: the first as a tag, the rest as "+N"; the tooltip names them all *@
-                <RadzenDataGridColumn TItem="GridRow" Property="Features" Title="Features" Visible="@Shown("Features")" HeaderTemplate="@Head("Features")" Width="132px">
-                    <Template Context="row">
-                        @if (row.Item is WorkItem { Features.Count: > 0 } it)
-                        {
-                            List<string> names = it.Features.Select(f => Workspace.FeatureNames.GetValueOrDefault(f.Path, f.Path)).ToList();
-                            <div class="feat-line" title="@string.Join(", ", names)"><span class="feat">@names[0]</span>@if (names.Count > 1) { <span class="more muted num">+@(names.Count - 1)</span> }</div>
-                        }
-                    </Template>
+                <RadzenDataGridColumn TItem="GridRow" Property="Feature" Title="Feature" Visible="@Shown("Feature")" HeaderTemplate="@Head("Feature")" Width="132px">
+                    <Template Context="row">@if (row.Feature.Length > 0) { <span class="feat feat-one" title="@row.Feature">@row.Feature</span> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Contributors" Title="Contributors" Visible="@Shown("Contributors")" HeaderTemplate="@Head("Contributors")" Width="130px" />
                 <RadzenDataGridColumn TItem="GridRow" Property="Priority" Title="Priority" Visible="@Shown("Priority")" HeaderTemplate="@Head("Priority")" Width="100px">
-                    <Template Context="row">@if (row.Item is WorkItem it) { <Pill Kind="priority" Value="@it.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(it.Id, v))" /> }</Template>
+                    <Template Context="row">@if (row.Item is WorkItem it) { <Pill Kind="priority" Value="@it.Priority" ValueChanged="v => Run(Workspace.In(row.Root, () => WorkItemsApi.SetPriority(it.Id, v)))" /> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Progress" Title="Progress" Visible="@Shown("Progress")" HeaderTemplate="@Head("Progress")" Width="96px" Filterable="false">
                     <Template Context="row">@if (row.Item is WorkItem it) { <span class="prog"><i style="width:@(row.Progress)%"></i></span> <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Modified" Title="Updated" Visible="@Shown("Updated")" HeaderTemplate="@Head("Updated")" Width="88px" FormatString="{0:d MMM}" CssClass="num muted" Filterable="false" />
+                <RadzenDataGridColumn TItem="GridRow" Property="Started" Title="Started" Visible="@Shown("Started")" HeaderTemplate="@Head("Started")" Width="88px" FormatString="{0:d MMM}" CssClass="num muted" Filterable="false" />
+                <RadzenDataGridColumn TItem="GridRow" Property="Due" Title="Due" Visible="@Shown("Due")" HeaderTemplate="@Head("Due")" Width="88px" FormatString="{0:d MMM}" CssClass="num" Filterable="false" />
             </Columns>
         </RadzenDataGrid>
     </div></div>
 }
 else
 {
-    @* tabindex: clicking a card focuses the wrapper, so the arrow keys reach KeyDown (app.js stops them scrolling) *@
-    <div class="scx"><div class="board-wrap" tabindex="0" @onkeydown="KeyDown">
+    @* The board: every open project (tab) stacked, each a block of its columns. With several projects whose columns are the same
+       (status or label grouping) one header row above serves them all. tabindex: clicking a card focuses the wrapper, so the arrow
+       keys reach KeyDown (app.js stops them scrolling) *@
+    <div class="scx"><div class="board-wrap @(Multi ? "multi" : "") @(Aligned ? "aligned" : "")" tabindex="0" @onkeydown="KeyDown" @onclick="BackgroundClick">
         <div class="board">
-            @foreach (BoardSection sec in Sections)
+            @if (Aligned)
             {
-                <div class="cat">
-                    @if (sec.Category is not null)
+                <div class="head-row cat-cols" data-proj="" @ondrop="() => DropColumn(HeadKeys, null)">
+                    @foreach (BoardColumn col in projects[0].Sections[0].Columns)
                     {
-                        <div class="cat-h">
-                            <h2>@sec.Category</h2>
-                            @if (O.GroupBy is "bucket" or "feature") { <button class="add" @onclick="() => AddFeature(sec.Category)">+ feature</button> }
+                        <section class="col head-only" data-key="@col.Key">
+                            <Menu Label="Column options">
+                                <Activator>
+                                    @* drag a header along the row to reorder columns, in every project at once *@
+                                    <header class="col-h hov" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
+                                            @ondragstart="() => StartColumnDrag(HeadKeys, BoardModel.ColumnKey(O, col.Key))">
+                                        <h3>@col.Label</h3><span class="count">@projects.Sum(p => p.Sections[0].Columns.Where(c => c.Key == col.Key).Sum(c => BoardModel.Count(c.Items, O.Unit)))</span>
+                                    </header>
+                                </Activator>
+                                <Items>
+                                    <MenuItem OnClick="() => NewItem(null, col.Key)">+ Add work item here…</MenuItem>
+                                    <MenuItem OnClick="() => SelectAllProjects(col.Key)">Select all in column</MenuItem>
+                                    @if (col.Key != BoardModel.Unassigned)
+                                    {
+                                        <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
+                                    }
+                                </Items>
+                            </Menu>
+                        </section>
+                    }
+                </div>
+            }
+            @foreach (Project p in projects)
+            {
+                <section class="proj" data-proj="@p.Name">
+                    @if (Multi)
+                    {
+                        @* Shift-click the heading to select the project; the arrow keys then move it, as cards *@
+                        <div class="proj-h @(selectedProjects.Contains(p.Root) ? "selected" : "")" @onclick="e => ProjectClick(p.Root, e)" @onclick:stopPropagation="true">
+                            <button class="chev @(Collapsed(p) ? "" : "open")" @onclick:stopPropagation="true" aria-expanded="@(Collapsed(p) ? "false" : "true")" aria-label="@(Collapsed(p) ? $"Expand {p.Name}" : $"Collapse {p.Name}")"
+                                    @onclick="() => Settings.ToggleProjectCollapsed(p.Root)">@Ui.Icon("chev")</button>
+                            <h2>@p.Name</h2>
+                            @if (IsActive(p)) { <span class="muted">active</span> }
+                            <Menu Label="Project options">
+                                <Activator><button type="button" class="ic" aria-label="Project options" title="Project options">@Ui.Icon("sliders")</button></Activator>
+                                <Items>
+                                    @if (!IsActive(p)) { <MenuItem OnClick="() => Workspace.Open(p.Root)">Make it the active project</MenuItem> }
+                                    <MenuItem OnClick="() => Settings.ToggleProjectHidden(p.Root)">Hide project</MenuItem>
+                                </Items>
+                            </Menu>
                         </div>
                     }
-                    @* a header dropped past the last column (the drag script sends that drop to the row) *@
-                    <div class="cat-cols" @ondrop="() => DropColumn(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), null)">
-                        @foreach (BoardColumn col in sec.Columns)
-                        {
-                            @* data-drop / data-key: wwwroot/js/app.js drags with pointer events and sends synthetic dragstart / drop events to these handlers *@
-                            <section class="col" data-drop data-key="@col.Key" @ondrop="() => Drop(col, null)" @ondrop:stopPropagation="true">
-                                <Menu Label="Column options">
-                                    <Activator>
-                                        @* drag a header along the row to reorder columns *@
-                                        <header class="col-h hov" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
-                                                @ondragstart="() => StartColumnDrag(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), BoardModel.ColumnKey(O, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
-                                    </Activator>
-                                    <Items>
-                                        <MenuItem OnClick="() => NewItem(col.Key)">+ Add work item here</MenuItem>
-                                        <MenuItem OnClick="() => SelectAll(col)">Select all in column</MenuItem>
-                                        <MenuItem OnClick="() => AddLane(col.Key, col.Label)">+ Add subgroup…</MenuItem>
-                                        @foreach (string lane in col.Lanes)
+                    @if (!Multi || !Collapsed(p))
+                    {
+                        <div class="cats">
+                            @foreach (BoardSection sec in p.Sections)
+                            {
+                                <div class="cat">
+                                    @* a header dropped past the last column (the drag script sends that drop to the row) *@
+                                    <div class="cat-cols" @ondrop="() => DropColumn(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), null)">
+                                        @foreach (BoardColumn col in sec.Columns)
                                         {
-                                            <MenuItem OnClick="() => Run(WorkItemsApi.RemoveLane(col.Key, lane))">Remove subgroup “@lane”</MenuItem>
+                                            @* data-drop / data-key: wwwroot/js/app.js drags with pointer events and sends synthetic dragstart / drop events to these handlers *@
+                                            <section class="col" data-drop data-key="@col.Key" @ondrop="() => Drop(p, col, null)" @ondrop:stopPropagation="true">
+                                                @if (!Aligned)
+                                                {
+                                                    <Menu Label="Column options">
+                                                        <Activator>
+                                                            @* drag a header along the row to reorder columns *@
+                                                            <header class="col-h hov" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
+                                                                    @ondragstart="() => StartColumnDrag(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), BoardModel.ColumnKey(O, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
+                                                        </Activator>
+                                                        <Items>
+                                                            <MenuItem OnClick="() => NewItem(p, col.Key)">+ Add work item here</MenuItem>
+                                                            <MenuItem OnClick="() => SelectAll(p, col)">Select all in column</MenuItem>
+                                                            <MenuItem OnClick="() => AddLane(p, col.Key, col.Label)">+ Add subgroup…</MenuItem>
+                                                            @foreach (string lane in col.Lanes)
+                                                            {
+                                                                <MenuItem OnClick="() => Run(Workspace.In(p.Root, () => WorkItemsApi.RemoveLane(col.Key, lane)))">Remove subgroup “@lane”</MenuItem>
+                                                            }
+                                                            @if (col.Key != BoardModel.Unassigned)
+                                                            {
+                                                                <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
+                                                            }
+                                                            @if (O.GroupBy == "feature" && p.Features.FirstOrDefault(f => f.Path == col.Key) is { } feature)
+                                                            {
+                                                                <MenuItem OnClick="() => RenameFeature(p, feature)">Rename feature…</MenuItem>
+                                                                <MenuItem OnClick="() => DeleteFeature(p, feature)">Delete feature…</MenuItem>
+                                                            }
+                                                        </Items>
+                                                    </Menu>
+                                                }
+                                                @if (col.Lanes.Count > 0)
+                                                {
+                                                    @foreach (string lane in col.Lanes)
+                                                    {
+                                                        List<WorkItem> inLane = BoardModel.InLane(col, lane).ToList();
+                                                        <div class="lane-h"><span>@lane</span><span class="count">@BoardModel.Count(inLane, O.Unit)</span></div>
+                                                        <div class="lane" data-drop @ondrop="() => Drop(p, col, lane)" @ondrop:stopPropagation="true">@Cards(p, col, inLane, lane)</div>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <div class="lane" data-drop>@Cards(p, col, col.Items, null)</div>
+                                                }
+                                            </section>
                                         }
-                                        @if (col.Key != BoardModel.Unassigned)
-                                        {
-                                            <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
-                                        }
-                                        @if (O.GroupBy is "bucket" or "feature" && features.FirstOrDefault(f => f.Path == col.Key) is { Custom: true } custom)
-                                        {
-                                            <MenuItem OnClick="() => DeleteFeature(custom)">Delete feature…</MenuItem>
-                                        }
-                                    </Items>
-                                </Menu>
-                                @if (col.Lanes.Count > 0)
-                                {
-                                    @foreach (string lane in col.Lanes)
-                                    {
-                                        List<WorkItem> inLane = BoardModel.InLane(col, lane).ToList();
-                                        <div class="lane-h"><span>@lane</span><span class="count">@BoardModel.Count(inLane, O.Unit)</span></div>
-                                        <div class="lane" data-drop @ondrop="() => Drop(col, lane)" @ondrop:stopPropagation="true">@Cards(col, inLane, lane)</div>
-                                    }
-                                }
-                                else
-                                {
-                                    <div class="lane" data-drop>@Cards(col, col.Items, null)</div>
-                                }
-                            </section>
-                        }
-                    </div>
-                </div>
+                                        @if (O.GroupBy == "feature") { <button class="add add-col" @onclick="() => AddFeature(p)">+ feature</button> }   @* a new feature is a new column *@
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </section>
             }
         </div>
     </div></div>
-   
 }
 
 @if (selected.Count > 0)
@@ -214,7 +324,7 @@ else if (O.View == "list" || O.Unit == "tasks")
                 @onclick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ListColumnKey(column)))">×</button>
     };
 
-    private RenderFragment Cards(BoardColumn col, IEnumerable<WorkItem> items, string? lane) => __builder =>
+    private RenderFragment Cards(Project p, BoardColumn col, IEnumerable<WorkItem> items, string? lane) => __builder =>
     {
         foreach (WorkItem it in items)
         {
@@ -222,10 +332,10 @@ else if (O.View == "list" || O.Unit == "tasks")
             {
                 foreach (Subtask s in it.Subtasks)
                 {
-                    <article class="card subcard @(s.Done ? "done" : "")" data-sk @onclick="() => OpenItem(it.Id)">
+                    <article class="card subcard @(s.Done ? "done" : "")" data-sk @onclick="() => OpenItem(p, it.Id)">
                         <span class="band" style="--band:var(@Ui.Band(it.Status))">
                             <input type="checkbox" checked="@s.Done" @onclick:stopPropagation="true"
-                                   @onchange="e => Run(WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!))" aria-label="Done" />@s.Text
+                                   @onchange="e => Run(Workspace.In(p.Root, () => WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!)))" aria-label="Done" />@s.Text
                         </span>
                         @if (!O.Compact) { <span class="muted">#wi@(it.Id) · @it.Title</span> }
                     </article>
@@ -233,8 +343,8 @@ else if (O.View == "list" || O.Unit == "tasks")
             }
             else
             {
-                <WorkItemCard Item="it" Options="O" Selected="selected.Contains(it.Id)"
-                              OnClick="e => CardClick(it, e)" OnDragStart="i => StartCardDrag(i, col.Key)" OnDrop="t => DropBefore(col, lane, t)" />
+                <WorkItemCard Item="it" Options="O" Names="p.Names" Selected="selected.Contains((p.Root, it.Id))"
+                              OnClick="e => CardClick(p, it, e)" OnDragStart="i => StartCardDrag(p, i, col.Key)" OnDrop="t => DropBefore(p, col, lane, t)" OnReview="i => ReviewItem(p, i)" />
             }
         }
     };

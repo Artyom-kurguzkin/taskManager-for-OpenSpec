@@ -10,9 +10,10 @@ internal static class Queries
     internal static IReadOnlyList<Feature> GetAll()
     {
         long version = OpenSpecStoreApi.Version;
-        if (FeaturesModule.Cache is { } c && c.Version == version) return c.Features;
+        string root = OpenSpecStoreApi.RepoRoot ?? "";
+        if (FeaturesModule.Cache.TryGetValue(root, out var c) && c.Version == version) return c.Features;
         IReadOnlyList<Feature> features = Load();
-        FeaturesModule.Cache = (version, features);
+        FeaturesModule.Cache[root] = (version, features);
         FeaturesModule.Loads++;
         return features;
     }

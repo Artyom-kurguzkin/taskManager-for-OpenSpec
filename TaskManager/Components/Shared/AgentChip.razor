@@ -1,0 +1,11 @@
+@* Marks work an agent added or changed that the user has not reviewed; a click marks it reviewed. *@
+<button type="button" class="cell filled agent-chip" style="--fill:var(--lilac)" title="@Tip" aria-label="Agent work: mark as reviewed"
+        @onclick="OnReview" @onclick:stopPropagation="true">agent</button>
+
+@code {
+    [Parameter] public string? By { get; set; }
+    [Parameter] public DateTime? At { get; set; }
+    [Parameter] public EventCallback OnReview { get; set; }
+
+    private string Tip => $"Added or changed by {By ?? "an agent"}{(At is DateTime t ? $" · {t:d MMM HH:mm}" : "")} — click to mark as reviewed";
+}

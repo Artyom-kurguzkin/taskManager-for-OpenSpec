@@ -9,6 +9,12 @@ window.rtm = {
     else delete root.dataset.theme;
   },
 
+  // Keyboard hints (F) are a setting; off, F is just a letter and any open hints close.
+  setHints(enabled) {
+    _hints.enabled = !!enabled;
+    if (!_hints.enabled && _hints.active) _hints.hide();
+  },
+
   // Returns whether the OS is in dark mode now, and tells .NET (MainLayout.SystemDarkChanged) when it changes.
   watchDark(dotnet) {
     const q = matchMedia("(prefers-color-scheme: dark)");
@@ -51,8 +57,10 @@ document.addEventListener("keydown", (e) => {
   if (location.pathname !== "/") history.back();
 });
 
-// ── Hint mode: press F (outside text fields) to show keyboard shortcuts for every clickable element, F again (or Esc) to hide ──
+// ── Hint mode (a setting, off by default): press F (outside text fields) to show keyboard shortcuts for every clickable
+//    element, F again (or Esc) to hide ──
 const _hints = {
+  enabled: false,
   active: false,
   overlay: null,   // container div
   map: new Map(),  // label → element
@@ -159,7 +167,7 @@ function _typing(el) {
 
 document.addEventListener("keydown", (e) => {
   // F toggles the hints (never a badge letter, see _labels); in a text field it types as usual.
-  if (e.key.toLowerCase() === "f" && !e.ctrlKey && !e.altKey && !e.metaKey && (_hints.active || !_typing(e.target))) {
+  if (_hints.enabled && e.key.toLowerCase() === "f" && !e.ctrlKey && !e.altKey && !e.metaKey && (_hints.active || !_typing(e.target))) {
     e.preventDefault();
     if (e.repeat) return;   // ignore OS auto-repeat while F is held down
     if (_hints.active) _hints.hide(); else _hints.show();
@@ -208,7 +216,10 @@ function _base(el) {
   const r = _rect(el), m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
   return { top: r.top - m.f, bottom: r.bottom - m.f, left: r.left - m.e, right: r.right - m.e };
 }
-function _key(el) { return el.dataset.row !== undefined ? "r" + el.dataset.row : el.dataset.id !== undefined ? "i" + el.dataset.id : el.dataset.tile !== undefined ? "t" + el.dataset.tile : "k" + el.dataset.key; }
+function _key(el) {
+  const proj = el.closest("[data-proj]")?.dataset.proj ?? "";   // cards and columns repeat their keys across projects
+  return el.dataset.row !== undefined ? "r" + el.dataset.row : el.dataset.id !== undefined ? "i" + proj + ":" + el.dataset.id : el.dataset.tile !== undefined ? "t" + el.dataset.tile : "k" + proj + ":" + el.dataset.key;
+}
 const _FLIPPED = ".lane > .card[data-id], section.col[data-key], tr[data-row], .tile[data-tile]";   // board cards and columns, list rows, work item page tiles
 function _snapshot() {
   const m = new Map();
@@ -352,7 +363,7 @@ addEventListener("keydown", (e) => {
   // BoardPage.KeyDown, on the view's wrapper, moves the selected cards / checked rows. The key is re-sent there whatever has
   // the focus (a checkbox, the grid, the body after a hint-mode pick), and neither the page nor the grid may act on it as well.
   const wrap = document.querySelector(".board-wrap, .tbl-wrap");
-  if (!wrap || !document.querySelector(".lane > .card.selected, tr[data-id][data-selected]")) return;
+  if (!wrap || !document.querySelector(".lane > .card.selected, tr[data-id][data-selected], .proj-h.selected, tr[data-group^='proj:'][data-selected]")) return;
   e.preventDefault(); e.stopPropagation(); _armFlip();
   wrap.dispatchEvent(new KeyboardEvent("keydown", { key: e.key, bubbles: true }));
 }, true);

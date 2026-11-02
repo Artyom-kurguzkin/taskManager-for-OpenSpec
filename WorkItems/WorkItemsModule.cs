@@ -5,8 +5,8 @@ internal static class WorkItemsModule
 {
     internal static Func<string, (bool Success, string Message)> Archive = Infrastructure.OpenSpecCli.Archive;
 
-    /// <summary>Parsed work items, valid while OpenSpecStore's content version is unchanged.</summary>
-    internal static (long Version, string Git, IReadOnlyList<PublicDTOs.WorkItem> Items)? Cache;
+    /// <summary>Parsed work items per repository, each valid while that repository's content version is unchanged.</summary>
+    internal static readonly Dictionary<string, (long Version, string Git, IReadOnlyList<PublicDTOs.WorkItem> Items)> Cache = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Git commit authors per change folder, with a token that changes on every commit; null outside git.</summary>
     internal static Func<(string Token, Func<string, IReadOnlyList<string>> AuthorsOf)?>? Git;

@@ -29,17 +29,19 @@
                     </MenuItem>
                 }
                 <MenuItem OnClick="OpenAnother">@Ui.Icon("plus") Open another repository…</MenuItem>
+                @if (Workspace.OpenRepos.Count > 1) { <MenuItem OnClick="RemoveProject">@Ui.Icon("trash") Remove a project…</MenuItem> }
             </Items>
         </Menu>
-        <Menu Label="Board or list">
+        <Menu Label="Board, list or calendar">
             <Activator>
-                <button class="nav-btn @(OnBoard ? "is-sel" : "")" aria-label="Layout" title="Board or list" aria-haspopup="menu">
-                    @Ui.Icon(O.View == "list" ? "list" : "board")<span class="nav-l">@(O.View == "list" ? "List" : "Board")</span><span class="nav-l nav-caret">@Ui.Icon("caret")</span>
+                <button class="nav-btn @(OnBoard ? "is-sel" : "")" aria-label="Layout" title="Board, list or calendar" aria-haspopup="menu">
+                    @Ui.Icon(ViewIcon)<span class="nav-l">@BoardPage.Views.First(v => v.Item1 == O.View).Item2</span><span class="nav-l nav-caret">@Ui.Icon("caret")</span>
                 </button>
             </Activator>
             <Items>
                 <MenuItem Class="@(O.View == "board" ? "cur" : "")" OnClick='() => Show("board")'>@Ui.Icon("board") Board</MenuItem>
                 <MenuItem Class="@(O.View == "list" ? "cur" : "")" OnClick='() => Show("list")'>@Ui.Icon("list") List</MenuItem>
+                <MenuItem Class="@(O.View == "calendar" ? "cur" : "")" OnClick='() => Show("calendar")'>@Ui.Icon("cal") Calendar</MenuItem>
             </Items>
         </Menu>
         <button class="nav-btn" aria-label="New work item" title="New work item" @onclick="NewItem">@Ui.Icon("plus")<span class="nav-l">New work item</span></button>
@@ -47,9 +49,10 @@
         {
             @* the expanded menu has the same switch as a checkbox; always rendered so hint letters below it don't shift *@
             bool listView = OnBoard && O.View == "list";
-            <button class="nav-btn compact-btn @(OnBoard && O.Compact ? "is-sel" : "")" aria-label="Compact cards" aria-pressed="@(O.Compact ? "true" : "false")"
-                    title="@(listView ? (O.Compact ? "Compact list: on (subtasks hidden)" : "Compact list: off (subtasks shown)") : O.Compact ? "Compact cards: on" : "Compact cards: off")"
-                    disabled="@(!OnBoard)" @onclick="() => Set(O with { Compact = !O.Compact })">@Ui.Icon("compact")</button>
+            bool on = listView ? O.ShowSubtasks : O.Compact;   // the board compacts its cards; the list unfolds every row's subtasks
+            <button class="nav-btn compact-btn @(OnBoard && on ? "is-sel" : "")" aria-label="@(listView ? "Show subtasks" : "Compact cards")" aria-pressed="@(on ? "true" : "false")"
+                    title="@(listView ? (on ? "Subtasks: shown" : "Subtasks: folded") : on ? "Compact cards: on" : "Compact cards: off")"
+                    disabled="@(!OnBoard)" @onclick="() => Set(listView ? O with { ShowSubtasks = !on } : O with { Compact = !on })">@Ui.Icon("compact")</button>
         }
         <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="() => expanded = !expanded">@Ui.Icon("sliders")</button>
         @if (expanded && OnBoard)
@@ -58,18 +61,27 @@
                 <div class="field"><label>group by</label><Dropdown Label="group by" Class="is-group" Options="BoardPage.GroupBys" Value="@O.GroupBy" ValueChanged="v => Set(O with { GroupBy = v })" /></div>
                 <div class="field"><label>sort by</label><Dropdown Label="sort by" Options="BoardPage.SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
                 <div class="field"><label>contributor</label><Dropdown Label="contributor" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
+                <div class="field"><label>period</label><Dropdown Label="period" Options="BoardPage.Periods" Value="@O.Period" ValueChanged="v => Set(O with { Period = v })" /></div>
                 @if (O.View == "board")
                 {
                     <Seg Name="unit" Options="BoardPage.Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />
                 }
-                <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> @(O.View == "list" ? "compact list" : "compact cards")</label>
+                @if (O.View == "list") { <label class="check"><input type="checkbox" checked="@O.ShowSubtasks" @onchange="e => Set(O with { ShowSubtasks = (bool)e.Value! })" /> show subtasks</label> }
+                else { <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> compact cards</label> }
+                <label class="check"><input type="checkbox" id="f-agent" checked="@O.AgentOnly" @onchange="e => Set(O with { AgentOnly = (bool)e.Value! })" /> agent work to review</label>
                 <label class="check"><input type="checkbox" id="f-hidden" checked="@O.ShowHidden" @onchange="e => Set(O with { ShowHidden = (bool)e.Value! })" /> show hidden</label>
             </div>
-            @if (HiddenHere.Count > 0)
+            @if (HiddenHere.Count > 0 || HiddenProjects.Count > 0)
             {
-                @* hide from a column header on the board; only hidden columns are listed here, to bring back *@
+                @* hide from a column header (or a project header) on the board; only hidden ones are listed here, to bring back *@
                 <div class="nav-hidden">
                     <div class="nav-h">Hidden</div>
+                    @foreach (string root in HiddenProjects)
+                    {
+                        string pname = System.IO.Path.GetFileName(root);
+                        <div class="grp-row"><span class="nm">@pname</span>
+                            <button class="ic" aria-label="Show project @pname" title="Show project" @onclick="() => Settings.ToggleProjectHidden(root)">@Ui.Icon("eye")</button></div>
+                    }
                     @{ Dictionary<string, int> held = BoardModel.HiddenCounts(WorkItemsApi.GetAll(includeHidden: O.ShowHidden), FeaturesApi.GetAll(), WorkItemsApi.GetLanes(), O); }
                     @foreach (string key in HiddenHere)
                     {
@@ -98,6 +110,7 @@
 
     private string Path => Nav.ToBaseRelativePath(Nav.Uri);
     private bool OnBoard => Path.Length == 0;
+    private string ViewIcon => O.View switch { "list" => "list", "calendar" => "cal", _ => "board" };
     private bool OnSettings => Path.StartsWith("settings", StringComparison.OrdinalIgnoreCase);
     private string RepoName => Workspace.Root is string r ? System.IO.Path.GetFileName(r) + "/openspec" : "no repository";
     private BoardOptions O => Workspace.Root is string r ? Settings.Board(r) : new();
@@ -107,6 +120,9 @@
 
     // Hidden columns of the current grouping, and in the list view the grid's hidden columns too.
     private List<string> HiddenHere => (O.Hidden ?? []).Where(k => k.StartsWith(BoardModel.ColumnKey(O, "")) || (O.View == "list" && k.StartsWith(BoardModel.ListColumnKey("")))).ToList();
+
+    // Open tabs taken off the board and list.
+    private List<string> HiddenProjects => Workspace.Projects.Where(Settings.ProjectHidden).ToList();
 
     protected override void OnInitialized()
     {
@@ -141,12 +157,24 @@
         if (Picker?.Invoke() is not string chosen) return;
         (bool ok, string message) = Workspace.OpenTab(chosen);
         if (!ok) Popups.Toast(message, ToastKind.Warning);
+        else if (Workspace.TakeGuideNotice() is string notice) Popups.Toast(notice, ToastKind.Info);
     }
 
-    private void NewItem()
+    /// <summary>Asks which project to remove and closes its tab. Nothing on disk changes; it can be opened again.</summary>
+    private async Task RemoveProject()
     {
-        (bool ok, string message, int id) = Workspace.CreateItem();
+        if (await Popups.Choose("Remove a project", "It leaves the app; nothing on disk changes, and you can open it again.",
+                Workspace.OpenRepos.Select(r => (r, System.IO.Path.GetFileName(r))).ToList()) is string root)
+            Workspace.CloseTab(root);
+    }
+
+    /// <summary>Several projects open: asks which one first. The new item's project becomes the active one, then its page opens.</summary>
+    private async Task NewItem()
+    {
+        if (await Workspace.PickProject("New work item in…") is not string root) return;
+        (bool ok, string message, int id) = Workspace.CreateItem(project: root);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
+        if (!IsActive(root)) Workspace.Open(root);
         Popups.Toast($"Created #wi{id}", ToastKind.Success);
         Nav.NavigateTo($"item/{id}");
     }

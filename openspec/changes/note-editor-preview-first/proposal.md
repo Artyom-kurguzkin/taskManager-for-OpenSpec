@@ -1,3 +1,5 @@
+# Proposal
+
 ## Why
 
 The note page showed a raw textarea beside a preview. A note is read far more often than written, and the editor should be a real one.

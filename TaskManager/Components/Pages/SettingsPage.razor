@@ -30,6 +30,11 @@
     </section>
 
     <section class="set-row">
+        <div><h3>Keyboard hints</h3><p class="muted">Press F to show a letter on every clickable element, then type it. Shift + the letter selects. Off by default.</p></div>
+        <label class="check"><input type="checkbox" id="f-hints" checked="@Settings.Current.Hints" @onchange="e => Settings.Update(s => s with { Hints = (bool)e.Value! })" /> on</label>
+    </section>
+
+    <section class="set-row">
         <div><h3>External editor</h3><p class="muted">Command "Edit in …" launches on a note, e.g. code, notepad++, subl. Empty = ask next time.</p></div>
         <div class="set-val"><input class="box text-in" data-sk value="@Settings.Current.Editor" placeholder="e.g. code"
                                     @onchange="e => Settings.Update(s => s with { Editor = string.IsNullOrWhiteSpace((string?)e.Value) ? null : ((string)e.Value!).Trim() })" aria-label="External editor" /></div>
@@ -40,6 +45,7 @@
     [Inject] private SettingsStore Settings { get; set; } = default!;
     [Inject] private Workspace Workspace { get; set; } = default!;
     [Inject] private NavigationManager Nav { get; set; } = default!;
+    [Inject] private UiService Popups { get; set; } = default!;
     /// <summary>Native folder dialog, registered by the desktop host (absent in tests).</summary>
     [Inject] private IServiceProvider Services { get; set; } = default!;
     private FolderPicker? Picker => Services.GetService(typeof(FolderPicker)) as FolderPicker;
@@ -61,6 +67,7 @@
     {
         (bool ok, string message) = Workspace.Open(repoPath);
         error = ok ? null : message;
+        if (ok && Workspace.TakeGuideNotice() is string notice) Popups.Toast(notice, ToastKind.Info);
         if (ok) Nav.NavigateTo("");
     }
 }

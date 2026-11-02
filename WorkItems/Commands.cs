@@ -55,46 +55,78 @@ internal static partial class Commands
         if (item.Archived) return item.Status == status ? (true, "") : (false, Archived);
         if (status != "Blocked" && (item.DependsOn ?? []).Select(Queries.Get).OfType<WorkItem>().FirstOrDefault(d => !WorkItemsApi.IsResolved(d)) is WorkItem dep)
             return (false, $"Waiting on #wi{dep.Id} \"{dep.Title}\" — can't change status until it's resolved");
-        if (status != "Completed") return Update(id, m => m.Status = status);
+        if (status != "Completed")   // the first move to In Progress stamps the start day; a day already there is kept
+            return Update(id, m => { m.Status = status; if (status == "In Progress") m.Started ??= DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd"); });
 
         // Completed = archived. Stamp the number first so the archived copy keeps it.
         (bool ok, string message) = Update(id, _ => { });
         if (!ok) return (ok, message);
+        if (RefreshDeltas(item.Path) is { Success: false } stale) return stale;   // before the CLI sees them
         OpenSpecStoreApi.MarkOwnChange(item.Path);
         (bool archived, string error) = WorkItemsModule.Archive(item.Folder);
         OpenSpecStoreApi.MarkOwnChange(item.Path);   // the CLI moved folders: invalidate cached reads
         return (archived, error);
     }
 
-    internal static (bool Success, string Message) SetManualFeatures(int id, IEnumerable<string> featurePaths)
+    /// <summary>Puts back into each MODIFIED requirement of the change's delta specs the scenarios the main spec has gained since (see DeltaSpec).</summary>
+    private static (bool Success, string Message) RefreshDeltas(string changeDir)
     {
-        if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
-        HashSet<string> locked = item.Features.Where(f => f.Locked).Select(f => f.Path).ToHashSet();
-        return Update(id, m => m.Features = featurePaths.Where(p => !locked.Contains(p)).Distinct().ToList());
+        foreach (string cap in Queries.DeltaCapabilities(changeDir))
+        {
+            string rel = Path.Combine("specs", cap.Replace('/', Path.DirectorySeparatorChar), "spec.md");
+            string main = Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, rel);
+            if (!File.Exists(main)) continue;
+            string path = Path.Combine(changeDir, rel);
+            string delta = OpenSpecStoreApi.ReadText(path), refreshed = DeltaSpec.Refresh(delta, OpenSpecStoreApi.ReadText(main));
+            if (refreshed != delta && OpenSpecStoreApi.WriteText(path, refreshed) is { Success: false } failed) return failed;
+        }
+        return (true, "");
     }
 
-    /// <summary>Removes a feature that comes from the change's specs/ folder from this item. The spec stays; only x-rtm remembers the removal.</summary>
-    internal static (bool Success, string Message) UnlinkFeature(int id, string path)
+    /// <summary>
+    /// Moves an item to one feature (null = none): it becomes the item's only feature. Features from the change's own specs/
+    /// folder are unlinked (x-rtm.unlinkedFeatures) rather than removed: the spec stays, and moving back links it again.
+    /// </summary>
+    internal static (bool Success, string Message) MoveFeature(int id, string? to)
     {
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
-        if (!item.Features.Any(f => f.Path == path && f.Locked)) return (false, "Only a feature from the change's specs/ folder needs unlinking; others are removed directly");
-        return Update(id, m => m.UnlinkedFeatures = [.. (m.UnlinkedFeatures ?? []).Append(path).Distinct()]);
+        List<string> specced = Queries.DeltaCapabilities(item.Path).ToList();   // all of them: only the first shows as the item's feature
+        return Update(id, m =>
+        {
+            m.UnlinkedFeatures = specced.Where(p => p != to).Distinct().ToList();
+            m.Features = to is null || specced.Contains(to) ? [] : [to];
+        });
     }
-
-    internal static (bool Success, string Message) RelinkFeature(int id, string path) =>
-        Update(id, m => m.UnlinkedFeatures = (m.UnlinkedFeatures ?? []).Where(p => p != path).ToList());
 
     /// <summary>Deletes a custom feature and unlinks it from active work items (they become unassigned). Archived items are left as they are.</summary>
     internal static (bool Success, string Message) DeleteFeature(string path)
     {
-        List<WorkItem> linked = Queries.GetAll(includeHidden: true).Where(i => !i.Archived && i.Features.Any(f => f.Path == path)).ToList();
-        if (linked.FirstOrDefault(i => i.Features.Any(f => f.Path == path && f.Locked)) is WorkItem specced)
-            return (false, $"#wi{specced.Id} has a spec for it in its specs/ folder");
+        List<WorkItem> linked = Queries.GetAll(includeHidden: true).Where(i => !i.Archived && (Metadata.Read<Rtm>(Queries.Yaml(i.Path)).Features ?? []).Contains(path)).ToList();
+        if (Queries.GetAll(includeHidden: true).FirstOrDefault(i => !i.Archived && Queries.DeltaCapabilities(i.Path).Contains(path)) is WorkItem specced)
+            return (false, $"#wi{specced.Id} still has a spec for it in its specs/ folder; remove the feature from that work item first");
         (bool ok, string message) = Features.FeaturesApi.DeleteFeature(path);   // refuses spec-backed features before any item is touched
         if (!ok) return (false, message);
         foreach (WorkItem it in linked)
-            if (SetManualFeatures(it.Id, it.Features.Where(f => !f.Locked && f.Path != path).Select(f => f.Path)) is { Success: false } failed) return failed;
+            if (Update(it.Id, m => m.Features = (m.Features ?? []).Where(p => p != path).ToList()) is { Success: false } failed) return failed;
         return (true, "");
+    }
+
+    /// <summary>Renames a feature and carries every work item along: delta spec folders for it move, x-rtm links are renamed.</summary>
+    internal static (bool Success, string Message, string? NewPath) RenameFeature(string path, string name)
+    {
+        List<WorkItem> items = Queries.GetAll(includeHidden: true).ToList();
+        (bool ok, string message, string? newPath) = Features.FeaturesApi.RenameFeature(path, name);
+        if (!ok || newPath == path) return (ok, message, newPath);
+        string Rel(string p) => p.Replace('/', Path.DirectorySeparatorChar);
+        List<string> Swap(List<string> list) => list.Select(p => p == path ? newPath! : p).ToList();
+        foreach (WorkItem it in items)
+        {
+            string delta = Path.Combine(it.Path, "specs", Rel(path));
+            if (Directory.Exists(delta) && OpenSpecStoreApi.MoveFolder(delta, Path.Combine(it.Path, "specs", Rel(newPath!))) is { Success: false } moveFailed) return (false, moveFailed.Message, null);
+            if (Metadata.Read<Rtm>(Queries.Yaml(it.Path)) is { } meta && ((meta.Features ?? []).Contains(path) || (meta.UnlinkedFeatures ?? []).Contains(path)))
+                if (Update(it.Id, m => { if (m.Features is not null) m.Features = Swap(m.Features); if (m.UnlinkedFeatures is not null) m.UnlinkedFeatures = Swap(m.UnlinkedFeatures); }) is { Success: false } failed) return (false, failed.Message, null);
+        }
+        return (true, "", newPath);
     }
 
     internal static (bool Success, string Message) SetDescription(int id, string body)
@@ -109,6 +141,21 @@ internal static partial class Commands
 
     internal static (bool Success, string Message) SetSubtaskText(int id, string number, string text) =>
         string.IsNullOrWhiteSpace(text) ? (false, "A subtask needs some text") : EditTasks(id, t => TasksFile.SetText(t, number, text.Trim()));
+
+    internal static (bool Success, string Message) MarkSubtaskReviewed(int id, string number) =>
+        EditTasks(id, text => TasksFile.ClearAgent(text, number));
+
+    /// <summary>The user has looked at what an agent did to this item: ReviewedAt = now. The agent's own stamp stays.</summary>
+    internal static (bool Success, string Message) MarkReviewed(int id) =>
+        Update(id, m => m.ReviewedAt = ReviewStamp(m.AgentAt));
+
+    /// <summary>Now, or one second after the agent's own time when its clock was ahead (UTC, another zone): a review must come after what it reviews.</summary>
+    internal static string ReviewStamp(string? agentAt)
+    {
+        DateTime at = DateTime.Now;
+        if (DateTime.TryParse(agentAt, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime a) && a >= at) at = a.AddSeconds(1);
+        return at.ToString("s", System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     internal static (bool Success, string Message) AddSubtask(int id, string text) =>
         string.IsNullOrWhiteSpace(text) ? (false, "Type the subtask first") : EditTasks(id, t => TasksFile.Append(t, text.Trim()));

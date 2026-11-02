@@ -11,9 +11,16 @@ public static class OpenSpecStoreApi
     public static string? RepoRoot => OpenSpecStoreModule.RepoRoot;
 
     /// <summary>Changes whenever repo content may have changed; modules cache their parsed data against it.</summary>
-    public static long Version => Interlocked.Read(ref OpenSpecStoreModule.Version);
+    public static long Version => OpenSpecStoreModule.Version;
     public static string? OpenSpecRoot => OpenSpecStoreModule.RepoRoot is null ? null : Path.Combine(OpenSpecStoreModule.RepoRoot, "openspec");
-    public static (bool Success, string Message) Open(string repoRoot) => Commands.Open(repoRoot);
+    /// <summary>Opens a repository and makes it current. With <paramref name="keepOthers"/> the other open ones stay open (tabs); otherwise they close.</summary>
+    public static (bool Success, string Message) Open(string repoRoot, bool keepOthers = false) => Commands.Open(repoRoot, keepOthers);
+    /// <summary>Switches the current repository to another open one; false when it is not open.</summary>
+    public static bool Use(string repoRoot) => Commands.Use(repoRoot);
+    /// <summary>Closes the open repositories not listed.</summary>
+    public static void Keep(IEnumerable<string> repoRoots) => Commands.Keep(repoRoots);
+    /// <summary>Every open repository, in the order opened.</summary>
+    public static IReadOnlyList<string> OpenRoots { get { lock (OpenSpecStoreModule.Repos) return OpenSpecStoreModule.Repos.Values.OrderBy(r => r.Opened).Select(r => r.Root).ToList(); } }
     public static void Close() => Commands.Close();
 
     /// <summary>Raised (debounced) when files under openspec/ change on disk, except for the app's own writes.</summary>
@@ -27,6 +34,7 @@ public static class OpenSpecStoreApi
     public static string ReadText(string path) => Queries.ReadText(path);
     public static (bool Success, string Message) WriteText(string path, string content) => Commands.WriteText(path, content);
     public static (bool Success, string Message) DeleteFolder(string path) => Commands.DeleteFolder(path);
+    public static (bool Success, string Message) MoveFolder(string from, string to) => Commands.MoveFolder(from, to);
 
     // ── x-rtm block ──
     /// <summary>The de-indented YAML under the top-level <c>x-rtm:</c> key, or null when the file has none.</summary>

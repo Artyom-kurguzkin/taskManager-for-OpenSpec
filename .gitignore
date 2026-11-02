@@ -485,3 +485,6 @@ $RECYCLE.BIN/
 
 # published app
 dist/
+
+# real-app verification scratch (tests/hidden-app.ps1): screenshots, demo repos, WebView2 profile
+tests/out/

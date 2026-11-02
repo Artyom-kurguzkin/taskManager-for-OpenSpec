@@ -20,7 +20,7 @@ public static class WorkItemsApi
     public static void ConfigureContributors(Func<(string Token, Func<string, IReadOnlyList<string>> AuthorsOf)?>? git)
     {
         WorkItemsModule.Git = git;
-        WorkItemsModule.Cache = null;
+        WorkItemsModule.Cache.Clear();
     }
 
     public static void ConfigureArchiver(Func<string, (bool Success, string Message)>? archive) => WorkItemsModule.Archive = archive ?? Infrastructure.OpenSpecCli.Archive;
@@ -44,10 +44,14 @@ public static class WorkItemsApi
     public static (bool Success, string Message) SetTitle(int id, string title) => Commands.Update(id, m => m.Title = title.Trim());
     public static (bool Success, string Message) SetContributors(int id, IEnumerable<string> people) => Commands.Update(id, m => m.Contributors = people.Distinct().ToList());
     public static (bool Success, string Message) SetLabel(int id, string? label) => Commands.Update(id, m => m.Label = string.IsNullOrEmpty(label) ? null : label);
-    public static (bool Success, string Message) SetManualFeatures(int id, IEnumerable<string> featurePaths) => Commands.SetManualFeatures(id, featurePaths);
+    public static (bool Success, string Message) SetStarted(int id, DateOnly? day) => Commands.Update(id, m => m.Started = day?.ToString("yyyy-MM-dd"));
+    public static (bool Success, string Message) SetDue(int id, DateOnly? day) => Commands.Update(id, m => m.Due = day?.ToString("yyyy-MM-dd"));
+    /// <summary>Puts the item in one feature (null = none); a work item has one feature at most.</summary>
+    public static (bool Success, string Message) MoveFeature(int id, string? to) => Commands.MoveFeature(id, to);
 
     /// <summary>Deletes a custom feature (see FeaturesApi.DeleteFeature) and unlinks it from active work items, which become unassigned.</summary>
     public static (bool Success, string Message) DeleteFeature(string path) => Commands.DeleteFeature(path);
+    public static (bool Success, string Message, string? NewPath) RenameFeature(string path, string name) => Commands.RenameFeature(path, name);
     public static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes) =>
         Commands.Update(id, m => m.Commits = hashes.Distinct().ToList());
 
@@ -58,10 +62,14 @@ public static class WorkItemsApi
 
     // ── Subtasks ──
     public static (bool Success, string Message) SetSubtaskDone(int id, string number, bool done) => Commands.SetSubtaskDone(id, number, done);
-    public static (bool Success, string Message) UnlinkFeature(int id, string path) => Commands.UnlinkFeature(id, path);
-    public static (bool Success, string Message) RelinkFeature(int id, string path) => Commands.RelinkFeature(id, path);
     public static (bool Success, string Message) SetSubtaskText(int id, string number, string text) => Commands.SetSubtaskText(id, number, text);
     public static (bool Success, string Message) AddSubtask(int id, string text) => Commands.AddSubtask(id, text);
+
+    /// <summary>Marks the agent's work on an item as reviewed (x-rtm.reviewedAt = now).</summary>
+    public static (bool Success, string Message) MarkReviewed(int id) => Commands.MarkReviewed(id);
+
+    /// <summary>Takes the agent stamp off one subtask.</summary>
+    public static (bool Success, string Message) MarkSubtaskReviewed(int id, string number) => Commands.MarkSubtaskReviewed(id, number);
     public static (bool Success, string Message, int NewId) MoveSubtasksToNew(int id, IReadOnlyCollection<string> numbers) => Commands.MoveSubtasksToNew(id, numbers);
     /// <summary>Like MoveSubtasksToNew, but the new item becomes a dependency and the source moves to Blocked until it is archived.</summary>
     public static (bool Success, string Message, int NewId) MoveSubtasksToDependency(int id, IReadOnlyCollection<string> numbers) => Commands.MoveSubtasksToDependency(id, numbers);

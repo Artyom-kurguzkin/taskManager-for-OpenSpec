@@ -1,0 +1,11 @@
+schema: spec-driven
+created: 2026-11-01
+x-rtm:
+  id: 85
+  title: Show what an agent added or changed + Agent conventions file for every project
+  status: In Review
+  contributors: [Artyom-kurguzkin]
+  features: [track-work-items]
+  label: feature
+  tests: [{suite: EditingWorkItemsTests, test: 'Work an agent stamped is flagged until the user marks it reviewed, and flagged again when the agent changes it later'}, {suite: EditingWorkItemsTests, test: 'A subtask line ending in an agent comment is flagged; ticking keeps the stamp, editing its text or marking it reviewed removes it'}, {suite: KeepingNotesTests, test: A note an agent stamped is flagged until reviewed; reviewing adds reviewedAt and leaves the text alone}, {suite: UsingTheBoardTests, test: Agent-added work shows an agent chip on its card; clicking it marks the item and its agent subtasks reviewed without opening it}, {suite: UsingTheBoardTests, test: In the list the agent chip sits on the row and on each agent subtask; a subtask's chip clears only that subtask}, {suite: UsingTheBoardTests, test: The side menu can show only work with unreviewed agent changes}, {suite: UsingThePagesTests, test: "On the work item page the agent's work is flagged: the item, its subtasks and its notes, each cleared by a click"}, {suite: SwitchingProjectsTests, test: "Opening a project creates openspec/REPO-TASKS.md once (and has the UI say so), leaves a file of the user's alone, and refreshes an older copy of its own"}]
+  mergedFrom: [72, 73]
