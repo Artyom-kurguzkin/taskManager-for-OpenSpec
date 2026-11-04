@@ -525,7 +525,28 @@ public sealed class EditingWorkItemsTests
         Assert.Equal(["CSV columns agreed", "Export job", "First step"], merged.Subtasks.Select(s => s.Text));
         Assert.Equal(["functional/banking"], merged.Features.Select(f => f.Path));   // both specs come along; one feature: the first
         Assert.Contains("Finance needs a monthly export.", WorkItemsApi.GetDescription(id));
-        Assert.Contains("Created with the openspec CLI only.", WorkItemsApi.GetDescription(id));
+        Assert.Contains("Created with the openspec CLI only.", Notes.NotesApi.GetForWorkItem(id).Single(n => n.By == "Merge").Body);   // the other source's description is a note
+    }
+
+    [Fact(DisplayName = "Merging into a chosen item keeps that item's title and description; the other sources' descriptions become notes on the merged item")]
+    public void MergeIntoChosenItem()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string title = Item(123).Title, description = WorkItemsApi.GetDescription(123), otherDescription = WorkItemsApi.GetDescription(107);
+        int lastNote = Notes.NotesApi.GetAll().Max(n => n.Id);
+
+        Assert.False(WorkItemsApi.Merge([107, 123], 999).Success);
+        Assert.NotNull(WorkItemsApi.Get(107));
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123], 123);
+
+        Assert.True(ok, message);
+        Assert.Equal(title, Item(id).Title);
+        Assert.Equal(description.Trim(), WorkItemsApi.GetDescription(id).Trim());
+        Notes.PublicDTOs.Note note = Notes.NotesApi.GetForWorkItem(id).Single(n => n.Id > lastNote);
+        Assert.StartsWith("# Merged from #wi107", note.Body);
+        Assert.Contains(otherDescription.Trim(), note.Body);
+        Assert.Equal(Path.Combine(Item(id).Path, "notes", $"n{note.Id}.md"), note.Path);
     }
 
     [Fact(DisplayName = "Merging keeps every note (the change log) of the sources, under their own numbers")]
@@ -538,7 +559,7 @@ public sealed class EditingWorkItemsTests
         (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123]);
 
         Assert.True(ok, message);
-        Assert.Equal([123, extra], Notes.NotesApi.GetForWorkItem(id).Select(n => n.Id).Order());
+        Assert.Equal([123, extra, extra + 1], Notes.NotesApi.GetForWorkItem(id).Select(n => n.Id).Order());   // extra + 1: the note holding 123's description
         Assert.Contains("See [[runbook/uptime]] and #wi107.", Notes.NotesApi.Get(123)!.Body);
     }
 
@@ -777,8 +798,8 @@ public sealed class EditingWorkItemsTests
         WorkItem merged = Item(id);
         Assert.True(merged.Archived);
         Assert.Contains("archive", merged.Path.Replace('\\', '/'));
-        Assert.Contains("Session timeout", WorkItemsApi.GetDescription(id));
-        Assert.Contains("Cleanup", WorkItemsApi.GetDescription(id));
+        Assert.Contains("Idle sessions must expire.", WorkItemsApi.GetDescription(id));
+        Assert.Contains("Cleanup", Notes.NotesApi.GetForWorkItem(id).Single(n => n.By == "Merge").Body);
     }
 
     // An archived change as the OpenSpec CLI leaves it: the delta specs stay in its folder, already merged into openspec/specs.
@@ -827,7 +848,7 @@ public sealed class EditingWorkItemsTests
         string folder = $"openspec/changes/{Path.GetFileName(merged.Path)}";
         Assert.DoesNotContain("Sessions end after 30 minutes.", File.Exists(repo.PathOf($"{folder}/specs/board/spec.md")) ? repo.Read($"{folder}/specs/board/spec.md") : "");
         Assert.Contains("Sessions end after 30 minutes.", repo.Read($"{folder}/from-wi201/specs/board/spec.md"));
-        Assert.Contains("Old body.", WorkItemsApi.GetDescription(id));
+        Assert.Contains("Old body.", Notes.NotesApi.GetForWorkItem(id).Single(n => n.By == "Merge").Body);
     }
 
     [Fact(DisplayName = "Deleting a custom feature unlinks it from its work items, which become unassigned")]
@@ -895,17 +916,26 @@ public sealed class EditingWorkItemsTests
         Assert.DoesNotContain("<!-- agent", repo.Read(HealthTasks));
     }
 
-    [Fact(DisplayName = "A feature an open change still has a spec for can't be deleted, and the message names the change")]
-    public void DeleteFeatureWithOpenSpecRefused()
+    [Fact(DisplayName = "Deleting a feature that open changes still spec deletes their delta folders too, keeps the changes valid, and leaves archived changes alone")]
+    public void DeleteFeatureWithOpenSpecDeletesDeltas()
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
+        Assert.Equal([123], WorkItemsApi.FeatureSpecOwners("non-functional/availability"));
+        Assert.Empty(WorkItemsApi.FeatureSpecOwners("non-functional/security"));   // only an archived change specs it
 
         (bool ok, string message) = WorkItemsApi.DeleteFeature("non-functional/availability");
 
-        Assert.False(ok);
-        Assert.Contains("#wi123", message);
-        Assert.Contains(Features.FeaturesApi.GetAll(), f => f.Path == "non-functional/availability");
+        Assert.True(ok, message);
+        Assert.False(Directory.Exists(repo.PathOf("openspec/changes/add-health-check/specs/non-functional/availability")));
+        Assert.False(Directory.Exists(repo.PathOf("openspec/changes/add-health-check/specs")));
+        Assert.Contains("skip_specs: true", repo.Read(HealthYaml));   // no deltas left: OpenSpec needs the flag
+        Assert.DoesNotContain(Item(123).Features, f => f.Path == "non-functional/availability");
+        Assert.DoesNotContain(Features.FeaturesApi.GetAll(), f => f.Path == "non-functional/availability");
+
+        (bool ok2, string message2) = WorkItemsApi.DeleteFeature("non-functional/security");
+        Assert.True(ok2, message2);
+        Assert.True(Directory.Exists(repo.PathOf("openspec/changes/archive/2026-09-18-session-timeout/specs/non-functional/security")));
     }
 
     [Fact(DisplayName = "Commit authors fill in contributors until the list is edited in the app; after that the saved list wins")]

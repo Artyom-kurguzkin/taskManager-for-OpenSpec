@@ -280,6 +280,14 @@ else
                                                         <div class="lane" data-drop @ondrop="() => Drop(p, col, lane)" @ondrop:stopPropagation="true">@Cards(p, col, inLane, lane)</div>
                                                     }
                                                 }
+                                                else if (BoardModel.PriorityLanes(col) is { Count: > 1 } byPriority)   @* no custom subgroups: priority is the subgroup *@
+                                                {
+                                                    @foreach ((string prio, string label, IReadOnlyList<WorkItem> inPrio) in byPriority)
+                                                    {
+                                                        <div class="lane-h prio" data-prio="@prio"><span>@label</span><span class="count">@BoardModel.Count(inPrio, O.Unit)</span></div>
+                                                        <div class="lane" data-drop @ondrop="() => Drop(p, col, null, prio)" @ondrop:stopPropagation="true">@Cards(p, col, inPrio, null, prio)</div>
+                                                    }
+                                                }
                                                 else
                                                 {
                                                     <div class="lane" data-drop>@Cards(p, col, col.Items, null)</div>
@@ -324,7 +332,7 @@ else if (O.View == "list" || O.Unit == "tasks")
                 @onclick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ListColumnKey(column)))">×</button>
     };
 
-    private RenderFragment Cards(Project p, BoardColumn col, IEnumerable<WorkItem> items, string? lane) => __builder =>
+    private RenderFragment Cards(Project p, BoardColumn col, IEnumerable<WorkItem> items, string? lane, string? priority = null) => __builder =>
     {
         foreach (WorkItem it in items)
         {
@@ -344,7 +352,7 @@ else if (O.View == "list" || O.Unit == "tasks")
             else
             {
                 <WorkItemCard Item="it" Options="O" Names="p.Names" Selected="selected.Contains((p.Root, it.Id))"
-                              OnClick="e => CardClick(p, it, e)" OnDragStart="i => StartCardDrag(p, i, col.Key)" OnDrop="t => DropBefore(p, col, lane, t)" OnReview="i => ReviewItem(p, i)" />
+                              OnClick="e => CardClick(p, it, e)" OnDragStart="i => StartCardDrag(p, i, col.Key)" OnDrop="t => DropBefore(p, col, lane, t, priority)" OnReview="i => ReviewItem(p, i)" />
             }
         }
     };

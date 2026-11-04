@@ -62,6 +62,17 @@
                 <div class="field"><label>sort by</label><Dropdown Label="sort by" Options="BoardPage.SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
                 <div class="field"><label>contributor</label><Dropdown Label="contributor" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
                 <div class="field"><label>period</label><Dropdown Label="period" Options="BoardPage.Periods" Value="@O.Period" ValueChanged="v => Set(O with { Period = v })" /></div>
+                @if (Workspace.Projects.Count > 1)
+                {
+                    @* which open projects the board shows; the same setting as "Hide project" in a project's menu *@
+                    <div class="field nav-projects"><label>projects</label>
+                        @foreach (string root in Workspace.Projects)
+                        {
+                            string pname = System.IO.Path.GetFileName(root);
+                            <label class="check"><input type="checkbox" checked="@(!Settings.ProjectHidden(root))" aria-label="Project @pname" @onchange="() => Settings.ToggleProjectHidden(root)" /> @pname</label>
+                        }
+                    </div>
+                }
                 @if (O.View == "board")
                 {
                     <Seg Name="unit" Options="BoardPage.Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />

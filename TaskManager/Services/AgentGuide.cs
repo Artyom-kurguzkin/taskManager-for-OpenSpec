@@ -15,7 +15,7 @@ public static class AgentGuide
 {
     public const string FileName = "REPO-TASKS.md";
     private const string Marker = "<!-- repo-tasks-guide v";
-    private const int Version = 4;
+    private const int Version = 5;
 
     /// <summary>Writes the guide when it is missing, an older copy of ours, or ours with another plans folder.</summary>
     public static GuideChange Ensure(string repoRoot, string plansDir)
@@ -100,6 +100,7 @@ public static class AgentGuide
         - **Linked tests**: `x-rtm.tests: [{suite: <test class short name>, test: "<test display name>"}]` on one line. Names must match the latest results file the app reads (`x-rtm.testResults` in `openspec/config.yaml`); rerun the tests so the file is fresh.
         - **Linked commits**: `x-rtm.commits: [<7-char hash>, …]` for commits that do not mention `#wi<id>` in their message (those are linked by themselves).
         - **Plan**: `x-rtm.plan: <path>` when there is one (section 0); keep its status line current.
+        - **Attachments** on a note: `attachments: [<path or URL>, …]` in its frontmatter. Files go under `local/task-tracking/wi<item>/n<note>/`; `local/` is gitignored (the app adds it), so put nothing there that others need. Links are plain `https://` URLs.
         - **Subtasks**: tick what you finished (`- [x]`), add what you found out is still needed (signed, see 1).
         - **Spec and tasks text** of those items, where you changed the behaviour they describe.
         - **Status** and **dates**: set `status` to where the work is; `x-rtm.started: yyyy-MM-dd` is the day work began (the app stamps it on the first move to In Progress), `x-rtm.due: yyyy-MM-dd` the due day.

@@ -3,8 +3,12 @@ created: 2026-10-24
 x-rtm:
   id: 47
   title: Merging work items keeps everything
-  status: In Progress
+  status: In Review
   contributors: [Artyom-kurguzkin]
   label: bug
   started: 2026-10-26
   due: 2026-11-01
+  tests: [{suite: EditingWorkItemsTests, test: "Merging into a chosen item keeps that item's title and description; the other sources' descriptions become notes on the merged item"}, {suite: UsingTheBoardTests, test: "Merge asks which selected item is the main one, then merges the others into it"}]
+  agentBy: Claude
+  agentAt: 2026-11-05T19:30:00
+  plan: DevResources/plans/in-progress-sweep-2026-11-05.md

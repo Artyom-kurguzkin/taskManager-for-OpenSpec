@@ -53,6 +53,70 @@ internal static class Commands
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
     }
 
+    private const string AttachRoot = "local/task-tracking/";
+
+    /// <summary>Copies the file to local/task-tracking/wi&lt;item&gt;/n&lt;note&gt;/ (never overwriting), makes sure local/ is git-ignored, and lists it.</summary>
+    internal static (bool Success, string Message) AttachFile(int id, string sourcePath)
+    {
+        if (NotesApi.Get(id) is not Note note) return (false, NotFound);
+        if (OpenSpecStoreApi.RepoRoot is not string root) return (false, "No repository is open");
+        if (!File.Exists(sourcePath)) return (false, "That file no longer exists");
+        string relDir = $"{AttachRoot}wi{note.WorkItemId}/n{id}";
+        string dir = Path.Combine(root, relDir.Replace('/', Path.DirectorySeparatorChar));
+        string name = Path.GetFileName(sourcePath), stem = Path.GetFileNameWithoutExtension(name), ext = Path.GetExtension(name);
+        try
+        {
+            Directory.CreateDirectory(dir);
+            string target = Path.Combine(dir, name);
+            for (int n = 2; File.Exists(target); n++) target = Path.Combine(dir, $"{stem}-{n}{ext}");
+            File.Copy(sourcePath, target);
+            IgnoreLocal(root);
+            return Append(note, $"{relDir}/{Path.GetFileName(target)}");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (false, e.Message); }
+    }
+
+    internal static (bool Success, string Message) AttachLink(int id, string url)
+    {
+        url = url.Trim();
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) || uri.Scheme is not ("http" or "https")) return (false, "Type a full link starting with http:// or https://");
+        return NotesApi.Get(id) is Note note ? Append(note, url) : (false, NotFound);
+    }
+
+    /// <summary>Forgets the entry; a file copied under local/ is deleted too.</summary>
+    internal static (bool Success, string Message) RemoveAttachment(int id, string entry)
+    {
+        if (NotesApi.Get(id) is not Note note) return (false, NotFound);
+        (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
+        NoteMeta meta = NoteFile.Meta(front);
+        meta.Id = id;
+        if (meta.Attachments?.Remove(entry) != true) return (false, "That attachment is already gone");
+        (bool ok, string message) = OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+        if (ok && entry.StartsWith(AttachRoot, StringComparison.Ordinal) && !entry.Contains("..") && OpenSpecStoreApi.RepoRoot is string root)
+            try { File.Delete(Path.Combine(root, entry.Replace('/', Path.DirectorySeparatorChar))); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        return (ok, message);
+    }
+
+    private static (bool Success, string Message) Append(Note note, string entry)
+    {
+        (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
+        NoteMeta meta = NoteFile.Meta(front);
+        meta.Id = note.Id;
+        (meta.Attachments ??= []).Add(entry);
+        return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+    }
+
+    /// <summary>Appends "local/" to the repository's .gitignore unless a line already says so.</summary>
+    private static void IgnoreLocal(string root)
+    {
+        string file = Path.Combine(root, ".gitignore");
+        string text = File.Exists(file) ? File.ReadAllText(file) : "";
+        if (text.Replace("\r", "").Split('\n').Any(l => l.Trim() is "local/" or "/local/" or "local" or "/local")) return;
+        string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+        string lead = text.Length == 0 || text.EndsWith('\n') ? "" : nl;
+        File.AppendAllText(file, $"{lead}# Repo Tasks: attachments and other per-user files{nl}local/{nl}");
+    }
+
     internal static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes)
     {
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);

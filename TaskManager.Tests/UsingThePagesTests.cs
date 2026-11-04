@@ -758,6 +758,33 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("not found", outside.Find("h2").TextContent);
     }
 
+    [Fact(DisplayName = "The note page lists attachments: an image inline, a file by name, a link as a link, each removable; a link can be added from the page")]
+    public async Task NoteAttachments()
+    {
+        await using BunitContext ctx = NewContext();
+        string src = Directory.CreateTempSubdirectory("rtm-att").FullName;
+        string png = Path.Combine(src, "pic.png"), txt = Path.Combine(src, "log.txt");
+        File.WriteAllBytes(png, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        File.WriteAllText(txt, "hello");
+        Assert.True(NotesApi.AttachFile(123, png).Success);
+        Assert.True(NotesApi.AttachFile(123, txt).Success);
+        Assert.True(NotesApi.AttachLink(123, "https://example.com/spec").Success);
+        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+
+        Assert.StartsWith("data:image/png;base64,", page.Find("img.att-img").GetAttribute("src"));
+        Assert.Equal("log.txt", page.Find("button.att-file").TextContent.Trim());
+        Assert.Equal("https://example.com/spec", page.Find("a.att-link").GetAttribute("href"));
+
+        page.Find("input.att-url").Input("https://example.com/more");
+        page.FindAll(".attachments button").First(b => b.TextContent.Trim() == "Add link").Click();
+        Assert.Contains("https://example.com/more", NotesApi.Get(123)!.Attachments);
+
+        page.WaitForAssertion(() => Assert.Equal(4, page.FindAll("button.att-x").Count));
+        page.FindAll("button.att-x")[0].Click();
+        Assert.Equal(3, NotesApi.Get(123)!.Attachments.Count);
+        Directory.Delete(src, true);
+    }
+
     public void Dispose()
     {
         repo.Dispose();

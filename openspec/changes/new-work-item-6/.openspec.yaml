@@ -4,6 +4,10 @@ created: 2026-10-18
 x-rtm:
   id: 13
   title: distinguish btw bugs and rfc's/features
-  status: In Progress
+  status: In Review
   contributors: [Artyom-kurguzkin]
   hidden: true
+  tests: [{suite: UsingTheBoardTests, test: "A card shows its title on a band coloured by status, its feature, its date and people, its subtask count, its coloured label tag and its #wi tag, and no priority tag"}]
+  agentBy: Claude
+  agentAt: 2026-11-05T19:30:00
+  plan: DevResources/plans/in-progress-sweep-2026-11-05.md

@@ -98,17 +98,39 @@ internal static partial class Commands
         });
     }
 
-    /// <summary>Deletes a custom feature and unlinks it from active work items (they become unassigned). Archived items are left as they are.</summary>
+    /// <summary>Open (not archived) work items whose change has a delta spec folder for the feature.</summary>
+    internal static IReadOnlyList<int> FeatureSpecOwners(string path) =>
+        Queries.GetAll(includeHidden: true).Where(i => !i.Archived && Queries.DeltaCapabilities(i.Path).Contains(path)).Select(i => i.Id).ToList();
+
+    /// <summary>
+    /// Deletes a feature and unlinks it from active work items (they become unassigned). Open changes' delta spec folders for it
+    /// are deleted too (a change left with no deltas gets skip_specs); archived items are left as they are.
+    /// </summary>
     internal static (bool Success, string Message) DeleteFeature(string path)
     {
         List<WorkItem> linked = Queries.GetAll(includeHidden: true).Where(i => !i.Archived && (Metadata.Read<Rtm>(Queries.Yaml(i.Path)).Features ?? []).Contains(path)).ToList();
-        if (Queries.GetAll(includeHidden: true).FirstOrDefault(i => !i.Archived && Queries.DeltaCapabilities(i.Path).Contains(path)) is WorkItem specced)
-            return (false, $"#wi{specced.Id} still has a spec for it in its specs/ folder; remove the feature from that work item first");
-        (bool ok, string message) = Features.FeaturesApi.DeleteFeature(path);   // refuses spec-backed features before any item is touched
+        List<WorkItem> specced = Queries.GetAll(includeHidden: true).Where(i => !i.Archived && Queries.DeltaCapabilities(i.Path).Contains(path)).ToList();
+        string main = Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, "specs", path.Replace('/', Path.DirectorySeparatorChar));
+        if (Directory.Exists(main) && Directory.EnumerateFiles(main, "spec.md", SearchOption.AllDirectories).Count() > 1)
+            return (false, $"{Features.FeaturesApi.GetAll().FirstOrDefault(f => f.Path == path)?.Name ?? path}'s folder holds other features; delete those first");   // before anything is deleted
+        foreach (WorkItem it in specced)
+            if (DeleteDelta(it.Path, path) is { Success: false } gone) return gone;
+        (bool ok, string message) = Features.FeaturesApi.DeleteFeature(path);
         if (!ok) return (false, message);
         foreach (WorkItem it in linked)
             if (Update(it.Id, m => m.Features = (m.Features ?? []).Where(p => p != path).ToList()) is { Success: false } failed) return failed;
         return (true, "");
+    }
+
+    /// <summary>Deletes the change's specs/&lt;path&gt;/ folder, then any parent folders left empty (specs/ included), and re-syncs skip_specs.</summary>
+    private static (bool Success, string Message) DeleteDelta(string changeDir, string path)
+    {
+        string specs = Path.Combine(changeDir, "specs"), dir = Path.Combine(specs, path.Replace('/', Path.DirectorySeparatorChar));
+        (bool ok, string message) = OpenSpecStoreApi.DeleteFolder(dir);
+        if (!ok) return (ok, message);
+        for (string? up = Path.GetDirectoryName(dir); up is not null && up.StartsWith(specs) && Directory.Exists(up) && !Directory.EnumerateFileSystemEntries(up).Any(); up = Path.GetDirectoryName(up))
+            if (OpenSpecStoreApi.DeleteFolder(up) is { Success: false } failed) return failed;
+        return SyncSkipSpecs(changeDir);
     }
 
     /// <summary>Renames a feature and carries every work item along: delta spec folders for it move, x-rtm links are renamed.</summary>
@@ -289,10 +311,14 @@ internal static partial class Commands
     internal static (bool Success, string Message) SetDependencies(int id, IEnumerable<int> ids) =>
         Update(id, m => m.DependsOn = ids.Distinct().ToList());
 
-    internal static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids)
+    internal static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids) => Merge(ids, ids.Count > 0 ? ids[0] : 0);
+
+    /// <summary>Merges the items into one that keeps the title and description of <paramref name="into"/>; the other descriptions become notes on it.</summary>
+    internal static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids, int into)
     {
         List<WorkItem> items = ids.Select(Queries.Get).OfType<WorkItem>().ToList();
         if (items.Count < 2) return (false, "Select at least two work items to merge", 0);
+        if (items.FirstOrDefault(i => i.Id == into) is not WorkItem main) return (false, $"#wi{into} is not one of the work items to merge", 0);
         bool allArchived = items.All(i => i.Archived);
 
         // Delta specs: refuse when two active items change the same requirement; otherwise concatenate per capability.
@@ -316,7 +342,7 @@ internal static partial class Commands
         }
 
         string status = items.FirstOrDefault(i => !i.Archived)?.Status ?? items[0].Status;
-        string body = string.Join("\n\n", items.Select(it => $"<!-- merged from #wi{it.Id} {it.Title} -->\n{Queries.GetDescription(it.Id).Trim()}")) + "\n";
+        string body = Queries.GetDescription(main.Id).Trim() + "\n";
         // Task groups stay groups, headed by the item they came from ("Title · Group" when an item had several).
         string tasks = TasksFile.CreateGrouped(items.SelectMany(it =>
             it.Subtasks.GroupBy(s => s.Group).ToList() is { Count: > 0 } groups
@@ -324,7 +350,7 @@ internal static partial class Commands
                 : []));
         HashSet<int> sources = [.. items.Select(i => i.Id)];
         (bool ok, string message, int id) = CreateFolder(
-            string.Join(" + ", items.Select(i => i.Title)), status,
+            main.Title, status,
             items.SelectMany(i => i.Features.Where(f => !f.Locked).Select(f => f.Path)),
             items.SelectMany(i => i.Contributors),
             items.Any(i => i.Priority == "high") ? "high" : null,
@@ -335,10 +361,32 @@ internal static partial class Commands
         // Nothing but the folders is dropped: notes and any other files move over, and items that waited on a source now wait on this one.
         string merged = Queries.Get(id)!.Path;
         foreach (WorkItem it in items) CopyExtras(it.Path, merged, it.Id, keepSpecs: it.Archived && !allArchived);
+        // Note numbers are repository-wide and WorkItems can't reference Notes (Notes references WorkItems), so the files are written here in the notes format.
+        int noteId = NextNoteId();
+        foreach (WorkItem it in items.Where(i => i.Id != main.Id))
+        {
+            string created = DateTime.Now.ToString("s", System.Globalization.CultureInfo.InvariantCulture);
+            string note = $"---\nid: {noteId}\nby: Merge\ncreated: {created}\n---\n# Merged from #wi{it.Id} {it.Title}\n\n{Queries.GetDescription(it.Id).Trim()}\n";
+            OpenSpecStoreApi.WriteText(Path.Combine(merged, "notes", $"n{noteId++}.md"), note);
+        }
         foreach (WorkItem w in Queries.GetAll(includeHidden: true).Where(w => !sources.Contains(w.Id) && (w.DependsOn ?? []).Any(sources.Contains)).ToList())
             Update(w.Id, m => m.DependsOn = [.. m.DependsOn!.Select(d => sources.Contains(d) ? id : d).Distinct()]);
         foreach (WorkItem it in items) OpenSpecStoreApi.DeleteFolder(it.Path);
         return (true, "", id);
+    }
+
+    /// <summary>The highest note number over every notes/n*.md in the repository (archived changes included), plus one.</summary>
+    private static int NextNoteId()
+    {
+        if (OpenSpecStoreApi.OpenSpecRoot is not string root || !Directory.Exists(Path.Combine(root, "changes"))) return 1;
+        int max = 0;
+        foreach (string file in Directory.EnumerateFiles(Path.Combine(root, "changes"), "n*.md", SearchOption.AllDirectories))
+        {
+            if (Path.GetFileName(Path.GetDirectoryName(file)) != "notes") continue;
+            if (int.TryParse(Path.GetFileNameWithoutExtension(file)[1..], out int n)) max = Math.Max(max, n);
+            if (Regex.Match(OpenSpecStoreApi.ReadText(file).Replace("\r\n", "\n"), @"\A---\n(?:.*\n)*?id:\s*(\d+)") is { Success: true } m && int.TryParse(m.Groups[1].Value, out int fm)) max = Math.Max(max, fm);
+        }
+        return max + 1;
     }
 
     private static string GroupName(string group) => Regex.Replace(group, @"^\d+\.\s*", "").Trim();

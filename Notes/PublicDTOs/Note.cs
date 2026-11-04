@@ -12,6 +12,7 @@ public sealed record Note(
     string Body,
     IReadOnlyList<string> ManualLinks,
     IReadOnlyList<string> Commits,
+    IReadOnlyList<string> Attachments,   // repo-relative paths under local/ (copied files) or http(s) URLs
     string? AgentBy = null,        // frontmatter agentBy / agentAt: an agent wrote or changed this note, and when
     DateTime? AgentAt = null,
     DateTime? ReviewedAt = null)   // frontmatter reviewedAt: the user looked at it (set by the app)

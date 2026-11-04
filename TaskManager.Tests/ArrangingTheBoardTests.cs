@@ -33,6 +33,20 @@ public sealed class ArrangingTheBoardTests
 
     private static IReadOnlyList<BoardSection> Build(BoardOptions o) => BoardModel.Build(Items, Features, Lanes, o);
 
+    [Fact(DisplayName = "Within a column cards fall into priority lanes, highest first, one lane per priority present")]
+    public void PriorityLanes()
+    {
+        BoardColumn Column(string label) => Build(new BoardOptions()).Single().Columns.Single(c => c.Label == label);
+
+        var lanes = BoardModel.PriorityLanes(Column("In Progress"));
+        Assert.Equal([("high", "High priority"), ("low", "Lower priority")], lanes.Select(l => (l.Priority, l.Label)));
+        Assert.Equal([[2], [3]], lanes.Select(l => l.Items.Select(i => i.Id).ToArray()).ToArray());
+
+        var single = Assert.Single(BoardModel.PriorityLanes(Column("Backlog")));   // item 1 alone
+        Assert.Equal(("low", "Lower priority"), (single.Priority, single.Label));
+        Assert.Empty(BoardModel.PriorityLanes(Column("Blocked")));
+    }
+
     [Fact(DisplayName = "Grouping by due date gives Overdue, Today, This week, Next week, Later and No due date; by start date, Earlier, This week, Next week, Later and Not started")]
     public void ByPeriod()
     {

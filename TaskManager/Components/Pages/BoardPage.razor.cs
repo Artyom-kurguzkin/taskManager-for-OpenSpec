@@ -319,9 +319,9 @@ public partial class BoardPage
         if (row.Contains(key)) Set(BoardModel.Insert(O, siblings, [key], before));
     }
 
-    private Task Drop(Project p, BoardColumn col, string? lane) => DropBefore(p, col, lane, null);
+    private Task Drop(Project p, BoardColumn col, string? lane, string? priority = null) => DropBefore(p, col, lane, null, priority);
 
-    private async Task DropBefore(Project p, BoardColumn col, string? lane, WorkItem? before)
+    private async Task DropBefore(Project p, BoardColumn col, string? lane, WorkItem? before, string? priority = null)
     {
         if (draggingColumn is (IReadOnlyList<string> siblings, _)) { DropColumn(siblings, BoardModel.ColumnKey(O, col.Key)); return; }
         if (dragging is not { } moving) return;
@@ -331,15 +331,15 @@ public partial class BoardPage
             Popups.Toast("A work item stays in its repository — drag it within its own project", ToastKind.Info);
             return;
         }
-        await Land(p, moving.Cards, col, lane, before?.Id);
+        await Land(p, moving.Cards, col, lane, before?.Id, priority);
     }
 
     /// <summary>Moves cards into a column, then places the ones that made it at the gap (in front of <paramref name="before"/>, or last).</summary>
-    private async Task Land(Project p, IEnumerable<(WorkItem Item, string From)> moving, BoardColumn col, string? lane, int? before)
+    private async Task Land(Project p, IEnumerable<(WorkItem Item, string From)> moving, BoardColumn col, string? lane, int? before, string? priority = null)
     {
         List<int> landed = [];
         foreach ((WorkItem it, string from) in moving)
-            if (await MoveInto(p, it, from, col, lane)) landed.Add(it.Id);
+            if (await MoveInto(p, it, from, col, lane, priority)) landed.Add(it.Id);
         // ponytail: "my order" keys cards by number, so two projects' same-numbered cards share a place; per-project keys if that shows
         if (landed.Count > 0) Set(BoardModel.PlaceCards(O, col.Items.Select(i => i.Id).ToList(), landed, before));
     }
@@ -366,7 +366,7 @@ public partial class BoardPage
     }
 
     /// <summary>Sets the dimension the column stands for (and its lane); false when the card can't move there.</summary>
-    private async Task<bool> MoveInto(Project p, WorkItem it, string from, BoardColumn col, string? lane)
+    private async Task<bool> MoveInto(Project p, WorkItem it, string from, BoardColumn col, string? lane, string? priority = null)
     {
         bool ok = from == col.Key || O.GroupBy switch
         {
@@ -376,6 +376,8 @@ public partial class BoardPage
             _ => await SetStatus(p, it, col.Key),
         };
         if (ok && lane is not null) Run(Workspace.In(p.Root, () => WorkItemsApi.SetLane(it.Id, col.Key, lane)));
+        if (ok && priority is not null && (it.Priority == "high" ? "high" : "low") != priority)   // dropped on a priority subgroup
+            Run(Workspace.In(p.Root, () => WorkItemsApi.SetPriority(it.Id, priority)));
         return ok;
     }
 
@@ -408,7 +410,14 @@ public partial class BoardPage
     private async Task DeleteFeature(Project p, Feature f)
     {
         string where = f.Custom ? "It is removed from openspec/config.yaml." : $"Its spec folder openspec/specs/{f.Path} is deleted (git can bring it back).";
-        if (!await Popups.Confirm($"Delete {f.Name}?", $"{Moving(Linked(p, f.Path))} {where}", yes: "Delete")) return;
+        IReadOnlyList<int> owners = Workspace.In(p.Root, () => WorkItemsApi.FeatureSpecOwners(f.Path));
+        string specs = owners.Count switch
+        {
+            0 => "",
+            1 => $" #wi{owners[0]} still describes it in its specs; that spec file is deleted too.",
+            _ => $" {string.Join(", ", owners.Take(owners.Count - 1).Select(i => $"#wi{i}"))} and #wi{owners[^1]} still describe it in their specs; those spec files are deleted too.",
+        };
+        if (!await Popups.Confirm($"Delete {f.Name}?", $"{Moving(Linked(p, f.Path))} {where}{specs}", yes: "Delete")) return;
         Run(Workspace.In(p.Root, () => WorkItemsApi.DeleteFeature(f.Path)));
     }
 
@@ -435,11 +444,15 @@ public partial class BoardPage
         Run((ok, message));
     }
 
-    private void Merge()
+    private async Task Merge()
     {
         if (selected.Select(s => s.Root).Distinct().Count() != 1) { Popups.Toast("Select work items of one project to merge them", ToastKind.Info); return; }
         string root = selected.First().Root;
-        (bool ok, string message, int id) = Workspace.In(root, () => WorkItemsApi.Merge(selected.Select(s => s.Id).Order().ToList()));
+        List<int> ids = selected.Select(s => s.Id).Order().ToList();
+        List<(string, string)> choices = Workspace.In(root, () => ids.Select(i => (i.ToString(), $"#wi{i} {WorkItemsApi.Get(i)?.Title}")).ToList());
+        string? into = await Popups.Choose("Merge into…", "The item you pick keeps its title and description; the others' descriptions become notes on it.", choices);
+        if (into is null) return;
+        (bool ok, string message, int id) = Workspace.In(root, () => WorkItemsApi.Merge(ids, int.Parse(into)));
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
         selected.Clear();
         Workspace.Notify();

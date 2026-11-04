@@ -68,7 +68,7 @@ public sealed class SwitchingProjectsTests : IDisposable
         {
             string guide = repo1.PathOf("openspec/REPO-TASKS.md");
             string text = File.ReadAllText(guide);
-            foreach (string s in new[] { "DevResources/plans", "x-rtm.plan", "worktree", "cheaper", "Research", "uncommitted" }) Assert.Contains(s, text);
+            foreach (string s in new[] { "DevResources/plans", "x-rtm.plan", "worktree", "cheaper", "Research", "uncommitted", "local/task-tracking" }) Assert.Contains(s, text);
             workspace.TakeGuideNotice();
 
             IRenderedComponent<TaskManager.Components.Pages.SettingsPage> page = ctx.Render<TaskManager.Components.Pages.SettingsPage>();
@@ -83,6 +83,29 @@ public sealed class SwitchingProjectsTests : IDisposable
             page.WaitForAssertion(() => Assert.Contains("DevResources/plans", File.ReadAllText(guide)));
             page.Find("input[aria-label='Plans folder']").Change("other/plans");
             page.WaitForAssertion(() => Assert.Contains("other/plans", File.ReadAllText(guide)));
+        }
+    }
+
+    [Fact(DisplayName = "With several projects open the expanded side menu lists them with a tick each; unticking one hides it from the board and ticking shows it again")]
+    public async Task ProjectFilterInSideMenu()
+    {
+        (BunitContext ctx, Workspace workspace, IRenderedComponent<SideNav> nav) = NewContext();
+        await using (ctx)
+        {
+            nav.Find("button.nav-toggle").Click();
+            Assert.Empty(nav.FindAll(".nav-projects"));   // one project: nothing to filter
+
+            workspace.OpenTab(repo2.Root);
+            nav.WaitForAssertion(() => Assert.Equal(2, nav.FindAll(".nav-projects input[type='checkbox']").Count));
+            Assert.All(nav.FindAll(".nav-projects input[type='checkbox']"), c => Assert.True(c.HasAttribute("checked")));
+            SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+
+            nav.Find($".nav-projects input[aria-label='Project {Path.GetFileName(repo2.Root)}']").Change(false);
+            Assert.True(settings.ProjectHidden(repo2.Root));
+            nav.WaitForAssertion(() => Assert.False(nav.Find($".nav-projects input[aria-label='Project {Path.GetFileName(repo2.Root)}']").HasAttribute("checked")));
+
+            nav.Find($".nav-projects input[aria-label='Project {Path.GetFileName(repo2.Root)}']").Change(true);
+            Assert.False(settings.ProjectHidden(repo2.Root));
         }
     }
 

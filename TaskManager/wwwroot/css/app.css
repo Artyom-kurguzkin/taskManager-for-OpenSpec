@@ -100,8 +100,9 @@
   .is-sel .muted { color: var(--on-fill); opacity: .7; }
   /* selection (Shift-click): one look for a picked card, list row, project or subtask. The item keeps its own surface; a black
      line hugs it and a dotted yellow line runs round that. Rows draw both inside their edge, so neighbours don't cover them. */
-  .card.selected, .sub.selected, .proj-h.selected, .tbl-wrap tr[data-selected] { outline: 3px dotted var(--sun); outline-offset: 2px; box-shadow: 0 0 0 2px var(--ink); }
-  .tbl-wrap tr[data-selected] { outline-offset: -5px; box-shadow: inset 0 0 0 2px var(--ink); }
+  /* selected: a firm ink ring with a yellow halo outside it; the dotted yellow before was hard to see on paper */
+  .card.selected, .sub.selected, .proj-h.selected, .tbl-wrap tr[data-selected] { outline: 3px solid var(--ink); outline-offset: 0; box-shadow: 0 0 0 7px var(--sun); }
+  .tbl-wrap tr[data-selected] { outline-offset: -4px; box-shadow: inset 0 0 0 1px var(--ink), inset 0 0 0 8px var(--sun); }
   .is-group { --fill: var(--sage); color: var(--on-fill); }
 
   /* buttons: boxed (.btn), quiet (.btn.ghost), a quiet "+ …" that adds something (.add), an icon button (.ic) */
@@ -122,7 +123,7 @@
      .feat   a feature (dashed: it comes from the change's specs, or from the feature list)
      .chip   an item in a page header; .chip.x can be removed (solid outline, "×"), .chip.x.spec is a spec feature (dashed)
      .cell.filled   a status / label / priority pill filled with its colour (Pill)
-     .tag    a small stone label on a card (#id, label, "high priority") */
+     .tag    a small stone label on a card (#id, label), .tag.lbl filled with the label's colour */
   .feat, .chip, .cell.filled, .dd.mini, .box.mini { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
     border-radius: 8px; font: 500 13px var(--f-body); white-space: nowrap; }
   .feat { font-size: 12px; font-weight: 600; padding-inline: 8px; border: 1.5px dashed var(--line); color: var(--ink); }
@@ -140,6 +141,7 @@
   .cell.filled:hover .rz-dropdown-trigger, .cell.filled:focus-visible .rz-dropdown-trigger, tr:hover .cell.filled .rz-dropdown-trigger { opacity: .6; }
   .tag { font-size: 12px; font-weight: 500; padding: 1px 8px; border: 1.5px solid var(--line); border-radius: 6px; background: var(--stone); color: var(--on-fill); }
   .tag.hot { background: var(--peach); }
+  .tag.lbl { background: var(--fill); }
   .count { font: 700 12px var(--f-body); color: var(--ink-2); margin-left: 6px; }
   .sw-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent); }
   .warning { background: var(--peach); color: var(--on-fill); border: 2px solid var(--line); border-radius: 10px; padding: 6px 12px; margin: 6px 0; }
@@ -226,6 +228,9 @@
   /* the view options */
   .nav-view { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 4px 0; padding: 8px 6px; border-block: 2px dashed var(--line-soft); }
   .nav-view .field { gap: 6px; }
+  .nav-view .nav-projects { flex-wrap: wrap; }
+  .nav-view .nav-projects label.check { width: 100%; padding-left: 8px; }
+  .nav-view .nav-projects label.check::after { content: none; }   /* a tick, not a "label:" */
   .nav-view .seg { flex-wrap: nowrap; }
   .nav-view .seg-o { white-space: nowrap; padding: 2px 9px; }
   /* hidden columns, with the number of items each holds and an eye to bring it back */
@@ -653,4 +658,16 @@
   .plan-field .plan-in { width: 220px; padding: 2px 8px; font: 500 13px var(--f-body); }
   .plan-link { text-decoration: none; }
   @media (max-width: 860px) { .cal-body { grid-template-columns: 1fr; } }
+
+  /* note attachments: images inline, files and links by name, each with a small remove control */
+  .tile[data-tile="attachments"] { --tile: var(--sky); }
+  .att-list { display: flex; flex-direction: column; gap: var(--s2); }
+  .att { display: flex; align-items: flex-start; gap: var(--s2); min-width: 0; }
+  .att > .att-file, .att > .att-link, .att > .muted { flex: 1; min-width: 0; }
+  .att > .att-img { flex: 0 1 auto; width: auto; height: auto; }   /* its own size, capped: a tiny image stays tiny */
+  .att-img { max-width: 100%; max-height: 220px; object-fit: contain; object-position: left top; border: 1px solid var(--line-soft); border-radius: 6px; }
+  .att-file { padding: 0; border: 0; background: none; color: var(--ink); font: 500 13.5px var(--f-body); text-align: left; text-decoration: underline; cursor: pointer; overflow-wrap: anywhere; }
+  .att-file:hover { color: var(--ink-2); }
+  .att-link { overflow-wrap: anywhere; }
+  .att-x { flex: none; }
 }

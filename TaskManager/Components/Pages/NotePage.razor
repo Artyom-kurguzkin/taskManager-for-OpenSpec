@@ -80,6 +80,28 @@
             </form>
             <span class="muted">The list fills in as you type valid [[doc]], #wi and #n references.</span>
         </section>
+        <section class="tile attachments" data-tile="attachments">
+            <div class="tile-h"><h3>Attachments</h3><span class="muted">kept out of git, under local/</span></div>
+            <div class="att-list">
+                @foreach (string a in note.Attachments)
+                {
+                    <div class="att">
+                        @if (IsUrl(a)) { <a class="att-link" href="@a" target="_blank">@a</a> }
+                        else if (IsImage(a) && ImageSrc(a) is string src) { <img class="att-img" src="@src" alt="@System.IO.Path.GetFileName(a)" /> }
+                        else if (IsImage(a)) { <span class="muted">@System.IO.Path.GetFileName(a)</span> }
+                        else { <button class="att-file" data-sk @onclick="() => OpenFile(a)">@System.IO.Path.GetFileName(a)</button> }
+                        <button class="ic att-x" aria-label="Remove attachment" title="Remove" @onclick="() => Run(NotesApi.RemoveAttachment(Id, a))">×</button>
+                    </div>
+                }
+            </div>
+            @if (Services.GetService(typeof(FilePicker)) is FilePicker pick)
+            {
+                <button class="add att-add" @onclick="() => AttachFile(pick)">Attach file…</button>
+            }
+            <form class="add-line" @onsubmit="AddAttachedLink" @onsubmit:preventDefault="true">
+                <input class="att-url" @bind="attachUrl" @bind:event="oninput" placeholder="Attach a link…" aria-label="Attach link" /><button class="btn" data-sk type="submit">Add link</button>
+            </form>
+        </section>
     </div>
 </div>
 
@@ -162,6 +184,39 @@
     {
         Run(NotesApi.AddManualLink(Id, newLink));
         newLink = "";
+    }
+
+    private string attachUrl = "";
+
+    private static bool IsUrl(string a) => a.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || a.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly Dictionary<string, string> ImageTypes = new(StringComparer.OrdinalIgnoreCase)
+    { [".png"] = "image/png", [".jpg"] = "image/jpeg", [".jpeg"] = "image/jpeg", [".gif"] = "image/gif", [".webp"] = "image/webp", [".svg"] = "image/svg+xml" };
+
+    private static bool IsImage(string a) => ImageTypes.ContainsKey(System.IO.Path.GetExtension(a));
+
+    private string? FullPath(string entry) =>
+        Workspace.Root is string root && !entry.Contains("..") ? System.IO.Path.Combine(root, entry.Replace('/', System.IO.Path.DirectorySeparatorChar)) : null;
+
+    /// <summary>The image as a data URL, or null when its file is missing.</summary>
+    private string? ImageSrc(string entry) =>
+        FullPath(entry) is string p && System.IO.File.Exists(p) ? $"data:{ImageTypes[System.IO.Path.GetExtension(entry)]};base64,{Convert.ToBase64String(System.IO.File.ReadAllBytes(p))}" : null;
+
+    private void OpenFile(string entry)
+    {
+        if (FullPath(entry) is not string p || !System.IO.File.Exists(p)) { Popups.Toast("That file is no longer there", ToastKind.Warning); return; }
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(p) { UseShellExecute = true }); }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { Popups.Toast(e.Message, ToastKind.Warning); }
+    }
+
+    private void AttachFile(FilePicker pick)
+    {
+        if (pick("Attach a file") is string chosen) Run(NotesApi.AttachFile(Id, chosen));
+    }
+
+    private void AddAttachedLink()
+    {
+        if (Run(NotesApi.AttachLink(Id, attachUrl))) attachUrl = "";
     }
 
     private static string Label(NoteLink l) => l.Kind switch { "item" => $"#wi{l.Target}", "note" => $"#n{l.Target}", _ => l.Target };

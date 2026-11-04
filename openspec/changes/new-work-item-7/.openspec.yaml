@@ -8,4 +8,4 @@ x-rtm:
   contributors: [Artyom-kurguzkin]
   features: [track-work-items]
   label: enhancement
-  tests: [{suite: UsingTheBoardTests, test: "List cells wear their colours: status, label and priority are filled pills, and a status group's name wears its band"}, {suite: UsingTheBoardTests, test: 'A card shows its title on a band coloured by status, its feature and its #wi tag'}]
+  tests: [{suite: UsingTheBoardTests, test: "List cells wear their colours: status, label and priority are filled pills, and a status group's name wears its band"}, {suite: UsingTheBoardTests, test: 'A card shows its title on a band coloured by status, its feature, its date and people, its subtask count, its coloured label tag and its #wi tag, and no priority tag'}]

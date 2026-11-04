@@ -74,18 +74,37 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.NotEmpty(byStatus.FindAll(".meta-row .who-list"));
     }
 
-    [Fact(DisplayName = "A card shows its title on a band coloured by status, its feature and its #wi tag")]
+    [Fact(DisplayName = "A card shows its title on a band coloured by status, its feature, its date and people, its subtask count, its coloured label tag and its #wi tag, and no priority tag")]
     public async Task Card()
     {
         await using BunitContext ctx = NewContext();
-        IRenderedComponent<WorkItemCard> card = ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Options, new BoardOptions()));
+        WorkItem item = WorkItemsApi.Get(123)! with { Label = "feature" };   // the fixture item has no label
+        IRenderedComponent<WorkItemCard> card = ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, item).Add(c => c.Options, new BoardOptions()));
 
         Assert.Equal("Health-check endpoint", card.Find(".band").TextContent.Trim());
         Assert.Contains("--sun", card.Find(".band").GetAttribute("style"));
         Assert.Equal(["Security"], card.FindAll(".card-features .feat").Select(f => f.TextContent.Trim()));   // its one feature, as a chip
-        Assert.DoesNotContain("/", card.Find(".meta-row").TextContent);   // no done/total subtask count in the expanded card
+        string meta = card.Find(".meta-row").TextContent;
+        Assert.Contains("2/4", meta);   // done/total subtasks (the fixture has two done)
+        Assert.Contains("Artyom, Tom", meta);
+        Assert.DoesNotContain("high priority", meta);
+        Assert.Empty(card.FindAll(".meta-row .ico"));   // plain text, no icons
+        Assert.Equal("feature", card.Find(".tag.lbl").TextContent.Trim());
+        Assert.Contains("--sky", card.Find(".tag.lbl").GetAttribute("style"));   // filled with the label's colour
         Assert.Contains("#wi123", card.Find(".tags").TextContent);
-        Assert.Contains("high priority", card.Find(".tags").TextContent);
+        Assert.DoesNotContain(card.FindAll(".tag.hot"), t => t.TextContent.Contains("high priority"));
+    }
+
+    [Fact(DisplayName = "A card without subtasks or a label shows no count and no label tag")]
+    public async Task BareCard()
+    {
+        await using BunitContext ctx = NewContext();
+        (_, _, int id) = WorkItemsApi.Create("Bare", "Backlog", [], []);   // fixture item 107 has subtasks, so make an empty one
+        IRenderedComponent<WorkItemCard> card = ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, WorkItemsApi.Get(id)!).Add(c => c.Options, new BoardOptions()));
+
+        Assert.Empty(card.FindAll(".meta-row .subs"));
+        Assert.DoesNotContain("/", card.Find(".meta-row").TextContent);
+        Assert.Empty(card.FindAll(".tag.lbl"));
     }
 
     [Fact(DisplayName = "Compact cards show only the title band")]
@@ -454,8 +473,10 @@ public sealed class UsingTheBoardTests : IDisposable
         for (int i = 0; i < 2; i++) board.FindAll("article.card")[i].Click(new MouseEventArgs { CtrlKey = true });   // re-found: each click re-renders
 
         board.Find(".actionbar button.primary").Click();
+        overlays!.WaitForAssertion(() => Assert.Equal(2, overlays.FindAll(".dialog .choice").Count));   // asks which one is the main item
+        overlays.FindAll(".dialog .choice")[0].Click();
 
-        overlays!.WaitForAssertion(() => Assert.Contains("Merged into #wi", overlays.Find(".toast").TextContent));
+        overlays.WaitForAssertion(() => Assert.Contains("Merged into #wi", overlays.Find(".toast").TextContent));
     }
 
     [Fact(DisplayName = "Hiding selected work items removes them from the board and clears the selection")]
@@ -861,6 +882,22 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.False(Directory.Exists(repo.PathOf("openspec/specs/functional/ledger")));
     }
 
+    [Fact(DisplayName = "Deleting a feature that an open item still specs says which item in the dialog, then removes the column")]
+    public async Task DeleteFeatureSpeccedByOpenItem()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        GroupByFeature();
+        board.WaitForAssertion(() => Assert.Contains("Availability", Columns(board)));
+
+        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Availability")).Click();
+        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Delete feature…").Click();
+        overlays!.WaitForAssertion(() => Assert.Contains("#wi123 still describes it in its specs", overlays.Find(".dialog").TextContent));
+        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Delete").Click();
+
+        board.WaitForAssertion(() => Assert.DoesNotContain("Availability", Columns(board)));
+    }
+
     [Fact(DisplayName = "Rename feature… in a feature column's menu asks for the new name, prefilled, and the column takes it")]
     public async Task RenameFeatureColumn()
     {
@@ -892,6 +929,28 @@ public sealed class UsingTheBoardTests : IDisposable
         overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Create").Click();
 
         board.WaitForAssertion(() => Assert.Contains("Exports", Columns(board)));
+    }
+
+    [Fact(DisplayName = "A column shows priority subgroups when its cards differ in priority, and dropping a card on a subgroup sets its priority")]
+    public async Task PrioritySubgroups()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        int urgent = workspace.CreateItem("Backlog").Id, other = workspace.CreateItem("Backlog").Id;
+        Assert.True(WorkItemsApi.SetPriority(urgent, "high").Success);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        Assert.Equal(["High priority", "Lower priority"], Col(board, "Backlog").QuerySelectorAll(".lane-h.prio span:first-child").Select(s => s.TextContent.Trim()));
+        Assert.Empty(Col(board, "Planned").QuerySelectorAll(".lane-h.prio"));   // one priority there: no heading
+
+        AngleSharp.Dom.IElement HighLane() => Col(board, "Backlog").QuerySelector(".lane-h.prio[data-prio=high] + .lane")!;
+        Assert.Single(HighLane().QuerySelectorAll("article.card"));
+        Col(board, "Backlog").QuerySelectorAll(".lane-h.prio[data-prio=low] + .lane article.card").First(c => c.TextContent.Contains($"#wi{other}")).DragStart();
+        HighLane().Drop();
+
+        board.WaitForAssertion(() => Assert.Equal("high", WorkItemsApi.Get(other)!.Priority));
+        board.WaitForAssertion(() => Assert.Equal(2, HighLane().QuerySelectorAll("article.card").Length));   // the fixture's own Backlog item stays in the low lane
+        Assert.Equal(3, CardsIn(board, "Backlog").Count);
     }
 
     // The layout dropdown in the side menu switches the board to the list.
@@ -987,11 +1046,11 @@ public sealed class UsingTheBoardTests : IDisposable
         board.WaitForAssertion(() => Assert.False(ProjSelected()));
     }
 
-    [Fact(DisplayName = "Selection has one look everywhere: a black line round the item and a dotted yellow one outside it, never a fill")]
+    [Fact(DisplayName = "Selection has one look everywhere: a solid line in the text colour round the item and a yellow halo outside it, never a fill")]
     public void OneSelectionLook()
     {
         string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css"));
-        Assert.Matches(@"\.card\.selected[^{]*\.proj-h\.selected[^{]*tr\[data-selected\][^{]*\{[^}]*outline: 3px dotted var\(--sun\)[^}]*box-shadow: 0 0 0 2px var\(--ink\)", css);
+        Assert.Matches(@"\.card\.selected[^{]*\.proj-h\.selected[^{]*tr\[data-selected\][^{]*\{[^}]*outline: 3px solid var\(--ink\)[^}]*box-shadow: 0 0 0 7px var\(--sun\)", css);
         Assert.DoesNotMatch(@"tr\[data-selected\][^{]*\{[^}]*background", css);
     }
 
@@ -1183,5 +1242,26 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains(NameOf(repo), board.FindAll("tr[data-group^='proj:']")[0].TextContent);
         Assert.Contains(NameOf(repo2), board.FindAll("tr[data-group^='proj:']")[1].TextContent);
         Assert.Equal(2, board.FindAll("tr[data-id='123']").Count);
+    }
+
+    [Fact(DisplayName = "Merge asks which selected item is the main one, then merges the others into it")]
+    public async Task MergeAsksForTheMainItem()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        for (int i = 0; i < 2; i++) board.FindAll("article.card")[i].Click(new MouseEventArgs { CtrlKey = true });   // re-found: each click re-renders
+
+        board.Find(".actionbar button.primary").Click();
+
+        overlays!.WaitForAssertion(() => Assert.Equal(2, overlays.FindAll(".dialog .choice").Count));
+        List<int> ids = overlays.FindAll(".dialog .choice").Select(c => int.Parse(System.Text.RegularExpressions.Regex.Match(c.TextContent, @"#wi(\d+)").Groups[1].Value)).ToList();
+        Assert.Equal($"#wi{ids[1]} {WorkItemsApi.Get(ids[1])!.Title}", overlays.FindAll(".dialog .choice")[1].TextContent.Trim());
+        string mainTitle = WorkItemsApi.Get(ids[1])!.Title;
+        overlays.FindAll(".dialog .choice")[1].Click();
+
+        overlays.WaitForAssertion(() => Assert.Contains("Merged into #wi", overlays.Find(".toast").TextContent));
+        WorkItem merged = WorkItemsApi.GetAll().Single(w => (w.MergedFrom ?? []).Contains(ids[0]));
+        Assert.Equal(mainTitle, merged.Title);
+        Assert.Null(WorkItemsApi.Get(ids[0]));
     }
 }

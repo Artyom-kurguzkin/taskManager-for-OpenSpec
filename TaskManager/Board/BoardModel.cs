@@ -249,6 +249,15 @@ public static class BoardModel
     public static IEnumerable<WorkItem> InLane(BoardColumn col, string lane) =>
         col.Items.Where(i => (i.Lanes.TryGetValue(col.Key, out string? l) && col.Lanes.Contains(l) ? l : col.Lanes[0]) == lane);
 
+    /// <summary>
+    /// A column's cards under automatic priority headings, highest first: one lane per priority present ("high", then everything else as "low").
+    /// A single lane means the cards all share one priority, and the board draws no heading for it.
+    /// </summary>
+    public static IReadOnlyList<(string Priority, string Label, IReadOnlyList<WorkItem> Items)> PriorityLanes(BoardColumn col) =>
+        [.. new[] { ("high", "High priority"), ("low", "Lower priority") }
+            .Select(p => (p.Item1, p.Item2, (IReadOnlyList<WorkItem>)col.Items.Where(i => (i.Priority == "high" ? "high" : "low") == p.Item1).ToList()))
+            .Where(l => l.Item3.Count > 0)];
+
     public static int Count(IEnumerable<WorkItem> items, string unit) => unit == "subtasks" ? items.Sum(i => i.Subtasks.Count) : items.Count();
 
     public static IEnumerable<WorkItem> Sort(IEnumerable<WorkItem> items, BoardOptions o)

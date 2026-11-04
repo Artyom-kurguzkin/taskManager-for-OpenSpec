@@ -119,4 +119,37 @@ public sealed class KeepingNotesTests
         Assert.True(NotesApi.SetLinkedCommits(123, []).Success);
         Assert.Empty(NotesApi.Get(123)!.Commits);
     }
+
+    [Fact(DisplayName = "A note takes attachments: a file is copied under local/task-tracking and .gitignore learns local/, a link is kept as a URL, and removing an attachment forgets it (and deletes the copied file)")]
+    public void Attachments()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string src = Path.Combine(Path.GetTempPath(), "rtm-att-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(src);
+        string file = Path.Combine(src, "shot.txt");
+        File.WriteAllText(file, "evidence");
+        const string dir = "local/task-tracking/wi123/n123/";
+
+        Assert.True(NotesApi.AttachFile(123, file).Success);
+        Assert.True(NotesApi.AttachFile(123, file).Success);   // same name again: suffixed, not overwritten
+
+        Assert.Equal([dir + "shot.txt", dir + "shot-2.txt"], NotesApi.Get(123)!.Attachments);
+        Assert.Equal("evidence", repo.Read(dir + "shot.txt"));
+        Assert.True(File.Exists(repo.PathOf(dir + "shot-2.txt")));
+        Assert.Single(repo.Read(".gitignore").Replace("\r", "").Split('\n'), l => l.Trim() == "local/");
+        Assert.Contains("attachments:", repo.Read(NoteFile));
+
+        Assert.True(NotesApi.AttachLink(123, "https://example.com/x").Success);
+        Assert.False(NotesApi.AttachLink(123, "notaurl").Success);
+        Assert.Equal(3, NotesApi.Get(123)!.Attachments.Count);
+        Assert.Equal("https://example.com/x", NotesApi.Get(123)!.Attachments[2]);
+
+        Assert.True(NotesApi.RemoveAttachment(123, dir + "shot.txt").Success);
+        Assert.False(File.Exists(repo.PathOf(dir + "shot.txt")));
+        Assert.True(NotesApi.RemoveAttachment(123, "https://example.com/x").Success);
+        Assert.Equal([dir + "shot-2.txt"], NotesApi.Get(123)!.Attachments);
+        Assert.Contains("by: Artyom", repo.Read(NoteFile));   // the rest of the frontmatter is kept
+        Directory.Delete(src, true);
+    }
 }

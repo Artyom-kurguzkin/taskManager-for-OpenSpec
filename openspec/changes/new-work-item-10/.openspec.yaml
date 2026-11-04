@@ -6,4 +6,5 @@ x-rtm:
   title: see which items have changed based on git diff
   status: Planned
   contributors: [Artyom-kurguzkin]
+  features: [organise-work-items]
   label: feature

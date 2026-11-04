@@ -7,4 +7,4 @@
 - [x] 1.3 Keep task groups, headed by their source item
 - [x] 1.4 Record the merged numbers and list commits that mention them
 - [x] 1.5 Merge archived items: no requirement conflicts between them; keep their specs in an archived result, or under from-wi<id>/specs/ in an active one
-- [ ] 1.6 when tasks are merged,  you should show 'merge into' instead - that one will become the main - will keep its description while others' will go as notes
+- [x] 1.6 when tasks are merged,  you should show 'merge into' instead - that one will become the main - will keep its description while others' will go as notes — Merge asks which item is the main one; it keeps its title and description, the others' descriptions become "Merged from #wiN" notes <!-- agent: Claude -->

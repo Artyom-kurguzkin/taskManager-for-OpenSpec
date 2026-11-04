@@ -5,5 +5,7 @@ x-rtm:
   id: 15
   title: analytics screen
   status: Backlog
+  priority: low
   contributors: [Artyom-kurguzkin]
+  features: [track-work-items]
   label: feature

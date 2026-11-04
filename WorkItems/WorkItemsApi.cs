@@ -59,7 +59,10 @@ public static class WorkItemsApi
     /// <summary>Puts the item in one feature (null = none); a work item has one feature at most.</summary>
     public static (bool Success, string Message) MoveFeature(int id, string? to) => Commands.MoveFeature(id, to);
 
-    /// <summary>Deletes a custom feature (see FeaturesApi.DeleteFeature) and unlinks it from active work items, which become unassigned.</summary>
+    /// <summary>Ids of open (not archived) work items with a delta spec folder for the feature; DeleteFeature deletes those folders too.</summary>
+    public static IReadOnlyList<int> FeatureSpecOwners(string path) => Commands.FeatureSpecOwners(path);
+
+    /// <summary>Deletes a feature (see FeaturesApi.DeleteFeature) and its delta spec folders in open changes, and unlinks it from active work items, which become unassigned.</summary>
     public static (bool Success, string Message) DeleteFeature(string path) => Commands.DeleteFeature(path);
     public static (bool Success, string Message, string? NewPath) RenameFeature(string path, string name) => Commands.RenameFeature(path, name);
     public static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes) =>
@@ -101,6 +104,8 @@ public static class WorkItemsApi
     public static (bool Success, string Message, int Id) Create(string title, string status = "Backlog", IEnumerable<string>? features = null, IEnumerable<string>? contributors = null)
         => Commands.Create(title, status, features, contributors);
     public static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids) => Commands.Merge(ids);
+    /// <summary>Merges the items into one that keeps the title and description of <paramref name="into"/> (one of <paramref name="ids"/>); the others' descriptions become notes on it.</summary>
+    public static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids, int into) => Commands.Merge(ids, into);
     /// <summary>"Delete" without data loss: marks x-rtm.hidden so the board skips it; the change folder stays.</summary>
     public static (bool Success, string Message) Hide(int id) => Commands.Update(id, m => m.Hidden = true);
     public static (bool Success, string Message) Unhide(int id) => Commands.Update(id, m => m.Hidden = null);

@@ -46,6 +46,13 @@ A card SHALL show "due d MMM" as a tag, filled red while the item is overdue and
 - **WHEN** #wi123 was due yesterday
 - **THEN** its card's due tag is red; an item due in two days has a plain due tag; an item without a due date has none
 
+### Requirement: Project ticks in the side menu
+With several projects open, the expanded side menu SHALL list every open project with a tick. Unticking a project SHALL hide it from the board, list and calendar (the same setting as "Hide project" in the project's menu, so it is also listed under Hidden); ticking it SHALL show it again.
+
+#### Scenario: Untick a project
+- **WHEN** two projects are open and the user unticks the second in the side menu
+- **THEN** the board shows only the first, Hidden lists the second with an eye, and ticking it again brings it back
+
 ## MODIFIED Requirements
 
 ### Requirement: Board and list views
