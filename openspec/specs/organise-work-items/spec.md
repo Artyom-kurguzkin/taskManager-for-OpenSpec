@@ -159,7 +159,7 @@ The user SHALL reorder columns in any grouping by dragging a column header along
 - **THEN** Blocked disappears, is listed under Hidden, and comes back
 
 ### Requirement: Create and delete features
-When grouped by feature, "+ feature" at the end of the row of columns SHALL add a feature, listed in `openspec/config.yaml` under `x-rtm.features` (OpenSpec only accepts a capability spec once it has requirements). Every feature column SHALL offer "Delete feature…", which asks for confirmation and unlinks the feature from active work items, which then show as Unassigned. A feature listed in `x-rtm.features` is removed from there; a feature with a spec under `openspec/specs/` is deleted with its spec folder. Deleting SHALL be refused, naming the change, while an open change still has a delta spec for the feature, and refused when the feature's folder holds other features.
+When grouped by feature, "+ feature" at the end of the row of columns SHALL add a feature, listed in `openspec/config.yaml` under `x-rtm.features` (OpenSpec only accepts a capability spec once it has requirements). Every feature column SHALL offer "Delete feature…", which asks for confirmation and unlinks the feature from active work items, which then show as Unassigned. A feature listed in `x-rtm.features` is removed from there; a feature with a spec under `openspec/specs/` is deleted with its spec folder. When open changes still have a delta spec for the feature, the confirmation SHALL name them and their delta folders for it SHALL be deleted too, leaving each change valid; archived changes SHALL NOT be touched. Deleting SHALL be refused when the feature's folder holds other features.
 
 #### Scenario: New feature
 - **WHEN** the user adds feature "Exports" with "+ feature"
@@ -174,8 +174,8 @@ When grouped by feature, "+ feature" at the end of the row of columns SHALL add 
 - **THEN** the dialog said the folder goes, the folder is deleted and the column leaves the board
 
 #### Scenario: An open change still has a spec for it
-- **WHEN** the user deletes a feature for which an open change has a delta spec
-- **THEN** nothing is deleted and the message names that change
+- **WHEN** the user deletes a feature for which #wi123 has a delta spec, and confirms
+- **THEN** the dialog said "#wi123 still describes it in its specs", that delta folder is deleted with the feature, and #wi123 still validates
 
 ### Requirement: Hide selected work items
 The selection action bar SHALL offer "Delete (hide)", enabled with one or more cards selected, which hides every selected item. This is the only way to hide an item; the work item page offers no hide control of its own. Hiding SHALL clear the selection.
@@ -503,11 +503,11 @@ Selecting a project SHALL let go of selected cards, and selecting a card SHALL l
 - **THEN** only the card is selected
 
 ### Requirement: One selection look
-Anything selected with Shift-click — a card, a list row, a project heading, a subtask — SHALL look the same: it keeps its own surface, a line in the text colour hugs it and a dotted yellow line runs round that. Selection SHALL never be shown as a fill.
+Anything selected with Shift-click — a card, a list row, a project heading, a subtask — SHALL look the same: it keeps its own surface, a solid line in the text colour hugs it and a yellow halo runs round that line, wide enough to be seen at a glance on the light theme. Selection SHALL never be shown as a fill.
 
 #### Scenario: Card and row
 - **WHEN** the user Shift-clicks a card on the board and a row in the list
-- **THEN** both show the same dotted yellow line round a solid line, and neither changes its fill
+- **THEN** both show the same solid line with a yellow halo round it, and neither changes its fill
 
 ### Requirement: Priority subgroups
 A column without custom subgroups whose cards differ in priority SHALL show them under "High priority" and "Lower priority" headings, highest first. Dropping a card on a priority subgroup SHALL set its priority. A column whose cards share one priority SHALL show no heading; custom subgroups take precedence.
