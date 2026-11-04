@@ -389,7 +389,7 @@ public sealed class EditingWorkItemsTests
         Assert.Equal("Blocked", Item(123).Status);
     }
 
-    [Fact(DisplayName = "After a change folder is archived, a new work item with the same title can take its old folder name")]
+    [Fact(DisplayName = "A change folder name is never reused: a name that exists in the archive, under any date, is skipped when a work item is created")]
     public void FolderNameReusedAfterArchive()
     {
         using TestRepo repo = new();
@@ -397,15 +397,40 @@ public sealed class EditingWorkItemsTests
         WorkItemsApi.ConfigureArchiver(folder => { Directory.Move(repo.PathOf($"openspec/changes/{folder}"), repo.PathOf($"openspec/changes/archive/2026-10-23-{folder}")); return (true, ""); });
         try
         {
-            (bool _, string _, int first) = WorkItemsApi.Create("New work item", "Backlog", null, null);
-            Assert.True(WorkItemsApi.SetStatus(first, "Completed").Success);
-            Assert.True(Directory.Exists(repo.PathOf("openspec/changes/archive/2026-10-23-new-work-item")));
+            Assert.True(WorkItemsApi.SetStatus(107, "Completed").Success);
+            Assert.True(Directory.Exists(repo.PathOf("openspec/changes/archive/2026-10-23-export-remittances")));
 
-            (bool ok, string message, int second) = WorkItemsApi.Create("New work item", "Backlog", null, null);
+            (bool ok, string message, int again) = WorkItemsApi.Create("Export remittances", "Backlog", null, null);
+            Assert.True(ok, message);
+            Assert.Equal(repo.PathOf("openspec/changes/export-remittances-2"), Item(again).Path);
+
+            (_, _, int first) = WorkItemsApi.Create("New work item", "Backlog", null, null);
+            (_, _, int second) = WorkItemsApi.Create("New work item", "Backlog", null, null);
+            Assert.Equal(repo.PathOf("openspec/changes/new-work-item"), Item(first).Path);
+            Assert.Equal(repo.PathOf("openspec/changes/new-work-item-2"), Item(second).Path);
+        }
+        finally { WorkItemsApi.ConfigureArchiver(null); }
+    }
+
+    [Fact(DisplayName = "Completing an item whose folder was archived earlier today renames the folder first, so the archive does not clash")]
+    public void CompleteDodgesSameDayArchiveClash()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string today = DateTime.Today.ToString("yyyy-MM-dd");
+        repo.Write($"openspec/changes/archive/{today}-export-remittances/.openspec.yaml", "schema: spec-driven\ncreated: 2026-01-01\n");
+        string? archived = null;
+        WorkItemsApi.ConfigureArchiver(folder => { archived = folder; Directory.Move(repo.PathOf($"openspec/changes/{folder}"), repo.PathOf($"openspec/changes/archive/{today}-{folder}")); return (true, ""); });
+        try
+        {
+            (bool ok, string message) = WorkItemsApi.SetStatus(107, "Completed");
 
             Assert.True(ok, message);
-            Assert.Equal(repo.PathOf("openspec/changes/new-work-item"), Item(second).Path);
-            Assert.Contains($"id: {second}", repo.Read("openspec/changes/new-work-item/.openspec.yaml"));
+            Assert.Equal("export-remittances-2", archived);
+            Assert.Equal(107, Item(107).Id);
+            Assert.Equal("Completed", Item(107).Status);
+            Assert.True(Directory.Exists(repo.PathOf($"openspec/changes/archive/{today}-export-remittances")));
+            Assert.True(Directory.Exists(repo.PathOf($"openspec/changes/archive/{today}-export-remittances-2")));
         }
         finally { WorkItemsApi.ConfigureArchiver(null); }
     }
@@ -722,6 +747,54 @@ public sealed class EditingWorkItemsTests
         string crlf = RemittancesDelta.Replace("\n", "\r\n");
         Assert.DoesNotContain("\n\n\n", WorkItems.BusinessRules.DeltaSpec.Refresh(crlf, RemittancesMain).Replace("\r\n", "\n"));
         Assert.Contains("\r\n#### Scenario: Limit\r\n", WorkItems.BusinessRules.DeltaSpec.Refresh(crlf, RemittancesMain));   // the file's own line endings
+    }
+
+    [Fact(DisplayName = "An ADDED requirement that the main spec already has is archived as a modification: the block moves to MODIFIED and keeps every main-spec scenario")]
+    public void AddedRequirementTheMainSpecHasBecomesModified()
+    {
+        const string delta = "## ADDED Requirements\n\n### Requirement: Send money\nThe system SHALL send money and export it.\n\n#### Scenario: Works\n- **WHEN** sent\n- **THEN** it arrives and is exported\n";
+        string refreshed = WorkItems.BusinessRules.DeltaSpec.Refresh(delta, RemittancesMain);
+
+        Assert.DoesNotContain("## ADDED Requirements", refreshed);
+        Assert.True(refreshed.IndexOf("## MODIFIED Requirements") < refreshed.IndexOf("### Requirement: Send money"), refreshed);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(refreshed, "### Requirement: Send money"));
+        Assert.Contains("it arrives and is exported", refreshed);   // the change's own text stays
+        int works = refreshed.IndexOf("#### Scenario: Works"), fee = refreshed.IndexOf("#### Scenario: Fee shown"), limit = refreshed.IndexOf("#### Scenario: Limit");
+        Assert.True(works >= 0 && works < fee && fee < limit, refreshed);
+        Assert.Equal(refreshed, WorkItems.BusinessRules.DeltaSpec.Refresh(refreshed, RemittancesMain));
+        // a new requirement next to it stays ADDED; the MODIFIED section is created once
+        string mixed = WorkItems.BusinessRules.DeltaSpec.Refresh(RemittancesDelta.Replace("## MODIFIED Requirements", "## ADDED Requirements"), RemittancesMain);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(mixed, "## MODIFIED Requirements"));
+        Assert.True(mixed.IndexOf("### Requirement: Send money") > mixed.IndexOf("## MODIFIED Requirements"), mixed);
+        Assert.True(mixed.IndexOf("### Requirement: Export") > mixed.IndexOf("## ADDED Requirements"), mixed);
+    }
+
+    [Fact(DisplayName = "A requirement listed twice in one delta is merged into one block, and a REMOVED requirement the main spec does not have is dropped")]
+    public void DuplicateRequirementsMergeAndDeadRemovalsGo()
+    {
+        const string delta = "## ADDED Requirements\n\n### Requirement: Export\nThe system SHALL export.\n\n#### Scenario: Export works\n- **WHEN** exported\n- **THEN** a file appears\n\n"
+            + "### Requirement: Export\nThe system SHALL export twice.\n\n#### Scenario: Export works\n- **WHEN** again\n- **THEN** ignored duplicate\n\n#### Scenario: Export fails\n- **WHEN** the disk is full\n- **THEN** it says so\n\n"
+            + "## MODIFIED Requirements\n\n### Requirement: Export\nThe system SHALL export, stronger.\n\n#### Scenario: Export is signed\n- **WHEN** exported\n- **THEN** it is signed\n\n"
+            + "## REMOVED Requirements\n\n### Requirement: Fax\n**Reason**: gone\n\n### Requirement: Send money\n**Reason**: kept in main, so this one stays\n\n"
+            + "## RENAMED Requirements\n\n- FROM: `### Requirement: Telex`\n- TO: `### Requirement: Email`\n";
+        string refreshed = WorkItems.BusinessRules.DeltaSpec.Refresh(delta, RemittancesMain);
+
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(refreshed, "### Requirement: Export"));
+        Assert.Contains("The system SHALL export.", refreshed);   // the first text wins
+        Assert.DoesNotContain("export twice", refreshed);
+        Assert.DoesNotContain("ignored duplicate", refreshed);   // same scenario name: first occurrence wins
+        foreach (string s in new[] { "Export works", "Export fails", "Export is signed" })
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(refreshed, "#### Scenario: " + s));
+        Assert.DoesNotContain("## ADDED Requirements", refreshed);   // MODIFIED is the stronger section
+        Assert.True(refreshed.IndexOf("### Requirement: Export") > refreshed.IndexOf("## MODIFIED Requirements"), refreshed);
+        Assert.DoesNotContain("Fax", refreshed);
+        Assert.DoesNotContain("RENAMED", refreshed);
+        Assert.DoesNotContain("Telex", refreshed);
+        Assert.Contains("## REMOVED Requirements", refreshed);
+        Assert.Contains("### Requirement: Send money", refreshed);   // the main spec has it: the removal stays
+        Assert.Equal(refreshed, WorkItems.BusinessRules.DeltaSpec.Refresh(refreshed, RemittancesMain));
+        string crlf = WorkItems.BusinessRules.DeltaSpec.Refresh(delta.Replace("\n", "\r\n"), RemittancesMain);
+        Assert.Equal(refreshed.Replace("\n", "\r\n"), crlf);
     }
 
     [Fact(DisplayName = "A failed archive leaves the work item where it was and reports the CLI's message")]

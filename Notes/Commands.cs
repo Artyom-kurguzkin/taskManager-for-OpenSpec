@@ -58,18 +58,41 @@ internal static class Commands
     /// <summary>Copies the file to local/task-tracking/wi&lt;item&gt;/n&lt;note&gt;/ (never overwriting), makes sure local/ is git-ignored, and lists it.</summary>
     internal static (bool Success, string Message) AttachFile(int id, string sourcePath)
     {
+        if (!File.Exists(sourcePath)) return (false, NotesApi.Get(id) is null ? NotFound : "That file no longer exists");
+        return Store(id, Path.GetFileName(sourcePath), target => File.Copy(sourcePath, target));
+    }
+
+    /// <summary>Stores pasted data (a clipboard image) like a picked file: same folder, same naming, same .gitignore handling.</summary>
+    internal static (bool Success, string Message) AttachBytes(int id, string fileName, byte[] bytes) =>
+        Store(id, Path.GetFileName(fileName ?? ""), target => File.WriteAllBytes(target, bytes));
+
+    /// <summary>Titles the note: rewrites its first "# " heading, or puts one on top when the body has none.</summary>
+    internal static (bool Success, string Message) SetTitle(int id, string title)
+    {
+        title = string.Join(' ', (title ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+        if (title.Length == 0) return (false, "A note needs a title");
+        if (NotesApi.Get(id) is not Note note) return (false, NotFound);
+        List<string> lines = [.. note.Body.Replace("\r\n", "\n").Split('\n')];
+        int at = lines.FindIndex(l => l.StartsWith("# "));
+        if (at >= 0) lines[at] = "# " + title;
+        else { lines.Insert(0, ""); lines.Insert(0, "# " + title); }
+        return SaveBody(id, string.Join('\n', lines));
+    }
+
+    private static (bool Success, string Message) Store(int id, string name, Action<string> write)
+    {
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
         if (OpenSpecStoreApi.RepoRoot is not string root) return (false, "No repository is open");
-        if (!File.Exists(sourcePath)) return (false, "That file no longer exists");
+        if (name.Length == 0) return (false, "That file has no name");
         string relDir = $"{AttachRoot}wi{note.WorkItemId}/n{id}";
         string dir = Path.Combine(root, relDir.Replace('/', Path.DirectorySeparatorChar));
-        string name = Path.GetFileName(sourcePath), stem = Path.GetFileNameWithoutExtension(name), ext = Path.GetExtension(name);
+        string stem = Path.GetFileNameWithoutExtension(name), ext = Path.GetExtension(name);
         try
         {
             Directory.CreateDirectory(dir);
             string target = Path.Combine(dir, name);
             for (int n = 2; File.Exists(target); n++) target = Path.Combine(dir, $"{stem}-{n}{ext}");
-            File.Copy(sourcePath, target);
+            write(target);
             IgnoreLocal(root);
             return Append(note, $"{relDir}/{Path.GetFileName(target)}");
         }

@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"REMINDER: anything beyond a one-line fix (features, bug reports, 'work through the items', several asks in one message) runs the delegate-workflow skill: say the chunks first, plan file, chunks to sonnet agents in worktrees (bugs too, with their own CDP port), POLL the agents every ~5 min (worktree git status; ping after 10 min silent; notifications get lost), integrate from each worktree's diff against HEAD, hidden-desktop check in light and dark, board updated, nothing committed. No serial debugging or scratch edits in the main tree.\""
+          }
+        ]
+      }
+    ]
+  }
+}

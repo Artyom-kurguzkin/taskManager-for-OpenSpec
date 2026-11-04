@@ -15,7 +15,7 @@ public static class AgentGuide
 {
     public const string FileName = "REPO-TASKS.md";
     private const string Marker = "<!-- repo-tasks-guide v";
-    private const int Version = 5;
+    private const int Version = 7;
 
     /// <summary>Writes the guide when it is missing, an older copy of ours, or ours with another plans folder.</summary>
     public static GuideChange Ensure(string repoRoot, string plansDir)
@@ -50,7 +50,7 @@ public static class AgentGuide
         1. **Research** how similar problems are solved in the industry before designing; note the sources.
         2. **Write a plan** in `{{plansDir}}/<title-slug>-<yyyy-MM-dd>.md`: why, what others do, decisions, the chunks below, how it will be verified. Link it from the work item with `x-rtm.plan: {{plansDir}}/<file>.md`; the app opens it from the item page.
         3. **Split** the work into discrete chunks that can each be tested on their own (a unit test and a black-box check), as subtasks in `tasks.md` or as dependent work items (`x-rtm.dependsOn`).
-        4. **Delegate** the chunks to cheaper models, each in its own git worktree so they never edit the same files. Keep the design decisions in the coordinating session.
+        4. **Delegate** the chunks to cheaper models, each in its own git worktree so they never edit the same files. Keep the design decisions in the coordinating session. **Poll them** every few minutes (the worktree's `git status`) and ask a silent one for its status: completion notices get lost.
         5. When they come back, **verify** each chunk, merge it into the current branch and run the whole test suite for integration.
         6. **Update the board** (section 2) as you go, and leave the result **uncommitted** in the working tree for the user's review. Never commit unless the user asked.
 
@@ -63,7 +63,8 @@ public static class AgentGuide
           Never write `reviewedAt`: only the user does, by clicking the chip in the app.
         - **Note** (`notes/n<N>.md`): `by: <your name>` plus the same two keys in its frontmatter.
         - **Subtask** (a `tasks.md` checkbox): end the line with `<!-- agent: <your name> -->`.
-        - `contributors` are the people on the item. Do not add yourself there.
+        - When you **create** a work item or subtask, also add your name to its `contributors` (people and agents who did the work), e.g. `contributors: [artyom, Claude]`.
+        - `contributors` are who did the work, people and agents. Add yourself when you create something; do not add yourself for a small edit of someone else's item.
 
         ```yaml
         x-rtm:

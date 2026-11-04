@@ -22,6 +22,11 @@ public static class NotesApi
 
     /// <summary>Copies the file under local/task-tracking/wi&lt;item&gt;/n&lt;note&gt;/, git-ignores local/, and lists it in the note's attachments.</summary>
     public static (bool Success, string Message) AttachFile(int id, string sourcePath) => Commands.AttachFile(id, sourcePath);
+    /// <summary>Stores pasted data (e.g. a clipboard image) exactly like <see cref="AttachFile"/>.</summary>
+    public static (bool Success, string Message) AttachBytes(int id, string fileName, byte[] bytes) => Commands.AttachBytes(id, fileName, bytes);
+
+    /// <summary>Rewrites the note's first "# " heading (adds one when the body has none); a blank title is refused.</summary>
+    public static (bool Success, string Message) SetTitle(int id, string title) => Commands.SetTitle(id, title);
     public static (bool Success, string Message) AttachLink(int id, string url) => Commands.AttachLink(id, url);
     public static (bool Success, string Message) RemoveAttachment(int id, string entry) => Commands.RemoveAttachment(id, entry);
 

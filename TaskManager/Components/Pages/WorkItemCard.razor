@@ -28,7 +28,6 @@
             @if (Item.Due is DateOnly due) { <span class="tag due @(due < DateOnly.FromDateTime(DateTime.Today) && !Item.Archived ? "overdue hot" : "")" title="Due @due.ToString("d MMMM yyyy")">due @due.ToString("d MMM")</span> }
             @if (TestsFailing) { <span class="tag hot tests-failing" title="A linked test failed in the latest run">tests failing</span> }
             @if (Item.Warning is not null) { <span class="tag hot" title="@Item.Warning">!</span> }
-            @if (BoardModel.AgentFlag(Item)) { <AgentChip By="@(Item.AgentBy ?? Item.Subtasks.FirstOrDefault(s => s.Agent is not null)?.Agent)" At="Item.AgentAt" OnReview="() => OnReview.InvokeAsync(Item)" /> }
         </span>
     }
 </article>

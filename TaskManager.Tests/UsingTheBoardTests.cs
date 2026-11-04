@@ -1054,24 +1054,21 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.DoesNotMatch(@"tr\[data-selected\][^{]*\{[^}]*background", css);
     }
 
-    [Fact(DisplayName = "Agent-added work shows an agent chip on its card; clicking it marks the item and its agent subtasks reviewed without opening it")]
+    [Fact(DisplayName = "Agent-added work carries no agent chip on its card or list row; the review click is on the item page, the filter still finds it")]
     public async Task AgentChipOnCard()
     {
         EditingWorkItemsTests.StampAgent(repo);
-        repo.Write("openspec/changes/add-health-check/tasks.md", repo.Read("openspec/changes/add-health-check/tasks.md").TrimEnd() + "\n- [ ] 2.2 Agent drafted this <!-- agent: Claude -->\n");
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        Assert.Single(board.FindAll("article.card .agent-chip"));
+        Assert.Empty(board.FindAll("article.card .agent-chip"));
+        Assert.True(WorkItemsApi.Get(123)!.AgentUnreviewed);   // still flagged for the filter and the item page
 
-        board.FindAll("article.card").Single(c => c.TextContent.Contains("Health-check endpoint")).QuerySelector(".agent-chip")!.Click();
-
-        board.WaitForAssertion(() => Assert.Empty(board.FindAll("article.card .agent-chip")));
-        Assert.DoesNotContain("/item/", ctx.Services.GetRequiredService<NavigationManager>().Uri);
-        Assert.Contains("reviewedAt", repo.Read("openspec/changes/add-health-check/.openspec.yaml"));
-        Assert.DoesNotContain("<!-- agent", repo.Read("openspec/changes/add-health-check/tasks.md"));
+        ShowList();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
+        Assert.Empty(board.FindAll("tr[data-id] .tcell .agent-chip"));
     }
 
-    [Fact(DisplayName = "In the list the agent chip sits on the row and on each agent subtask; a subtask's chip clears only that subtask")]
+    [Fact(DisplayName = "In the list an agent subtask carries a chip whose click clears that subtask; the row itself has none")]
     public async Task AgentChipsInList()
     {
         EditingWorkItemsTests.StampAgent(repo);
@@ -1079,7 +1076,7 @@ public sealed class UsingTheBoardTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
-        board.WaitForAssertion(() => Assert.Single(board.FindAll("tr[data-id] .tcell .agent-chip")));
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
         board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector("button.chev")!.Click();   // subtasks start folded
         board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".subrow")));
         Assert.Single(board.FindAll(".subrow .agent-chip"));
@@ -1087,7 +1084,7 @@ public sealed class UsingTheBoardTests : IDisposable
         board.Find(".subrow .agent-chip").Click();
 
         board.WaitForAssertion(() => Assert.Empty(board.FindAll(".subrow .agent-chip")));
-        Assert.Single(board.FindAll("tr[data-id] .tcell .agent-chip"));   // the item itself is still flagged
+        Assert.True(WorkItemsApi.Get(123)!.AgentUnreviewed);   // the item itself is still flagged
         Assert.DoesNotContain("<!-- agent", repo.Read("openspec/changes/add-health-check/tasks.md"));
     }
 

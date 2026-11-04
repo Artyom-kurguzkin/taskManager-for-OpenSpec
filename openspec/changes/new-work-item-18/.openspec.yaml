@@ -1,0 +1,10 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-05
+x-rtm:
+  id: 94
+  title: work item details rework
+  status: Planned
+  contributors: [Artyom-kurguzkin]
+  features: [work-item-details]
+  label: enhancement

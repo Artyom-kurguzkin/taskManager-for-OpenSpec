@@ -129,32 +129,49 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.True(File.Exists(repo.PathOf("openspec/changes/add-health-check/specs/non-functional/availability/spec.md")));
     }
 
-    [Fact(DisplayName = "The work item page has start and due date fields: picking a date saves it, clearing it removes it")]
+
+
+    [Fact(DisplayName = "One dates control on the work item page picks a range: the first day clicked is the start, the second the due date; Clear removes both")]
     public async Task StartAndDueDates()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Assert.Equal("", page.Find("input[type='date'][aria-label='due']").GetAttribute("value"));
+        Assert.Empty(page.FindAll("input[type='date']"));   // no native pickers any more
+        Assert.Contains("no dates", page.Find("button.dates-btn").TextContent);
 
-        page.Find("input[type='date'][aria-label='due']").Change("2026-11-05");
-        page.WaitForAssertion(() => Assert.Equal(new DateOnly(2026, 11, 5), WorkItemsApi.Get(123)!.Due));
-        page.Find("input[type='date'][aria-label='started']").Change("2026-10-20");
-        page.WaitForAssertion(() => Assert.Equal(new DateOnly(2026, 10, 20), WorkItemsApi.Get(123)!.Started));
-        page.WaitForAssertion(() => Assert.Equal("2026-11-05", page.Find("input[type='date'][aria-label='due']").GetAttribute("value")));
+        page.Find("button.dates-btn").Click();
+        DateOnly first = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+        page.Find($".range-pop button.rd[data-day='{first:yyyy-MM-dd}']").Click();
+        Assert.Null(WorkItemsApi.Get(123)!.Started);   // nothing saved until the range is complete
+        page.Find($".range-pop button.rd[data-day='{first.AddDays(6):yyyy-MM-dd}']").Click();
+        page.WaitForAssertion(() => Assert.Equal((first, first.AddDays(6)), (WorkItemsApi.Get(123)!.Started, WorkItemsApi.Get(123)!.Due)));
+        page.WaitForAssertion(() => Assert.Contains($"{first:d MMM} – {first.AddDays(6):d MMM}", page.Find("button.dates-btn").TextContent));
+        Assert.Empty(page.FindAll(".range-pop"));   // closed once the range is complete
 
-        page.Find("input[type='date'][aria-label='due']").Change("");
+        page.Find("button.dates-btn").Click();   // picking backwards swaps them
+        page.Find($".range-pop button.rd[data-day='{first.AddDays(9):yyyy-MM-dd}']").Click();
+        page.Find($".range-pop button.rd[data-day='{first.AddDays(2):yyyy-MM-dd}']").Click();
+        page.WaitForAssertion(() => Assert.Equal((first.AddDays(2), first.AddDays(9)), (WorkItemsApi.Get(123)!.Started, WorkItemsApi.Get(123)!.Due)));
+
+        page.Find("button.dates-btn").Click();
+        page.Find(".range-pop button.range-clear").Click();
         page.WaitForAssertion(() => Assert.Null(WorkItemsApi.Get(123)!.Due));
+        Assert.Null(WorkItemsApi.Get(123)!.Started);
     }
 
-    [Fact(DisplayName = "A work item's plan is a field on its page: typing a path links it, the chip opens the plan rendered in the app, clearing the field unlinks it")]
+    [Fact(DisplayName = "A work item's plan is picked from the plans folder: the chip opens it rendered in the app, its × unlinks it; there is no path box")]
     public async Task PlanOnThePage()
     {
         await using BunitContext ctx = NewContext();
         repo.Write("DevResources/plans/health-2026-11-05.md", "# Health plan\n\nStep one.\n");
+        repo.Write("DevResources/plans/other-2026-11-04.md", "# Other\n");
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         Assert.Empty(page.FindAll("a.plan-link"));
+        Assert.Empty(page.FindAll("input[aria-label='plan']"));
 
-        page.Find("input[aria-label='plan']").Change(@"DevResources\plans\health-2026-11-05.md");
+        page.Find("[aria-label='Link a plan'] button, button[aria-label='Link a plan']").Click();
+        page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".menu-pop .pick-item").Count));
+        page.FindAll(".menu-pop .pick-item").First(i => i.TextContent.Contains("health-2026-11-05")).Click();
         page.WaitForAssertion(() => Assert.Equal("DevResources/plans/health-2026-11-05.md", WorkItemsApi.Get(123)!.Plan));
         AngleSharp.Dom.IElement link = page.Find("a.plan-link");
         Assert.Equal("doc/DevResources/plans/health-2026-11-05.md", link.GetAttribute("href"));
@@ -163,11 +180,7 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<DocPage> doc = ctx.Render<DocPage>(p => p.Add(c => c.Path, WorkItemsApi.Get(123)!.Plan!));
         Assert.Equal("Health plan", doc.Find("h1").TextContent);
 
-        page.Find("input[aria-label='plan']").Change("../outside.md");   // refused, the link stays
-        page.WaitForAssertion(() => Assert.NotEmpty(overlays!.FindAll(".toast")));
-        Assert.Equal("DevResources/plans/health-2026-11-05.md", WorkItemsApi.Get(123)!.Plan);
-
-        page.Find("input[aria-label='plan']").Change("");
+        page.Find("button.plan-x").Click();
         page.WaitForAssertion(() => Assert.Null(WorkItemsApi.Get(123)!.Plan));
         Assert.Empty(page.FindAll("a.plan-link"));
     }
@@ -344,7 +357,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.NotEmpty(page.FindAll(".desc.edit"));
     }
 
-    [Fact(DisplayName = "On the work item page the agent's work is flagged: the item, its subtasks and its notes, each cleared by a click")]
+    [Fact(DisplayName = "On the work item page the agent is a contributor chip, lilac while unreviewed and the click that reviews it; the title row has no chip; subtasks and notes keep theirs")]
     public async Task AgentChipsOnThePage()
     {
         EditingWorkItemsTests.StampAgent(repo);
@@ -354,16 +367,35 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        Assert.NotNull(page.Find(".head .agent-chip").GetAttribute("title"));
-        Assert.Contains("Claude", page.Find(".head .agent-chip").GetAttribute("title"));
+        Assert.Empty(page.FindAll(".head .agent-chip"));   // the title row carries no chip
+        IElement chip = page.Find(".contributors .agent-contrib.unreviewed");
+        Assert.Equal("Claude", chip.TextContent.Trim());
+        Assert.Contains("Claude", chip.GetAttribute("title"));
         Focus(page, "subtasks");
         page.Find(".sub .agent-chip").Click();
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".sub .agent-chip")));
         Focus(page, "log");
         page.Find(".change-log .agent-chip").Click();
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".change-log .agent-chip")));
-        page.Find(".head .agent-chip").Click();
-        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".agent-chip")));
+        page.Find(".contributors .agent-contrib").Click();
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".agent-contrib.unreviewed")));
+        Assert.Empty(page.FindAll(".agent-chip"));
+        Assert.Equal("Claude", page.Find(".contributors .agent-contrib").TextContent.Trim());   // stays, as a plain chip
+        Assert.False(WorkItemsApi.Get(123)!.AgentUnreviewed);
+    }
+
+    [Fact(DisplayName = "An agent already listed among the contributors is not shown twice")]
+    public async Task AgentNotShownTwice()
+    {
+        EditingWorkItemsTests.StampAgent(repo);
+        string yaml = "openspec/changes/add-health-check/.openspec.yaml";
+        repo.Write(yaml, repo.Read(yaml).Replace("contributors: [Artyom, Tom]", "contributors: [Claude, Tom]"));
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        List<IElement> chips = page.FindAll(".contributors .chip").Where(c => c.TextContent.Trim() == "Claude").ToList();
+        Assert.Single(chips);
+        Assert.Contains("agent-contrib", chips[0].ClassList);
     }
 
     [Fact(DisplayName = "Saving anything on the work item page shows a Saved toast")]
@@ -382,26 +414,40 @@ public sealed class UsingThePagesTests : IDisposable
     // driven by its script, so a test types by raising the editor's ValueChanged, which is what typing does.
     private static Task Type(IRenderedComponent<NotePage> page, string text)
     {
-        if (page.FindAll(".rz-markdown-editor").Count == 0) page.Find("button.edit-note").Click();
+        if (page.FindAll(".rz-markdown-editor").Count == 0) page.Find(".note-view").Click();
         RadzenMarkdownEditor editor = page.FindComponent<RadzenMarkdownEditor>().Instance;
         return page.InvokeAsync(() => editor.ValueChanged.InvokeAsync(text));
     }
 
-    [Fact(DisplayName = "A note opens in preview; Edit shows the markdown editor; Done saves at once and returns to the updated preview")]
-    public async Task NotePreviewThenEdit()
+    [Fact(DisplayName = "The note page edits in place: the title is an input, clicking the note opens the editor, focusing out saves and shows the rendered note; a pasted image becomes an attachment")]
+    public async Task NoteEditsInPlace()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
-        Assert.NotEmpty(page.FindAll(".preview"));
+
+        page.Find("input.note-title").Change("Decided on X");
+        Assert.Equal("Decided on X", NotesApi.Get(123)!.Title);
+
+        Assert.Empty(page.FindAll("button.edit-note"));
+        Assert.Empty(page.FindAll("button.done-note"));
+        Assert.Equal("Click to edit", page.Find(".note-view").GetAttribute("title"));
         Assert.Empty(page.FindAll(".rz-markdown-editor"));
 
-        await Type(page, "# Ping test\n\nchanged in test");
-        Assert.Empty(page.FindAll(".preview"));
-        page.Find("button.done-note").Click();
+        page.Find(".note-view").Click();
+        Assert.NotEmpty(page.FindAll(".rz-markdown-editor"));
+        await Type(page, "# Decided on X\n\nchanged in test");
+        page.Find(".note-editor").FocusOut();
 
         Assert.Empty(page.FindAll(".rz-markdown-editor"));
-        Assert.Contains("changed in test", page.Find(".preview").TextContent);
+        Assert.Contains("changed in test", page.Find(".note-view").TextContent);
+        Assert.Contains("changed in test", NotesApi.Get(123)!.Body);
         Assert.Contains("changed in test", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
+
+        string png = Convert.ToBase64String([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        await page.InvokeAsync(() => page.Instance.PastedImage("pasted-x.png", png));
+        const string entry = "local/task-tracking/wi123/n123/pasted-x.png";
+        Assert.EndsWith(entry, NotesApi.Get(123)!.Attachments[^1]);
+        Assert.True(File.Exists(repo.PathOf(entry)));
     }
 
     [Fact(DisplayName = "Typing in the editor keeps every keystroke: the app binds the text, it never pushes an older copy back")]
@@ -409,7 +455,7 @@ public sealed class UsingThePagesTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
-        page.Find("button.edit-note").Click();
+        page.Find(".note-view").Click();
         string loaded = page.FindComponent<RadzenMarkdownEditor>().Instance.Value;
 
         await Type(page, loaded + "abc");

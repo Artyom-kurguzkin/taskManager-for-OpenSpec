@@ -1,0 +1,80 @@
+@* One control for a start and an end day. The button reads "2 Nov – 8 Nov"; it opens a month where the first day clicked is
+   the start and the second the end (picked backwards, they swap), then it saves and closes. Clear removes both. *@
+@using TaskManager.Board
+<Menu @ref="menu" Label="@Label" Class="range">
+    <Activator>
+        <button type="button" class="box dd mini dates-btn" data-sk aria-label="@Label" @onclick="Open">@Text</button>
+    </Activator>
+    <Items>
+        <div class="range-pop" @onclick:stopPropagation="true">
+            <div class="range-h">
+                <button type="button" class="ic" aria-label="Previous month" @onclick="() => month = month.AddMonths(-1)">‹</button>
+                <b>@month.ToString("MMMM yyyy")</b>
+                <button type="button" class="ic" aria-label="Next month" @onclick="() => month = month.AddMonths(1)">›</button>
+            </div>
+            <div class="range-grid">
+                @foreach (string d in new[] { "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" }) { <span class="rdow">@d</span> }
+                @foreach (DateOnly day in CalendarModel.Weeks(month).SelectMany(w => w))
+                {
+                    <button type="button" class="rd @Look(day)" data-day="@day.ToString("yyyy-MM-dd")" @onclick="() => Pick(day)">@day.Day</button>
+                }
+            </div>
+            <div class="range-f">
+                <span class="muted">@(pending is DateOnly p ? $"from {p:d MMM}: pick the end" : "pick the start")</span>
+                <button type="button" class="add range-clear" @onclick="Clear">Clear</button>
+            </div>
+        </div>
+    </Items>
+</Menu>
+
+@code {
+    [Parameter] public DateOnly? Start { get; set; }
+    [Parameter] public DateOnly? End { get; set; }
+    [Parameter] public string Label { get; set; } = "dates";
+    /// <summary>The new range; (null, null) when cleared.</summary>
+    [Parameter] public EventCallback<(DateOnly? Start, DateOnly? End)> Changed { get; set; }
+
+    private Menu? menu;
+    private DateOnly month = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private DateOnly? pending;   // the start, between the first click and the second
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    private string Text => (Start, End) switch
+    {
+        (DateOnly s, DateOnly e) when s == e => s.ToString("d MMM"),
+        (DateOnly s, DateOnly e) => $"{s:d MMM} – {e:d MMM}",
+        (DateOnly s, null) => $"from {s:d MMM}",
+        (null, DateOnly e) => $"due {e:d MMM}",
+        _ => "no dates",
+    };
+
+    private void Open()
+    {
+        pending = null;
+        DateOnly shown = Start ?? End ?? Today;
+        month = new(shown.Year, shown.Month, 1);
+    }
+
+    private string Look(DateOnly day)
+    {
+        DateOnly? a = pending ?? Start, b = pending is null ? End : null;
+        string inRange = a is DateOnly s && b is DateOnly e && day > s && day < e ? "in" : "";
+        string edge = day == a || day == b ? "edge" : "";
+        return $"{inRange} {edge} {(day == Today ? "today" : "")} {(day.Month != month.Month ? "other" : "")}";
+    }
+
+    private async Task Pick(DateOnly day)
+    {
+        if (pending is not DateOnly first) { pending = day; return; }
+        pending = null;
+        menu?.Close();
+        await Changed.InvokeAsync(first <= day ? (first, day) : (day, first));
+    }
+
+    private async Task Clear()
+    {
+        pending = null;
+        menu?.Close();
+        await Changed.InvokeAsync((null, null));
+    }
+}

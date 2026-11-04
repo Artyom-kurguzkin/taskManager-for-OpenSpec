@@ -1,5 +1,7 @@
 using Bunit;
 using OpenSpecStore;
+using Radzen;
+using TaskManager.Components.Pages;
 using Microsoft.Extensions.DependencyInjection;
 using TaskManager.Components.Layout;
 using TaskManager.Components.Shared;
@@ -22,6 +24,7 @@ public sealed class SwitchingProjectsTests : IDisposable
         BunitContext ctx = new();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<UiService>();
+        ctx.Services.AddRadzenComponents();   // the list view is a Radzen data grid
         ctx.Services.AddSingleton(new SettingsStore(settingsFile));
         ctx.Services.AddSingleton<Workspace>();
         Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
@@ -43,6 +46,8 @@ public sealed class SwitchingProjectsTests : IDisposable
             Assert.StartsWith("<!-- repo-tasks-guide v", text);
             Assert.Contains("agentBy", text);
             Assert.Contains("<!-- agent:", text);
+            Assert.Contains("contributors: [artyom, Claude]", text);   // an agent that creates something is a contributor
+            Assert.Contains("Add yourself when you create something", text);
             Assert.Contains("due:", text);   // start and due dates are part of the conventions
             foreach (string s in new[] { "agentBy", "notes/n", "commits:", "tests:", "validate", "## MODIFIED Requirements", "## Why" })
                 Assert.Contains(s, text);   // author, change log, linked commits and tests, keeping OpenSpec valid
@@ -86,26 +91,55 @@ public sealed class SwitchingProjectsTests : IDisposable
         }
     }
 
-    [Fact(DisplayName = "With several projects open the expanded side menu lists them with a tick each; unticking one hides it from the board and ticking shows it again")]
+    [Fact(DisplayName = "The project switcher has an eye per project: clicking it hides the project from the board without switching, again shows it; the view options have no second project list")]
     public async Task ProjectFilterInSideMenu()
     {
         (BunitContext ctx, Workspace workspace, IRenderedComponent<SideNav> nav) = NewContext();
         await using (ctx)
         {
-            nav.Find("button.nav-toggle").Click();
-            Assert.Empty(nav.FindAll(".nav-projects"));   // one project: nothing to filter
-
             workspace.OpenTab(repo2.Root);
-            nav.WaitForAssertion(() => Assert.Equal(2, nav.FindAll(".nav-projects input[type='checkbox']").Count));
-            Assert.All(nav.FindAll(".nav-projects input[type='checkbox']"), c => Assert.True(c.HasAttribute("checked")));
+            workspace.Open(repo1.Root);
             SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+            string name2 = Path.GetFileName(repo2.Root);
 
-            nav.Find($".nav-projects input[aria-label='Project {Path.GetFileName(repo2.Root)}']").Change(false);
+            nav.Find("button.tabs-btn").Click();   // open the switcher
+            nav.WaitForAssertion(() => Assert.NotNull(nav.Find($"[aria-label='Hide project {name2}']")));
+            nav.Find($"[aria-label='Hide project {name2}']").Click();
             Assert.True(settings.ProjectHidden(repo2.Root));
-            nav.WaitForAssertion(() => Assert.False(nav.Find($".nav-projects input[aria-label='Project {Path.GetFileName(repo2.Root)}']").HasAttribute("checked")));
+            Assert.Equal(Path.GetFullPath(repo1.Root).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(workspace.Root!).TrimEnd(Path.DirectorySeparatorChar), ignoreCase: true);   // no switch
+            nav.WaitForAssertion(() => Assert.NotNull(nav.Find($"[aria-label='Show project {name2}']")));
 
-            nav.Find($".nav-projects input[aria-label='Project {Path.GetFileName(repo2.Root)}']").Change(true);
+            nav.Find($".menu-pop [aria-label='Show project {name2}']").Click();
             Assert.False(settings.ProjectHidden(repo2.Root));
+
+            nav.Find("button.nav-toggle").Click();
+            Assert.Empty(nav.FindAll(".nav-projects"));
+        }
+    }
+
+    [Fact(DisplayName = "Showing a hidden project from the switcher re-renders the switcher and the board at once, also for a project backed by git")]
+    public async Task ShowingHiddenProjectRerenders()
+    {
+        (BunitContext ctx, Workspace workspace, IRenderedComponent<SideNav> nav) = NewContext();
+        await using (ctx)
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = repo2.Root, ArgumentList = { "init", "-q" }, CreateNoWindow = true })!.WaitForExit();
+            workspace.OpenTab(repo2.Root);
+            workspace.Open(repo1.Root);
+            SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+            settings.SaveBoard(repo1.Root, settings.Board(repo1.Root) with { View = "list" });   // the list is a grid, grouped by project only once there are two
+            settings.ToggleProjectHidden(repo2.Root);
+            IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+            string name2 = Path.GetFileName(repo2.Root);
+            board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
+            Assert.Empty(board.FindAll("tr[data-group^='proj:']"));
+
+            nav.Find("button.tabs-btn").Click();
+            nav.WaitForAssertion(() => Assert.NotNull(nav.Find($".menu-pop [aria-label='Show project {name2}']")));
+            nav.Find($".menu-pop [aria-label='Show project {name2}']").Click();
+
+            nav.WaitForAssertion(() => Assert.NotNull(nav.Find($".menu-pop [aria-label='Hide project {name2}']")));
+            board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-group^='proj:']").Count));
         }
     }
 

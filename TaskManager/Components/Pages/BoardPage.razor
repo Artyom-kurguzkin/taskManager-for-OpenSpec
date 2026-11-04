@@ -136,7 +136,6 @@ else if (O.View == "list")
                                 </span>
                                 @* a modifier click is the row's (RowRender): it selects, as on a card; a plain click opens *@
                                 <button class="row-title" title="@it.Title" @onclick="e => { if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) OpenItem(ProjectOf(row.Root), it.Id); }">@it.Title</button>
-                                @if (BoardModel.AgentFlag(it)) { <AgentChip By="@(it.AgentBy ?? it.Subtasks.FirstOrDefault(s => s.Agent is not null)?.Agent)" At="it.AgentAt" OnReview="() => ReviewItem(ProjectOf(row.Root), it)" /> }
                             </span>
                         }
                         else { <span class="muted">No items</span> }

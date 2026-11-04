@@ -7,5 +7,9 @@
     [Parameter] public DateTime? At { get; set; }
     [Parameter] public EventCallback OnReview { get; set; }
 
-    private string Tip => $"Added or changed by {By ?? "an agent"}{(At is DateTime t ? $" · {t:d MMM HH:mm}" : "")} — click to mark as reviewed";
+    private string Tip => TipFor(By, At);
+
+    /// <summary>The tooltip of anything that marks agent work as reviewed on a click.</summary>
+    public static string TipFor(string? by, DateTime? at) =>
+        $"Added or changed by {by ?? "an agent"}{(at is DateTime t ? $" · {t:d MMM HH:mm}" : "")} — click to mark as reviewed";
 }

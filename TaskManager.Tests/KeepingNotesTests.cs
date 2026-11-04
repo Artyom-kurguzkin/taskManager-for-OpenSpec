@@ -152,4 +152,33 @@ public sealed class KeepingNotesTests
         Assert.Contains("by: Artyom", repo.Read(NoteFile));   // the rest of the frontmatter is kept
         Directory.Delete(src, true);
     }
+
+    [Fact(DisplayName = "A note's title is its first heading: SetTitle rewrites it, adds one when missing, refuses blank; AttachBytes stores pasted data like a picked file")]
+    public void TitleAndPastedBytes()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.True(NotesApi.SetTitle(123, "Decided on X").Success);
+        Assert.Equal("Decided on X", NotesApi.Get(123)!.Title);
+        Assert.StartsWith("# Decided on X", NotesApi.Get(123)!.Body);
+        Assert.Contains("by: Artyom", repo.Read(NoteFile));
+
+        Assert.False(NotesApi.SetTitle(123, "   ").Success);
+        Assert.Equal("Decided on X", NotesApi.Get(123)!.Title);
+
+        Assert.True(NotesApi.SaveBody(123, "just words\n").Success);
+        Assert.True(NotesApi.SetTitle(123, "Now titled").Success);
+        Assert.Equal("Now titled", NotesApi.Get(123)!.Title);
+        Assert.Equal("# Now titled\n\njust words\n", NotesApi.Get(123)!.Body);
+
+        const string dir = "local/task-tracking/wi123/n123/";
+        byte[] png = [0x89, 0x50, 0x4E, 0x47];
+        Assert.True(NotesApi.AttachBytes(123, "pasted-1.png", png).Success);
+        Assert.True(NotesApi.AttachBytes(123, "pasted-1.png", png).Success);   // same name again: suffixed, not overwritten
+        Assert.Equal([dir + "pasted-1.png", dir + "pasted-1-2.png"], NotesApi.Get(123)!.Attachments);
+        Assert.Equal(png, File.ReadAllBytes(repo.PathOf(dir + "pasted-1.png")));
+        Assert.Single(repo.Read(".gitignore").Replace("\r", "").Split('\n'), l => l.Trim() == "local/");
+        Assert.False(NotesApi.AttachBytes(123, "", png).Success);
+    }
 }

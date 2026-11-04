@@ -1,0 +1,8 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-05
+x-rtm:
+  id: 95
+  title: sync tasks with target remote branch automatically
+  status: Backlog
+  contributors: [Artyom-kurguzkin]

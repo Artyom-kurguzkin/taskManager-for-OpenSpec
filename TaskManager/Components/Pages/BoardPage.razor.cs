@@ -142,7 +142,9 @@ public partial class BoardPage
     /// <summary>A column is shown unless hidden by the user, or it repeats what the rows are grouped by.</summary>
     private bool Shown(string column) => !BoardModel.IsHidden(O, BoardModel.ListColumnKey(column)) && column != BoardModel.GroupedColumn(O);
 
-    private bool IsProjectGroup(Group g) => Multi && g.Level == 0;
+    // Asks what the grid is grouped by, not Multi: after the project list changes, the grid renders once with its old group
+    // descriptors (OnAfterRenderAsync swaps them), and a group keyed by column read as a project group throws a cast in the render.
+    private bool IsProjectGroup(Group g) => groupedMulti == true && g.Level == 0;
 
     private string ShutKey(Group g) => GroupOf(g) is var (col, _, root) ? root + "|" + col.Key : "";
 

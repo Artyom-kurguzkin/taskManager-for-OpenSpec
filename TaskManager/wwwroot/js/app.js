@@ -471,3 +471,37 @@ document.addEventListener("copy", (e) => {
   e.clipboardData.setData("text/plain", _cellsText());
   e.preventDefault();
 });
+
+// Note page: a click outside the open editor closes it; pasting a clipboard image attaches it to the note.
+rtm.onOutside = function (el, dotnet) {
+  rtm.offOutside();
+  const h = (e) => {
+    if (el.contains(e.target) || e.target.closest?.(".rz-popup, .rz-dialog, .rz-overlay")) return;
+    rtm.offOutside();
+    dotnet.invokeMethodAsync("EditorOutside");
+  };
+  rtm._outside = h;
+  document.addEventListener("pointerdown", h, true);
+  return true;   // tells the page this listener is live, so it can ignore focusout (which also fires between toolbar buttons)
+};
+rtm.offOutside = function () { if (rtm._outside) document.removeEventListener("pointerdown", rtm._outside, true); rtm._outside = null; };
+
+rtm.pasteImages = function (dotnet) {
+  rtm.stopPasteImages();
+  const h = (e) => {
+    for (const item of e.clipboardData?.items ?? []) {
+      const file = item.type.startsWith("image/") ? item.getAsFile() : null;
+      if (!file) continue;
+      e.preventDefault();
+      const d = new Date(), p = (n) => String(n).padStart(2, "0");
+      const ext = item.type.slice(6).replace("jpeg", "jpg").replace(/\+.*/, "") || "png";
+      const name = `pasted-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+      const reader = new FileReader();
+      reader.onload = () => dotnet.invokeMethodAsync("PastedImage", name, String(reader.result).split(",")[1] ?? "");
+      reader.readAsDataURL(file);
+    }
+  };
+  rtm._paste = h;
+  document.addEventListener("paste", h);
+};
+rtm.stopPasteImages = function () { if (rtm._paste) document.removeEventListener("paste", rtm._paste); rtm._paste = null; };

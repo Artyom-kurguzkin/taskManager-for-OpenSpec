@@ -62,8 +62,15 @@ internal static partial class Commands
         (bool ok, string message) = Update(id, _ => { });
         if (!ok) return (ok, message);
         if (RefreshDeltas(item.Path) is { Success: false } stale) return stale;   // before the CLI sees them
+        string folder = item.Folder;
+        if (Directory.Exists(Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, "changes", "archive", $"{DateTime.Today:yyyy-MM-dd}-{folder}")))
+        {   // the CLI names the archive <today>-<folder> and refuses to overwrite: take a free name first
+            string free = FreeFolderName(folder);
+            if (OpenSpecStoreApi.MoveFolder(item.Path, Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, "changes", free)) is { Success: false } renamed) return renamed;
+            folder = free;
+        }
         OpenSpecStoreApi.MarkOwnChange(item.Path);
-        (bool archived, string error) = WorkItemsModule.Archive(item.Folder);
+        (bool archived, string error) = WorkItemsModule.Archive(folder);
         OpenSpecStoreApi.MarkOwnChange(item.Path);   // the CLI moved folders: invalidate cached reads
         return (archived, error);
     }
@@ -192,6 +199,24 @@ internal static partial class Commands
     internal static (bool Success, string Message, int Id) Create(string title, string status, IEnumerable<string>? features, IEnumerable<string>? contributors) =>
         CreateFolder(title, status, features, contributors, priority: null, proposalBody: "## Why\n\n\n\n## What Changes\n\n- \n", tasks: "# Tasks\n\n## 1. Tasks\n\n", deltas: new Dictionary<string, string>());
 
+    /// <summary>
+    /// A folder name no change has ever had: not under changes/ and not under changes/archive/ either (there with its
+    /// yyyy-MM-dd- prefix stripped, any date). Numbers duplicates: name, name-2, name-3, ...
+    /// </summary>
+    private static string FreeFolderName(string baseName)
+    {
+        string changes = Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, "changes"), archive = Path.Combine(changes, "archive");
+        HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
+        if (Directory.Exists(changes)) used.UnionWith(Directory.EnumerateDirectories(changes).Select(d => Path.GetFileName(d)));
+        if (Directory.Exists(archive)) used.UnionWith(Directory.EnumerateDirectories(archive).Select(d => DatePrefix().Replace(Path.GetFileName(d), "")));
+        string name = baseName;
+        for (int n = 2; used.Contains(name); n++) name = $"{baseName}-{n}";
+        return name;
+    }
+
+    [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}-")]
+    private static partial Regex DatePrefix();
+
     private static (bool Success, string Message, int Id) CreateFolder(
         string title, string status, IEnumerable<string>? features, IEnumerable<string>? contributors, string? priority,
         string proposalBody, string tasks, IReadOnlyDictionary<string, string> deltas, string? folder = null, bool inArchive = false, Action<Rtm>? more = null)
@@ -201,10 +226,8 @@ internal static partial class Commands
         StampProvisionalIds();
         int id = Queries.NextId();
         string basePath = inArchive ? Path.Combine("changes", "archive") : "changes";
-        string slug = folder ?? Proposal.Slug(title);
-        string baseName = inArchive ? $"{DateTime.Today:yyyy-MM-dd}-{slug}" : slug;
-        string name = baseName;
-        for (int n = 2; Directory.Exists(Path.Combine(root, basePath, name)); n++) name = $"{baseName}-{n}";
+        string slug = FreeFolderName(folder ?? Proposal.Slug(title));
+        string name = inArchive ? $"{DateTime.Today:yyyy-MM-dd}-{slug}" : slug;
         string dir = Path.Combine(root, basePath, name);
 
         Rtm meta = new()

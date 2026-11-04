@@ -48,7 +48,8 @@ function New-DemoRepo([string]$Name = "demo") {
 
 # Starts the Debug build on a hidden desktop with its own WebView2 profile and settings file, waits for the debug port,
 # connects CDP. -Settings: a JSON settings file to start from (default: a fresh one that opens $RepoPath and $OpenRepos).
-function Start-HiddenApp([Parameter(Mandatory)][string]$RepoPath, [string]$Settings, [string[]]$OpenRepos) {
+function Start-HiddenApp([Parameter(Mandatory)][string]$RepoPath, [string]$Settings, [string[]]$OpenRepos, [int]$Port = 9333) {
+    $script:Port = $Port   # agents working in parallel each take their own port
     if (-not (Test-Path $script:Exe)) { throw "not built: $script:Exe  (dotnet build TaskManager)" }
     $running = Get-Process TaskManager -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $script:Exe }
     if ($running) { throw "a Debug instance is already running (pid $($running[0].Id)); Stop-HiddenApp it first, or Stop-Process -Id $($running[0].Id)" }

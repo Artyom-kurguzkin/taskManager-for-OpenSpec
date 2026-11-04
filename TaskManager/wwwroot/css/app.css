@@ -137,6 +137,9 @@
   .cell.filled .sw-dot { display: none; }   /* the pill is the swatch */
   .agent-chip { height: 20px; padding: 0 8px; font-size: 11.5px; font-weight: 600; cursor: pointer; flex: none; }   /* agent work to review: a small lilac pill; a click marks it reviewed */
   .agent-chip:hover { box-shadow: 2px 2px 0 var(--shadow); }
+  .chip.agent-contrib { border-style: solid; background: var(--lilac); color: var(--on-fill); }   /* the agent among the contributors */
+  .chip.agent-contrib.unreviewed { cursor: pointer; font-weight: 600; }   /* unreviewed: a button, a click marks it reviewed */
+  .chip.agent-contrib.unreviewed:hover { box-shadow: 2px 2px 0 var(--shadow); }
   .cell.filled .rz-dropdown-trigger { opacity: 0; }
   .cell.filled:hover .rz-dropdown-trigger, .cell.filled:focus-visible .rz-dropdown-trigger, tr:hover .cell.filled .rz-dropdown-trigger { opacity: .6; }
   .tag { font-size: 12px; font-weight: 500; padding: 1px 8px; border: 1.5px solid var(--line); border-radius: 6px; background: var(--stone); color: var(--on-fill); }
@@ -228,9 +231,9 @@
   /* the view options */
   .nav-view { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 4px 0; padding: 8px 6px; border-block: 2px dashed var(--line-soft); }
   .nav-view .field { gap: 6px; }
-  .nav-view .nav-projects { flex-wrap: wrap; }
-  .nav-view .nav-projects label.check { width: 100%; padding-left: 8px; }
-  .nav-view .nav-projects label.check::after { content: none; }   /* a tick, not a "label:" */
+  .menu-pop .proj-eye { margin-left: auto; padding: 2px 4px; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
+  .menu-pop .proj-eye:hover { color: var(--ink); background: var(--stone); }
+  .menu-pop .proj-eye.off { color: var(--ink); }   /* hidden: the crossed eye stands out */
   .nav-view .seg { flex-wrap: nowrap; }
   .nav-view .seg-o { white-space: nowrap; padding: 2px 9px; }
   /* hidden columns, with the number of items each holds and an eye to bring it back */
@@ -655,8 +658,22 @@
   .cal-item:hover { background: var(--stone); color: var(--on-fill); }
   .date-in { padding: 2px 8px; font: 500 13px var(--f-body); color: var(--ink); background: var(--card); }
   .plan-field { gap: 6px; }
-  .plan-field .plan-in { width: 220px; padding: 2px 8px; font: 500 13px var(--f-body); }
   .plan-link { text-decoration: none; }
+  .plan-x { padding: 0 6px; font-size: 16px; color: var(--ink-2); cursor: pointer; }
+  .plan-x:hover { color: var(--ink); }
+  /* the range picker: a month of day buttons; the start and end are filled, the days between tinted */
+  .range-pop { padding: 8px; min-width: 260px; }
+  .range-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .range-h .ic { padding: 0 8px; font-size: 18px; }
+  .range-grid { display: grid; grid-template-columns: repeat(7, 34px); gap: 2px; }
+  .rdow { font: 600 11px var(--f-body); color: var(--ink-2); text-align: center; padding-bottom: 2px; }
+  .rd { height: 30px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 500 13px var(--f-body); cursor: pointer; }
+  .rd:hover { background: var(--stone); color: var(--on-fill); }
+  .rd.other { color: var(--ink-2); opacity: .55; }
+  .rd.today { box-shadow: inset 0 0 0 1.5px var(--line); }
+  .rd.in { background: color-mix(in srgb, var(--sun) 35%, transparent); color: var(--ink); }
+  .rd.edge { background: var(--sun); color: var(--on-fill); font-weight: 700; }
+  .range-f { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 12.5px; }
   @media (max-width: 860px) { .cal-body { grid-template-columns: 1fr; } }
 
   /* note attachments: images inline, files and links by name, each with a small remove control */
@@ -670,4 +687,11 @@
   .att-file:hover { color: var(--ink-2); }
   .att-link { overflow-wrap: anywhere; }
   .att-x { flex: none; }
+}
+
+@layer page {
+  .note-title { flex: 1 1 14rem; min-width: 8rem; padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: 700 var(--t-xl) var(--f-body); }
+  .note-title:hover { outline: 2px dashed var(--accent); }
+  .note-view { cursor: text; border-radius: 6px; min-height: 3em; }
+  .note-view:hover { outline: 2px dashed var(--accent); outline-offset: 2px; }
 }

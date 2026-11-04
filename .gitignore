@@ -488,3 +488,5 @@ dist/
 
 # real-app verification scratch (tests/hidden-app.ps1): screenshots, demo repos, WebView2 profile
 tests/out/
+# Repo Tasks: attachments and other per-user files
+local/

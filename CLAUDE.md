@@ -11,12 +11,15 @@ These apply to every change, every session.
 
 ## A task that is more than a quick fix
 
+Follow the `delegate-workflow` skill (`~/.claude/skills/delegate-workflow/SKILL.md`): say the chunks first, then the steps below. Bug reports are tasks too; never debug serially in the main tree.
+
 1. **Research** how the industry solves it; keep the sources.
 2. **Plan** it in the repository's plans folder (Settings → Plans folder; `DevResources/plans` by default, or whatever `openspec/REPO-TASKS.md` names) as `<title-slug>-<yyyy-MM-dd>.md`, and link it from the work item with `x-rtm.plan`.
 3. **Split** it into chunks that are each testable on their own (a unit test and a black-box check): subtasks, or dependent work items.
 4. **Delegate** the chunks to cheaper models (Agent tool, `model: sonnet` or `haiku`), each with `isolation: worktree` so they never touch the same files. A worktree starts from HEAD: chunks that depend on uncommitted work stay in the main session.
-5. When they return, **verify** each chunk, apply its diff to the working tree, and run the whole suite for integration.
-6. Keep the board current as you go (below) and leave everything **uncommitted** in the working tree for review.
+5. **Poll** the agents every ~5 minutes (`git -C .claude/worktrees/<agent> status --short`); ping one silent for 10 minutes; completion notifications can be lost. Tell the user the poll result each time.
+6. When they return, **verify** each chunk, apply its diff against HEAD to the working tree (per file, never a no-index diff against the main tree), and run the whole suite for integration.
+7. Keep the board current as you go (below) and leave everything **uncommitted** in the working tree for review.
 
 ## After the work: update the board
 

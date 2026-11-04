@@ -91,4 +91,52 @@ public sealed class KeepingTheRepoValidForOpenSpecTests
         (int exit, string output) = OpenSpec(repo.Root, "validate --all --strict");
         if (exit != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
     }
-}
+
+    [Fact(DisplayName = "Two changes that both add the same requirement archive one after the other through the real CLI, the second as a modification, and the repository stays valid")]
+    public void SameAddedRequirementInTwoChangesBothArchive()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        repo.Write("openspec/specs/functional/remittances/spec.md", EditingWorkItemsTests.RemittancesMain);
+        int[] ids = new int[2];
+        foreach ((string title, int n) in new[] { ("Export as CSV", 0), ("Export as PDF", 1) })
+        {
+            (bool ok, string msg, int id) = WorkItemsApi.Create(title, "Planned", [], ["Artyom"]);
+            Assert.True(ok, msg);
+            ids[n] = id;
+            string format = n == 0 ? "CSV" : "PDF";
+            repo.Write($"openspec/changes/{WorkItemsApi.Get(id)!.Folder}/specs/functional/remittances/spec.md",
+                $"## ADDED Requirements\n\n### Requirement: Export\nThe system SHALL export.\n\n#### Scenario: Export as {format}\n- **WHEN** exported\n- **THEN** a {format} file appears\n");
+        }
+
+        Ok(WorkItemsApi.SetStatus(ids[0], "Completed"));
+        Ok(WorkItemsApi.SetStatus(ids[1], "Completed"));
+
+        Assert.True(WorkItemsApi.Get(ids[0])!.Archived);
+        Assert.True(WorkItemsApi.Get(ids[1])!.Archived);
+        string main = repo.Read("openspec/specs/functional/remittances/spec.md");
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(main, "### Requirement: Export"));
+        Assert.Contains("#### Scenario: Export as CSV", main);
+        Assert.Contains("#### Scenario: Export as PDF", main);
+        (int exit, string output) = OpenSpec(repo.Root, "validate --all --strict");
+        if (exit != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
+    }
+
+    [Fact(DisplayName = "Archiving twice on one day with the same folder name goes through the real CLI without a clash and the repository stays valid")]
+    public void SameDayArchiveClashGoesThrough()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        Ok(WorkItemsApi.SetStatus(107, "Completed"));
+        (bool created, string msg, int again) = WorkItemsApi.Create("Export remittances", "Backlog", [], []);
+        Assert.True(created, msg);
+        Ok(WorkItemsApi.SetStatus(again, "Completed"));
+
+        string[] archived = Directory.GetDirectories(repo.PathOf("openspec/changes/archive")).Select(Path.GetFileName).OfType<string>().Where(n => n.Contains("export-remittances")).ToArray();
+        Assert.Equal(2, archived.Length);
+        Assert.Equal(2, archived.Distinct().Count());
+        Assert.True(WorkItemsApi.Get(107)!.Archived);
+        Assert.True(WorkItemsApi.Get(again)!.Archived);
+        (int exit, string output) = OpenSpec(repo.Root, "validate --all --strict");
+        if (exit != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
+    }}

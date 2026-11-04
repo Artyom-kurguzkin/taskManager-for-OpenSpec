@@ -15,6 +15,8 @@
 <div class="sheet" data-sk="soft">
     <div class="head kvs">
         <div class="kv"><label>note</label><h2 class="num">#n@(note.Id)</h2></div>
+        @* the title is the note's first "# " heading; changing it rewrites that line (@key re-renders the old text back when a blank is refused) *@
+        <div class="kv title-kv"><label>title</label><input @key="titleKey" class="note-title hov" data-sk value="@note.Title" aria-label="Note title" @onchange="SetTitle" /></div>
         <div class="kv"><label>linked to</label><a class="wl" href="item/@note.WorkItemId">#wi@(note.WorkItemId)</a></div>
         <div class="kv"><label>created</label><span class="num">@note.Created.ToString("yyyy-MM-dd HH:mm")</span></div>
         <div class="kv"><label>last modified</label><span class="num">@modified.ToString("yyyy-MM-dd HH:mm")</span>@if (saving) { <span class="muted"> · saving…</span> }</div>
@@ -22,17 +24,16 @@
         @if (note.AgentUnreviewed) { <div class="kv"><AgentChip By="@note.AgentBy" At="note.AgentAt" OnReview="() => Run(NotesApi.MarkReviewed(note.Id))" /></div> }
         <BackButton />
     </div>
-    @* the same tiles as the work item page. The note is read until Edit is pressed; then Radzen's markdown editor takes its
-       place (design mode, with a source switch in its toolbar) and autosaves as you type; Done saves at once and reads again. *@
+    @* the same tiles as the work item page. The note is read as rendered markdown; clicking it opens Radzen's markdown editor
+       (design mode, with a source switch in its toolbar), which autosaves as you type. A click anywhere outside the editor
+       saves at once and reads again (rtm.onOutside; focusout is the fallback where that script isn't running). *@
     <div class="note-grid">
         <section class="tile" data-tile="note">
-            <div class="tile-h"><h3>Note</h3><span class="muted">@note.Title</span>
-                @if (editing) { <button class="btn done-note" data-sk @onclick="Done">Done</button> }
-                else { <button class="add edit-note" @onclick="() => editing = true">Edit</button> }
-            </div>
+            <div class="tile-h"><h3>Note</h3></div>
             @if (editing)
             {
                 @* no link, image or table tools: those open dialogs; the Markdown is typed *@
+                <div class="note-editor" @ref="editorBox" @onfocusout="FocusedOut">
                 <RadzenMarkdownEditor Value="@body" ValueChanged="OnInput" Immediate="true" Rows="18" @bind-Mode="mode">
                     <RadzenMarkdownEditorUndo /><RadzenMarkdownEditorRedo /><RadzenMarkdownEditorSeparator />
                     <RadzenMarkdownEditorFormatBlock /><RadzenMarkdownEditorSeparator />
@@ -41,10 +42,11 @@
                     <RadzenMarkdownEditorUnorderedList /><RadzenMarkdownEditorOrderedList /><RadzenMarkdownEditorTaskList /><RadzenMarkdownEditorHorizontalRule /><RadzenMarkdownEditorSeparator />
                     <RadzenMarkdownEditorSource />
                 </RadzenMarkdownEditor>
+                </div>
             }
             else
             {
-                <div class="preview">@Preview</div>
+                <div class="preview note-view hov" data-sk title="Click to edit" tabindex="0" @onclick="() => editing = true" @onkeydown="OpenKey">@Preview</div>
             }
             <button class="add edit-ext" @onclick="EditExternally">@(Settings.Current.Editor is string e ? $"Edit in {e}" : "Edit in…")</button>
         </section>
@@ -109,12 +111,17 @@
     [Parameter] public int Id { get; set; }
     [Inject] private SettingsStore Settings { get; set; } = default!;
     [Inject] private IServiceProvider Services { get; set; } = default!;
+    [Inject] private IJSRuntime Js { get; set; } = default!;
     private EditorLauncher? Launcher => Services.GetService(typeof(EditorLauncher)) as EditorLauncher;
 
     private Note? note;
     private string body = "";          // the text, as typed (the editor binds to it; autosave writes it)
     private string previewBody = "";   // what preview/links show; refreshed after a short pause in typing
     private bool editing;
+    private int titleKey;
+    private ElementReference editorBox;
+    private DotNetObjectReference<NotePage>? self;
+    private bool outsideWired, outsideLive;
     private MarkdownEditorMode mode = MarkdownEditorMode.Design;
     private CancellationTokenSource? pendingPreview;
     private DateTime modified;
@@ -169,7 +176,7 @@
         StateHasChanged();
     }
 
-    /// <summary>Done: save now (the autosave may still be pending) and read the note again.</summary>
+    /// <summary>Leaving the editor: save now (the autosave may still be pending) and read the note again.</summary>
     private void Done()
     {
         pendingSave?.Cancel();
@@ -178,6 +185,50 @@
         previewBody = body;
         links = NotesApi.ResolveLinks(previewBody);
         Save();
+    }
+
+    private void OpenKey(KeyboardEventArgs e) { if (e.Key is "Enter" or " ") editing = true; }
+
+    // Focus also leaves the wrapper's inside when moving between toolbar buttons, so it only closes the editor
+    // when the outside-click script isn't live (it reports true when it is; bUnit's loose JS reports false).
+    private void FocusedOut() { if (editing && !outsideLive) Done(); }
+
+    /// <summary>Called by rtm.onOutside when the pointer goes down anywhere outside the editor.</summary>
+    [JSInvokable]
+    public void EditorOutside() => InvokeAsync(() => { if (editing) { Done(); StateHasChanged(); } });
+
+    /// <summary>Called by rtm.pasteImages with a clipboard image: it becomes an attachment, like a picked file.</summary>
+    [JSInvokable]
+    public void PastedImage(string name, string base64)
+    {
+        try { Run(NotesApi.AttachBytes(Id, name, Convert.FromBase64String(base64))); }
+        catch (FormatException) { Popups.Toast("That image could not be read", ToastKind.Warning); }
+    }
+
+    private void SetTitle(ChangeEventArgs e)
+    {
+        if (editing || saving) { pendingSave?.Cancel(); Save(); }   // what is typed goes to disk first: the title rewrites the same file
+        if (!Run(NotesApi.SetTitle(Id, e.Value?.ToString() ?? ""))) titleKey++;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (note is null) return;
+        if (self is null)
+        {
+            self = DotNetObjectReference.Create(this);
+            await Js.InvokeVoidAsync("rtm.pasteImages", self);
+        }
+        if (editing && !outsideWired && self is not null)
+        {
+            outsideWired = true;
+            outsideLive = await Js.InvokeAsync<bool>("rtm.onOutside", editorBox, self);
+        }
+        else if (!editing && outsideWired)
+        {
+            outsideWired = outsideLive = false;
+            await Js.InvokeVoidAsync("rtm.offOutside");
+        }
     }
 
     private void AddLink()
@@ -259,6 +310,13 @@
     {
         pendingSave?.Cancel();
         pendingPreview?.Cancel();
+        if (self is not null)
+        {
+            // the page is leaving: stop listening (fire and forget; the circuit may already be gone)
+            _ = Js.InvokeVoidAsync("rtm.stopPasteImages").AsTask().ContinueWith(_ => { }, TaskScheduler.Default);
+            _ = Js.InvokeVoidAsync("rtm.offOutside").AsTask().ContinueWith(_ => { }, TaskScheduler.Default);
+            self.Dispose();
+        }
         base.Dispose();
     }
 }

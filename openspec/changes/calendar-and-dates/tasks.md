@@ -14,4 +14,4 @@
 - [x] 3.2 Calendar view in the Layout menu: month grid, bars, No dates list, ‹ › Today, bar opens the item
 - [x] 3.3 Agent guide v2 mentions the keys
 - [x] 3.4 Verify on the hidden desktop, light and dark
-- [x] 3.5 I should be able to filter out projects i dont want to see at the mement — the expanded side menu lists every open project with a tick; unticking hides it (same setting as "Hide project") <!-- agent: Claude -->
+- [x] 3.5 I should be able to filter out projects i dont want to see at the mement — an eye next to each project in the project switcher hides or shows it without switching (same setting as "Hide project"); no second project list in the view options <!-- agent: Claude -->

@@ -9,7 +9,8 @@ x-rtm:
   features: [track-work-items]
   label: bug
   started: 2026-11-05
-  tests: [{suite: EditingWorkItemsTests, test: "Deleting a feature that open changes still spec deletes their delta folders too, keeps the changes valid, and leaves archived changes alone"}, {suite: UsingTheBoardTests, test: "Deleting a feature that an open item still specs says which item in the dialog, then removes the column"}]
-  agentBy: Claude
-  agentAt: 2026-11-05T19:30:00
   plan: DevResources/plans/in-progress-sweep-2026-11-05.md
+  tests: [{suite: EditingWorkItemsTests, test: 'Deleting a feature that open changes still spec deletes their delta folders too, keeps the changes valid, and leaves archived changes alone'}, {suite: UsingTheBoardTests, test: 'Deleting a feature that an open item still specs says which item in the dialog, then removes the column'}]
+  agentBy: Claude
+  agentAt: 2026-11-06T00:20:00
+  reviewedAt: 2026-11-05T19:30:01

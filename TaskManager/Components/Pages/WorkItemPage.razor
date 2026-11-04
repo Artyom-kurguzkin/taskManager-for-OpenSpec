@@ -23,7 +23,6 @@
         {
             <button class="btn ghost hide-item" title="Shows it on the board again" @onclick="() => Run(WorkItemsApi.Unhide(item.Id))">Restore</button>
         }
-        @if (item.AgentUnreviewed) { <AgentChip By="@item.AgentBy" At="item.AgentAt" OnReview="() => Run(WorkItemsApi.MarkReviewed(item.Id))" /> }
         <BackButton />
     </div>
     @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
@@ -32,9 +31,28 @@
             <Dropdown Label="feature" Class="mini" Placeholder="no feature" Options="FeatureChoices" Value="@(item.Features.FirstOrDefault()?.Path ?? "")" ValueChanged="SetFeature" />
         </div>
         <div class="kv contributors"><label>contributors</label>
+            @* the agent that created or changed the item is a contributor too; while unreviewed its chip is the review control *@
             @foreach (string p in item.Contributors)
             {
-                <span class="chip x" title="Remove" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Where(x => x != p)))">@p</span>
+                if (IsAgent(p) && item.AgentUnreviewed)
+                {
+                    <button type="button" class="chip agent-contrib unreviewed" title="@AgentChip.TipFor(item.AgentBy, item.AgentAt)" @onclick="ReviewItem">@p</button>
+                }
+                else
+                {
+                    <span class="chip x @(IsAgent(p) ? "agent-contrib" : null)" title="Remove" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Where(x => x != p)))">@p</span>
+                }
+            }
+            @if (!string.IsNullOrWhiteSpace(item.AgentBy) && !item.Contributors.Any(IsAgent))
+            {
+                if (item.AgentUnreviewed)
+                {
+                    <button type="button" class="chip agent-contrib unreviewed" title="@AgentChip.TipFor(item.AgentBy, item.AgentAt)" @onclick="ReviewItem">@item.AgentBy</button>
+                }
+                else
+                {
+                    <span class="chip agent-contrib" title="Agent">@item.AgentBy</span>
+                }
             }
             @* known people, or any name typed in the filter *@
             <PickerMenu TItem="string" Label="Add a contributor" ButtonClass="box dd mini" Boxed Placeholder="Type a name…" Items="PeopleChoices" Text="p => [p]"
@@ -43,13 +61,20 @@
         <div class="kv status-field"><label>status</label><Pill Kind="status" Value="@item.Status" ReadOnly="item.Archived" ValueChanged="SetStatus" /></div>
         <div class="kv"><label>priority</label><Pill Kind="priority" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" /></div>
         <div class="kv"><label>label</label><Pill Kind="label" Value="@(item.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" /></div>
-        @* native date pickers; "" clears the date *@
-        <div class="kv"><label>started</label><input type="date" class="box date-in" aria-label="started" value="@(item.Started?.ToString("yyyy-MM-dd") ?? "")" @onchange="e => Run(WorkItemsApi.SetStarted(item.Id, Day(e)))" /></div>
-        <div class="kv"><label>due</label><input type="date" class="box date-in" aria-label="due" value="@(item.Due?.ToString("yyyy-MM-dd") ?? "")" @onchange="e => Run(WorkItemsApi.SetDue(item.Id, Day(e)))" /></div>
-        @* the plan file (x-rtm.plan), opened rendered in the app; the path is typed, relative to the repository *@
+        @* start and due as one range *@
+        <div class="kv"><label>dates</label><DateRange Start="item.Started" End="item.Due" Changed="SetDates" /></div>
+        @* the plan file (x-rtm.plan): the chip opens it rendered in the app; when none is linked, pick one from the plans folder *@
         <div class="kv plan-field"><label>plan</label>
-            @if (item.Plan is string plan) { <a class="chip plan-link" href="doc/@plan" title="@plan">@System.IO.Path.GetFileName(plan)</a> }
-            <input class="box text-in plan-in" aria-label="plan" value="@(item.Plan ?? "")" placeholder="@(Settings.PlansDir(Workspace.Root!))/…" @onchange="e => Run(WorkItemsApi.SetPlan(item.Id, (string?)e.Value))" />
+            @if (item.Plan is string plan)
+            {
+                <a class="chip plan-link" href="doc/@plan" title="Open @plan">@System.IO.Path.GetFileName(plan)</a>
+                <button type="button" class="ic plan-x" aria-label="Unlink the plan" title="Unlink the plan (the file stays)" @onclick="() => Run(WorkItemsApi.SetPlan(item.Id, null))">×</button>
+            }
+            else
+            {
+                <PickerMenu TItem="string" Label="Link a plan" ButtonText="+ link plan" Placeholder="Filter plans…" Items="PlanFiles" Text="f => [f]"
+                            OnPick="f => Run(WorkItemsApi.SetPlan(item.Id, f))"><ItemTemplate Context="f"><span class="pick-item">@System.IO.Path.GetFileName(f)</span></ItemTemplate></PickerMenu>
+            }
         </div>
     </div>
     @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
@@ -291,6 +316,9 @@
             .Select(GitHistoryApi.PersonName).Distinct().Except(item!.Contributors.Select(GitHistoryApi.PersonName))
             .Order(StringComparer.OrdinalIgnoreCase).ToList();
 
+    private bool IsAgent(string person) => string.Equals(person, item?.AgentBy, StringComparison.OrdinalIgnoreCase);
+    private void ReviewItem() => Run(WorkItemsApi.MarkReviewed(Id));
+
     private void AddContributor(string person) => Run(WorkItemsApi.SetContributors(Id, item!.Contributors.Append(person)));
 
     protected override void Load()
@@ -318,7 +346,24 @@
 
     private void SetFeature(string path) => Run(WorkItemsApi.MoveFeature(Id, path.Length == 0 ? null : path));
 
-    private static DateOnly? Day(ChangeEventArgs e) => DateOnly.TryParseExact(e.Value?.ToString(), "yyyy-MM-dd", out DateOnly d) ? d : null;   // "" clears the date
+    private void SetDates((DateOnly? Start, DateOnly? End) r)
+    {
+        if (Run(WorkItemsApi.SetStarted(Id, r.Start))) Run(WorkItemsApi.SetDue(Id, r.End));
+    }
+
+    /// <summary>Markdown files in the repository's plans folder (repo-relative, newest first), offered by "+ link plan".</summary>
+    private IReadOnlyList<string> PlanFiles
+    {
+        get
+        {
+            if (Workspace.Root is not string root) return [];
+            string dir = Path.Combine(root, Settings.PlansDir(root).Replace('/', Path.DirectorySeparatorChar));
+            return Directory.Exists(dir)
+                ? Directory.EnumerateFiles(dir, "*.md", SearchOption.AllDirectories).OrderByDescending(File.GetLastWriteTime)
+                    .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/')).ToList()
+                : [];
+        }
+    }
 
     private ElementReference descriptionBox;
     private bool focusDescription;

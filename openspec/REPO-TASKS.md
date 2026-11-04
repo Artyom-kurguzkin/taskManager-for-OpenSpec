@@ -1,4 +1,4 @@
-<!-- repo-tasks-guide v5 plans=DevResources/plans -->
+<!-- repo-tasks-guide v7 plans=DevResources/plans -->
 # Repo Tasks: conventions for agents
 
 This repository's `openspec/` folder is shown and edited by the **Repo Tasks** app, a board of work items.
@@ -10,7 +10,7 @@ The app writes this file and refreshes it when it ships a newer version or the u
 1. **Research** how similar problems are solved in the industry before designing; note the sources.
 2. **Write a plan** in `DevResources/plans/<title-slug>-<yyyy-MM-dd>.md`: why, what others do, decisions, the chunks below, how it will be verified. Link it from the work item with `x-rtm.plan: DevResources/plans/<file>.md`; the app opens it from the item page.
 3. **Split** the work into discrete chunks that can each be tested on their own (a unit test and a black-box check), as subtasks in `tasks.md` or as dependent work items (`x-rtm.dependsOn`).
-4. **Delegate** the chunks to cheaper models, each in its own git worktree so they never edit the same files. Keep the design decisions in the coordinating session.
+4. **Delegate** the chunks to cheaper models, each in its own git worktree so they never edit the same files. Keep the design decisions in the coordinating session. **Poll them** every few minutes (the worktree's `git status`) and ask a silent one for its status: completion notices get lost.
 5. When they come back, **verify** each chunk, merge it into the current branch and run the whole test suite for integration.
 6. **Update the board** (section 2) as you go, and leave the result **uncommitted** in the working tree for the user's review. Never commit unless the user asked.
 
@@ -23,7 +23,8 @@ The app flags work done by an agent until the user has looked at it. So every ti
   Never write `reviewedAt`: only the user does, by clicking the chip in the app.
 - **Note** (`notes/n<N>.md`): `by: <your name>` plus the same two keys in its frontmatter.
 - **Subtask** (a `tasks.md` checkbox): end the line with `<!-- agent: <your name> -->`.
-- `contributors` are the people on the item. Do not add yourself there.
+- When you **create** a work item or subtask, also add your name to its `contributors` (people and agents who did the work), e.g. `contributors: [artyom, Claude]`.
+- `contributors` are who did the work, people and agents. Add yourself when you create something; do not add yourself for a small edit of someone else's item.
 
 ```yaml
 x-rtm:

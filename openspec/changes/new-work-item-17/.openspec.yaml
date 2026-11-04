@@ -1,12 +1,10 @@
 schema: spec-driven
+skip_specs: true
 created: 2026-11-05
 x-rtm:
-  id: 88
-  title: select mode
-  status: In Review
+  id: 93
+  title: split screen view
+  status: Planned
   contributors: [Artyom-kurguzkin]
   features: [organise-work-items]
   label: enhancement
-  started: 2026-11-05
-  agentBy: Claude
-  agentAt: 2026-11-05T18:10:00
