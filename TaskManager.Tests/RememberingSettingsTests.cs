@@ -43,6 +43,23 @@ public sealed class RememberingSettingsTests
         File.Delete(file);
     }
 
+    [Fact(DisplayName = "The plans folder is a per-repository setting: DevResources/plans unless changed, remembered between sessions, other repositories unaffected")]
+    public void PlansFolderPerRepo()
+    {
+        string file = Path.Combine(Path.GetTempPath(), "rtm-" + Guid.NewGuid().ToString("N") + ".json");
+        SettingsStore store = new(file);
+        Assert.Equal("DevResources/plans", store.PlansDir(@"C:\repo-a"));
+
+        store.SetPlansDir(@"C:\repo-a", @"local\plans\");
+        Assert.Equal("local/plans", store.PlansDir(@"C:\repo-a"));   // forward slashes, no trailing slash: it is written into a markdown guide
+        Assert.Equal("DevResources/plans", store.PlansDir(@"C:\repo-b"));
+        Assert.Equal("local/plans", new SettingsStore(file).PlansDir(@"C:\repo-a"));
+
+        store.SetPlansDir(@"C:\repo-a", " ");   // empty = back to the default
+        Assert.Equal("DevResources/plans", store.PlansDir(@"C:\repo-a"));
+        File.Delete(file);
+    }
+
     [Fact(DisplayName = "A missing or unreadable settings file starts with defaults")]
     public void Defaults()
     {

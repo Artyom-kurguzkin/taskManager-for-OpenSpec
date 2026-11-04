@@ -1,0 +1,33 @@
+@page "/doc/{*Path}"
+@using OpenSpecStore
+@inherits RepoPage
+
+@* Any markdown file under the open repository, rendered. A missing file, or a path that climbs out of the repository, is "not found". *@
+@if (text is null)
+{
+    <NotFound What="@Path" />
+    return;
+}
+
+<div class="sheet" data-sk="soft">
+    <div class="head kvs">
+        <div class="kv"><label>document</label><span class="mono">@Path</span></div>
+        <BackButton />
+    </div>
+    <div class="desc">@Ui.Markdown(text)</div>
+</div>
+
+@code {
+    [Parameter] public string Path { get; set; } = "";
+
+    private string? text;
+
+    protected override void Load()
+    {
+        text = null;
+        if (Workspace.Root is not string root) return;
+        string full = System.IO.Path.GetFullPath(System.IO.Path.Combine(root, Path.Replace('/', System.IO.Path.DirectorySeparatorChar)));
+        string prefix = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+        if (full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && File.Exists(full)) text = OpenSpecStoreApi.ReadText(full);
+    }
+}

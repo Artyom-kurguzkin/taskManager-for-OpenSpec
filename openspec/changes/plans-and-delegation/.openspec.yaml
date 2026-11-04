@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-05
+x-rtm:
+  id: 89
+  title: Plans folder, plan links and the delegation workflow
+  status: In Review
+  contributors: [Artyom-kurguzkin]
+  features: [workspace]
+  label: feature
+  started: 2026-11-05
+  plan: DevResources/plans/plans-and-delegation-workflow-2026-11-05.md
+  agentBy: Claude
+  agentAt: 2026-11-05T15:30:00
+  tests: [{suite: EditingWorkItemsTests, test: 'A work item links a plan file: SetPlan writes x-rtm.plan as a repo-relative path, it reads back, and null removes the key'}, {suite: UsingThePagesTests, test: 'A markdown file under the repository opens on the doc page, rendered, with its path shown; a missing file or a path outside the repository shows not found'}, {suite: UsingThePagesTests, test: "A work item's plan is a field on its page: typing a path links it, the chip opens the plan rendered in the app, clearing the field unlinks it"}, {suite: RememberingSettingsTests, test: 'The plans folder is a per-repository setting: DevResources/plans unless changed, remembered between sessions, other repositories unaffected'}, {suite: SwitchingProjectsTests, test: 'The agent guide tells agents the workflow and where plans go; changing the plans folder in Settings rewrites the guide at once'}]

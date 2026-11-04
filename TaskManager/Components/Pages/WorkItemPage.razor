@@ -6,6 +6,7 @@
 @using WorkItems
 @using WorkItems.PublicDTOs
 @inherits RepoPage
+@inject TaskManager.Services.SettingsStore Settings
 
 @if (item is null)
 {
@@ -45,6 +46,11 @@
         @* native date pickers; "" clears the date *@
         <div class="kv"><label>started</label><input type="date" class="box date-in" aria-label="started" value="@(item.Started?.ToString("yyyy-MM-dd") ?? "")" @onchange="e => Run(WorkItemsApi.SetStarted(item.Id, Day(e)))" /></div>
         <div class="kv"><label>due</label><input type="date" class="box date-in" aria-label="due" value="@(item.Due?.ToString("yyyy-MM-dd") ?? "")" @onchange="e => Run(WorkItemsApi.SetDue(item.Id, Day(e)))" /></div>
+        @* the plan file (x-rtm.plan), opened rendered in the app; the path is typed, relative to the repository *@
+        <div class="kv plan-field"><label>plan</label>
+            @if (item.Plan is string plan) { <a class="chip plan-link" href="doc/@plan" title="@plan">@System.IO.Path.GetFileName(plan)</a> }
+            <input class="box text-in plan-in" aria-label="plan" value="@(item.Plan ?? "")" placeholder="@(Settings.PlansDir(Workspace.Root!))/…" @onchange="e => Run(WorkItemsApi.SetPlan(item.Id, (string?)e.Value))" />
+        </div>
     </div>
     @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
 

@@ -1,4 +1,5 @@
 using Bunit;
+using OpenSpecStore;
 using Microsoft.Extensions.DependencyInjection;
 using TaskManager.Components.Layout;
 using TaskManager.Components.Shared;
@@ -43,7 +44,9 @@ public sealed class SwitchingProjectsTests : IDisposable
             Assert.Contains("agentBy", text);
             Assert.Contains("<!-- agent:", text);
             Assert.Contains("due:", text);   // start and due dates are part of the conventions
-            Assert.Contains("REPO-TASKS.md", workspace.TakeGuideNotice());   // the UI says so once (a toast), not on every open
+            foreach (string s in new[] { "agentBy", "notes/n", "commits:", "tests:", "validate", "## MODIFIED Requirements", "## Why" })
+                Assert.Contains(s, text);   // author, change log, linked commits and tests, keeping OpenSpec valid
+            Assert.Contains("Created openspec/REPO-TASKS.md", workspace.TakeGuideNotice());   // the UI says so once (a toast), not on every open
             Assert.Null(workspace.TakeGuideNotice());
 
             repo2.Write("openspec/REPO-TASKS.md", "my own notes\n");   // not ours: no marker
@@ -53,6 +56,56 @@ public sealed class SwitchingProjectsTests : IDisposable
             File.WriteAllText(guide, "<!-- repo-tasks-guide v0 -->\nold text\n");   // ours, but older
             workspace.Open(repo1.Root);
             Assert.Equal(text, File.ReadAllText(guide));
+            Assert.Contains("Updated openspec/REPO-TASKS.md", workspace.TakeGuideNotice());
+        }
+    }
+
+    [Fact(DisplayName = "The agent guide tells agents the workflow and where plans go; changing the plans folder in Settings rewrites the guide at once")]
+    public async Task GuideFollowsPlansFolder()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            string guide = repo1.PathOf("openspec/REPO-TASKS.md");
+            string text = File.ReadAllText(guide);
+            foreach (string s in new[] { "DevResources/plans", "x-rtm.plan", "worktree", "cheaper", "Research", "uncommitted" }) Assert.Contains(s, text);
+            workspace.TakeGuideNotice();
+
+            IRenderedComponent<TaskManager.Components.Pages.SettingsPage> page = ctx.Render<TaskManager.Components.Pages.SettingsPage>();
+            page.Find("input[aria-label='Plans folder']").Change("local/plans");
+
+            page.WaitForAssertion(() => Assert.Contains("local/plans", File.ReadAllText(guide)));
+            Assert.DoesNotContain("DevResources/plans", File.ReadAllText(guide));
+            Assert.Equal("local/plans", ctx.Services.GetRequiredService<SettingsStore>().PlansDir(repo1.Root));
+            Assert.Contains("Updated", overlays!.Find(".toast").TextContent);   // the rewrite is announced like a version refresh
+
+            page.Find("input[aria-label='Plans folder']").Change("");   // back to the default, and the guide follows again
+            page.WaitForAssertion(() => Assert.Contains("DevResources/plans", File.ReadAllText(guide)));
+            page.Find("input[aria-label='Plans folder']").Change("other/plans");
+            page.WaitForAssertion(() => Assert.Contains("other/plans", File.ReadAllText(guide)));
+        }
+    }
+
+    [Fact(DisplayName = "At start the app refreshes an outdated guide in every open project, not only the active one, and says which")]
+    public async Task GuideRefreshedInEveryTab()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            workspace.OpenTab(repo2.Root);
+            workspace.TakeGuideNotice();
+            string guide2 = repo2.PathOf("openspec/REPO-TASKS.md");
+            File.WriteAllText(guide2, "<!-- repo-tasks-guide v1 -->\nold\n");
+            OpenSpecStoreApi.Close();   // as at app exit; the tab stays in the settings
+
+            Assert.True(workspace.Open(repo1.Root).Success);   // repo2 comes back as a tab
+
+            Assert.StartsWith("<!-- repo-tasks-guide v", File.ReadAllText(guide2));
+            Assert.DoesNotContain("v1 -->", File.ReadAllText(guide2));
+            string? notice = workspace.TakeGuideNotice();
+            Assert.NotNull(notice);
+            Assert.Contains("Updated", notice);
+            Assert.Contains(Path.GetFileName(repo2.Root), notice);
         }
     }
 

@@ -2,7 +2,7 @@ schema: spec-driven
 created: 2026-11-01
 x-rtm:
   id: 86
-  title: Numbers used twice resolve themselves + Archiving refreshes stale delta specs itself
+  title: task tracking bugs
   status: Backlog
   priority: high
   contributors: [Artyom-kurguzkin]

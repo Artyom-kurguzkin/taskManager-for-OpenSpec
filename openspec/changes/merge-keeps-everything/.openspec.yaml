@@ -3,7 +3,7 @@ created: 2026-10-24
 x-rtm:
   id: 47
   title: Merging work items keeps everything
-  status: In Review
+  status: In Progress
   contributors: [Artyom-kurguzkin]
   label: bug
   started: 2026-10-26

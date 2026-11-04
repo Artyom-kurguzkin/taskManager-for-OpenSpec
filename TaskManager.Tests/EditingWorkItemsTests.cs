@@ -220,6 +220,27 @@ public sealed class EditingWorkItemsTests
         Assert.DoesNotContain("due:", Yaml());
     }
 
+    [Fact(DisplayName = "A work item links a plan file: SetPlan writes x-rtm.plan as a repo-relative path, it reads back, and null removes the key")]
+    public void PlanLink()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string Yaml() => File.ReadAllText(Path.Combine(Item(107).Path, ".openspec.yaml"));
+        Assert.Null(Item(107).Plan);
+
+        Assert.True(WorkItemsApi.SetPlan(107, "DevResources/plans/export-2026-11-05.md").Success);
+        Assert.Equal("DevResources/plans/export-2026-11-05.md", Item(107).Plan);
+        Assert.Contains("plan: DevResources/plans/export-2026-11-05.md", Yaml());
+
+        Assert.False(WorkItemsApi.SetPlan(107, "../x.md").Success);   // a plan stays inside the repository
+        Assert.False(WorkItemsApi.SetPlan(107, "C:/x.md").Success);
+        Assert.Equal("DevResources/plans/export-2026-11-05.md", Item(107).Plan);
+
+        Assert.True(WorkItemsApi.SetPlan(107, null).Success);
+        Assert.Null(Item(107).Plan);
+        Assert.DoesNotContain("plan:", Yaml());
+    }
+
     [Fact(DisplayName = "Creating a work item makes a change folder with the next number")]
     public void Create()
     {

@@ -14,3 +14,4 @@
 - [x] 3.2 Calendar view in the Layout menu: month grid, bars, No dates list, ‹ › Today, bar opens the item
 - [x] 3.3 Agent guide v2 mentions the keys
 - [x] 3.4 Verify on the hidden desktop, light and dark
+- [ ] 3.5 I should be able to filter out projects i dont want to see at the mement

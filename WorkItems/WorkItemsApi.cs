@@ -9,6 +9,8 @@ namespace WorkItems;
 /// </summary>
 public static class WorkItemsApi
 {
+    /// <summary>The pinned OpenSpec CLI the app archives with; the agent guide tells agents to validate with the same one.</summary>
+    public const string OpenSpecCliVersion = Infrastructure.OpenSpecCli.Version;
     public static readonly IReadOnlyList<string> Statuses = ["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"];
     public static readonly IReadOnlyList<string> Labels = ["bug", "feature", "enhancement"];
 
@@ -46,6 +48,14 @@ public static class WorkItemsApi
     public static (bool Success, string Message) SetLabel(int id, string? label) => Commands.Update(id, m => m.Label = string.IsNullOrEmpty(label) ? null : label);
     public static (bool Success, string Message) SetStarted(int id, DateOnly? day) => Commands.Update(id, m => m.Started = day?.ToString("yyyy-MM-dd"));
     public static (bool Success, string Message) SetDue(int id, DateOnly? day) => Commands.Update(id, m => m.Due = day?.ToString("yyyy-MM-dd"));
+    /// <summary>Links a plan file by repo-relative path (slashes normalised); null or blank removes the link. Paths outside the repository are refused.</summary>
+    public static (bool Success, string Message) SetPlan(int id, string? path)
+    {
+        path = path?.Replace('\\', '/').Trim();
+        if (string.IsNullOrEmpty(path)) return Commands.Update(id, m => m.Plan = null);
+        if (Path.IsPathRooted(path) || path.StartsWith('/') || path.Split('/').Contains("..")) return (false, "A plan is a path inside the repository, like DevResources/plans/name.md");
+        return Commands.Update(id, m => m.Plan = path);
+    }
     /// <summary>Puts the item in one feature (null = none); a work item has one feature at most.</summary>
     public static (bool Success, string Message) MoveFeature(int id, string? to) => Commands.MoveFeature(id, to);
 

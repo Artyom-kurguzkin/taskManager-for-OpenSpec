@@ -9,6 +9,15 @@ These apply to every change, every session.
 3. **Verify UI in the real app**, one feature at a time, over the Chrome DevTools Protocol (not synthetic OS input), in light and dark; screenshots are the evidence. Tests alone are not enough.
    Run the app on a **hidden desktop** with `tests/hidden-app.ps1` (`New-DemoRepo`, `Start-HiddenApp`, `Eval`/`Click`/`Drag`/`Shot`, `Stop-HiddenApp`): never on the user's desktop, where the window would cover their work and take their focus, and never against the real `openspec/`. Stop it before building; it holds the Debug exe.
 
+## A task that is more than a quick fix
+
+1. **Research** how the industry solves it; keep the sources.
+2. **Plan** it in the repository's plans folder (Settings → Plans folder; `DevResources/plans` by default, or whatever `openspec/REPO-TASKS.md` names) as `<title-slug>-<yyyy-MM-dd>.md`, and link it from the work item with `x-rtm.plan`.
+3. **Split** it into chunks that are each testable on their own (a unit test and a black-box check): subtasks, or dependent work items.
+4. **Delegate** the chunks to cheaper models (Agent tool, `model: sonnet` or `haiku`), each with `isolation: worktree` so they never touch the same files. A worktree starts from HEAD: chunks that depend on uncommitted work stay in the main session.
+5. When they return, **verify** each chunk, apply its diff to the working tree, and run the whole suite for integration.
+6. Keep the board current as you go (below) and leave everything **uncommitted** in the working tree for review.
+
 ## After the work: update the board
 
 When a piece of work lands, find the work items it touches — the change you made **and** any older item whose topic it advances — in every status except Completed (archived), and update each:

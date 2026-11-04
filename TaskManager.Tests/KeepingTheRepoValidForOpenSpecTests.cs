@@ -56,6 +56,23 @@ public sealed class KeepingTheRepoValidForOpenSpecTests
         if (exit != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
     }
 
+    [Fact(DisplayName = "A folder the app set up from nothing is valid for the OpenSpec CLI, and a work item created in it validates too")]
+    public void ScaffoldedRepoIsValid()
+    {
+        string empty = Directory.CreateTempSubdirectory("rtm-scaffold").FullName;
+        try
+        {
+            Ok(OpenSpecStoreApi.Open(empty) is var (ok, _) ? (ok, "") : (false, "open failed"));
+            (bool created, string msg, int _) = WorkItemsApi.Create("First task", "Backlog", [], ["Artyom"]);
+            Assert.True(created, msg);
+
+            (int exit, string output) = OpenSpec(empty, "validate --all --strict");
+
+            if (exit != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
+        }
+        finally { Directory.Delete(empty, true); }
+    }
+
     [Fact(DisplayName = "An item whose modified requirement went stale (the main spec gained scenarios since) still archives through the real CLI, with every scenario kept")]
     public void StaleDeltaStillArchives()
     {

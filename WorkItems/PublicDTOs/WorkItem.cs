@@ -32,7 +32,8 @@ public sealed record WorkItem(
     DateTime? AgentAt = null,
     DateTime? ReviewedAt = null,               // x-rtm.reviewedAt: the user looked at it (set by the app)
     DateOnly? Started = null,                  // x-rtm.started: the day work started (stamped on the first move to In Progress)
-    DateOnly? Due = null)                      // x-rtm.due
+    DateOnly? Due = null,                      // x-rtm.due
+    string? Plan = null)                       // x-rtm.plan: repo-relative path of a plan file
 {
     /// <summary>An agent stamped this item and the user has not reviewed it since.</summary>
     public bool AgentUnreviewed => AgentBy is not null && (ReviewedAt is null || (AgentAt is DateTime a && ReviewedAt < a));

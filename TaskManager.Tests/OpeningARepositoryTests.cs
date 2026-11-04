@@ -38,17 +38,30 @@ public sealed class OpeningARepositoryTests
         Assert.Equal([a.Root], OpenSpecStoreApi.OpenRoots);
     }
 
-    [Fact(DisplayName = "Opening a folder without openspec/ explains how to fix it and keeps the previous workspace")]
+    [Fact(DisplayName = "Opening a folder without openspec/ sets it up (config.yaml, specs/, changes/archive/) and says so; a folder that does not exist is refused")]
     public void FolderWithoutOpenSpec()
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
         string empty = Directory.CreateTempSubdirectory("rtm-empty").FullName;
+        try
+        {
+            (bool ok, string message) = OpenSpecStoreApi.Open(empty);
 
-        (bool ok, string message) = OpenSpecStoreApi.Open(empty);
+            Assert.True(ok, message);
+            Assert.Equal(empty, OpenSpecStoreApi.RepoRoot);
+            Assert.Contains("Set up openspec/", message);
+            Assert.StartsWith("schema: spec-driven", File.ReadAllText(Path.Combine(empty, "openspec", "config.yaml")));
+            Assert.True(Directory.Exists(Path.Combine(empty, "openspec", "specs")));
+            Assert.True(Directory.Exists(Path.Combine(empty, "openspec", "changes", "archive")));
+            Assert.Empty(WorkItemsApi.GetAll(includeHidden: true));
+            Assert.Equal((true, ""), OpenSpecStoreApi.Open(empty));   // the second time there is nothing to set up
 
-        Assert.False(ok);
-        Assert.Equal("No openspec/ folder here. Run `openspec init` in this repo first.", message);
-        Assert.Equal(repo.Root, OpenSpecStoreApi.RepoRoot);
+            (ok, message) = OpenSpecStoreApi.Open(Path.Combine(empty, "nope"));
+            Assert.False(ok);
+            Assert.Contains("nope", message);
+            Assert.Equal(empty, OpenSpecStoreApi.RepoRoot);
+        }
+        finally { OpenSpecStoreApi.Open(repo.Root); Directory.Delete(empty, true); }
     }
 }

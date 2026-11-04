@@ -146,6 +146,32 @@ public sealed class UsingThePagesTests : IDisposable
         page.WaitForAssertion(() => Assert.Null(WorkItemsApi.Get(123)!.Due));
     }
 
+    [Fact(DisplayName = "A work item's plan is a field on its page: typing a path links it, the chip opens the plan rendered in the app, clearing the field unlinks it")]
+    public async Task PlanOnThePage()
+    {
+        await using BunitContext ctx = NewContext();
+        repo.Write("DevResources/plans/health-2026-11-05.md", "# Health plan\n\nStep one.\n");
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        Assert.Empty(page.FindAll("a.plan-link"));
+
+        page.Find("input[aria-label='plan']").Change(@"DevResources\plans\health-2026-11-05.md");
+        page.WaitForAssertion(() => Assert.Equal("DevResources/plans/health-2026-11-05.md", WorkItemsApi.Get(123)!.Plan));
+        AngleSharp.Dom.IElement link = page.Find("a.plan-link");
+        Assert.Equal("doc/DevResources/plans/health-2026-11-05.md", link.GetAttribute("href"));
+        Assert.Equal("health-2026-11-05.md", link.TextContent.Trim());
+
+        IRenderedComponent<DocPage> doc = ctx.Render<DocPage>(p => p.Add(c => c.Path, WorkItemsApi.Get(123)!.Plan!));
+        Assert.Equal("Health plan", doc.Find("h1").TextContent);
+
+        page.Find("input[aria-label='plan']").Change("../outside.md");   // refused, the link stays
+        page.WaitForAssertion(() => Assert.NotEmpty(overlays!.FindAll(".toast")));
+        Assert.Equal("DevResources/plans/health-2026-11-05.md", WorkItemsApi.Get(123)!.Plan);
+
+        page.Find("input[aria-label='plan']").Change("");
+        page.WaitForAssertion(() => Assert.Null(WorkItemsApi.Get(123)!.Plan));
+        Assert.Empty(page.FindAll("a.plan-link"));
+    }
+
     [Fact(DisplayName = "Opening a work item shows its header, description, subtasks, and its notes as the change log")]
     public async Task WorkItemPage()
     {
@@ -692,17 +718,44 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("_hints.enabled", js);      // and F is ignored while it is off
     }
 
-    [Fact(DisplayName = "Opening a folder without openspec/ in Settings shows how to fix it")]
+    [Fact(DisplayName = "Opening a folder without openspec/ in Settings sets it up and says so; a path that does not exist shows the error")]
     public async Task OpenWrongFolder()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
         string empty = Directory.CreateTempSubdirectory("rtm-empty").FullName;
+        try
+        {
+            page.Find("input#f-repo").Change(empty);
+            page.Find("button.open-repo").Click();
 
-        page.Find("input#f-repo").Change(empty);
-        page.Find("button.open-repo").Click();
+            page.WaitForAssertion(() => Assert.Contains("Set up openspec/", overlays!.Find(".toast").TextContent));
+            Assert.True(File.Exists(Path.Combine(empty, "openspec", "config.yaml")));
 
-        Assert.Contains("No openspec/ folder here", page.Markup);
+            page.Find("input#f-repo").Change(Path.Combine(empty, "nope"));
+            page.Find("button.open-repo").Click();
+            page.WaitForAssertion(() => Assert.Contains("nope", page.Find(".warning").TextContent));
+        }
+        finally { ctx.Services.GetRequiredService<Workspace>().Open(repo.Root); Directory.Delete(empty, true); }
+    }
+
+    // ── Doc page ──
+
+    [Fact(DisplayName = "A markdown file under the repository opens on the doc page, rendered, with its path shown; a missing file or a path outside the repository shows not found")]
+    public async Task DocPageRendersMarkdown()
+    {
+        await using BunitContext ctx = NewContext();
+        repo.Write("DevResources/plans/demo-plan-2026-11-05.md", "# Demo plan\n\n- **Status:** draft\n\nSome *text*.\n");
+
+        IRenderedComponent<DocPage> page = ctx.Render<DocPage>(p => p.Add(c => c.Path, "DevResources/plans/demo-plan-2026-11-05.md"));
+        Assert.Equal("Demo plan", page.Find("h1").TextContent);
+        Assert.Contains("<em>text</em>", page.Markup);
+        Assert.Contains("DevResources/plans/demo-plan-2026-11-05.md", page.Find(".head .mono").TextContent);
+
+        IRenderedComponent<DocPage> missing = ctx.Render<DocPage>(p => p.Add(c => c.Path, "DevResources/plans/nope.md"));
+        Assert.Contains("not found", missing.Find("h2").TextContent);
+        IRenderedComponent<DocPage> outside = ctx.Render<DocPage>(p => p.Add(c => c.Path, "../outside.md"));
+        Assert.Contains("not found", outside.Find("h2").TextContent);
     }
 
     public void Dispose()

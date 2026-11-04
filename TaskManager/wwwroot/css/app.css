@@ -649,5 +649,8 @@
     background: var(--card); color: var(--ink); font: 500 13px var(--f-body); text-align: left; cursor: pointer; }
   .cal-item:hover { background: var(--stone); color: var(--on-fill); }
   .date-in { padding: 2px 8px; font: 500 13px var(--f-body); color: var(--ink); background: var(--card); }
+  .plan-field { gap: 6px; }
+  .plan-field .plan-in { width: 220px; padding: 2px 8px; font: 500 13px var(--f-body); }
+  .plan-link { text-decoration: none; }
   @media (max-width: 860px) { .cal-body { grid-template-columns: 1fr; } }
 }

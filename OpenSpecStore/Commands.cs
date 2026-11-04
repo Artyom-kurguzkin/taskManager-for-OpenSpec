@@ -10,8 +10,16 @@ internal static class Commands
     internal static (bool Success, string Message) Open(string repoRoot, bool keepOthers)
     {
         string root = Path.GetFullPath(repoRoot);
+        if (!Directory.Exists(root)) return (false, $"There is no folder {root}");
         string openSpec = Path.Combine(root, "openspec");
-        if (!Directory.Exists(openSpec)) return (false, "No openspec/ folder here. Run `openspec init` in this repo first.");
+        string setUp = "";
+        if (!Directory.Exists(openSpec))   // a repository that has not used OpenSpec yet: the app lays out what the CLI's init would, minus its prompts
+        {
+            Directory.CreateDirectory(Path.Combine(openSpec, "specs"));
+            Directory.CreateDirectory(Path.Combine(openSpec, "changes", "archive"));
+            File.WriteAllText(Path.Combine(openSpec, "config.yaml"), $"schema: spec-driven\n\n# What this repository is, for the agents that work in it (see openspec/REPO-TASKS.md).\ncontext: |\n  {Path.GetFileName(root)}.\n");
+            setUp = $"Set up openspec/ in {Path.GetFileName(root)}: config.yaml, specs/ and changes/archive/. Describe the project in config.yaml's context.";
+        }
         lock (OpenSpecStoreModule.Repos)
         {
             if (!keepOthers) Keep([root]);
@@ -23,7 +31,7 @@ internal static class Commands
             }
             OpenSpecStoreModule.Current = repo;
         }
-        return (true, "");
+        return (true, setUp);
     }
 
     /// <summary>Makes an already open repository the current one; false when it is not open.</summary>

@@ -9,7 +9,7 @@
     </section>
 
     <section class="set-row">
-        <div><h3>Repository</h3><p class="muted">Folder with the openspec/ directory this app reads and writes.</p></div>
+        <div><h3>Repository</h3><p class="muted">Folder with the openspec/ directory this app reads and writes. A folder without one is set up for OpenSpec when opened.</p></div>
         <div class="set-val">
             <input id="f-repo" class="box text-in" data-sk value="@repoPath" @onchange="e => repoPath = (string?)e.Value ?? string.Empty" aria-label="Repository folder" />
             @if (Picker is not null) { <button class="btn" data-sk @onclick="Browse">Browse…</button> }
@@ -33,6 +33,15 @@
         <div><h3>Keyboard hints</h3><p class="muted">Press F to show a letter on every clickable element, then type it. Shift + the letter selects. Off by default.</p></div>
         <label class="check"><input type="checkbox" id="f-hints" checked="@Settings.Current.Hints" @onchange="e => Settings.Update(s => s with { Hints = (bool)e.Value! })" /> on</label>
     </section>
+
+    @if (Workspace.Root is string repo)
+    {
+        <section class="set-row">
+            <div><h3>Plans folder</h3><p class="muted">Where plans for @System.IO.Path.GetFileName(repo) live, relative to the repository (yours only; agents read it from openspec/REPO-TASKS.md). Empty = @SettingsStore.DefaultPlansDir.</p></div>
+            <div class="set-val"><input class="box text-in" data-sk value="@Settings.PlansDir(repo)" placeholder="@SettingsStore.DefaultPlansDir"
+                                        @onchange="e => Settings.SetPlansDir(repo, (string?)e.Value)" aria-label="Plans folder" /></div>
+        </section>
+    }
 
     <section class="set-row">
         <div><h3>External editor</h3><p class="muted">Command "Edit in …" launches on a note, e.g. code, notepad++, subl. Empty = ask next time.</p></div>

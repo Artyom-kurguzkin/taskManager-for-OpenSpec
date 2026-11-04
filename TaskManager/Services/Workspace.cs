@@ -17,7 +17,7 @@ public sealed class Workspace : IDisposable
     private bool resolving;
     private string? guideNotice;
 
-    /// <summary>What to tell the user about the agent guide the app just created (once), or null.</summary>
+    /// <summary>What to tell the user about agent guides the app just created or refreshed (once), or null.</summary>
     public string? TakeGuideNotice()
     {
         string? notice = guideNotice;
@@ -25,11 +25,36 @@ public sealed class Workspace : IDisposable
         return notice;
     }
 
+    private void NoteGuide(string root, GuideChange change)
+    {
+        string line = change switch
+        {
+            GuideChange.Created => $"Created openspec/{AgentGuide.FileName} in {Path.GetFileName(root)}: the conventions agents should follow here. Add a line pointing to it in your CLAUDE.md / AGENTS.md.",
+            GuideChange.Updated => $"Updated openspec/{AgentGuide.FileName} in {Path.GetFileName(root)} to the app's newer conventions.",
+            _ => "",
+        };
+        if (line.Length > 0) guideNotice = guideNotice is null ? line : guideNotice + " " + line;
+    }
+
     public Workspace(SettingsStore settings, UiService ui)
     {
         this.settings = settings;
         this.ui = ui;
         OpenSpecStoreApi.Changed += Notify;
+        plansSeen = PlansState;
+        settings.Changed += RefreshGuides;
+    }
+
+    private string plansSeen;
+    private string PlansState => string.Join(";", (settings.Current.PlansDirs ?? []).Select(kv => kv.Key + "=" + kv.Value));
+
+    /// <summary>The guide carries the plans folder, so moving it rewrites the guide in every open project (and says so at once). Other settings changes are ignored.</summary>
+    private void RefreshGuides()
+    {
+        if (PlansState == plansSeen) return;
+        plansSeen = PlansState;
+        foreach (string root in OpenSpecStoreApi.OpenRoots) NoteGuide(root, AgentGuide.Ensure(root, settings.PlansDir(root)));
+        if (TakeGuideNotice() is string notice) ui.Toast(notice);
     }
 
     /// <summary>Raised on any change; components re-read through the module Apis and re-render.</summary>
@@ -53,10 +78,11 @@ public sealed class Workspace : IDisposable
         bool fresh = !OpenSpecStoreApi.OpenRoots.Any(r => SettingsStore.Key(r) == SettingsStore.Key(root));
         (bool ok, string message) = OpenSpecStoreApi.Open(root, keepOthers: true);
         if (!ok) return (ok, message);
+        if (message.Length > 0) guideNotice = message;   // openspec/ was just set up here: said together with the guide notice
         GitHistoryApi.Configure(root, reset: fresh);
         WorkItemsApi.ConfigureContributors(() => GitHistoryApi.IsRepository() ? (GitHistoryApi.HeadToken(), GitHistoryApi.AuthorsOfChange) : null);
         settings.Update(s => s with { LastRepo = OpenSpecStoreApi.RepoRoot });
-        if (AgentGuide.Ensure(root)) guideNotice = $"Created openspec/{AgentGuide.FileName} in {Path.GetFileName(root)}: the conventions agents should follow here. Add a line pointing to it in your CLAUDE.md / AGENTS.md.";
+        NoteGuide(root, AgentGuide.Ensure(root, settings.PlansDir(root)));
         OpenTabs(root);
         KeepTabs();
         Notify();
@@ -67,7 +93,7 @@ public sealed class Workspace : IDisposable
     private void OpenTabs(string active)
     {
         foreach (string tab in OpenRepos.Where(t => !OpenSpecStoreApi.OpenRoots.Any(o => SettingsStore.Key(o) == SettingsStore.Key(t))))
-            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) { GitHistoryApi.Configure(tab); AgentGuide.Ensure(tab); }
+            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) { GitHistoryApi.Configure(tab); NoteGuide(tab, AgentGuide.Ensure(tab, settings.PlansDir(tab))); }
         OpenSpecStoreApi.Use(active);
         GitHistoryApi.Configure(active);
     }

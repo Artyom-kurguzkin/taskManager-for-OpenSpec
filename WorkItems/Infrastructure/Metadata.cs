@@ -23,6 +23,8 @@ internal sealed class Rtm
     /// <summary>Days as yyyy-MM-dd: when work started (stamped the first time the item moves to In Progress) and when it is due.</summary>
     public string? Started { get; set; }
     public string? Due { get; set; }
+    /// <summary>A plan file for this item: a repo-relative path with forward slashes, like DevResources/plans/name.md.</summary>
+    public string? Plan { get; set; }
     /// <summary>"Deleted" in the app: hidden from the board, folder kept. Null (omitted) when visible.</summary>
     public bool? Hidden { get; set; }
     public List<string>? Commits { get; set; }

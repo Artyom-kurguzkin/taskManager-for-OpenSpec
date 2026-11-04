@@ -12,5 +12,6 @@
 ## 2. Agent conventions file for every project
 
 - [x] 2.1 `AgentGuide.Ensure(repoRoot)` with a version marker; create / refresh / leave alone
+- [x] 2.4 Guide v3: sign with the agent name, keep the board true (change log, linked tests and commits, subtasks, spec text, status, dates), keep OpenSpec valid (layout, MODIFIED scenarios, validate, archive); refreshed in every open project at start, with a notice naming the project <!-- agent: Claude -->
 - [x] 2.2 Called when a project opens; the notice is shown once by the layout
 - [x] 2.3 Verify in the real app

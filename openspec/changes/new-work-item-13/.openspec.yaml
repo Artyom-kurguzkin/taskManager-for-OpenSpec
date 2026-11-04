@@ -1,12 +1,11 @@
 schema: spec-driven
 skip_specs: true
-created: 2026-10-31
+created: 2026-11-05
 x-rtm:
-  id: 65
-  title: multi-project boards
-  status: In Review
+  id: 88
+  title: select mode
+  status: In Progress
   contributors: [Artyom-kurguzkin]
   features: [organise-work-items]
-  label: feature
-  started: 2026-10-26
-  due: 2026-11-01
+  label: enhancement
+  started: 2026-11-05

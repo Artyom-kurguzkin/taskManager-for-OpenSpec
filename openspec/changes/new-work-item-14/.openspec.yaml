@@ -5,6 +5,9 @@ x-rtm:
   id: 66
   title: support for attachments
   status: In Progress
+  priority: high
   contributors: [Artyom-kurguzkin]
+  features: [work-item-details]
+  label: enhancement
   started: 2026-11-02
   due: 2026-11-08

@@ -3,76 +3,119 @@ using WorkItems;
 
 namespace TaskManager.Services;
 
+public enum GuideChange { None, Created, Updated }
+
 /// <summary>
-/// openspec/REPO-TASKS.md: the conventions an agent has to follow so the app can show which work is its own. The app writes it
-/// when it opens a project (and refreshes its own older copies); a file of the user's under that name, with no marker, is left alone.
+/// openspec/REPO-TASKS.md: the conventions an agent has to follow so the app can show which work is its own and the board
+/// stays true. The app writes it when it opens a project and refreshes its own older copies in every open project; a file
+/// of the user's under that name, with no marker, is left alone. The user's plans folder is part of the text (agents only
+/// read the repository, not the settings), so the guide is rewritten when that setting changes.
 /// </summary>
 public static class AgentGuide
 {
     public const string FileName = "REPO-TASKS.md";
     private const string Marker = "<!-- repo-tasks-guide v";
-    private const int Version = 2;
+    private const int Version = 4;
 
-    /// <summary>Writes the guide when it is missing or an older copy of ours. True when it was newly created.</summary>
-    public static bool Ensure(string repoRoot)
+    /// <summary>Writes the guide when it is missing, an older copy of ours, or ours with another plans folder.</summary>
+    public static GuideChange Ensure(string repoRoot, string plansDir)
     {
         string path = Path.Combine(repoRoot, "openspec", FileName);
-        if (File.Exists(path))
+        bool exists = File.Exists(path);
+        if (exists)
         {
             string first = File.ReadLines(path).FirstOrDefault() ?? "";
-            bool ours = first.StartsWith(Marker, StringComparison.Ordinal);
-            bool older = ours && int.TryParse(first[Marker.Length..].Split(' ')[0], out int v) && v < Version;
-            if (!older) return false;
+            if (!first.StartsWith(Marker, StringComparison.Ordinal) || first == Head(plansDir)) return GuideChange.None;
+            bool older = int.TryParse(first[Marker.Length..].Split(' ')[0], out int v) && v < Version;
+            bool otherPlans = !older && first != Head(plansDir);
+            if (!older && !otherPlans) return GuideChange.None;
         }
-        bool created = !File.Exists(path);
         OpenSpecStoreApi.ReadText(path);   // so the store sees what is on disk before it replaces it
-        (bool ok, string _) = OpenSpecStoreApi.WriteText(path, Text);
-        return ok && created;
+        (bool ok, string _) = OpenSpecStoreApi.WriteText(path, Text(plansDir));
+        return !ok ? GuideChange.None : exists ? GuideChange.Updated : GuideChange.Created;
     }
 
-    public static string Text => $$"""
-        {{Marker}}{{Version}} -->
+    private static string Head(string plansDir) => $"{Marker}{Version} plans={plansDir} -->";
+
+    public static string Text(string plansDir) => $$"""
+        {{Head(plansDir)}}
         # Repo Tasks: conventions for agents
 
         This repository's `openspec/` folder is shown and edited by the **Repo Tasks** app, a board of work items.
         Every folder under `openspec/changes/` is a work item; a feature is a capability under `openspec/specs/`.
-        The app writes this file and refreshes it when it ships a newer version, so keep your own notes elsewhere.
+        The app writes this file and refreshes it when it ships a newer version or the user moves the plans folder, so keep your own notes elsewhere.
 
-        ## Mark what you add or change (always)
+        ## 0. How to take on a task that is more than a quick fix
 
-        The app flags work done by an agent until the user has looked at it. So every time you **create or change** something here, stamp it:
+        1. **Research** how similar problems are solved in the industry before designing; note the sources.
+        2. **Write a plan** in `{{plansDir}}/<title-slug>-<yyyy-MM-dd>.md`: why, what others do, decisions, the chunks below, how it will be verified. Link it from the work item with `x-rtm.plan: {{plansDir}}/<file>.md`; the app opens it from the item page.
+        3. **Split** the work into discrete chunks that can each be tested on their own (a unit test and a black-box check), as subtasks in `tasks.md` or as dependent work items (`x-rtm.dependsOn`).
+        4. **Delegate** the chunks to cheaper models, each in its own git worktree so they never edit the same files. Keep the design decisions in the coordinating session.
+        5. When they come back, **verify** each chunk, merge it into the current branch and run the whole test suite for integration.
+        6. **Update the board** (section 2) as you go, and leave the result **uncommitted** in the working tree for the user's review. Never commit unless the user asked.
+
+        ## 1. Sign what you add or change (always)
+
+        The app flags work done by an agent until the user has looked at it. So every time you **create or change** something here, sign it with your agent name (e.g. `Claude`, `Codex`), never the user's name:
 
         - **Work item** (a change folder): in its `.openspec.yaml`, inside the `x-rtm:` block, set
           `agentBy: <your name>` and `agentAt: <local time, yyyy-MM-ddTHH:mm:ss>`. Set `agentAt` again each time you change the item.
-          Never write `reviewedAt`: only the user does, by clicking the chip.
-        - **Note** (`notes/n<N>.md`): the same two keys in its frontmatter, plus `by: <your name>`.
+          Never write `reviewedAt`: only the user does, by clicking the chip in the app.
+        - **Note** (`notes/n<N>.md`): `by: <your name>` plus the same two keys in its frontmatter.
         - **Subtask** (a `tasks.md` checkbox): end the line with `<!-- agent: <your name> -->`.
-
-        ## Dates
-
-        - `x-rtm.started: yyyy-MM-dd` is the day work started; the app stamps it the first time an item moves to In Progress. Set it yourself if you start work on an item.
-        - `x-rtm.due: yyyy-MM-dd` is the due day. The calendar view draws an item from `started` to `due`; the board and list group and filter by these periods.
+        - `contributors` are the people on the item. Do not add yourself there.
 
         ```yaml
         x-rtm:
           id: 71
           title: Short title
-          status: Backlog
+          status: In Progress
+          contributors: [artyom]
+          plan: {{plansDir}}/short-title-2026-11-05.md
           agentBy: Claude
-          agentAt: 2026-10-31T17:00:00
+          agentAt: 2026-11-05T17:00:00
         ```
 
-        ## Numbers
+        ## 2. Keep the board true after every piece of work
 
-        - A work item's `x-rtm.id` is unique: use the highest `id` across **all** `.openspec.yaml` files, archived ones included, plus 1.
-        - A note's `id` is the highest across **all** `notes/n*.md` files plus 1; its file is `n<id>.md`.
-        - Refer to work items as `#wi<id>` and notes as `#n<id>` (commits mentioning `#wi<id>` are linked automatically).
+        When work lands, update **every** open work item it touches: the one you worked on and any older item whose topic it advances (the app shows the user all of these). For each:
 
-        ## Keep the files the app reads intact
+        - **Change log**: add `notes/n<id>.md` in the change folder. `id` is the highest across **all** `notes/n*.md` in the repository (archived changes included) plus 1. Frontmatter, then a heading and what changed, in plain words:
 
-        - Statuses: {{string.Join(", ", WorkItemsApi.Statuses)}}. `Completed` means archived: archive with the OpenSpec CLI, never set it by hand.
-        - Keep `x-rtm` keys, comments and formatting you did not change. Lists stay on one line: `features: [a, b]`.
-        - Linked tests: `tests: [{suite: <test class>, test: "<display name>"}]`; linked commits: `commits: [<7-char hash>]`.
+          ```markdown
+          ---
+          id: 44
+          by: Claude
+          created: 2026-11-05T17:00:00
+          agentBy: Claude
+          agentAt: 2026-11-05T17:00:00
+          links: [wi12, n9]
+          commits: [a1b2c3d]
+          ---
+          # 5 Nov — what changed
+
+          One or two sentences a person would understand without reading the diff.
+          ```
+
+        - **Linked tests**: `x-rtm.tests: [{suite: <test class short name>, test: "<test display name>"}]` on one line. Names must match the latest results file the app reads (`x-rtm.testResults` in `openspec/config.yaml`); rerun the tests so the file is fresh.
+        - **Linked commits**: `x-rtm.commits: [<7-char hash>, …]` for commits that do not mention `#wi<id>` in their message (those are linked by themselves).
+        - **Plan**: `x-rtm.plan: <path>` when there is one (section 0); keep its status line current.
+        - **Subtasks**: tick what you finished (`- [x]`), add what you found out is still needed (signed, see 1).
+        - **Spec and tasks text** of those items, where you changed the behaviour they describe.
+        - **Status** and **dates**: set `status` to where the work is; `x-rtm.started: yyyy-MM-dd` is the day work began (the app stamps it on the first move to In Progress), `x-rtm.due: yyyy-MM-dd` the due day.
+
+        ## 3. Keep OpenSpec valid
+
+        - A work item is a change folder with `.openspec.yaml` (`schema: spec-driven`, `created:`, the `x-rtm:` block), `proposal.md` with `## Why` and `## What Changes`, `tasks.md` with numbered checkboxes, and, when behaviour changes, `specs/<capability>/spec.md` deltas under `## ADDED Requirements`, `## MODIFIED Requirements`, `## REMOVED Requirements` or `## RENAMED Requirements`. Every requirement has at least one `#### Scenario:`.
+        - A **MODIFIED** block replaces the whole requirement when the item is archived: copy **every** scenario of the current main spec into it and change what you change. (The app puts missing scenarios back before archiving, but a stale block fails validation until then.)
+        - Validate before you stop: `npx -y @fission-ai/openspec@{{WorkItemsApi.OpenSpecCliVersion}} validate <change-name> --strict`.
+        - Statuses: {{string.Join(", ", WorkItemsApi.Statuses)}}. `Completed` means archived: archive with the OpenSpec CLI (`openspec archive <change-name> --yes`), never set it by hand.
+        - Keep `x-rtm` keys, comments and formatting you did not change. Lists stay on one line: `features: [a, b]`. A work item has one feature.
         - Subtasks keep their `1.1`, `1.2`… numbers; add new ones at the end of their group.
+
+        ## 4. Numbers
+
+        - A work item's `x-rtm.id` is unique: use the highest `id` across **all** `.openspec.yaml` files, archived ones included, plus 1. The user creates and merges items at the same time, so compute it when you write, not earlier.
+        - Refer to work items as `#wi<id>` and notes as `#n<id>`.
         """.Replace("\r\n", "\n") + "\n";
 }
