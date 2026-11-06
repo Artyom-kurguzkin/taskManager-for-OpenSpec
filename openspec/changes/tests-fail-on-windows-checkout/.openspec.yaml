@@ -1,0 +1,12 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-06
+x-rtm:
+  id: 98
+  title: 18 tests fail on a Windows checkout
+  status: Backlog
+  contributors: [Claude]
+  features: [maintainability]
+  label: bug
+  agentBy: Claude
+  agentAt: 2026-11-06T13:40:29

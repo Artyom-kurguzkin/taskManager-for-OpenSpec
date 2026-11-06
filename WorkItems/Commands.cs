@@ -70,10 +70,41 @@ internal static partial class Commands
             folder = free;
         }
         OpenSpecStoreApi.MarkOwnChange(item.Path);
-        (bool archived, string error) = WorkItemsModule.Archive(folder);
+        // The CLI may refuse (validation, a spec it can't merge). The app never shows that: it archives with fewer checks, then without merging specs.
+        string[][] rungs = [[], ["--no-validate"], ["--no-validate", "--skip-specs"]];
+        string first = "";
+        bool archived = false;
+        for (int i = 0; i < rungs.Length && !archived; i++)
+        {
+            (archived, string error, bool couldRun) = WorkItemsModule.Archive(folder, rungs[i]);
+            if (i == 0 || !couldRun) first = error;
+            if (!archived && !couldRun) break;
+            if (archived && i == 2) NoteSpecsNotMerged(folder, first);
+        }
         OpenSpecStoreApi.MarkOwnChange(item.Path);   // the CLI moved folders: invalidate cached reads
-        return (archived, error);
+        return archived ? (true, "") : (false, first);
     }
+
+    /// <summary>The CLI archived the change only with --skip-specs: records in a note of the archived folder why its specs weren't merged.</summary>
+    private static void NoteSpecsNotMerged(string folder, string reason)
+    {
+        string archive = Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, "changes", "archive");
+        string? dir = Directory.Exists(archive)
+            ? Directory.EnumerateDirectories(archive).Where(d => Path.GetFileName(d) == folder || DatePrefix().Replace(Path.GetFileName(d), "") == folder).OrderBy(d => d, StringComparer.Ordinal).LastOrDefault()
+            : null;
+        if (dir is null) return;
+        int noteId = NextNoteId();
+        string created = DateTime.Now.ToString("s", System.Globalization.CultureInfo.InvariantCulture);
+        string why = AnsiCode().Replace(reason, "").Trim();
+        string note = $"---\nid: {noteId}\nby: App\ncreated: {created}\n---\n# Archived without merging its specs\n\n"
+            + "The OpenSpec CLI refused to merge this item's specs into `openspec/specs`, so the item was archived with its specs left in its own `specs/` folder. The CLI said:\n\n"
+            + $"```\n{why}\n```\n";
+        OpenSpecStoreApi.WriteText(Path.Combine(dir, "notes", $"n{noteId}.md"), note);
+        OpenSpecStoreApi.MarkOwnChange(dir);
+    }
+
+    [GeneratedRegex(@"\x1B\[[0-9;]*[A-Za-z]")]
+    private static partial Regex AnsiCode();
 
     /// <summary>Puts back into each MODIFIED requirement of the change's delta specs the scenarios the main spec has gained since (see DeltaSpec).</summary>
     private static (bool Success, string Message) RefreshDeltas(string changeDir)
@@ -82,9 +113,8 @@ internal static partial class Commands
         {
             string rel = Path.Combine("specs", cap.Replace('/', Path.DirectorySeparatorChar), "spec.md");
             string main = Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, rel);
-            if (!File.Exists(main)) continue;
-            string path = Path.Combine(changeDir, rel);
-            string delta = OpenSpecStoreApi.ReadText(path), refreshed = DeltaSpec.Refresh(delta, OpenSpecStoreApi.ReadText(main));
+            string path = Path.Combine(changeDir, rel);   // a main spec that doesn't exist yet is an empty one
+            string delta = OpenSpecStoreApi.ReadText(path), refreshed = DeltaSpec.Refresh(delta, File.Exists(main) ? OpenSpecStoreApi.ReadText(main) : "");
             if (refreshed != delta && OpenSpecStoreApi.WriteText(path, refreshed) is { Success: false } failed) return failed;
         }
         return (true, "");

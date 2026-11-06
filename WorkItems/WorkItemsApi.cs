@@ -14,10 +14,6 @@ public static class WorkItemsApi
     public static readonly IReadOnlyList<string> Statuses = ["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"];
     public static readonly IReadOnlyList<string> Labels = ["bug", "feature", "enhancement"];
 
-    /// <summary>
-    /// How a change gets archived. Default runs <c>openspec archive &lt;folder&gt; --yes</c> in the repo root;
-    /// pass null to restore it. Returns the CLI's message on failure.
-    /// </summary>
     /// <summary>Git commit authors stand in as contributors until the list is edited. The token must change on each commit so the cache refreshes.</summary>
     public static void ConfigureContributors(Func<(string Token, Func<string, IReadOnlyList<string>> AuthorsOf)?>? git)
     {
@@ -25,7 +21,20 @@ public static class WorkItemsApi
         WorkItemsModule.Cache.Clear();
     }
 
-    public static void ConfigureArchiver(Func<string, (bool Success, string Message)>? archive) => WorkItemsModule.Archive = archive ?? Infrastructure.OpenSpecCli.Archive;
+    /// <summary>
+    /// How a change gets archived. Default runs <c>openspec archive &lt;folder&gt; --yes</c> in the repo root; pass null to restore it.
+    /// When the CLI refuses, the app retries with <c>--no-validate</c>, then with <c>--no-validate --skip-specs</c>, and only if all
+    /// three fail returns the first message. This fake is called again on each try.
+    /// </summary>
+    public static void ConfigureArchiver(Func<string, (bool Success, string Message)>? archive) =>
+        WorkItemsModule.Archive = archive is null ? Infrastructure.OpenSpecCli.Archive : (folder, _) => { (bool ok, string message) = archive(folder); return (ok, message, true); };
+
+    /// <summary>
+    /// Like <see cref="ConfigureArchiver(Func{string, ValueTuple{bool, string}})"/>, but the fake also receives the try's extra flags (none, then <c>--no-validate</c>, then
+    /// <c>--no-validate --skip-specs</c>), and CouldRun false says the CLI never decided (no Node.js, timeout): no retry then.
+    /// </summary>
+    public static void ConfigureArchiverWithFlags(Func<string, IReadOnlyList<string>, (bool Success, string Message, bool CouldRun)>? archive) =>
+        WorkItemsModule.Archive = archive ?? Infrastructure.OpenSpecCli.Archive;
 
     // ── Reads ──
     /// <summary>Visible work items; pass includeHidden to also get the ones "deleted" in the app.</summary>

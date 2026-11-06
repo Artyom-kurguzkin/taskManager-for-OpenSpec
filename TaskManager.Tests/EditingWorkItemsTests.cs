@@ -738,12 +738,15 @@ public sealed class EditingWorkItemsTests
         finally { WorkItemsApi.ConfigureArchiver(null); }
     }
 
-    [Fact(DisplayName = "Refreshing a delta changes nothing when it already has every scenario, and leaves a requirement the main spec no longer has alone")]
+    [Fact(DisplayName = "Refreshing a delta changes nothing when it already has every scenario, and a modified requirement the main spec no longer has becomes an added one")]
     public void RefreshIsIdempotent()
     {
         string once = WorkItems.BusinessRules.DeltaSpec.Refresh(RemittancesDelta, RemittancesMain);
         Assert.Equal(once, WorkItems.BusinessRules.DeltaSpec.Refresh(once, RemittancesMain));
-        Assert.Equal(RemittancesDelta, WorkItems.BusinessRules.DeltaSpec.Refresh(RemittancesDelta, RemittancesMain.Replace("Send money", "Receive money")));
+        string gone = WorkItems.BusinessRules.DeltaSpec.Refresh(RemittancesDelta, RemittancesMain.Replace("Send money", "Receive money"));
+        Assert.DoesNotContain("## MODIFIED Requirements", gone);   // the CLI refuses a MODIFIED block for a requirement that is not there
+        Assert.True(gone.IndexOf("### Requirement: Send money") > gone.IndexOf("## ADDED Requirements"), gone);
+        Assert.Contains("it arrives and is exported", gone);
         string crlf = RemittancesDelta.Replace("\n", "\r\n");
         Assert.DoesNotContain("\n\n\n", WorkItems.BusinessRules.DeltaSpec.Refresh(crlf, RemittancesMain).Replace("\r\n", "\n"));
         Assert.Contains("\r\n#### Scenario: Limit\r\n", WorkItems.BusinessRules.DeltaSpec.Refresh(crlf, RemittancesMain));   // the file's own line endings
@@ -785,8 +788,8 @@ public sealed class EditingWorkItemsTests
         Assert.DoesNotContain("ignored duplicate", refreshed);   // same scenario name: first occurrence wins
         foreach (string s in new[] { "Export works", "Export fails", "Export is signed" })
             Assert.Single(System.Text.RegularExpressions.Regex.Matches(refreshed, "#### Scenario: " + s));
-        Assert.DoesNotContain("## ADDED Requirements", refreshed);   // MODIFIED is the stronger section
-        Assert.True(refreshed.IndexOf("### Requirement: Export") > refreshed.IndexOf("## MODIFIED Requirements"), refreshed);
+        Assert.DoesNotContain("## MODIFIED Requirements", refreshed);   // one block, and the main spec has no "Export": it is an addition
+        Assert.True(refreshed.IndexOf("### Requirement: Export") > refreshed.IndexOf("## ADDED Requirements"), refreshed);
         Assert.DoesNotContain("Fax", refreshed);
         Assert.DoesNotContain("RENAMED", refreshed);
         Assert.DoesNotContain("Telex", refreshed);
