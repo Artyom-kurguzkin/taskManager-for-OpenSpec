@@ -1,0 +1,13 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-06
+x-rtm:
+  id: 100
+  title: tracking assets for multiple projects
+  status: Planned
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [organise-work-items]
+  label: enhancement
+  started: 2026-11-06
+  due: 2026-11-09

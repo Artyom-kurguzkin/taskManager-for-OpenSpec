@@ -1,0 +1,13 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-06
+x-rtm:
+  id: 99
+  title: list view collumn cut
+  status: Planned
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [organise-work-items]
+  label: bug
+  started: 2026-11-06
+  due: 2026-11-09
