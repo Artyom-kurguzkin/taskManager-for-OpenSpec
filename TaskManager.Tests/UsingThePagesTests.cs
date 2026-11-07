@@ -410,13 +410,12 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("Health-check endpoint v2", WorkItemsApi.Get(123)!.Title);
     }
 
-    // The note opens as a rendered preview; Edit swaps in the markdown editor (Radzen's), Done goes back. Radzen's panes are
-    // driven by its script, so a test types by raising the editor's ValueChanged, which is what typing does.
+    // The note reads like a work item's description: rendered text; a click turns it into a plain text box, leaving it saves and renders again.
     private static Task Type(IRenderedComponent<NotePage> page, string text)
     {
-        if (page.FindAll(".rz-markdown-editor").Count == 0) page.Find(".note-view").Click();
-        RadzenMarkdownEditor editor = page.FindComponent<RadzenMarkdownEditor>().Instance;
-        return page.InvokeAsync(() => editor.ValueChanged.InvokeAsync(text));
+        if (page.FindAll("textarea.desc-in").Count == 0) page.Find(".note-view").Click();
+        page.Find("textarea.desc-in").Input(text);
+        return Task.CompletedTask;
     }
 
     [Fact(DisplayName = "The note page edits in place: the title is an input, clicking the note opens the editor, focusing out saves and shows the rendered note; a pasted image becomes an attachment")]
@@ -430,15 +429,14 @@ public sealed class UsingThePagesTests : IDisposable
 
         Assert.Empty(page.FindAll("button.edit-note"));
         Assert.Empty(page.FindAll("button.done-note"));
-        Assert.Equal("Click to edit", page.Find(".note-view").GetAttribute("title"));
-        Assert.Empty(page.FindAll(".rz-markdown-editor"));
+        Assert.Empty(page.FindAll("textarea.desc-in"));
 
         page.Find(".note-view").Click();
-        Assert.NotEmpty(page.FindAll(".rz-markdown-editor"));
+        Assert.NotEmpty(page.FindAll("textarea.desc-in"));
         await Type(page, "# Decided on X\n\nchanged in test");
-        page.Find(".note-editor").FocusOut();
+        page.Find("textarea.desc-in").Blur();
 
-        Assert.Empty(page.FindAll(".rz-markdown-editor"));
+        Assert.Empty(page.FindAll("textarea.desc-in"));
         Assert.Contains("changed in test", page.Find(".note-view").TextContent);
         Assert.Contains("changed in test", NotesApi.Get(123)!.Body);
         Assert.Contains("changed in test", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
@@ -456,12 +454,12 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
         page.Find(".note-view").Click();
-        string loaded = page.FindComponent<RadzenMarkdownEditor>().Instance.Value;
+        string loaded = page.Find("textarea.desc-in").GetAttribute("value") ?? "";
 
         await Type(page, loaded + "abc");
         await Type(page, loaded + "abcdef");
 
-        Assert.Equal(loaded + "abcdef", page.FindComponent<RadzenMarkdownEditor>().Instance.Value);
+        Assert.Equal(loaded + "abcdef", page.Find("textarea.desc-in").GetAttribute("value"));
     }
 
     [Fact(DisplayName = "A note's own autosave doesn't reload the page under your cursor, and says Saved once it is on disk")]
@@ -829,6 +827,26 @@ public sealed class UsingThePagesTests : IDisposable
         page.FindAll("button.att-x")[0].Click();
         Assert.Equal(3, NotesApi.Get(123)!.Attachments.Count);
         Directory.Delete(src, true);
+    }
+
+    [Fact(DisplayName = "A note is edited like a work item description: click the text for a plain text box, leave it and the note is saved and shown rendered")]
+    public async Task NoteEditsLikeDescription()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+        Assert.Empty(page.FindAll(".rz-markdown-editor"));
+        Assert.Contains("desc", page.Find(".note-view").ClassList);
+
+        page.Find(".note-view").Click();
+        Assert.Empty(page.FindAll(".note-view"));
+        Assert.Empty(page.FindAll(".rz-markdown-editor"));
+        Assert.Equal("Note", page.Find("textarea.desc-in").GetAttribute("aria-label"));
+        page.Find("textarea.desc-in").Input("# Ping test\n\nplain **typed** text");
+        page.Find("textarea.desc-in").Blur();
+
+        Assert.Empty(page.FindAll("textarea.desc-in"));
+        Assert.Contains("<strong>typed</strong>", page.Find(".note-view").InnerHtml);
+        Assert.Contains("plain **typed** text", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
     }
 
     public void Dispose()

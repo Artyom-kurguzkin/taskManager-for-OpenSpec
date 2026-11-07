@@ -120,7 +120,7 @@ public static class WorkItemsApi
     public static (bool Success, string Message) Unhide(int id) => Commands.Update(id, m => m.Hidden = null);
 
     // ── Lanes (custom sub-categories in board columns) ──
-    public static (bool Success, string Message) AddLane(string column, string lane) => Commands.EditLanes(column, l => { if (!l.Contains(lane)) l.Add(lane); });
+    public static (bool Success, string Message) AddLane(string column, string lane) => Commands.AddLane(column, lane);
     public static (bool Success, string Message) RemoveLane(string column, string lane) => Commands.EditLanes(column, l => l.Remove(lane));
-    public static (bool Success, string Message) SetLane(int id, string column, string lane) => Commands.Update(id, m => (m.Lanes ??= [])[column] = lane);
+    public static (bool Success, string Message) SetLane(int id, string column, string lane) => Commands.SetLane(id, column, lane);
 }

@@ -53,7 +53,24 @@ internal static class Commands
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
     }
 
-    private const string AttachRoot = "local/task-tracking/";
+    internal const string DefaultAttachmentsDir = "local/task-tracking";
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> AttachDirs = new(StringComparer.OrdinalIgnoreCase);
+
+    private static string DirKey(string root) => Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    /// <summary>Where this repository's note attachments go (relative, forward slashes). A folder outside the repository is refused: the default is used.</summary>
+    internal static void SetAttachmentsDir(string repoRoot, string? dir)
+    {
+        string clean = (dir ?? "").Trim().Replace('\\', '/').Trim('/');
+        if (clean.Length == 0 || clean == DefaultAttachmentsDir || Path.IsPathRooted(clean) || clean.Split('/').Contains("..")) AttachDirs.TryRemove(DirKey(repoRoot), out _);
+        else AttachDirs[DirKey(repoRoot)] = clean;
+    }
+
+    private static string AttachmentsDir(string root) => AttachDirs.GetValueOrDefault(DirKey(root), DefaultAttachmentsDir);
+
+    /// <summary>The open repository the note lives in: by its own path, so a switch of the active project meanwhile cannot send its files elsewhere.</summary>
+    private static string? RootOf(Note note) =>
+        OpenSpecStoreApi.OpenRoots.FirstOrDefault(r => Path.GetFullPath(note.Path).StartsWith(DirKey(r) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) ?? OpenSpecStoreApi.RepoRoot;
 
     /// <summary>Copies the file to local/task-tracking/wi&lt;item&gt;/n&lt;note&gt;/ (never overwriting), makes sure local/ is git-ignored, and lists it.</summary>
     internal static (bool Success, string Message) AttachFile(int id, string sourcePath)
@@ -82,9 +99,10 @@ internal static class Commands
     private static (bool Success, string Message) Store(int id, string name, Action<string> write)
     {
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
-        if (OpenSpecStoreApi.RepoRoot is not string root) return (false, "No repository is open");
+        if (RootOf(note) is not string root) return (false, "No repository is open");
         if (name.Length == 0) return (false, "That file has no name");
-        string relDir = $"{AttachRoot}wi{note.WorkItemId}/n{id}";
+        string attachDir = AttachmentsDir(root);
+        string relDir = $"{attachDir}/wi{note.WorkItemId}/n{id}";
         string dir = Path.Combine(root, relDir.Replace('/', Path.DirectorySeparatorChar));
         string stem = Path.GetFileNameWithoutExtension(name), ext = Path.GetExtension(name);
         try
@@ -93,7 +111,7 @@ internal static class Commands
             string target = Path.Combine(dir, name);
             for (int n = 2; File.Exists(target); n++) target = Path.Combine(dir, $"{stem}-{n}{ext}");
             write(target);
-            IgnoreLocal(root);
+            IgnoreFolder(root, attachDir);
             return Append(note, $"{relDir}/{Path.GetFileName(target)}");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (false, e.Message); }
@@ -115,7 +133,8 @@ internal static class Commands
         meta.Id = id;
         if (meta.Attachments?.Remove(entry) != true) return (false, "That attachment is already gone");
         (bool ok, string message) = OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
-        if (ok && entry.StartsWith(AttachRoot, StringComparison.Ordinal) && !entry.Contains("..") && OpenSpecStoreApi.RepoRoot is string root)
+        // a file we copied: <any folder>/wi<item>/n<note>/<name>, so one from before the attachments folder was moved goes too
+        if (ok && !entry.Contains("..") && !entry.StartsWith('/') && System.Text.RegularExpressions.Regex.IsMatch(entry, $@"^[^:]+/wi{note.WorkItemId}/n{id}/[^/]+$") && RootOf(note) is string root)
             try { File.Delete(Path.Combine(root, entry.Replace('/', Path.DirectorySeparatorChar))); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         return (ok, message);
     }
@@ -130,14 +149,15 @@ internal static class Commands
     }
 
     /// <summary>Appends "local/" to the repository's .gitignore unless a line already says so.</summary>
-    private static void IgnoreLocal(string root)
+    private static void IgnoreFolder(string root, string attachDir)
     {
+        string ignored = attachDir == DefaultAttachmentsDir ? "local" : attachDir;   // the default keeps ignoring all of local/, as it always did
         string file = Path.Combine(root, ".gitignore");
         string text = File.Exists(file) ? File.ReadAllText(file) : "";
-        if (text.Replace("\r", "").Split('\n').Any(l => l.Trim() is "local/" or "/local/" or "local" or "/local")) return;
+        if (text.Replace("\r", "").Split('\n').Select(l => l.Trim().Trim('/')).Any(l => l.Length > 0 && (ignored == l || ignored.StartsWith(l + "/", StringComparison.Ordinal)))) return;
         string nl = text.Contains("\r\n") ? "\r\n" : "\n";
         string lead = text.Length == 0 || text.EndsWith('\n') ? "" : nl;
-        File.AppendAllText(file, $"{lead}# Repo Tasks: attachments and other per-user files{nl}local/{nl}");
+        File.AppendAllText(file, $"{lead}# Repo Tasks: attachments and other per-user files{nl}{ignored}/{nl}");
     }
 
     internal static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes)

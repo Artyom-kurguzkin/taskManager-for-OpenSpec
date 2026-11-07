@@ -472,20 +472,7 @@ document.addEventListener("copy", (e) => {
   e.preventDefault();
 });
 
-// Note page: a click outside the open editor closes it; pasting a clipboard image attaches it to the note.
-rtm.onOutside = function (el, dotnet) {
-  rtm.offOutside();
-  const h = (e) => {
-    if (el.contains(e.target) || e.target.closest?.(".rz-popup, .rz-dialog, .rz-overlay")) return;
-    rtm.offOutside();
-    dotnet.invokeMethodAsync("EditorOutside");
-  };
-  rtm._outside = h;
-  document.addEventListener("pointerdown", h, true);
-  return true;   // tells the page this listener is live, so it can ignore focusout (which also fires between toolbar buttons)
-};
-rtm.offOutside = function () { if (rtm._outside) document.removeEventListener("pointerdown", rtm._outside, true); rtm._outside = null; };
-
+// Note page: pasting a clipboard image attaches it to the note.
 rtm.pasteImages = function (dotnet) {
   rtm.stopPasteImages();
   const h = (e) => {

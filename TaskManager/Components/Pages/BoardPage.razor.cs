@@ -140,6 +140,8 @@ public partial class BoardPage
     private bool? subtasksApplied;            // the ShowSubtasks setting last pushed into the grid's expanded rows
 
     /// <summary>A column is shown unless hidden by the user, or it repeats what the rows are grouped by.</summary>
+    private static string Day(DateTime? d) => d is { } v ? v.ToString("d MMM") : "";
+
     private bool Shown(string column) => !BoardModel.IsHidden(O, BoardModel.ListColumnKey(column)) && column != BoardModel.GroupedColumn(O);
 
     // Asks what the grid is grouped by, not Multi: after the project list changes, the grid renders once with its old group

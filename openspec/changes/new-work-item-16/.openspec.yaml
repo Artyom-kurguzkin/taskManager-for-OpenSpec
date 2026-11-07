@@ -11,4 +11,4 @@ x-rtm:
   plan: DevResources/plans/eye-and-changelog-2026-11-05.md
   tests: [{suite: KeepingNotesTests, test: "A note's title is its first heading: SetTitle rewrites it, adds one when missing, refuses blank; AttachBytes stores pasted data like a picked file"}, {suite: UsingThePagesTests, test: 'The note page edits in place: the title is an input, clicking the note opens the editor, focusing out saves and shows the rendered note; a pasted image becomes an attachment'}]
   agentBy: Claude
-  agentAt: 2026-11-05T22:50:00
+  agentAt: 2026-11-07T08:50:49

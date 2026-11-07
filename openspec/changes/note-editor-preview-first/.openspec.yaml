@@ -3,6 +3,11 @@ created: 2026-10-28
 x-rtm:
   id: 64
   title: Notes editor
-  status: Planned
+  status: In Review
   label: enhancement
-  tests: [{suite: UsingThePagesTests, test: A note opens in preview; Edit shows the markdown editor; Done saves at once and returns to the updated preview}, {suite: UsingThePagesTests, test: 'Typing in the editor keeps every keystroke: the app binds the text, it never pushes an older copy back'}, {suite: UsingThePagesTests, test: A note is saved automatically shortly after typing stops}, {suite: UsingThePagesTests, test: 'Typing a [[doc]] link in a note adds it to the linked list straight away'}]
+  contributors: [Artyom-kurguzkin, Claude]
+  started: 2026-11-07
+  tests: [{suite: UsingThePagesTests, test: 'A note is edited like a work item description: click the text for a plain text box, leave it and the note is saved and shown rendered'}, {suite: UsingThePagesTests, test: 'The note page edits in place: the title is an input, clicking the note opens the editor, focusing out saves and shows the rendered note; a pasted image becomes an attachment'}, {suite: UsingThePagesTests, test: 'Typing in the editor keeps every keystroke: the app binds the text, it never pushes an older copy back'}, {suite: UsingThePagesTests, test: A note is saved automatically shortly after typing stops}, {suite: UsingThePagesTests, test: 'Typing a [[doc]] link in a note adds it to the linked list straight away'}]
+  plan: DevResources/plans/in-progress-items-2026-11-07.md
+  agentBy: Claude
+  agentAt: 2026-11-07T08:50:25

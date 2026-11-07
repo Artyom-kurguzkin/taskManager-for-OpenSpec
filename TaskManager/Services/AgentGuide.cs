@@ -8,42 +8,42 @@ public enum GuideChange { None, Created, Updated }
 /// <summary>
 /// openspec/REPO-TASKS.md: the conventions an agent has to follow so the app can show which work is its own and the board
 /// stays true. The app writes it when it opens a project and refreshes its own older copies in every open project; a file
-/// of the user's under that name, with no marker, is left alone. The user's plans folder is part of the text (agents only
-/// read the repository, not the settings), so the guide is rewritten when that setting changes.
+/// of the user's under that name, with no marker, is left alone. The user's plans and attachments folders are part of the text (agents only
+/// read the repository, not the settings), so the guide is rewritten when either setting changes.
 /// </summary>
 public static class AgentGuide
 {
     public const string FileName = "REPO-TASKS.md";
     private const string Marker = "<!-- repo-tasks-guide v";
-    private const int Version = 8;
+    private const int Version = 9;
 
     /// <summary>Writes the guide when it is missing, an older copy of ours, or ours with another plans folder.</summary>
-    public static GuideChange Ensure(string repoRoot, string plansDir)
+    public static GuideChange Ensure(string repoRoot, string plansDir, string attachmentsDir = SettingsStore.DefaultAttachmentsDir)
     {
         string path = Path.Combine(repoRoot, "openspec", FileName);
         bool exists = File.Exists(path);
         if (exists)
         {
             string first = File.ReadLines(path).FirstOrDefault() ?? "";
-            if (!first.StartsWith(Marker, StringComparison.Ordinal) || first == Head(plansDir)) return GuideChange.None;
+            if (!first.StartsWith(Marker, StringComparison.Ordinal) || first == Head(plansDir, attachmentsDir)) return GuideChange.None;
             bool older = int.TryParse(first[Marker.Length..].Split(' ')[0], out int v) && v < Version;
-            bool otherPlans = !older && first != Head(plansDir);
+            bool otherPlans = !older && first != Head(plansDir, attachmentsDir);
             if (!older && !otherPlans) return GuideChange.None;
         }
         OpenSpecStoreApi.ReadText(path);   // so the store sees what is on disk before it replaces it
-        (bool ok, string _) = OpenSpecStoreApi.WriteText(path, Text(plansDir));
+        (bool ok, string _) = OpenSpecStoreApi.WriteText(path, Text(plansDir, attachmentsDir));
         return !ok ? GuideChange.None : exists ? GuideChange.Updated : GuideChange.Created;
     }
 
-    private static string Head(string plansDir) => $"{Marker}{Version} plans={plansDir} -->";
+    private static string Head(string plansDir, string attachmentsDir) => $"{Marker}{Version} plans={plansDir} attachments={attachmentsDir} -->";
 
-    public static string Text(string plansDir) => $$"""
-        {{Head(plansDir)}}
+    public static string Text(string plansDir, string attachmentsDir = SettingsStore.DefaultAttachmentsDir) => $$"""
+        {{Head(plansDir, attachmentsDir)}}
         # Repo Tasks: conventions for agents
 
         This repository's `openspec/` folder is shown and edited by the **Repo Tasks** app, a board of work items.
         Every folder under `openspec/changes/` is a work item; a feature is a capability under `openspec/specs/`.
-        The app writes this file and refreshes it when it ships a newer version or the user moves the plans folder, so keep your own notes elsewhere.
+        The app writes this file and refreshes it when it ships a newer version or the user moves the plans or attachments folder, so keep your own notes elsewhere.
 
         ## 0. How to take on a task that is more than a quick fix
 
@@ -101,7 +101,7 @@ public static class AgentGuide
         - **Linked tests**: `x-rtm.tests: [{suite: <test class short name>, test: "<test display name>"}]` on one line. Names must match the latest results file the app reads (`x-rtm.testResults` in `openspec/config.yaml`); rerun the tests so the file is fresh.
         - **Linked commits**: `x-rtm.commits: [<7-char hash>, …]` for commits that do not mention `#wi<id>` in their message (those are linked by themselves).
         - **Plan**: `x-rtm.plan: <path>` when there is one (section 0); keep its status line current.
-        - **Attachments** on a note: `attachments: [<path or URL>, …]` in its frontmatter. Files go under `local/task-tracking/wi<item>/n<note>/`; `local/` is gitignored (the app adds it), so put nothing there that others need. Links are plain `https://` URLs.
+        - **Attachments** on a note: `attachments: [<path or URL>, …]` in its frontmatter. Files go under `{{attachmentsDir}}/wi<item>/n<note>/`; that folder is gitignored (the app adds it), so put nothing there that others need. Links are plain `https://` URLs.
         - **Subtasks**: tick what you finished (`- [x]`), add what you found out is still needed (signed, see 1).
         - **Spec and tasks text** of those items, where you changed the behaviour they describe.
         - **Status** and **dates**: set `status` to where the work is; `x-rtm.started: yyyy-MM-dd` is the day work began (the app stamps it on the first move to In Progress), `x-rtm.due: yyyy-MM-dd` the due day.

@@ -490,3 +490,5 @@ dist/
 tests/out/
 # Repo Tasks: attachments and other per-user files
 local/
+
+.claude/worktrees/

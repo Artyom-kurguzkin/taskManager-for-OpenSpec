@@ -34,12 +34,19 @@
         <label class="check"><input type="checkbox" id="f-hints" checked="@Settings.Current.Hints" @onchange="e => Settings.Update(s => s with { Hints = (bool)e.Value! })" /> on</label>
     </section>
 
-    @if (Workspace.Root is string repo)
+    @foreach (string repo in Workspace.OpenRepos)
     {
-        <section class="set-row">
-            <div><h3>Plans folder</h3><p class="muted">Where plans for @System.IO.Path.GetFileName(repo) live, relative to the repository (yours only; agents read it from openspec/REPO-TASKS.md). Empty = @SettingsStore.DefaultPlansDir.</p></div>
-            <div class="set-val"><input class="box text-in" data-sk value="@Settings.PlansDir(repo)" placeholder="@SettingsStore.DefaultPlansDir"
-                                        @onchange="e => Settings.SetPlansDir(repo, (string?)e.Value)" aria-label="Plans folder" /></div>
+        string project = System.IO.Path.GetFileName(repo.TrimEnd('\\', '/'));
+        <section class="set-row" data-project="@project">
+            <div><h3>Folders of @project</h3><p class="muted">Relative to the repository (yours only; agents read them from openspec/REPO-TASKS.md). Empty = @SettingsStore.DefaultPlansDir for plans, @SettingsStore.DefaultAttachmentsDir for attachments (kept out of git).</p></div>
+            <div class="set-val set-folders">
+                <span class="muted">Plans</span>
+                <input class="box text-in" data-sk value="@Settings.PlansDir(repo)" placeholder="@SettingsStore.DefaultPlansDir"
+                       @onchange="e => Settings.SetPlansDir(repo, (string?)e.Value)" aria-label="Plans folder" />
+                <span class="muted">Attachments</span>
+                <input class="box text-in" data-sk value="@Settings.AttachmentsDir(repo)" placeholder="@SettingsStore.DefaultAttachmentsDir"
+                       @onchange="e => Settings.SetAttachmentsDir(repo, (string?)e.Value)" aria-label="Attachments folder" />
+            </div>
         </section>
     }
 

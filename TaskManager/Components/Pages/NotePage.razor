@@ -24,29 +24,21 @@
         @if (note.AgentUnreviewed) { <div class="kv"><AgentChip By="@note.AgentBy" At="note.AgentAt" OnReview="() => Run(NotesApi.MarkReviewed(note.Id))" /></div> }
         <BackButton />
     </div>
-    @* the same tiles as the work item page. The note is read as rendered markdown; clicking it opens Radzen's markdown editor
-       (design mode, with a source switch in its toolbar), which autosaves as you type. A click anywhere outside the editor
-       saves at once and reads again (rtm.onOutside; focusout is the fallback where that script isn't running). *@
+    @* the same tiles as the work item page. The note is edited like a work item's description: the rendered markdown, and on
+       a click a plain text box (autosaved shortly after typing stops; leaving it saves at once and renders again). *@
     <div class="note-grid">
         <section class="tile" data-tile="note">
             <div class="tile-h"><h3>Note</h3></div>
             @if (editing)
             {
-                @* no link, image or table tools: those open dialogs; the Markdown is typed *@
-                <div class="note-editor" @ref="editorBox" @onfocusout="FocusedOut">
-                <RadzenMarkdownEditor Value="@body" ValueChanged="OnInput" Immediate="true" Rows="18" @bind-Mode="mode">
-                    <RadzenMarkdownEditorUndo /><RadzenMarkdownEditorRedo /><RadzenMarkdownEditorSeparator />
-                    <RadzenMarkdownEditorFormatBlock /><RadzenMarkdownEditorSeparator />
-                    <RadzenMarkdownEditorBold /><RadzenMarkdownEditorItalic /><RadzenMarkdownEditorStrikethrough /><RadzenMarkdownEditorSeparator />
-                    <RadzenMarkdownEditorQuote /><RadzenMarkdownEditorCode /><RadzenMarkdownEditorCodeBlock /><RadzenMarkdownEditorSeparator />
-                    <RadzenMarkdownEditorUnorderedList /><RadzenMarkdownEditorOrderedList /><RadzenMarkdownEditorTaskList /><RadzenMarkdownEditorHorizontalRule /><RadzenMarkdownEditorSeparator />
-                    <RadzenMarkdownEditorSource />
-                </RadzenMarkdownEditor>
-                </div>
+                <textarea @ref="editorBox" class="desc-in" rows="14" value="@body" @oninput="OnInput" @onblur="Done" aria-label="Note"></textarea>
             }
             else
             {
-                <div class="preview note-view hov" data-sk title="Click to edit" tabindex="0" @onclick="() => editing = true" @onkeydown="OpenKey">@Preview</div>
+                <div class="desc edit hov note-view" data-sk tabindex="0" @onclick="Edit" @onkeydown="OpenKey">
+                    @if (string.IsNullOrWhiteSpace(previewBody)) { <span class="muted">Click to add text</span> }
+                    else { @Preview }
+                </div>
             }
             <button class="add edit-ext" @onclick="EditExternally">@(Settings.Current.Editor is string e ? $"Edit in {e}" : "Edit in…")</button>
         </section>
@@ -121,8 +113,7 @@
     private int titleKey;
     private ElementReference editorBox;
     private DotNetObjectReference<NotePage>? self;
-    private bool outsideWired, outsideLive;
-    private MarkdownEditorMode mode = MarkdownEditorMode.Design;
+    private bool focusEditor;
     private CancellationTokenSource? pendingPreview;
     private DateTime modified;
     private IReadOnlyList<NoteLink> links = [];
@@ -144,9 +135,9 @@
         commits = [.. GitHistoryApi.Mentioning($"#wi{note.WorkItemId}").Concat(GitHistoryApi.Commits(note.Commits)).DistinctBy(c => c.Hash)];
     }
 
-    private void OnInput(string text)
+    private void OnInput(ChangeEventArgs e)
     {
-        body = text;
+        body = e.Value?.ToString() ?? "";
         // ponytail: link resolution reads the repo, so do it on a 250 ms pause rather than per keystroke
         pendingPreview?.Cancel();
         CancellationTokenSource preview = pendingPreview = new();
@@ -179,6 +170,7 @@
     /// <summary>Leaving the editor: save now (the autosave may still be pending) and read the note again.</summary>
     private void Done()
     {
+        if (!editing) return;
         pendingSave?.Cancel();
         pendingPreview?.Cancel();
         editing = false;
@@ -187,15 +179,9 @@
         Save();
     }
 
-    private void OpenKey(KeyboardEventArgs e) { if (e.Key is "Enter" or " ") editing = true; }
+    private void Edit() => editing = focusEditor = true;
 
-    // Focus also leaves the wrapper's inside when moving between toolbar buttons, so it only closes the editor
-    // when the outside-click script isn't live (it reports true when it is; bUnit's loose JS reports false).
-    private void FocusedOut() { if (editing && !outsideLive) Done(); }
-
-    /// <summary>Called by rtm.onOutside when the pointer goes down anywhere outside the editor.</summary>
-    [JSInvokable]
-    public void EditorOutside() => InvokeAsync(() => { if (editing) { Done(); StateHasChanged(); } });
+    private void OpenKey(KeyboardEventArgs e) { if (e.Key is "Enter" or " ") Edit(); }
 
     /// <summary>Called by rtm.pasteImages with a clipboard image: it becomes an attachment, like a picked file.</summary>
     [JSInvokable]
@@ -219,16 +205,9 @@
             self = DotNetObjectReference.Create(this);
             await Js.InvokeVoidAsync("rtm.pasteImages", self);
         }
-        if (editing && !outsideWired && self is not null)
-        {
-            outsideWired = true;
-            outsideLive = await Js.InvokeAsync<bool>("rtm.onOutside", editorBox, self);
-        }
-        else if (!editing && outsideWired)
-        {
-            outsideWired = outsideLive = false;
-            await Js.InvokeVoidAsync("rtm.offOutside");
-        }
+        if (!focusEditor) return;
+        focusEditor = false;
+        try { await editorBox.FocusAsync(); } catch (InvalidOperationException) { }
     }
 
     private void AddLink()
@@ -314,7 +293,6 @@
         {
             // the page is leaving: stop listening (fire and forget; the circuit may already be gone)
             _ = Js.InvokeVoidAsync("rtm.stopPasteImages").AsTask().ContinueWith(_ => { }, TaskScheduler.Default);
-            _ = Js.InvokeVoidAsync("rtm.offOutside").AsTask().ContinueWith(_ => { }, TaskScheduler.Default);
             self.Dispose();
         }
         base.Dispose();

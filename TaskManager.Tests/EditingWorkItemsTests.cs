@@ -121,6 +121,30 @@ public sealed class EditingWorkItemsTests
         Assert.EndsWith("- [ ] 2.1 Hide internals from anonymous callers\n- [ ] 2.2 Write docs\n", repo.Read(HealthTasks));
     }
 
+    [Fact(DisplayName = "Duplicate subtask numbers never collide: the later line reads as the next free number and the file is renumbered on the next write")]
+    public void DuplicateSubtaskNumbers()
+    {
+        using TestRepo repo = new();
+        string tasks = "# Tasks\n\n## 1. Endpoint\n\n- [ ] 1.1 First\n- [ ] 1.2 Second\n- [ ] 1.2 Twin of second\n- [x] 1.3 Third\n\n## 2. Hardening\n\n- [ ] 2.1 Hide\n- [ ] 2.1 Hide twin\n";
+        repo.Write(HealthTasks, tasks);
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.Equal(["1.1", "1.2", "1.4", "1.3", "2.1", "2.2"], Item(123).Subtasks.Select(s => s.Number));
+        Assert.Equal("Twin of second", Item(123).Subtasks.Single(s => s.Number == "1.4").Text);
+        Assert.Equal(tasks, repo.Read(HealthTasks));   // reading changes nothing
+
+        WorkItemsApi.SetSubtaskDone(123, "1.4", true);
+
+        Assert.Equal(tasks.Replace("- [ ] 1.2 Twin of second", "- [x] 1.4 Twin of second").Replace("- [ ] 2.1 Hide twin", "- [ ] 2.2 Hide twin"), repo.Read(HealthTasks));
+        WorkItemsApi.AddSubtask(123, "Write docs");
+        Assert.EndsWith("- [ ] 2.2 Hide twin\n- [ ] 2.3 Write docs\n", repo.Read(HealthTasks));
+
+        repo.Write(HealthTasks, "# Tasks\n\n## 1. Endpoint\n\n- [ ] 1.2 Later\n- [ ] 1.1 Earlier\n");   // the last line is not the highest: the next number must still be free
+        OpenSpecStoreApi.MarkOwnChange(repo.PathOf(HealthTasks));
+        WorkItemsApi.AddSubtask(123, "Newest");
+        Assert.EndsWith("- [ ] 1.1 Earlier\n- [ ] 1.3 Newest\n", repo.Read(HealthTasks));
+    }
+
     [Fact(DisplayName = "The first subtask of a new work item goes under its existing group heading")]
     public void FirstSubtaskOfNewItem()
     {
@@ -692,6 +716,28 @@ public sealed class EditingWorkItemsTests
         Assert.StartsWith("schema: spec-driven\n\n# lanes per column, written by the app\nx-rtm:\n", repo.Read("openspec/config.yaml"));
         WorkItemsApi.RemoveLane("Blocked", "Needs review");
         Assert.False(WorkItemsApi.GetLanes().ContainsKey("Blocked"));
+    }
+
+    [Fact(DisplayName = "Adding a subgroup that already exists is a quiet no-op, and placing an item in an unknown subgroup creates it")]
+    public void LaneNamesNeverDuplicate()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.True(WorkItemsApi.AddLane("In Progress", "  high PRIORITY ").Success);   // already there, whatever the case and spacing
+        Assert.True(WorkItemsApi.AddLane("Blocked", "Needs review").Success);
+        Assert.True(WorkItemsApi.AddLane("Blocked", "needs review").Success);
+
+        Assert.Equal(["High priority", "Lower priority"], WorkItemsApi.GetLanes()["In Progress"]);
+        Assert.Equal(["Needs review"], WorkItemsApi.GetLanes()["Blocked"]);
+
+        Assert.True(WorkItemsApi.SetLane(107, "Backlog", "Someday").Success);   // no such subgroup yet
+        Assert.True(WorkItemsApi.SetLane(125, "Blocked", "NEEDS REVIEW").Success);   // the existing spelling wins
+
+        Assert.Equal(["Someday"], WorkItemsApi.GetLanes()["Backlog"]);
+        Assert.Equal(["Needs review"], WorkItemsApi.GetLanes()["Blocked"]);
+        Assert.Equal("Someday", Item(107).Lanes["Backlog"]);
+        Assert.Equal("Needs review", Item(125).Lanes["Blocked"]);
     }
 
     [Fact(DisplayName = "Completing a work item archives the change through the OpenSpec CLI")]

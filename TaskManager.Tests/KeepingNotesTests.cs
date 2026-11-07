@@ -56,6 +56,52 @@ public sealed class KeepingNotesTests
         Assert.Equal(107, NotesApi.Get(124)!.WorkItemId);
     }
 
+    [Fact(DisplayName = "A note's next id counts every note in the repository, archived ones included, by file name and by frontmatter")]
+    public void NextIdCountsEveryNote()
+    {
+        using TestRepo repo = new();
+        repo.Write("openspec/changes/archive/2026-09-18-session-timeout/notes/n200.md", "---\nid: 150\nby: Tom\ncreated: 2026-09-01T09:00:00\n---\n# Old\n");   // the file name is the larger number
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string _, int first) = NotesApi.Create(107, "Tom");
+
+        Assert.True(ok);
+        Assert.Equal(201, first);
+        repo.Write("openspec/changes/plain-change/notes/n5.md", "---\nid: 300\nby: Tom\ncreated: 2026-10-01T09:00:00\n---\n# Odd\n");   // the frontmatter is the larger number
+        OpenSpecStoreApi.MarkOwnChange(repo.PathOf("openspec/changes/plain-change/notes/n5.md"));
+
+        (ok, _, int second) = NotesApi.Create(107, "Tom");
+
+        Assert.True(ok);
+        Assert.Equal(301, second);
+        Assert.True(File.Exists(repo.PathOf("openspec/changes/export-remittances/notes/n301.md")));
+    }
+
+    [Fact(DisplayName = "Two notes with the same id resolve themselves: the newer one takes the next free id and its file follows; a frontmatter id that disagrees with the file name follows the file name")]
+    public void DuplicateAndMismatchedNoteIdsResolve()
+    {
+        using TestRepo repo = new();
+        repo.Write("openspec/changes/archive/2026-09-18-session-timeout/notes/n130.md", "---\nid: 130\nby: Tom\ncreated: 2026-09-01T09:00:00\n---\n# Old\n");
+        repo.Write("openspec/changes/export-remittances/notes/n123.md", "---\nid: 123\nby: Tom\ncreated: 2026-10-05T10:00:00\n---\n# Twin note\n\nSee #n123.\n");   // written with a stale number, later than the original
+        repo.Write("openspec/changes/plain-change/notes/n7.md", "---\nid: 99\nby: Tom\ncreated: 2026-10-06T10:00:00\n---\n# Misnumbered\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        IReadOnlyList<Note> all = NotesApi.GetAll();
+
+        Assert.Equal([7, 123, 130, 131], all.Select(n => n.Id).Order());
+        Assert.Equal(123, NotesApi.Get(123)!.WorkItemId);   // the older note keeps the number and its file
+        Note moved = NotesApi.Get(131)!;
+        Assert.Equal((107, "Twin note"), (moved.WorkItemId, moved.Title));
+        Assert.Equal(repo.PathOf("openspec/changes/export-remittances/notes/n131.md"), moved.Path);
+        Assert.False(File.Exists(repo.PathOf("openspec/changes/export-remittances/notes/n123.md")));
+        Assert.Equal("---\nid: 131\nby: Tom\ncreated: 2026-10-05T10:00:00\n---\n# Twin note\n\nSee #n123.\n", repo.Read("openspec/changes/export-remittances/notes/n131.md"));   // links to #n123 are left as written
+        Assert.Equal("---\nid: 7\nby: Tom\ncreated: 2026-10-06T10:00:00\n---\n# Misnumbered\n", repo.Read("openspec/changes/plain-change/notes/n7.md"));
+        Assert.Contains("id: 123", repo.Read(NoteFile));
+
+        OpenSpecStoreApi.MarkOwnChange(repo.PathOf(NoteFile));   // read again from disk: nothing is renumbered twice
+        Assert.Equal(all.Select(n => (n.Id, n.Path)), NotesApi.GetAll().Select(n => (n.Id, n.Path)));
+    }
+
     [Fact(DisplayName = "Saving a note keeps its frontmatter")]
     public void SaveKeepsFrontmatter()
     {
@@ -180,5 +226,66 @@ public sealed class KeepingNotesTests
         Assert.Equal(png, File.ReadAllBytes(repo.PathOf(dir + "pasted-1.png")));
         Assert.Single(repo.Read(".gitignore").Replace("\r", "").Split('\n'), l => l.Trim() == "local/");
         Assert.False(NotesApi.AttachBytes(123, "", png).Success);
+    }
+
+    [Fact(DisplayName = "A note's attachment is stored under its project's attachments folder, the default being local/task-tracking")]
+    public void AttachmentsFolderPerProject()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        byte[] png = [0x89, 0x50, 0x4E, 0x47];
+        const string defaultDir = "local/task-tracking/wi123/n123/", custom = "files/shots/wi123/n123/";
+        try
+        {
+            Assert.True(NotesApi.AttachBytes(123, "a.png", png).Success);   // nothing configured: the default
+
+            NotesApi.SetAttachmentsDir(repo.Root, "files\\shots/");   // slashes and a trailing one are tidied
+            Assert.True(NotesApi.AttachBytes(123, "b.png", png).Success);
+            Assert.True(NotesApi.AttachBytes(123, "b.png", png).Success);   // never overwritten, here too
+            Assert.Equal([defaultDir + "a.png", custom + "b.png", custom + "b-2.png"], NotesApi.Get(123)!.Attachments);   // earlier entries stay where they were
+            Assert.Equal(png, File.ReadAllBytes(repo.PathOf(custom + "b.png")));
+            Assert.Contains(repo.Read(".gitignore").Replace("\r", "").Split('\n'), l => l.Trim() == "files/shots/");   // the folder is git-ignored
+            Assert.Contains(repo.Read(".gitignore").Replace("\r", "").Split('\n'), l => l.Trim() == "local/");        // as the default was before
+
+            Assert.True(NotesApi.RemoveAttachment(123, custom + "b.png").Success);   // the copied file goes with its entry
+            Assert.False(File.Exists(repo.PathOf(custom + "b.png")));
+            Assert.True(NotesApi.RemoveAttachment(123, defaultDir + "a.png").Success);   // also one from before the folder moved
+            Assert.False(File.Exists(repo.PathOf(defaultDir + "a.png")));
+
+            NotesApi.SetAttachmentsDir(repo.Root, "../outside");   // a folder outside the repository is refused: the default is used
+            Assert.True(NotesApi.AttachBytes(123, "c.png", png).Success);
+            Assert.True(File.Exists(repo.PathOf(defaultDir + "c.png")));
+
+            NotesApi.SetAttachmentsDir(repo.Root, "");   // empty = the default again
+            Assert.True(NotesApi.AttachBytes(123, "d.png", png).Success);
+            Assert.True(File.Exists(repo.PathOf(defaultDir + "d.png")));
+        }
+        finally { NotesApi.SetAttachmentsDir(repo.Root, null); }
+    }
+
+    [Fact(DisplayName = "A pasted image is written into the project its note lives in, even while another thread keeps switching the active project (no entry without its file)")]
+    public void AttachmentFollowsItsNoteNotTheActiveProject()
+    {
+        using TestRepo a = new();
+        using TestRepo b = new();
+        OpenSpecStoreApi.Open(a.Root, keepOthers: true);
+        OpenSpecStoreApi.Open(b.Root, keepOthers: true);   // the fixture's note 123 exists in both
+        OpenSpecStoreApi.Use(a.Root);
+        using CancellationTokenSource stop = new();
+        Task flipper = Task.Run(() =>
+        {
+            while (!stop.IsCancellationRequested) { OpenSpecStoreApi.Use(b.Root); OpenSpecStoreApi.Use(a.Root); }   // what Workspace.In does for a file event
+        });
+        byte[] png = [1, 2, 3];
+        for (int i = 0; i < 300; i++) NotesApi.AttachBytes(123, $"p{i}.png", png);
+        stop.Cancel();
+        flipper.Wait();
+
+        foreach (TestRepo repo in new[] { a, b })
+        {
+            string note = Path.Combine(repo.OpenSpec, "changes", "add-health-check", "notes", "n123.md");
+            foreach (string entry in File.ReadAllLines(note).Where(l => l.StartsWith("- local/")).Select(l => l[2..]))
+                Assert.True(File.Exists(repo.PathOf(entry)), $"{entry} is listed in {repo.Root} but the file is not there");
+        }
     }
 }

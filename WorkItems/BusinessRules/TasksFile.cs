@@ -23,6 +23,7 @@ internal static partial class TasksFile
     {
         List<Subtask> list = [];
         string group = "";
+        text = Normalize(text);
         int unnumbered = 0;
         foreach (string line in Lines(text))
         {
@@ -52,6 +53,7 @@ internal static partial class TasksFile
 
     internal static string Append(string text, string task)
     {
+        text = Normalize(text);
         IReadOnlyList<Subtask> subs = Parse(text);
         string nl = text.Contains("\r\n") ? "\r\n" : "\n";
         if (subs.Count == 0)
@@ -64,6 +66,8 @@ internal static partial class TasksFile
         }
         string last = subs[^1].Number;
         string next = last.Contains('.') ? $"{last[..last.LastIndexOf('.')]}.{int.Parse(last[(last.LastIndexOf('.') + 1)..]) + 1}" : $"{subs.Count + 1}";
+        for (HashSet<string> taken = [.. subs.Select(s => s.Number)]; taken.Contains(next);)   // never a number used anywhere in the file
+            next = next.Contains('.') ? $"{next[..next.LastIndexOf('.')]}.{int.Parse(next[(next.LastIndexOf('.') + 1)..]) + 1}" : $"{int.Parse(next) + 1}";
         List<string> lines = Lines(text).ToList();
         int at = lines.FindLastIndex(l => Checkbox().IsMatch(l)) + 1;
         lines.Insert(at, $"- [ ] {next} {task}");
@@ -74,6 +78,7 @@ internal static partial class TasksFile
     internal static string Remove(string text, IReadOnlyCollection<string> numbers)
     {
         string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+        text = Normalize(text);
         Dictionary<string, int> seq = [];
         List<string> kept = [];
         foreach (string line in Lines(text))
@@ -110,11 +115,38 @@ internal static partial class TasksFile
         return sb.ToString();
     }
 
+    /// <summary>
+    /// A number used twice (two agents appended 1.4, or a line was pasted) must not make two subtasks one: the later line
+    /// takes the next free number in its group (the highest in that group plus one). Reading shows that number and every
+    /// write puts it in the file. Text without duplicates is returned as it is.
+    /// </summary>
+    private static string Normalize(string text)
+    {
+        List<string> lines = Lines(text).ToList();
+        List<(int At, Match M)> numbered = lines.Select((l, i) => (i, Checkbox().Match(l))).Where(t => t.Item2.Success && t.Item2.Groups["num"].Success).ToList();
+        HashSet<string> used = [.. numbered.Select(t => Num(t.M))], seen = [];
+        if (used.Count == numbered.Count) return text;
+        foreach ((int at, Match m) in numbered)
+        {
+            string num = Num(m);
+            if (seen.Add(num)) continue;
+            string prefix = num.Contains('.') ? num[..num.LastIndexOf('.')] : "";
+            int top = used.Where(u => (u.Contains('.') ? u[..u.LastIndexOf('.')] : "") == prefix).Select(u => int.TryParse(u[(u.LastIndexOf('.') + 1)..], out int n) ? n : 0).Max();
+            string fresh = prefix.Length > 0 ? $"{prefix}.{top + 1}" : $"{top + 1}";
+            used.Add(fresh);
+            seen.Add(fresh);
+            lines[at] = lines[at][..m.Groups["num"].Index] + fresh + lines[at][(m.Groups["num"].Index + num.Length)..];
+        }
+        string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+        return string.Join(nl, lines) + (text.EndsWith('\n') ? nl : "");
+    }
+
     private static string Num(Match m) => m.Groups["num"].Value;
 
     private static string MapCheckboxes(string text, Func<Match, string, string> map)
     {
         string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+        text = Normalize(text);
         bool trailing = text.EndsWith(nl);
         string result = string.Join(nl, Lines(text).Select(l => Checkbox().Match(l) is { Success: true } m && m.Groups["num"].Success ? map(m, l) : l));
         return trailing ? result + nl : result;

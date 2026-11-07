@@ -1,6 +1,6 @@
 # No collisions, ever — 5 Nov 2026
 
-- **Status:** in progress
+- **Status:** done
 - **Date:** 2026-11-05
 - **Author:** Claude (agent)
 - **Work item:** #wi97 (and #wi87, which asked for it)

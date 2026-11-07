@@ -28,7 +28,6 @@
                             bool hidden = Settings.ProjectHidden(repo);
                             <span class="ic proj-eye @(hidden ? "off" : "")" role="button" tabindex="0" aria-label="@(hidden ? "Show" : "Hide") project @System.IO.Path.GetFileName(repo)"
                                   title="@(hidden ? "Hidden from the board: show it" : "Hide from the board")" @onclick:stopPropagation="true" @onclick="() => Settings.ToggleProjectHidden(repo)">@Ui.Icon(hidden ? "eyeoff" : "eye")</span>
-                            <span class="chip x" role="button" tabindex="0" aria-label="Close tab" @onclick:stopPropagation="true" @onclick="() => Workspace.CloseTab(repo)"></span>
                         }
                     </MenuItem>
                 }

@@ -10,21 +10,41 @@ namespace Notes;
 
 internal static partial class Queries
 {
-    /// <summary>All notes, parsed once per OpenSpecStore content version.</summary>
-    internal static IReadOnlyList<Note> GetAll()
+    /// <summary>All notes, parsed once per OpenSpecStore content version. Reading also settles id collisions (see <see cref="Load"/>).</summary>
+    internal static IReadOnlyList<Note> GetAll() => Cached().Notes;
+
+    private static (long Version, IReadOnlyList<Note> Notes, int MaxId) Cached()
     {
         long version = OpenSpecStoreApi.Version;
         string root = OpenSpecStoreApi.RepoRoot ?? "";
-        if (NotesModule.Cache.TryGetValue(root, out var c) && c.Version == version) return c.Notes;
-        IReadOnlyList<Note> notes = Load();
-        NotesModule.Cache[root] = (version, notes);
+        if (NotesModule.Cache.TryGetValue(root, out var c) && c.Version == version) return c;
+        (IReadOnlyList<Note> notes, int maxId, bool wrote) = Load();
+        if (wrote) version = OpenSpecStoreApi.Version;   // our own renames and rewrites are not a reason to read again
+        NotesModule.Cache[root] = (version, notes, maxId);
         NotesModule.Loads++;
-        return notes;
+        return NotesModule.Cache[root];
     }
 
-    private static IReadOnlyList<Note> Load()
+    private sealed class Raw(string file, int workItemId, int fileNumber, NoteMeta meta, string body, DateTime created)
     {
-        List<Note> notes = [];
+        internal string File = file;
+        internal int WorkItemId = workItemId, FileNumber = fileNumber;
+        internal NoteMeta Meta = meta;
+        internal string Body = body;
+        internal DateTime Created = created;
+        internal int Id => FileNumber > 0 ? FileNumber : Meta.Id;
+    }
+
+    /// <summary>
+    /// Reads every notes/n*.md of every change, archived ones included. Two collisions are settled here, so no page ever sees them:
+    /// a frontmatter id that disagrees with the file name is set to the file name's number; and when two files carry one id (an agent
+    /// wrote one with a stale number) the one created later, then the one in the later folder, takes the next free id: its file is
+    /// renamed and its frontmatter rewritten. #nN links to the old number in other notes are left as they are.
+    /// MaxId is the highest number seen anywhere, file names and frontmatter alike, before any of that.
+    /// </summary>
+    private static (IReadOnlyList<Note> Notes, int MaxId, bool Wrote) Load()
+    {
+        List<Raw> raws = [];
         foreach (WorkItem wi in WorkItemsApi.GetAll(includeHidden: true))
         {
             string dir = Path.Combine(wi.Path, "notes");
@@ -33,18 +53,45 @@ internal static partial class Queries
             {
                 (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(file));
                 NoteMeta meta = NoteFile.Meta(front);
-                int id = meta.Id > 0 ? meta.Id : int.TryParse(Path.GetFileNameWithoutExtension(file)[1..], out int n) ? n : 0;
+                int.TryParse(Path.GetFileNameWithoutExtension(file)[1..], out int number);
                 DateTime created = DateTime.TryParse(meta.Created, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime c) ? c : File.GetCreationTime(file);
-                notes.Add(new Note(id, wi.Id, file, NoteFile.Title(body, id), meta.By ?? "", created, File.GetLastWriteTime(file), body, meta.Links ?? [], meta.Commits ?? [], meta.Attachments ?? [],
-                    meta.AgentBy, Time(meta.AgentAt), Time(meta.ReviewedAt)));
+                raws.Add(new Raw(file, wi.Id, number, meta, body, created));
             }
         }
-        return notes;
+        int maxId = raws.Select(r => Math.Max(r.FileNumber, r.Meta.Id)).DefaultIfEmpty(0).Max();
+        bool wrote = false;
+
+        foreach (Raw r in raws.Where(r => r.FileNumber > 0 && r.Meta.Id > 0 && r.Meta.Id != r.FileNumber))   // the file name wins
+        {
+            r.Meta.Id = r.FileNumber;
+            wrote |= OpenSpecStoreApi.WriteText(r.File, NoteFile.Compose(r.Meta, r.Body)).Success;
+        }
+        foreach (IGrouping<int, Raw> twins in raws.Where(r => r.Id > 0).GroupBy(r => r.Id).Where(g => g.Count() > 1).ToList())
+            foreach (Raw r in twins.OrderBy(r => r.Created).ThenBy(r => r.FileNumber).ThenBy(r => r.File, StringComparer.Ordinal).Skip(1))
+            {
+                int id = ++maxId;
+                string target = Path.Combine(Path.GetDirectoryName(r.File)!, $"n{id}.md");
+                r.Meta.Id = id;
+                r.Meta.Created ??= r.Created.ToString("s", CultureInfo.InvariantCulture);
+                if (!OpenSpecStoreApi.WriteText(target, NoteFile.Compose(r.Meta, r.Body)).Success) continue;
+                OpenSpecStoreApi.MarkOwnChange(r.File);
+                try { File.Delete(r.File); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                r.File = target;
+                r.FileNumber = id;
+                wrote = true;
+            }
+
+        List<Note> notes = [];
+        foreach (Raw r in raws)
+            notes.Add(new Note(r.Id, r.WorkItemId, r.File, NoteFile.Title(r.Body, r.Id), r.Meta.By ?? "", r.Created, File.GetLastWriteTime(r.File), r.Body, r.Meta.Links ?? [], r.Meta.Commits ?? [], r.Meta.Attachments ?? [],
+                r.Meta.AgentBy, Time(r.Meta.AgentAt), Time(r.Meta.ReviewedAt)));
+        return (notes, maxId, wrote);
     }
 
     private static DateTime? Time(string? text) => DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime d) ? d : null;
 
-    internal static int NextId() => GetAll().Select(n => n.Id).DefaultIfEmpty(0).Max() + 1;
+    /// <summary>One more than the highest number any note file carries anywhere in the repository, by file name or frontmatter, archived changes included.</summary>
+    internal static int NextId() { var c = Cached(); return Math.Max(c.MaxId, c.Notes.Select(n => n.Id).DefaultIfEmpty(0).Max()) + 1; }
 
     [GeneratedRegex(@"\[\[(?<doc>[^\]]+)\]\]|#wi(?<wi>\d+)\b|#n(?<n>\d+)\b")]
     private static partial Regex Reference();

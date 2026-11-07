@@ -1,13 +1,16 @@
 schema: spec-driven
-skip_specs: true
 created: 2026-11-06
 x-rtm:
   id: 99
   title: list view collumn cut
-  status: Planned
+  status: In Review
   priority: high
-  contributors: [Artyom-kurguzkin]
+  contributors: [Artyom-kurguzkin, Claude]
   features: [organise-work-items]
   label: bug
   started: 2026-11-06
   due: 2026-11-09
+  tests: [{suite: UsingTheBoardTests, test: 'List cells keep their content inside the column: long text is cut with an ellipsis and shows in full as a tooltip'}]
+  plan: DevResources/plans/in-progress-items-2026-11-07.md
+  agentBy: Claude
+  agentAt: 2026-11-07T08:50:25

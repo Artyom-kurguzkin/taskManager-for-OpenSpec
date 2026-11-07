@@ -8,8 +8,8 @@
 
 ## 3. Ids
 
-- [ ] 3.1 Note ids counted across the archive; duplicates and file/frontmatter mismatches resolve on read <!-- agent: Claude -->
-- [ ] 3.2 Duplicate subtask numbers tolerated and renumbered; duplicate subgroup names a no-op <!-- agent: Claude -->
+- [x] 3.1 Note ids counted across the archive; duplicates and file/frontmatter mismatches resolve on read <!-- agent: Claude -->
+- [x] 3.2 Duplicate subtask numbers tolerated and renumbered; duplicate subgroup names a no-op <!-- agent: Claude -->
 
 ## 4. Verify
 

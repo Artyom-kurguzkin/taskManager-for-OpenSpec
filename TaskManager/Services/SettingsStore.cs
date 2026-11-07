@@ -14,7 +14,8 @@ public sealed record AppSettings(
     bool Hints = false,                // F shows keyboard hints on every clickable element (off until switched on)
     List<string>? HiddenProjects = null,      // tabs taken off the board and list (by Key); the side menu brings them back
     List<string>? CollapsedProjects = null,   // tabs folded to their heading on the board (by Key)
-    Dictionary<string, string>? PlansDirs = null);   // where plans live, per repository (by Key); missing = DevResources/plans
+    Dictionary<string, string>? PlansDirs = null,   // where plans live, per repository (by Key); missing = DevResources/plans
+    Dictionary<string, string>? AttachmentsDirs = null);   // where note attachments are copied, per repository (by Key); missing = local/task-tracking
 
 /// <summary>Per-user settings in a JSON file (AppData/RepoTaskManager/settings.json). Host-only, not repo data.</summary>
 public sealed class SettingsStore(string path)
@@ -49,15 +50,19 @@ public sealed class SettingsStore(string path)
     /// <summary>The repository-relative folder that holds plans, as it is written into the agent guide (forward slashes, no trailing slash).</summary>
     public const string DefaultPlansDir = "DevResources/plans";
     public string PlansDir(string repo) => Current.PlansDirs?.GetValueOrDefault(Key(repo)) ?? DefaultPlansDir;
-    public void SetPlansDir(string repo, string? dir)
+    public void SetPlansDir(string repo, string? dir) => Update(s => s with { PlansDirs = WithDir(s.PlansDirs, repo, dir, DefaultPlansDir) });
+
+    /// <summary>The repository-relative folder note attachments are copied to, under wi&lt;item&gt;/n&lt;note&gt;/ (forward slashes, no trailing slash).</summary>
+    public const string DefaultAttachmentsDir = "local/task-tracking";
+    public string AttachmentsDir(string repo) => Current.AttachmentsDirs?.GetValueOrDefault(Key(repo)) ?? DefaultAttachmentsDir;
+    public void SetAttachmentsDir(string repo, string? dir) => Update(s => s with { AttachmentsDirs = WithDir(s.AttachmentsDirs, repo, dir, DefaultAttachmentsDir) });
+
+    private static Dictionary<string, string>? WithDir(Dictionary<string, string>? dirs, string repo, string? dir, string fallback)
     {
         string clean = (dir ?? "").Trim().Replace('\\', '/').Trim('/');
-        Update(s =>
-        {
-            Dictionary<string, string> dirs = new(s.PlansDirs ?? []);
-            if (clean.Length == 0 || clean == DefaultPlansDir) dirs.Remove(Key(repo)); else dirs[Key(repo)] = clean;
-            return s with { PlansDirs = dirs.Count == 0 ? null : dirs };
-        });
+        Dictionary<string, string> copy = new(dirs ?? []);
+        if (clean.Length == 0 || clean == fallback) copy.Remove(Key(repo)); else copy[Key(repo)] = clean;
+        return copy.Count == 0 ? null : copy;
     }
 
     private static List<string> Toggle(List<string>? list, string key) => list?.Contains(key) == true ? list.Where(k => k != key).ToList() : [.. list ?? [], key];

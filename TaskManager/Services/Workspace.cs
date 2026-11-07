@@ -46,14 +46,21 @@ public sealed class Workspace : IDisposable
     }
 
     private string plansSeen;
-    private string PlansState => string.Join(";", (settings.Current.PlansDirs ?? []).Select(kv => kv.Key + "=" + kv.Value));
+    private string PlansState => string.Join(";", (settings.Current.PlansDirs ?? []).Select(kv => kv.Key + "=" + kv.Value)) + "|" + string.Join(";", (settings.Current.AttachmentsDirs ?? []).Select(kv => kv.Key + "=" + kv.Value));
+
+    /// <summary>Gives the Notes module the project's attachments folder and brings the project's agent guide up to date with its plans and attachments folders.</summary>
+    private void ConfigureProject(string root)
+    {
+        NotesApi.SetAttachmentsDir(root, settings.AttachmentsDir(root));
+        NoteGuide(root, AgentGuide.Ensure(root, settings.PlansDir(root), settings.AttachmentsDir(root)));
+    }
 
     /// <summary>The guide carries the plans folder, so moving it rewrites the guide in every open project (and says so at once). Other settings changes are ignored.</summary>
     private void RefreshGuides()
     {
         if (PlansState == plansSeen) return;
         plansSeen = PlansState;
-        foreach (string root in OpenSpecStoreApi.OpenRoots) NoteGuide(root, AgentGuide.Ensure(root, settings.PlansDir(root)));
+        foreach (string root in OpenSpecStoreApi.OpenRoots) ConfigureProject(root);
         if (TakeGuideNotice() is string notice) ui.Toast(notice);
     }
 
@@ -82,7 +89,7 @@ public sealed class Workspace : IDisposable
         GitHistoryApi.Configure(root, reset: fresh);
         WorkItemsApi.ConfigureContributors(() => GitHistoryApi.IsRepository() ? (GitHistoryApi.HeadToken(), GitHistoryApi.AuthorsOfChange) : null);
         settings.Update(s => s with { LastRepo = OpenSpecStoreApi.RepoRoot });
-        NoteGuide(root, AgentGuide.Ensure(root, settings.PlansDir(root)));
+        ConfigureProject(root);
         OpenTabs(root);
         KeepTabs();
         Notify();
@@ -93,7 +100,7 @@ public sealed class Workspace : IDisposable
     private void OpenTabs(string active)
     {
         foreach (string tab in OpenRepos.Where(t => !OpenSpecStoreApi.OpenRoots.Any(o => SettingsStore.Key(o) == SettingsStore.Key(t))))
-            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) { GitHistoryApi.Configure(tab); NoteGuide(tab, AgentGuide.Ensure(tab, settings.PlansDir(tab))); }
+            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) { GitHistoryApi.Configure(tab); ConfigureProject(tab); }
         OpenSpecStoreApi.Use(active);
         GitHistoryApi.Configure(active);
     }

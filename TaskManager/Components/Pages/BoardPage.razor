@@ -119,7 +119,7 @@ else if (O.View == "list")
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Id" Title="ID" Visible="@Shown("ID")" HeaderTemplate="@Head("ID")" Width="72px" CssClass="num" Filterable="false">
-                    <Template Context="row">@if (row.Item is not null) { <span class="muted num id">#wi@(row.Id)</span> }</Template>
+                    <Template Context="row">@if (row.Item is not null) { <span class="muted num id clip" title="#wi@(row.Id)">#wi@(row.Id)</span> }</Template>
                 </RadzenDataGridColumn>
                 @* the title: a chevron slot (subtasks fold out under the row) and the one-line title, like a task name in Asana or Linear *@
                 <RadzenDataGridColumn TItem="GridRow" Property="Title" Title="Title" Visible="@Shown("Title")" HeaderTemplate="@Head("Title")" MinWidth="260px" CssClass="title">
@@ -156,22 +156,30 @@ else if (O.View == "list")
                         }
                     </Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="GridRow" Property="Label" Title="Label" Visible="@Shown("Label")" HeaderTemplate="@Head("Label")" Width="126px">
+                <RadzenDataGridColumn TItem="GridRow" Property="Label" Title="Label" Visible="@Shown("Label")" HeaderTemplate="@Head("Label")" Width="172px">
                     <Template Context="row">@if (row.Item is WorkItem it) { <Pill Kind="label" Value="@(it.Label ?? "")" ValueChanged="v => Run(Workspace.In(row.Root, () => WorkItemsApi.SetLabel(it.Id, v)))" /> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Feature" Title="Feature" Visible="@Shown("Feature")" HeaderTemplate="@Head("Feature")" Width="132px">
-                    <Template Context="row">@if (row.Feature.Length > 0) { <span class="feat feat-one" title="@row.Feature">@row.Feature</span> }</Template>
+                    <Template Context="row">@if (row.Feature.Length > 0) { <span class="feat feat-one clip" title="@row.Feature">@row.Feature</span> }</Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="GridRow" Property="Contributors" Title="Contributors" Visible="@Shown("Contributors")" HeaderTemplate="@Head("Contributors")" Width="130px" />
+                <RadzenDataGridColumn TItem="GridRow" Property="Contributors" Title="Contributors" Visible="@Shown("Contributors")" HeaderTemplate="@Head("Contributors")" Width="130px">
+                    <Template Context="row"><span class="clip" title="@row.Contributors">@row.Contributors</span></Template>
+                </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Priority" Title="Priority" Visible="@Shown("Priority")" HeaderTemplate="@Head("Priority")" Width="100px">
                     <Template Context="row">@if (row.Item is WorkItem it) { <Pill Kind="priority" Value="@it.Priority" ValueChanged="v => Run(Workspace.In(row.Root, () => WorkItemsApi.SetPriority(it.Id, v)))" /> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Progress" Title="Progress" Visible="@Shown("Progress")" HeaderTemplate="@Head("Progress")" Width="96px" Filterable="false">
-                    <Template Context="row">@if (row.Item is WorkItem it) { <span class="prog"><i style="width:@(row.Progress)%"></i></span> <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span> }</Template>
+                    <Template Context="row">@if (row.Item is WorkItem it) { <span class="pcell"><span class="prog"><i style="width:@(row.Progress)%"></i></span> <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span></span> }</Template>
                 </RadzenDataGridColumn>
-                <RadzenDataGridColumn TItem="GridRow" Property="Modified" Title="Updated" Visible="@Shown("Updated")" HeaderTemplate="@Head("Updated")" Width="88px" FormatString="{0:d MMM}" CssClass="num muted" Filterable="false" />
-                <RadzenDataGridColumn TItem="GridRow" Property="Started" Title="Started" Visible="@Shown("Started")" HeaderTemplate="@Head("Started")" Width="88px" FormatString="{0:d MMM}" CssClass="num muted" Filterable="false" />
-                <RadzenDataGridColumn TItem="GridRow" Property="Due" Title="Due" Visible="@Shown("Due")" HeaderTemplate="@Head("Due")" Width="88px" FormatString="{0:d MMM}" CssClass="num" Filterable="false" />
+                <RadzenDataGridColumn TItem="GridRow" Property="Modified" Title="Updated" Visible="@Shown("Updated")" HeaderTemplate="@Head("Updated")" Width="88px" FormatString="{0:d MMM}" CssClass="num muted" Filterable="false">
+                    <Template Context="row"><span class="clip" title="@Day(row.Modified)">@Day(row.Modified)</span></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="GridRow" Property="Started" Title="Started" Visible="@Shown("Started")" HeaderTemplate="@Head("Started")" Width="88px" FormatString="{0:d MMM}" CssClass="num muted" Filterable="false">
+                    <Template Context="row"><span class="clip" title="@Day(row.Started)">@Day(row.Started)</span></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="GridRow" Property="Due" Title="Due" Visible="@Shown("Due")" HeaderTemplate="@Head("Due")" Width="88px" FormatString="{0:d MMM}" CssClass="num" Filterable="false">
+                    <Template Context="row"><span class="clip" title="@Day(row.Due)">@Day(row.Due)</span></Template>
+                </RadzenDataGridColumn>
             </Columns>
         </RadzenDataGrid>
     </div></div>

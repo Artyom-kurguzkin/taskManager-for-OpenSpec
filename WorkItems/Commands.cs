@@ -475,6 +475,27 @@ internal static partial class Commands
         }
     }
 
+    /// <summary>A subgroup already in the column (case and surrounding spaces ignored) is a quiet success: nothing is added twice.</summary>
+    internal static (bool Success, string Message) AddLane(string column, string lane)
+    {
+        lane = lane.Trim();
+        if (lane.Length == 0) return (false, "Type a name first");
+        return EditLanes(column, l => { if (!l.Any(x => string.Equals(x.Trim(), lane, StringComparison.OrdinalIgnoreCase))) l.Add(lane); });
+    }
+
+    /// <summary>Places the item in the column's subgroup, creating the subgroup when the column does not have it yet; an existing one keeps its spelling.</summary>
+    internal static (bool Success, string Message) SetLane(int id, string column, string lane)
+    {
+        lane = lane.Trim();
+        if (lane.Length == 0) return (false, "Type a name first");
+        string name = lane;
+        (bool ok, string message) = EditLanes(column, l =>
+        {
+            if (l.FirstOrDefault(x => string.Equals(x.Trim(), lane, StringComparison.OrdinalIgnoreCase)) is string found) name = found; else l.Add(lane);
+        });
+        return ok ? Update(id, m => (m.Lanes ??= [])[column] = name) : (ok, message);
+    }
+
     internal static (bool Success, string Message) EditLanes(string column, Action<List<string>> edit)
     {
         if (OpenSpecStoreApi.OpenSpecRoot is not string root) return (false, "No repository is open");

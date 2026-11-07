@@ -221,7 +221,7 @@ public sealed class SwitchingProjectsTests : IDisposable
         }
     }
 
-    [Fact(DisplayName = "Remove a project…, the last entry of the repository menu, asks which project to remove and closes that tab (files stay)")]
+    [Fact(DisplayName = "Remove a project…, the last entry of the repository menu and the only way to remove one (no close button on each project), asks which project to remove and closes that tab (files stay)")]
     public async Task RemoveProjectFromMenu()
     {
         (BunitContext ctx, Workspace workspace, IRenderedComponent<SideNav> nav) = NewContext();
@@ -230,6 +230,7 @@ public sealed class SwitchingProjectsTests : IDisposable
             workspace.OpenTab(repo2.Root);
             nav.Find("button.tabs-btn").Click();
             Assert.Equal("Remove a project…", nav.FindAll(".menu-item").Last().TextContent.Trim());
+            Assert.Empty(nav.FindAll(".menu-pop .chip.x"));   // no per-project close button
 
             nav.FindAll(".menu-item").Last().Click();
             overlays!.WaitForAssertion(() => Assert.Equal(2, overlays.FindAll(".dialog .choice").Count));
@@ -305,5 +306,50 @@ public sealed class SwitchingProjectsTests : IDisposable
     {
         repo1.Dispose();
         repo2.Dispose();
+    }
+
+    [Fact(DisplayName = "Settings lists every open project with its own plans folder and attachments folder, and each is saved for that project only")]
+    public async Task SettingsFoldersPerProject()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            Assert.True(workspace.OpenTab(repo2.Root).Success);
+            SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+            IRenderedComponent<TaskManager.Components.Pages.SettingsPage> page = ctx.Render<TaskManager.Components.Pages.SettingsPage>();
+
+            IReadOnlyList<AngleSharp.Dom.IElement> rows = page.FindAll("section[data-project]");
+            Assert.Equal([Path.GetFileName(repo1.Root), Path.GetFileName(repo2.Root)], rows.Select(r => r.GetAttribute("data-project")));
+            foreach (AngleSharp.Dom.IElement row in rows)
+            {
+                Assert.Equal("DevResources/plans", row.QuerySelector("input[aria-label='Plans folder']")!.GetAttribute("placeholder"));
+                Assert.Equal("local/task-tracking", row.QuerySelector("input[aria-label='Attachments folder']")!.GetAttribute("placeholder"));
+            }
+
+            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Attachments folder']")!.Change("files/att");
+            page.FindAll("section[data-project]")[0].QuerySelector("input[aria-label='Plans folder']")!.Change("notes/plans");
+
+            Assert.Equal(("files/att", "local/task-tracking"), (settings.AttachmentsDir(repo2.Root), settings.AttachmentsDir(repo1.Root)));
+            Assert.Equal(("notes/plans", "DevResources/plans"), (settings.PlansDir(repo1.Root), settings.PlansDir(repo2.Root)));
+            Assert.Equal("files/att", page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Attachments folder']")!.GetAttribute("value"));
+
+            // the guide of each project names its own folders; the other project's guide is not rewritten for it
+            Assert.Contains("attachments=files/att", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
+            Assert.Contains("`files/att/wi<item>/n<note>/`", repo2.Read("openspec/REPO-TASKS.md"));
+            Assert.Contains("attachments=local/task-tracking", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
+            Assert.Contains("plans=notes/plans", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
+
+            // a note's attachment goes to the folder of the project the note is in
+            byte[] png = [1, 2, 3];
+            Assert.True(workspace.In(repo2.Root, () => Notes.NotesApi.AttachBytes(123, "x.png", png)).Success);
+            Assert.True(workspace.In(repo1.Root, () => Notes.NotesApi.AttachBytes(123, "x.png", png)).Success);
+            Assert.True(File.Exists(repo2.PathOf("files/att/wi123/n123/x.png")));
+            Assert.True(File.Exists(repo1.PathOf("local/task-tracking/wi123/n123/x.png")));
+            Assert.False(File.Exists(repo1.PathOf("files/att/wi123/n123/x.png")));
+
+            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Attachments folder']")!.Change("");   // empty = the default again
+            Assert.Equal("local/task-tracking", settings.AttachmentsDir(repo2.Root));
+            Assert.Contains("attachments=local/task-tracking", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
+        }
     }
 }

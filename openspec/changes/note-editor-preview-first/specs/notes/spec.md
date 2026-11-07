@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
-### Requirement: Note page reads first, edits on request
-The note page SHALL open with the note rendered (wiki links, #wi and #n references resolved) and an Edit button. Edit SHALL replace the rendering with a markdown editor that has a toolbar, a design mode and a source mode, and SHALL autosave as the user types; Done SHALL save at once and show the rendering again.
+### Requirement: Note page edits like a description
+The note page SHALL show the note rendered (wiki links, #wi and #n references resolved). Clicking the rendered note SHALL replace it with the same plain text box the work item description uses, focused. The note SHALL autosave shortly after typing stops, and leaving the text box SHALL save at once and show the rendering again. Pasting an image while editing SHALL attach it to the note.
 
-#### Scenario: Read, edit, done
-- **WHEN** the user opens a note, presses Edit, types, and presses Done
-- **THEN** the note was rendered first, the editor took its place, the text was saved while typing and on Done, and the rendering shows the new text
+#### Scenario: Read, edit, leave
+- **WHEN** the user opens a note, clicks its text, types, and clicks outside
+- **THEN** the note was rendered first, a plain text box took its place, the text was saved while typing and on leaving, and the rendering shows the new text

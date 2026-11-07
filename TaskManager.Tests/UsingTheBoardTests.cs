@@ -1261,4 +1261,26 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Equal(mainTitle, merged.Title);
         Assert.Null(WorkItemsApi.Get(ids[0]));
     }
+
+    [Fact(DisplayName = "List cells keep their content inside the column: long text is cut with an ellipsis and shows in full as a tooltip")]
+    public async Task ListCellsClip()
+    {
+        await using BunitContext ctx = NewContext();
+        string longTitle = "A very long work item title that will not fit in any column of the list however wide " + new string('x', 120);
+        string people = "Alexandria Montgomery-Featherstonehaugh, Bartholomew Wolfeschlegelsteinhausenbergerdorff";
+        WorkItemsApi.SetTitle(123, longTitle);
+        WorkItemsApi.SetContributors(123, people.Split(", "));
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+
+        AngleSharp.Dom.IElement row = board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123"));
+        Assert.Equal(longTitle, row.QuerySelector("td.title .row-title")!.GetAttribute("title"));
+        Assert.Equal(people, row.QuerySelector("td .clip[title*='Montgomery']")!.GetAttribute("title"));
+        // every cell that holds plain text wraps it in the clipping span, with the full text as its tooltip
+        foreach (AngleSharp.Dom.IElement td in row.QuerySelectorAll("td.num, td.muted"))
+        {
+            AngleSharp.Dom.IElement clip = td.QuerySelector(".clip")!;
+            Assert.Equal(clip.TextContent.Trim(), clip.GetAttribute("title"));
+        }
+    }
 }
