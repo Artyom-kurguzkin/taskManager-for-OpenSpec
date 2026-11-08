@@ -199,7 +199,7 @@ public sealed class Workspace : IDisposable
                         foreach ((int oldId, int newId, string folder) in WorkItemsApi.ResolveDuplicateIds())
                         {
                             (bool ok, string _, int noteId) = NotesApi.Create(newId, "App");
-                            if (ok) NotesApi.SaveBody(noteId, $"# Renumbered from #wi{oldId}\n\nTwo changes carried the number #wi{oldId}. This one ({folder}) was created later, so it is now #wi{newId}. Anything that refers to #wi{oldId} means the other change.\n");
+                            if (ok && NotesApi.SetTitle(noteId, $"Renumbered from #wi{oldId}").Success) NotesApi.SaveBody(noteId, $"Two changes carried the number #wi{oldId}. This one ({folder}) was created later, so it is now #wi{newId}. Anything that refers to #wi{oldId} means the other change.\n");
                             ui.Toast($"#wi{oldId} was used twice: {folder} is now #wi{newId}", ToastKind.Warning);
                         }
                     });

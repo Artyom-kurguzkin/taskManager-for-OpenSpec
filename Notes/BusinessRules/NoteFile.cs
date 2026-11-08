@@ -8,12 +8,15 @@ internal sealed class NoteMeta
     public int Id { get; set; }
     public string? By { get; set; }
     public string? Created { get; set; }
+    public string? Title { get; set; }
     public List<string>? Links { get; set; }
     public List<string>? Commits { get; set; }
     public List<string>? Attachments { get; set; }
     public string? AgentBy { get; set; }
     public string? AgentAt { get; set; }
     public string? ReviewedAt { get; set; }
+    public int? MergedFrom { get; set; }       // a merge moved this note in from that work item
+    public string? MergedAt { get; set; }      // yyyy-MM-dd of that merge
 }
 
 /// <summary>A note file: a <c>---</c> frontmatter block, then the markdown body.</summary>
@@ -41,6 +44,8 @@ internal static class NoteFile
 
     internal static string Compose(NoteMeta meta, string body) => $"---\n{Writer.Serialize(meta).Replace("\r\n", "\n")}---\n{body.Replace("\r\n", "\n")}";
 
-    internal static string Title(string body, int id) =>
-        body.Split('\n').FirstOrDefault(l => l.StartsWith("# "))?[2..].Trim() is { Length: > 0 } h ? h : $"Note #n{id}";
+    /// <summary>The frontmatter <c>title:</c>; a note without one is titled by its first "# " heading (older notes), else by its number.</summary>
+    internal static string Title(string? metaTitle, string body, int id) =>
+        metaTitle?.Trim() is { Length: > 0 } t ? t
+        : body.Split('\n').FirstOrDefault(l => l.StartsWith("# "))?[2..].Trim() is { Length: > 0 } h ? h : $"Note #n{id}";
 }

@@ -4,6 +4,7 @@ using AngleSharp.Dom;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using Notes;
+using TaskManager.Components.Layout;
 using TaskManager.Components.Pages;
 using TaskManager.Components.Shared;
 using TaskManager.Services;
@@ -18,9 +19,11 @@ public sealed class UsingThePagesTests : IDisposable
     private readonly string settingsFile = Path.Combine(Path.GetTempPath(), "rtm-ui-" + Guid.NewGuid().ToString("N") + ".json");
     private IRenderedComponent<Overlays>? overlays;
 
-    private BunitContext NewContext(EditorLauncher? launcher = null)
+    private BunitContext NewContext(EditorLauncher? launcher = null, WindowLauncher? windows = null, AppMode? mode = null)
     {
         BunitContext ctx = new();
+        if (windows is not null) ctx.Services.AddSingleton(windows);
+        if (mode is not null) ctx.Services.AddSingleton(mode);
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<UiService>();
         ctx.Services.AddRadzenComponents();   // Radzen components ask for its services (the markdown editor wants DialogService)
@@ -849,9 +852,220 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("plain **typed** text", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
     }
 
+    [Fact(DisplayName = "An open work item sits beside the list: the layout renders the list on the left with the open item's row marked, the item on the right, and the split toggle hides the list and is remembered")]
+    public async Task SplitBesideTheList()
+    {
+        await using BunitContext ctx = NewContext();
+        Microsoft.AspNetCore.Components.NavigationManager nav = ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        Assert.True(settings.Current.Split);   // on unless switched off
+        Assert.Equal("board", settings.Board(repo.Root).View);   // the board is not in list view, the embedded list is one anyway
+
+        nav.NavigateTo("item/123");
+        IRenderedComponent<MainLayout> layout = ctx.Render<MainLayout>(p => p.Add(l => l.Body, (Microsoft.AspNetCore.Components.RenderFragment)(b =>
+        {
+            b.OpenComponent<TaskManager.Components.Pages.WorkItemPage>(0);
+            b.AddComponentParameter(1, "Id", 123);
+            b.CloseComponent();
+        })));
+
+        layout.WaitForAssertion(() => Assert.Equal(4, layout.FindAll("main.split .split-list tr[data-id]").Count));   // the grid groups its rows after the first render
+        Assert.Equal("123", layout.Find(".split-list tr[data-id].cur").GetAttribute("data-id"));
+        Assert.Single(layout.FindAll(".split-list tr.cur"));
+        Assert.Equal("Health-check endpoint", layout.Find(".split-item input.title-in").GetAttribute("value"));
+
+        // the marked row follows the address
+        nav.NavigateTo("item/107");
+        layout.WaitForAssertion(() => Assert.Equal("107", layout.Find(".split-list tr[data-id].cur").GetAttribute("data-id")));
+
+        // the split menu's "Item only" hides the list, and the choice outlives the app
+        PickSplit(layout, "Item only");
+        Assert.Empty(layout.FindAll(".split-list"));
+        Assert.Empty(layout.FindAll("main.split"));
+        Assert.NotEmpty(layout.FindAll("main input.title-in"));   // the item is still there, alone
+        Assert.False(settings.Current.Split);
+        Assert.False(new SettingsStore(settingsFile).Current.Split);
+
+        PickSplit(layout, "Beside the list");
+        Assert.NotEmpty(layout.FindAll(".split-list tr[data-id]"));
+        Assert.True(new SettingsStore(settingsFile).Current.Split);
+
+        // away from an item (the board itself) there is no split
+        nav.NavigateTo("/");
+        layout.WaitForAssertion(() => Assert.Empty(layout.FindAll(".split-list")));
+    }
+
+    [Fact(DisplayName = "The description and note editors fill their tile and have no border of their own while editing")]
+    public async Task EditorsFillTheirTile()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> item = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        item.Find(".tile[data-tile='description'] .desc.edit").Click();
+        IRenderedComponent<NotePage> note = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+        note.Find(".note-view").Click();
+
+        foreach (var box in new[] { item.Find(".tile[data-tile='description'] > textarea.desc-in"), note.Find(".tile[data-tile='note'] > textarea.desc-in") })
+        {
+            Assert.Null(box.GetAttribute("rows"));   // no fixed row count: the tile sizes it
+            Assert.Null(box.GetAttribute("style"));
+        }
+
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        string rule = System.Text.RegularExpressions.Regex.Matches(css, @"\n\s*textarea\.desc-in\s*\{([^}]*)\}").Last().Groups[1].Value;   // the last one wins the cascade
+        Assert.Matches(@"flex:\s*1 1 auto", rule);          // grows into what the tile has left
+        Assert.Matches(@"min-height:\s*12rem", rule);
+        Assert.Matches(@"resize:\s*none", rule);
+        Assert.Matches(@"border:\s*0\b", rule);              // the tile is the frame
+        Assert.Matches(@"outline:\s*none", rule);
+        Assert.Matches(@"background:\s*transparent", rule);
+        Assert.DoesNotMatch(@"[^-]height:\s*\d", rule);      // no fixed height
+        Assert.Matches(@"\.note-grid \.tile\[data-tile=""note""\][^{]*\{[^}]*min-height", css);   // the note tile is tall enough to fill, even beside short tiles
+    }
+
+    [Fact(DisplayName = "The Subtasks tile shows each task group as a collapsible header with its progress, and the Change log groups merged notes by source item and merge date")]
+    public async Task MergedGroupsAndLog()
+    {
+        await using BunitContext ctx = NewContext();
+        WorkItemsApi.SetSubtaskDone(107, "1.2", true);   // 107's only group is then done: it starts collapsed
+        (bool _, string _, int own) = NotesApi.Create(107, "Tom");
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123], 107);
+        Assert.True(ok, message);
+        string day = DateTime.Now.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture);
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, id));
+
+        Focus(page, "subtasks");
+        List<IElement> groups = page.FindAll(".tile[data-tile='subtasks'] .sub-group").ToList();
+        Assert.Equal(3, groups.Count);
+        Assert.Contains("Monthly remittance export", groups[0].TextContent);
+        Assert.Contains("2/2", groups[0].TextContent);
+        Assert.Contains("#wi123 Health-check endpoint · Endpoint", groups[1].TextContent);
+        Assert.Contains("2/3", groups[1].TextContent);
+        Assert.Equal("false", groups[0].GetAttribute("aria-expanded"));   // all done: collapsed
+        Assert.Equal("true", groups[1].GetAttribute("aria-expanded"));
+        Assert.DoesNotContain("Export job", page.Find(".tile[data-tile='subtasks']").TextContent);
+        Assert.Contains("Add /health route", page.Find(".tile[data-tile='subtasks']").TextContent);
+
+        groups[0].Click();
+        Assert.Contains("Export job", page.Find(".tile[data-tile='subtasks']").TextContent);
+        page.FindAll(".tile[data-tile='subtasks'] .sub-group")[1].Click();
+        Assert.DoesNotContain("Add /health route", page.Find(".tile[data-tile='subtasks']").TextContent);
+        page.Find("input[aria-label='New subtask']").Change("Last one");   // adding still works, into the last group
+        page.Find(".tile[data-tile='subtasks'] form.add-line").Submit();
+        Assert.Contains("Hardening", WorkItemsApi.Get(id)!.Subtasks.Single(s => s.Text == "Last one").Group);
+
+        Focus(page, "log");
+        IElement log = page.Find(".tile[data-tile='log'] .change-log");
+        Assert.Contains($"#n{own}", log.TextContent);   // the item's own note is listed as it is
+        IElement section = page.Find(".tile[data-tile='log'] .log-group");
+        Assert.Contains($"From #wi123 · merged {day}", section.TextContent);
+        Assert.Equal("false", section.GetAttribute("aria-expanded"));   // collapsed by default
+        Assert.DoesNotContain("#n123", log.TextContent);
+
+        section.Click();
+        Assert.Contains("#n123 · Ping test", page.Find(".tile[data-tile='log'] .change-log").TextContent);
+        Assert.Contains("Merged from #wi123", page.Find(".tile[data-tile='log'] .change-log").TextContent);
+    }
+
     public void Dispose()
     {
         repo.Dispose();
         File.Delete(settingsFile);
+    }
+
+    [Fact(DisplayName = "The work item page shows 'in <status> since' with the date the item last moved to that status")]
+    public async Task InStatusSince()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        Assert.Equal("in In Progress since", page.Find(".moved-field label").TextContent);
+        Assert.Equal(new DateOnly(2026, 9, 12).ToString("d MMM"), page.Find(".moved-field .chip").TextContent.Trim());   // no x-rtm.moved: the creation date
+
+        DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+        Assert.True(WorkItemsApi.SetStatus(123, "In Review").Success);
+        page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        Assert.Equal("in In Review since", page.Find(".moved-field label").TextContent);
+        Assert.Equal(today.ToString("d MMM"), page.Find(".moved-field .chip").TextContent.Trim());
+    }
+
+    // ── Split menu and the separate window ──
+
+    private static IRenderedComponent<MainLayout> RenderItemLayout(BunitContext ctx, int id) =>
+        ctx.Render<MainLayout>(p => p.Add(l => l.Body, (Microsoft.AspNetCore.Components.RenderFragment)(b =>
+        {
+            b.OpenComponent<WorkItemPage>(0);
+            b.AddComponentParameter(1, "Id", id);
+            b.CloseComponent();
+        })));
+
+    private static List<string> SplitChoices(IRenderedComponent<MainLayout> layout) =>
+        layout.FindAll(".menu-pop .menu-item").Select(i => i.TextContent.Trim()).ToList();
+
+    /// <summary>Opens the split menu and picks one entry by its text.</summary>
+    private static void PickSplit(IRenderedComponent<MainLayout> layout, string choice)
+    {
+        layout.Find("button.split-btn").Click();
+        layout.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == choice).Click();
+    }
+
+    [Fact(DisplayName = "The split button is a menu with Beside the list, Item only and Separate window; Separate window asks the launcher for a window on this item and the main window goes back to the board")]
+    public async Task SplitMenuWithSeparateWindow()
+    {
+        List<(string Root, int Id)> launched = [];
+        await using BunitContext ctx = NewContext(windows: (root, id) => { launched.Add((root, id)); return (true, ""); });
+        Microsoft.AspNetCore.Components.NavigationManager nav = ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        nav.NavigateTo("item/123");
+        IRenderedComponent<MainLayout> layout = RenderItemLayout(ctx, 123);
+        layout.WaitForAssertion(() => Assert.NotEmpty(layout.FindAll("main.split .split-list tr[data-id]")));
+
+        // the three choices; the current one is marked (beside the list is on until switched off)
+        layout.Find("button.split-btn").Click();
+        Assert.Equal(["Beside the list", "Item only", "Separate window"], SplitChoices(layout));
+        Assert.Equal(["Beside the list"], layout.FindAll(".menu-pop .menu-item.cur").Select(i => i.TextContent.Trim()));
+        Assert.Contains("wide-only", layout.FindAll(".menu-pop .menu-item")[0].ClassList);   // the CSS drops it in a narrow window; the other two stay
+
+        layout.FindAll(".menu-pop .menu-item")[1].Click();   // Item only
+        Assert.False(settings.Current.Split);
+        Assert.Empty(layout.FindAll("main.split"));
+        layout.Find("button.split-btn").Click();
+        Assert.Equal(["Item only"], layout.FindAll(".menu-pop .menu-item.cur").Select(i => i.TextContent.Trim()));
+        layout.FindAll(".menu-pop .menu-item")[0].Click();   // Beside the list
+        Assert.True(settings.Current.Split);
+        Assert.NotEmpty(layout.FindAll("main.split .split-list tr[data-id]"));
+        Assert.Empty(launched);
+
+        // Separate window: the launcher gets the repository and the item, the split choice is left alone, the main window goes to the board
+        PickSplit(layout, "Separate window");
+        Assert.Equal([(repo.Root, 123)], launched);
+        Assert.True(settings.Current.Split);
+        layout.WaitForAssertion(() => Assert.Equal("", nav.ToBaseRelativePath(nav.Uri)));
+        layout.WaitForAssertion(() => Assert.Empty(layout.FindAll("main.split")));
+    }
+
+    [Fact(DisplayName = "A detached window shows only the work item page, without the side menu, the split menu or the back button, and never writes the settings file")]
+    public async Task DetachedWindow()
+    {
+        AppMode mode = new() { Detached = true };
+        await using BunitContext ctx = NewContext(mode: mode);
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        settings.ReadOnly = true;   // what Program does for a detached window
+        string before = File.ReadAllText(settingsFile);
+        ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("item/123");
+
+        IRenderedComponent<MainLayout> layout = RenderItemLayout(ctx, 123);
+
+        Assert.Equal("Health-check endpoint", layout.Find("main input.title-in").GetAttribute("value"));
+        Assert.Empty(layout.FindAll("nav.side"));
+        Assert.Empty(layout.FindAll("main.split"));
+        Assert.Empty(layout.FindAll(".split-list"));
+        Assert.Empty(layout.FindAll("button.split-btn"));
+        Assert.Empty(layout.FindAll(".sheet-close"));
+
+        // settings changes live in this process only
+        settings.Update(s => s with { Theme = "dark", Split = false });
+        Assert.Equal("dark", settings.Current.Theme);
+        Assert.Equal(before, File.ReadAllText(settingsFile));
+        Assert.Equal("light", new SettingsStore(settingsFile).Current.Theme);
     }
 }

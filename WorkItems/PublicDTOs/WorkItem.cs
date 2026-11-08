@@ -33,6 +33,7 @@ public sealed record WorkItem(
     DateTime? ReviewedAt = null,               // x-rtm.reviewedAt: the user looked at it (set by the app)
     DateOnly? Started = null,                  // x-rtm.started: the day work started (stamped on the first move to In Progress)
     DateOnly? Due = null,                      // x-rtm.due
+    DateOnly? Moved = null,                    // x-rtm.moved: the day the item last moved to its status (null = never recorded: read it as Created)
     string? Plan = null)                       // x-rtm.plan: repo-relative path of a plan file
 {
     /// <summary>An agent stamped this item and the user has not reviewed it since.</summary>

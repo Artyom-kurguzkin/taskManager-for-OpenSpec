@@ -120,4 +120,28 @@ public sealed class ReadingWorkItemsTests
         OpenSpecStoreApi.Open(repo.Root);
         Assert.StartsWith("## Why\n\nExpose a lightweight /health endpoint", WorkItemsApi.GetDescription(123));
     }
+
+    [Fact(DisplayName = "Fixture files are read with LF line endings on every checkout, so file comparisons in tests do not depend on core.autocrlf")]
+    public void FixturesUseLf()
+    {
+        string root = Path.Combine(AppContext.BaseDirectory, "Fixtures", "sample-repo");
+        string[] withCr = Directory.GetFiles(root, "*", SearchOption.AllDirectories)
+            .Where(f => File.ReadAllText(f).Contains('\r'))
+            .Select(f => Path.GetRelativePath(root, f))
+            .ToArray();
+        Assert.Empty(withCr);
+    }
+
+    [Fact(DisplayName = "A change without x-rtm.moved reads as moved on its creation date")]
+    public void MovedMissing()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.Null(Item(123).Moved);   // nothing is written for it: the UI falls back to Created
+        Assert.Equal(new DateTime(2026, 9, 12), Item(123).Created);
+        string yaml = Path.Combine(Item(123).Path, ".openspec.yaml");
+        OpenSpecStoreApi.WriteText(yaml, OpenSpecStoreApi.ReadText(yaml).Replace("\r\n", "\n").Replace("  id: 123", "  id: 123\n  moved: 2026-10-03"));
+        Assert.Equal(new DateOnly(2026, 10, 3), Item(123).Moved);
+    }
 }

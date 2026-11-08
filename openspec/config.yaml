@@ -20,6 +20,8 @@ rules:
 x-rtm:
   features:
     - maintainability
+    - integration-with-agents
+    - general-ux
   lanes:
     board: [test, test-2]
   testResults:

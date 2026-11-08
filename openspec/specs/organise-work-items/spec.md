@@ -24,11 +24,15 @@ The board SHALL sort the cards within each column by priority, feature, contribu
 - **THEN** only work items whose contributors include Tom are shown, and column counts update
 
 ### Requirement: Board and list views
-The side menu's layout dropdown SHALL switch between Board and List; it is one control, not two buttons. The view options (group by, sort by, contributor filter, work items or subtasks, compact cards, show hidden) SHALL be in the expanded side menu. "Compact cards" SHALL show only the title band. The collapsed side menu SHALL also have a compact-cards button, highlighted while compact cards are on and disabled outside the board view.
+The side menu's layout dropdown SHALL switch between Board, List and Calendar; it is one control, not three buttons. The view options (group by, sort by, contributor filter, period filter, work items or subtasks, compact cards, show hidden) SHALL be in the expanded side menu. "Compact cards" SHALL show only the title band. The collapsed side menu SHALL also have a compact-cards button, highlighted while compact cards are on and disabled outside the board view.
 
 #### Scenario: Switch to list
 - **WHEN** the user opens the layout dropdown in the side menu and picks List
 - **THEN** the list table replaces the board and the dropdown reads "List"
+
+#### Scenario: Switch to calendar
+- **WHEN** the user picks Calendar
+- **THEN** the month calendar replaces the board and the dropdown reads "Calendar"
 
 #### Scenario: Compact cards
 - **WHEN** the user ticks "compact cards"
@@ -46,7 +50,7 @@ The board SHALL offer "show: work items | subtasks". In subtask mode every tasks
 - **THEN** that line in #wi123's tasks.md becomes `- [x]` and the column counts subtasks, not work items
 
 ### Requirement: List table
-The list view SHALL be a data grid with columns ID, Title, Status, Label, Feature, Contributors, Priority, Progress and Updated, over the same rows the board shows, grouped by the current grouping with collapsible group headers showing a count and an "+ Add item" row; an empty column SHALL keep its group with a "No items" row. The user SHALL be able to sort by any column (clicking a header sorts, again reverses, a third click clears; several columns at once), filter a column from the funnel in its header (operator and value, optionally a second pair joined by and/or), resize columns, and reorder them by dragging the grip at the left of a header. A column SHALL be hidden from the × in its header and listed under Hidden in the side menu, where the eye brings it back, exactly as a board column is. The grid SHALL carry no toolbar or filter row of its own. All of this SHALL be remembered per repository.
+The list view SHALL be a data grid with columns ID, Title, Status, Label, Feature, Contributors, Priority, Progress, Updated, Started and Due, over the same rows the board shows, grouped by the current grouping with collapsible group headers showing a count and an "+ Add item" row; an empty column SHALL keep its group with a "No items" row. The user SHALL be able to sort by any column (clicking a header sorts, again reverses, a third click clears; several columns at once), filter a column from the funnel in its header (operator and value, optionally a second pair joined by and/or), resize columns, and reorder them by dragging the grip at the left of a header. A column SHALL be hidden from the × in its header and listed under Hidden in the side menu, where the eye brings it back, exactly as a board column is. The grid SHALL carry no toolbar or filter row of its own. All of this SHALL be remembered per repository.
 
 #### Scenario: Sort by header
 - **WHEN** the user clicks the Updated header twice
@@ -70,17 +74,6 @@ Each list row with subtasks SHALL have an expand control that shows its subtasks
 #### Scenario: Expand all
 - **WHEN** the subtasks button is selected, then unselected
 - **THEN** first every row with subtasks shows them, then every work item stays but no subtask shows
-
-### Requirement: Custom sub-categories
-Any column SHALL accept user-defined subgroups (lanes) from its header menu ("+ Add subgroup…"), and SHALL allow removing them. Subgroup names per column SHALL be stored in `openspec/config.yaml` under `x-rtm.lanes`, and a work item's subgroup per column in its `x-rtm.lanes`. Items without a valid subgroup SHALL show in the column's first subgroup.
-
-#### Scenario: Add a sub-category
-- **WHEN** the user adds "Needs review" to the In Progress column
-- **THEN** In Progress shows a "Needs review" subgroup and `x-rtm.lanes` in config.yaml lists it
-
-#### Scenario: Drop into lane
-- **WHEN** the user drops #wi105 into the "Needs review" subgroup of In Progress
-- **THEN** its status becomes In Progress and its `x-rtm.lanes` maps In Progress to "Needs review"
 
 ### Requirement: Move by drag and drop
 Dropping a card on another column SHALL set the dimension that column stands for: the status, or replace the source feature or assigned contributor with the target one. Features derived from delta specs SHALL NOT be moved. Commit authors stay contributors wherever the card is dropped.
@@ -127,22 +120,34 @@ Archived (Completed) work items SHALL allow editing all metadata — label, prio
 - **THEN** a new work item is created in `openspec/changes/archive/`, combining their proposals and subtasks, and the source folders are removed
 
 ### Requirement: Column header actions
-Clicking a column header SHALL open a menu with: add a work item in this column, select all cards in the column, add a subgroup, remove an existing subgroup, hide the column, and (for features created from the board) delete the feature.
+Clicking a column header SHALL open a menu with: add a work item in this column, select all cards in the column, hide the column, and (for features created from the board) delete the feature.
 
 #### Scenario: Add from header
 - **WHEN** the user picks "Add work item here" on the Blocked column
 - **THEN** a new change is created with status Blocked and its detail page opens
 
 ### Requirement: Merge work items
-The user SHALL be able to select several cards (Ctrl/⌘/Shift-click) and merge them. The merged work item SHALL combine the proposals, tasks, delta specs, features and contributors of the sources, take the highest priority, and replace the sources. Merging SHALL be refused when two sources change the same requirement.
+The user SHALL be able to select several cards (Ctrl/⌘/Shift-click) and merge them. Merge SHALL ask which selected item is the main one ("Merge into…"): the merged work item keeps that item's title and description, and every other source's description becomes a note "Merged from #wi<N> <title>" on it. It SHALL combine the tasks, delta specs, features and contributors of the sources, take the highest priority, and replace the sources. No information SHALL be lost: it SHALL keep the sources' notes and other files, the label, linked commits and tests, lanes and dependencies, the task groups under headings naming their source, and the numbers they came from. Items that waited on a source SHALL wait on the merged item. Merging SHALL be refused when two active sources change the same requirement. Archived items SHALL always be mergeable, since their specs are already merged into `openspec/specs`: with only archived sources the result is archived and keeps all their specs; with an active source the result is active and keeps the archived specs under `from-wi<id>/specs/`, not in its own `specs/`, so archiving it cannot apply them twice.
 
 #### Scenario: Merge two
-- **WHEN** the user selects #wi107 and #wi105 and picks "Merge into one work item"
-- **THEN** one new change holds both proposals' text and all their subtasks, the two source folders are removed, and its change log names #wi107 and #wi105
+- **WHEN** the user selects #wi107 and #wi105, picks Merge and chooses #wi105 as the main one
+- **THEN** one new change has #wi105's title and description, a note "Merged from #wi107" with #wi107's description, all their subtasks, the two source folders are removed, and its change log names #wi107 and #wi105
 
 #### Scenario: Requirement conflict
 - **WHEN** both sources have a delta for requirement "Session timeout" in the same capability
 - **THEN** nothing changes and the message names the requirement and both work items
+
+#### Scenario: Notes and links survive
+- **WHEN** #wi107 has a note, a linked commit and a linked test and is merged with #wi123
+- **THEN** the merged item shows that note in its change log, lists that commit and test, and lists commits that mention #wi107
+
+#### Scenario: Archived items that changed the same requirement
+- **WHEN** two completed items both changed requirement "Keyboard hints" and the user merges them
+- **THEN** the merge succeeds, the result is archived, and both texts of the requirement are kept in its spec
+
+#### Scenario: Archived item merged into an active one
+- **WHEN** a completed item that changed "Session timeout" is merged with an active item
+- **THEN** the result is active, its own specs/ folder does not contain that change, and the text is kept in `from-wi<id>/specs/`
 
 ### Requirement: Reorder columns
 The user SHALL reorder columns in any grouping by dragging a column header along its row: the column lands at the gap the other columns open, in front of the column after the gap, or at the end of the row. The order SHALL be remembered per repository and grouping in the user's settings file, not in the repository.
@@ -475,11 +480,15 @@ A project SHALL be selected by Shift-clicking (or Ctrl/⌘-clicking) anywhere in
 - **THEN** it becomes the first project on the board and in the list, and stays first after a restart
 
 ### Requirement: Remove a project
-The repository menu SHALL end with "Remove a project…" while more than one project is open. It SHALL ask which project to remove and close that project's tab; nothing on disk SHALL change, and the last project SHALL not be removable.
+The repository menu SHALL end with "Remove a project…" while more than one project is open. It SHALL ask which project to remove and close that project's tab; nothing on disk SHALL change, and the last project SHALL not be removable. It SHALL be the only way to remove a project: the project rows in the menu SHALL have no close button.
 
 #### Scenario: Remove one of two
 - **WHEN** the user chooses Remove a project… and picks demo2
 - **THEN** demo2 leaves the board and the tabs, its folder stays, and the menu no longer offers Remove a project…
+
+#### Scenario: No close button on a project row
+- **WHEN** the user opens the repository menu with two projects open
+- **THEN** each project row shows its name and its eye, and no × button
 
 ### Requirement: New work item picks its project
 With several projects open, creating a work item from the side menu or from the shared header row SHALL first ask which project it goes to; the item SHALL be created there and that project SHALL become active. With one project open it SHALL be created at once, without asking. A column's own "+ Add work item here" SHALL use that column's project.
@@ -509,9 +518,111 @@ Anything selected with Shift-click — a card, a list row, a project heading, a 
 - **WHEN** the user Shift-clicks a card on the board and a row in the list
 - **THEN** both show the same solid line with a yellow halo round it, and neither changes its fill
 
-### Requirement: Priority subgroups
-A column without custom subgroups whose cards differ in priority SHALL show them under "High priority" and "Lower priority" headings, highest first. Dropping a card on a priority subgroup SHALL set its priority. A column whose cards share one priority SHALL show no heading; custom subgroups take precedence.
+### Requirement: Roadmap view
+The Calendar view SHALL be a roadmap. The left pane SHALL list the work items in the board's groups (group by), each group with a collapsible header showing its name and count, each item with its title and `#wiN`. The right pane SHALL be a timeline: at Month zoom one column per day over three months, at Quarter zoom one column per week over two quarters, with month names and date ticks in a sticky header and a line on today. Clicking a row or a bar SHALL open the item.
 
-#### Scenario: Drop on High priority
-- **WHEN** Backlog holds a high and a low card and the user drags the low card onto the "High priority" subgroup
-- **THEN** its priority becomes high and it shows under that heading
+#### Scenario: Quarter and next
+- **WHEN** the user picks Quarter and clicks next
+- **THEN** the columns are weeks and the window starts a quarter later; Today brings it back
+
+### Requirement: Roadmap bars
+Every item with a start or due date SHALL be a bar from its start to its due date (one day when only one is set), coloured by status, clipped with a dashed end at the window's edge; an undated item SHALL keep its row with no bar. Each group SHALL show a bar spanning its earliest start to its latest due with that range as text. Today SHALL bring the window back to today; previous and next SHALL move it by a month at Month zoom and a quarter at Quarter zoom.
+
+#### Scenario: Bars in the board's groups
+- **WHEN** the board groups by status and #wi123 (Backlog, 3 to 9 Nov) and #wi107 (In Progress, due 12 Nov) are shown at Month zoom
+- **THEN** Backlog lists #wi123 with a seven-day bar and In Progress lists #wi107 with a one-day bar on 12 Nov, each group with a bar spanning its items' dates
+
+### Requirement: List cells stay in their column
+In the list view every cell SHALL keep its content inside its own column, however narrow the column is. Text that does not fit SHALL be cut with an ellipsis and SHALL show in full as a tooltip; pills and chips SHALL shrink to fit, and a progress bar SHALL shrink so its count stays visible. The Label column SHALL be wide enough by default for every label name.
+
+#### Scenario: Long title in a narrow column
+- **WHEN** an item has a long title and long contributor names and the user narrows the columns
+- **THEN** each cell ends in an ellipsis inside its own column, nothing spills into the next column, and hovering shows the full text
+
+### Requirement: Calendar view
+The layout menu SHALL offer a Calendar view beside Board and List. It SHALL show one month in whole weeks from Monday, with ‹ › moving a month and Today returning to the current one, and the current day marked.
+
+#### Scenario: Next month and back
+- **WHEN** the user clicks › and then Today
+- **THEN** the heading reads the next month, then the current month again, whose current day is marked
+
+### Requirement: Calendar bars
+Every work item on the board (the same filters) with a start or due date SHALL be a bar from its start date to its due date, one day when only one is set, coloured by status, stacked so bars never overlap, with a dashed end where it continues into the week before or after. Clicking a bar SHALL open the item.
+
+#### Scenario: A bar across a week boundary
+- **WHEN** #wi123 started on Wednesday and is due the next Tuesday
+- **THEN** one bar runs Wednesday to Sunday with a dashed right end, and another Monday to Tuesday with a dashed left end
+
+#### Scenario: Only a due date
+- **WHEN** #wi107 has a due date and no start date
+- **THEN** it is a one-day bar on its due date
+
+### Requirement: Items without dates
+Open work items with neither a start nor a due date SHALL be listed beside the calendar under "No dates" with their count; completed items without dates SHALL NOT be listed. Clicking one SHALL open it.
+
+#### Scenario: No dates
+- **WHEN** #wi107 has no dates and #wi124 is completed without dates
+- **THEN** "No dates" lists #wi107 and not #wi124
+
+### Requirement: Group by time period
+The board and list SHALL group by due date (Overdue, Today, This week, Next week, Later, No due date) and by start date (Earlier, This week, Next week, Later, Not started), seen from today, weeks running Monday to Sunday. Grouped by due date the list SHALL hide the Due column, grouped by start date the Started column.
+
+#### Scenario: Due next week
+- **WHEN** today is Wednesday 4 November and #wi124 is due 12 November
+- **THEN** grouped by due date it is in Next week; grouped by start date without a start it is in Not started
+
+### Requirement: Period filter
+The expanded side menu SHALL have a period filter on the due date: any time, overdue, today, this week (today to Sunday), this month (today to the end of the month), no due date. It SHALL apply to the board, the list and the calendar, under any grouping, and be remembered per repository like the other view options.
+
+#### Scenario: Overdue only
+- **WHEN** the user picks "overdue"
+- **THEN** only items due before today remain in every column
+
+### Requirement: Dates on cards and rows
+A card SHALL show "due d MMM" as a tag, filled red while the item is overdue and not completed. The list SHALL have Started and Due columns.
+
+#### Scenario: Overdue card
+- **WHEN** #wi123 was due yesterday
+- **THEN** its card's due tag is red; an item due in two days has a plain due tag; an item without a due date has none
+
+### Requirement: Show or hide a project from the project switcher
+With several projects open, each project in the side menu's project switcher SHALL have an eye that hides it from the board, list and calendar, or shows it again, without switching to it and without closing the menu (the same setting as "Hide project" in the project's menu, so a hidden one is also listed under Hidden). There SHALL be no second list of projects in the view options.
+
+#### Scenario: Hide from the switcher
+- **WHEN** two projects are open and the user opens the switcher and clicks the eye next to the second
+- **THEN** the board shows only the first, the first stays the active project, the eye shows crossed out, and clicking it again brings the second back
+
+### Requirement: Organise by columns, rows and colour
+The side menu SHALL have an "Organise" block with three independent choices over the same fields (status, feature, label, priority, contributor, due date, start date): columns, rows (or none) and colour (or none). The board SHALL show the columns across and, with a row field, one row per value under the column headers, a multi-valued field putting an item in each of its rows; empty rows SHALL stay so a card can be dropped there.
+
+#### Scenario: Rows by feature
+- **WHEN** columns are by status and rows by feature
+- **THEN** the board shows the status columns once on top and a row per feature, each with a cell per status
+
+### Requirement: Dropping sets both fields
+Dropping a card into a cell SHALL set the column's field and, when it differs, the row's field. A due-date or start-date period SHALL NOT be set by a drop: the card stays where it was for that dimension and a message says why.
+
+#### Scenario: Drop across rows
+- **WHEN** columns are by status and rows by feature, and the user drags an unassigned Backlog card into the Maintainability row of Planned
+- **THEN** the card's status is Planned and its feature Maintainability
+
+### Requirement: Colour by any field
+Every card band, list row stripe and roadmap bar SHALL take its colour from the colour field: status, label and priority by their own colours, due and start dates by period, feature and contributor by a stable colour per value, none in a neutral colour. A legend under the colour choice SHALL name the colours shown.
+
+#### Scenario: Colour by label
+- **WHEN** colour is by label
+- **THEN** bug cards are peach, feature cards sky and enhancement cards sage, and the legend lists them
+
+### Requirement: The same organisation in every view
+The list SHALL group its rows by the row field, then by the column field, and the roadmap SHALL group its items the same way (a row header with column subgroups), both coloured by the colour field. With rows none they group by the columns alone.
+
+#### Scenario: List and roadmap by feature and status
+- **WHEN** rows are by feature and columns by status, and the user opens the list and then the calendar
+- **THEN** both show a group per feature holding a group per status
+
+### Requirement: Merged content by source and date
+A merge SHALL head each source's task group "#wi<N> <title> · merged <date>" and SHALL stamp every note it moves in with `mergedFrom` and `mergedAt`. The Subtasks tile SHALL show each task group as a collapsible header with its done and total counts (a fully done group starts collapsed; a single group shows no header). The Change log SHALL list the item's own notes first, then one collapsible section per merged source, newest merge first, headed "From #wi<N> · merged <date>".
+
+#### Scenario: Three items merged
+- **WHEN** #wi64 and #wi92 are merged into #wi85 on 9 Nov
+- **THEN** #wi85's subtasks show the groups "#wi64 Notes editor · merged 2026-11-09" and "#wi92 Changelog UI issues · merged 2026-11-09", and its change log ends with "From #wi92 · merged 9 Nov" and "From #wi64 · merged 9 Nov"

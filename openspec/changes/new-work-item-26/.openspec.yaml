@@ -1,0 +1,12 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-09
+x-rtm:
+  id: 118
+  title: remove the outer border for calendar, work item, note
+  status: In Progress
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-09
+  moved: 2026-11-09

@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-10-24
+x-rtm:
+  id: 47
+  title: Merging work items keeps everything
+  status: In Review
+  contributors: [Artyom-kurguzkin]
+  label: bug
+  started: 2026-10-26
+  due: 2026-11-01
+  moved: 2026-11-09
+  plan: DevResources/plans/in-progress-items-2026-11-09.md
+  tests: [{suite: EditingWorkItemsTests, test: Merging into a chosen item keeps that item's title and description; the other sources' descriptions become notes on the merged item}, {suite: UsingTheBoardTests, test: 'Merge asks which selected item is the main one, then merges the others into it'}, {suite: EditingWorkItemsTests, test: "Merging heads each source's task group with its number, title and merge date, and stamps the notes it moves in with the source number and merge date"}, {suite: UsingThePagesTests, test: 'The Subtasks tile shows each task group as a collapsible header with its progress, and the Change log groups merged notes by source item and merge date'}]
+  agentBy: Claude
+  agentAt: 2026-11-09T07:52:47

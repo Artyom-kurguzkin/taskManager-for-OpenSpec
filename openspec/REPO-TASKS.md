@@ -1,4 +1,4 @@
-<!-- repo-tasks-guide v9 plans=DevResources/plans attachments=local/task-tracking -->
+<!-- repo-tasks-guide v11 plans=DevResources/plans attachments=local/task-tracking -->
 # Repo Tasks: conventions for agents
 
 This repository's `openspec/` folder is shown and edited by the **Repo Tasks** app, a board of work items.
@@ -48,6 +48,7 @@ When work lands, update **every** open work item it touches: the one you worked 
   id: 44
   by: Claude
   created: 2026-11-05T17:00:00
+  title: 5 Nov — what changed
   agentBy: Claude
   agentAt: 2026-11-05T17:00:00
   links: [wi12, n9]
@@ -58,13 +59,15 @@ When work lands, update **every** open work item it touches: the one you worked 
   One or two sentences a person would understand without reading the diff.
   ```
 
+  The note's title goes in `title:` (a note without one is titled by its first `# ` heading, which still works); the app edits only that key when the user retitles a note, never the body.
+
 - **Linked tests**: `x-rtm.tests: [{suite: <test class short name>, test: "<test display name>"}]` on one line. Names must match the latest results file the app reads (`x-rtm.testResults` in `openspec/config.yaml`); rerun the tests so the file is fresh.
 - **Linked commits**: `x-rtm.commits: [<7-char hash>, …]` for commits that do not mention `#wi<id>` in their message (those are linked by themselves).
 - **Plan**: `x-rtm.plan: <path>` when there is one (section 0); keep its status line current.
 - **Attachments** on a note: `attachments: [<path or URL>, …]` in its frontmatter. Files go under `local/task-tracking/wi<item>/n<note>/`; that folder is gitignored (the app adds it), so put nothing there that others need. Links are plain `https://` URLs.
 - **Subtasks**: tick what you finished (`- [x]`), add what you found out is still needed (signed, see 1).
 - **Spec and tasks text** of those items, where you changed the behaviour they describe.
-- **Status** and **dates**: set `status` to where the work is; `x-rtm.started: yyyy-MM-dd` is the day work began (the app stamps it on the first move to In Progress), `x-rtm.due: yyyy-MM-dd` the due day.
+- **Status** and **dates**: set `status` to where the work is; `x-rtm.started: yyyy-MM-dd` is the day work began (the app stamps it on the first move to In Progress), `x-rtm.due: yyyy-MM-dd` the due day, `x-rtm.moved: yyyy-MM-dd` the day it last moved to its status (the app stamps it on creation and on every status change; set it yourself only when you change `status` in the file).
 
 ## 3. Create a work item
 

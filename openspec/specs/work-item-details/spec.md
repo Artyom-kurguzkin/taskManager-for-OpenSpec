@@ -202,11 +202,15 @@ The Subtasks tile of an active work item SHALL offer "+ wait on another work ite
 - **THEN** neither #wi123 nor #wi107 is listed
 
 ### Requirement: Attachments on notes
-A note MAY have attachments, listed in its frontmatter as `attachments:` entries: repository-relative file paths or http(s) URLs. Attaching a file SHALL copy it to `local/task-tracking/wi<item>/n<note>/<name>` (a taken name gets `-2`, `-3`…) and SHALL add `local/` to the repository's `.gitignore` when it is not ignored yet, so attachments never enter git. Attaching a link SHALL accept only absolute http(s) URLs. Removing an attachment SHALL forget it and delete a copied file.
+A note MAY have attachments, listed in its frontmatter as `attachments:` entries: repository-relative file paths or http(s) URLs. Attaching a file SHALL copy it to `<attachments folder>/wi<item>/n<note>/<name>` in the repository the note lives in (a taken name gets `-2`, `-3`…); the attachments folder is set per project in Settings and defaults to `local/task-tracking`. The app SHALL add the folder (`local/` for the default) to that repository's `.gitignore` when it is not ignored yet, so attachments never enter git. Attaching a link SHALL accept only absolute http(s) URLs. Removing an attachment SHALL forget it and delete a copied file.
 
 #### Scenario: Attach a screenshot
 - **WHEN** the user attaches `shot.png` to note #n44 of #wi85 in a repository whose `.gitignore` has no `local/` line
 - **THEN** the file is at `local/task-tracking/wi85/n44/shot.png`, `.gitignore` ends with `local/`, and the note's frontmatter lists that path
+
+#### Scenario: Paste while another project is open
+- **WHEN** two projects are open, demo2's attachments folder is `files/shots`, and the user pastes an image into a demo2 note
+- **THEN** the file is under demo2's `files/shots/wi<item>/n<note>/`, nothing is written to the other project, and the note lists that path
 
 ### Requirement: Attachments on the note page
 The note page SHALL list a note's attachments: an image inline, another file by its name opening in the operating system, a URL as a link, each with a remove control. "Attach file…" SHALL open the system file picker; a field SHALL add a link.
@@ -235,3 +239,54 @@ A work item MAY link a plan with `x-rtm.plan`, a repository-relative path. While
 #### Scenario: Outside the repository
 - **WHEN** `/doc/../outside.md` is opened
 - **THEN** the page says not found and reads nothing
+
+### Requirement: Start and due dates
+A work item SHALL have an optional start date (`x-rtm.started`) and due date (`x-rtm.due`), both `yyyy-MM-dd`. The first move to In Progress SHALL stamp the start date with today when it is empty, and a start date already there SHALL be kept. The work item page SHALL edit both with one "dates" range control: the first day clicked is the start, the second the due date (picked backwards they swap); Clear removes both.
+
+#### Scenario: Started on first move
+- **WHEN** #wi107 with no start date moves to In Progress, back to Planned and to In Progress again a week later
+- **THEN** `started` is the day of the first move
+
+#### Scenario: Pick a range and clear it
+- **WHEN** the user opens the dates control, clicks 10 November and then 14 November, and later presses Clear
+- **THEN** `.openspec.yaml` first has `started: 2026-11-10` and `due: 2026-11-14` and the control reads "10 Nov – 14 Nov", then neither key
+
+### Requirement: Transition date
+A work item SHALL carry `x-rtm.moved` (`yyyy-MM-dd`): the day it last moved to its status. Creation SHALL stamp it with that day, every status change SHALL restamp it with the day of the change, and setting the same status again SHALL leave it. A change without the key SHALL read as moved on its creation date. The work item page SHALL show it as "in <status> since <date>" beside the dates, and the list SHALL have an "In status since" column after Due.
+
+#### Scenario: Moved to In Progress
+- **WHEN** #wi107, created on 1 Nov, moves to In Progress on 7 Nov
+- **THEN** `moved` is 2026-11-07, the page reads "in In Progress since 7 Nov", and the list column shows 7 Nov
+
+#### Scenario: No key yet
+- **WHEN** a change created on 18 Sep has no `moved` key
+- **THEN** the page reads "in <status> since 18 Sep" and the key is not written until the status changes
+
+### Requirement: Split view
+On a window at least 1400px wide, an open work item SHALL render beside the list: the list view on the left with the open item's row marked as current, the work item page on the right. Clicking a row in that list SHALL open the item on the right while the list keeps its scroll position and filters. The item page SHALL have a toggle that hides the list; the choice SHALL be remembered. Below that width only the item SHALL show.
+
+#### Scenario: Open the next item
+- **WHEN** #wi123 is open beside the list and the user clicks the row of #wi107
+- **THEN** #wi107 shows on the right, its row is marked, and the list has not scrolled
+
+#### Scenario: Hide the list
+- **WHEN** the user clicks the split toggle and reopens the app
+- **THEN** the item fills the window and the list stays hidden until the toggle is clicked again
+
+### Requirement: Item in a separate window
+The split menu SHALL offer "Beside the list", "Item only" and "Separate window" (only the last two on a narrow window). "Separate window" SHALL open the item in a second window titled "#wi<N> <title>" and return the main window to the board. That window SHALL show only the work item page, without the side menu, the split menu or the back button, and SHALL never write the settings file; edits made in either window SHALL show in the other.
+
+#### Scenario: Move the item out
+- **WHEN** #wi93 is open and the user picks Separate window from the split menu
+- **THEN** a second window shows #wi93 alone, the main window shows the board, and a title edited in the second window appears in the main window
+
+### Requirement: Folders per project in Settings
+Settings SHALL list every open project under its name with its location (the repository path, with a control that shows it in the file manager), its plans folder and its attachments folder, each relative to that repository; empty means the default (`DevResources/plans`, `local/task-tracking`). A change SHALL apply to that project only and SHALL rewrite that project's `openspec/REPO-TASKS.md`, whose first line names both folders.
+
+#### Scenario: Every location shown
+- **WHEN** demo and demo2 are open and the user opens Settings
+- **THEN** each project's row is headed by its name and shows its own folder path, and the top row is an empty "Open another repository" box
+
+#### Scenario: Two projects, two attachments folders
+- **WHEN** demo and demo2 are open and the user sets demo2's attachments folder to `files/shots`
+- **THEN** demo2's agent guide names `files/shots`, demo keeps `local/task-tracking`, and a note attachment in each project goes to its own folder

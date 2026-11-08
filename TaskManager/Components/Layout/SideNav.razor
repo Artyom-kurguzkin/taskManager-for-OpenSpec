@@ -61,7 +61,23 @@
         @if (expanded && OnBoard)
         {
             <div class="nav-view">
-                <div class="field"><label>group by</label><Dropdown Label="group by" Class="is-group" Options="BoardPage.GroupBys" Value="@O.GroupBy" ValueChanged="v => Set(O with { GroupBy = v })" /></div>
+                @* three independent options over one field list, the same in the board, the list and the calendar *@
+                <div class="organise" role="group" aria-label="Organise">
+                    <div class="nav-h">Organise</div>
+                    <div class="field"><label>columns</label><Dropdown Label="columns" Class="is-group" Options="BoardPage.GroupBys" Value="@O.GroupBy" ValueChanged="v => Set(O with { GroupBy = v })" /></div>
+                    <div class="field"><label>rows</label><Dropdown Label="rows" Options="BoardPage.Swimlanes" Value="@O.Swimlane" ValueChanged="v => Set(O with { Swimlane = v })" /></div>
+                    <div class="field"><label>colour</label><Dropdown Label="colour" Options="BoardPage.ColorBys" Value="@O.ColorBy" ValueChanged="v => Set(O with { ColorBy = v })" /></div>
+                    @if (Legend is { Count: > 0 } legend)
+                    {
+                        <div class="legend" aria-label="Colour legend">
+                            @foreach ((string label, string colour) in legend.Take(8))
+                            {
+                                <span class="lg"><i style="--sw:var(@colour)"></i>@label</span>
+                            }
+                            @if (legend.Count > 8) { <span class="lg more">+@(legend.Count - 8) more</span> }
+                        </div>
+                    }
+                </div>
                 <div class="field"><label>sort by</label><Dropdown Label="sort by" Options="BoardPage.SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
                 <div class="field"><label>contributor</label><Dropdown Label="contributor" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
                 <div class="field"><label>period</label><Dropdown Label="period" Options="BoardPage.Periods" Value="@O.Period" ValueChanged="v => Set(O with { Period = v })" /></div>
@@ -120,6 +136,9 @@
 
     private IReadOnlyList<(string, string)> People =>
         [("all", "everyone"), .. WorkItemsApi.GetAll(includeHidden: O.ShowHidden).SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
+
+    // What the colours mean, for the active project's items under the current filters.
+    private IReadOnlyList<(string Label, string Colour)> Legend => BoardModel.Legend(WorkItemsApi.GetAll(includeHidden: O.ShowHidden), FeaturesApi.GetAll(), O);
 
     // Hidden columns of the current grouping, and in the list view the grid's hidden columns too.
     private List<string> HiddenHere => (O.Hidden ?? []).Where(k => k.StartsWith(BoardModel.ColumnKey(O, "")) || (O.View == "list" && k.StartsWith(BoardModel.ListColumnKey("")))).ToList();

@@ -1,0 +1,16 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-06
+x-rtm:
+  id: 98
+  title: 18 tests fail on a Windows checkout
+  status: In Review
+  contributors: [Claude]
+  features: [maintainability]
+  label: bug
+  started: 2026-11-07
+  moved: 2026-11-09
+  plan: DevResources/plans/in-progress-items-2026-11-07b.md
+  tests: [{suite: ReadingWorkItemsTests, test: 'Fixture files are read with LF line endings on every checkout, so file comparisons in tests do not depend on core.autocrlf'}]
+  agentBy: Claude
+  agentAt: 2026-11-07T14:47:35

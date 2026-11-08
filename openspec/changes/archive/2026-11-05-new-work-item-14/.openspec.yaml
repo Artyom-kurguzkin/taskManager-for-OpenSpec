@@ -7,7 +7,7 @@ x-rtm:
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [work-item-details]
-  label: enhancement
+  label: feature
   started: 2026-11-02
   due: 2026-11-08
   plan: DevResources/plans/in-progress-sweep-2026-11-05.md

@@ -87,7 +87,8 @@ public sealed class EditingWorkItemsTests
 
         WorkItemsApi.SetStatus(123, "Blocked");
 
-        Assert.Equal(before.Replace("status: In Progress", "status: Blocked"), repo.Read(HealthYaml));
+        // the status line changes and the move is stamped (x-rtm.moved); nothing else moves
+        Assert.Equal(before.Replace("status: In Progress", "status: Blocked") + $"  moved: {DateOnly.FromDateTime(DateTime.Today):yyyy-MM-dd}\n", repo.Read(HealthYaml));
     }
 
     [Fact(DisplayName = "The first edit of a change created outside the app writes its provisional number")]
@@ -666,10 +667,11 @@ public sealed class EditingWorkItemsTests
         Assert.True(ok, message);
         string tasks = repo.Read($"openspec/changes/{Path.GetFileName(Item(id).Path)}/tasks.md");
         Assert.Contains("## 1. Monthly remittance export", tasks);
-        Assert.Contains("## 2. Health-check endpoint · Endpoint", tasks);
-        Assert.Contains("## 3. Health-check endpoint · Hardening", tasks);
+        string today = DateTime.Now.ToString("yyyy-MM-dd");
+        Assert.Contains($"## 2. #wi123 Health-check endpoint · Endpoint · merged {today}", tasks);
+        Assert.Contains($"## 3. #wi123 Health-check endpoint · Hardening · merged {today}", tasks);
         Assert.Contains("- [ ] 3.1 Hide internals from anonymous callers", tasks);
-        Assert.Equal(["1. Monthly remittance export", "2. Health-check endpoint · Endpoint", "3. Health-check endpoint · Hardening"], Item(id).Subtasks.Select(s => s.Group).Distinct());
+        Assert.Equal(["1. Monthly remittance export", $"2. #wi123 Health-check endpoint · Endpoint · merged {today}", $"3. #wi123 Health-check endpoint · Hardening · merged {today}"], Item(id).Subtasks.Select(s => s.Group).Distinct());
     }
 
     [Fact(DisplayName = "Merging keeps other files in a source's folder, under from-wi<id>/")]
@@ -1130,5 +1132,59 @@ public sealed class EditingWorkItemsTests
         string yaml = repo.Read(HealthYaml);
         Assert.Contains("  commits: [a1b2c3d]\n", yaml);
         Assert.Contains("  tests: [{suite: suite 543, test: ping test, note: 123}]\n", yaml);
+    }
+
+    [Fact(DisplayName = "A work item records when it last moved to its status: creation stamps x-rtm.moved, every status change restamps it, and an unchanged status leaves it")]
+    public void MovedStamp()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+        int id = WorkItemsApi.Create("Stamp me", "Planned").Id;
+        string YamlPath() => Path.Combine(Item(id).Path, ".openspec.yaml");
+        void Backdate() => OpenSpecStoreApi.WriteText(YamlPath(), OpenSpecStoreApi.ReadText(YamlPath()).Replace($"moved: {today:yyyy-MM-dd}", "moved: 2026-01-02"));
+
+        Assert.Equal(today, Item(id).Moved);
+        Assert.Contains($"moved: {today:yyyy-MM-dd}", File.ReadAllText(YamlPath()));
+
+        Backdate();
+        Assert.Equal(new DateOnly(2026, 1, 2), Item(id).Moved);
+        Assert.True(WorkItemsApi.SetStatus(id, "Planned").Success);   // same status: nothing moves
+        Assert.Equal(new DateOnly(2026, 1, 2), Item(id).Moved);
+
+        Assert.True(WorkItemsApi.SetStatus(id, "In Review").Success);
+        Assert.Equal(today, Item(id).Moved);
+        Assert.Contains($"moved: {today:yyyy-MM-dd}", File.ReadAllText(YamlPath()));
+    }
+
+    [Fact(DisplayName = "Merging heads each source's task group with its number, title and merge date, and stamps the notes it moves in with the source number and merge date")]
+    public void MergeHeadsGroupsAndStampsNotes()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int own) = Notes.NotesApi.Create(107, "Tom");   // the main item's own note
+        string today = DateTime.Now.ToString("yyyy-MM-dd");
+        string original = repo.Read("openspec/changes/add-health-check/notes/n123.md");
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123, 125], 107);
+
+        Assert.True(ok, message);
+        string folder = $"openspec/changes/{Path.GetFileName(Item(id).Path)}";
+        string tasks = repo.Read($"{folder}/tasks.md");
+        Assert.Contains("## 1. Monthly remittance export", tasks);   // the main item keeps its heading
+        Assert.Contains($"## 2. #wi123 Health-check endpoint · Endpoint · merged {today}", tasks);
+        Assert.Contains($"## 3. #wi123 Health-check endpoint · Hardening · merged {today}", tasks);
+        Assert.Matches($@"## 4\. #wi125 .+ · merged {today}\r?\n", tasks);   // one group: no group name
+
+        string moved = repo.Read($"{folder}/notes/n123.md");
+        Assert.Equal(original.Replace("created: 2026-10-02T09:14:00\n", $"created: 2026-10-02T09:14:00\nmergedFrom: 123\nmergedAt: {today}\n"), moved);   // every other key as it was
+        Notes.PublicDTOs.Note source = Notes.NotesApi.Get(123)!;
+        Assert.Equal(123, source.MergedFrom);
+        Assert.Equal(DateTime.Parse(today), source.MergedAt);
+        IReadOnlyList<Notes.PublicDTOs.Note> described = [.. Notes.NotesApi.GetForWorkItem(id).Where(n => n.By == "Merge")];
+        Assert.Equal([123, 125], described.Select(n => n.MergedFrom!.Value).Order());
+        Assert.All(described, n => Assert.Equal(DateTime.Parse(today), n.MergedAt));
+        Assert.Null(Notes.NotesApi.Get(own)!.MergedFrom);
+        Assert.Null(Notes.NotesApi.Get(own)!.MergedAt);
     }
 }

@@ -6,3 +6,5 @@ x-rtm:
   title: sync tasks with target remote branch automatically
   status: Backlog
   contributors: [Artyom-kurguzkin]
+  features: [integration-with-agents]
+  label: feature

@@ -1,0 +1,11 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-09
+x-rtm:
+  id: 110
+  title: MCP
+  status: Planned
+  contributors: [Artyom-kurguzkin]
+  features: [integration-with-agents]
+  label: feature
+  moved: 2026-11-09

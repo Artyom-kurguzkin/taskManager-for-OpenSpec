@@ -199,24 +199,11 @@ public sealed class KeepingNotesTests
         Directory.Delete(src, true);
     }
 
-    [Fact(DisplayName = "A note's title is its first heading: SetTitle rewrites it, adds one when missing, refuses blank; AttachBytes stores pasted data like a picked file")]
-    public void TitleAndPastedBytes()
+    [Fact(DisplayName = "AttachBytes stores pasted data like a picked file: same folder, never overwriting, listed on the note and git-ignored")]
+    public void PastedBytes()
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
-
-        Assert.True(NotesApi.SetTitle(123, "Decided on X").Success);
-        Assert.Equal("Decided on X", NotesApi.Get(123)!.Title);
-        Assert.StartsWith("# Decided on X", NotesApi.Get(123)!.Body);
-        Assert.Contains("by: Artyom", repo.Read(NoteFile));
-
-        Assert.False(NotesApi.SetTitle(123, "   ").Success);
-        Assert.Equal("Decided on X", NotesApi.Get(123)!.Title);
-
-        Assert.True(NotesApi.SaveBody(123, "just words\n").Success);
-        Assert.True(NotesApi.SetTitle(123, "Now titled").Success);
-        Assert.Equal("Now titled", NotesApi.Get(123)!.Title);
-        Assert.Equal("# Now titled\n\njust words\n", NotesApi.Get(123)!.Body);
 
         const string dir = "local/task-tracking/wi123/n123/";
         byte[] png = [0x89, 0x50, 0x4E, 0x47];
@@ -287,5 +274,41 @@ public sealed class KeepingNotesTests
             foreach (string entry in File.ReadAllLines(note).Where(l => l.StartsWith("- local/")).Select(l => l[2..]))
                 Assert.True(File.Exists(repo.PathOf(entry)), $"{entry} is listed in {repo.Root} but the file is not there");
         }
+    }
+
+    [Fact(DisplayName = "A note's title lives in its frontmatter: setting it leaves the body and its first heading alone, and a note without a title reads it from its first heading")]
+    public void TitleLivesInFrontmatter()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string bodyBefore = NotesApi.Get(123)!.Body;
+        Assert.Equal("Ping test", NotesApi.Get(123)!.Title);   // no title: key, so the first heading
+
+        Assert.True(NotesApi.SetTitle(123, "Decided on X").Success);
+
+        Assert.Equal("Decided on X", NotesApi.Get(123)!.Title);
+        Assert.Equal(bodyBefore, NotesApi.Get(123)!.Body);   // the heading in the body still says Ping test
+        string text = repo.Read(NoteFile);
+        Assert.Contains("title: Decided on X", text);
+        Assert.Contains("by: Artyom", text);
+        Assert.EndsWith("See [[runbook/uptime]] and #wi107.\n", text);
+
+        Assert.True(NotesApi.SaveBody(123, "# Another heading\n\nwords\n").Success);   // editing the text does not retitle the note
+        Assert.Equal("Decided on X", NotesApi.Get(123)!.Title);
+        Assert.StartsWith("# Another heading", NotesApi.Get(123)!.Body);
+
+        Assert.False(NotesApi.SetTitle(123, "   ").Success);   // a blank is refused
+        Assert.Equal("Decided on X", NotesApi.Get(123)!.Title);
+        Assert.True(NotesApi.SetTitle(123, "Fix: the # thing\r\nacross lines").Success);   // YAML-special characters survive, lines are joined
+        Assert.Equal("Fix: the # thing across lines", NotesApi.Get(123)!.Title);
+
+        Assert.True(NotesApi.SaveBody(123, "no heading at all\n").Success);
+        Assert.Equal("Fix: the # thing across lines", NotesApi.Get(123)!.Title);
+        Assert.Equal("no heading at all\n", NotesApi.Get(123)!.Body);
+
+        (bool ok, string _, int id) = NotesApi.Create(107, "Tom");   // a note the app creates carries its title in the frontmatter
+        Assert.True(ok);
+        Assert.Contains("title: New note", repo.Read("openspec/changes/export-remittances/notes/n" + id + ".md"));
+        Assert.Equal("New note", NotesApi.Get(id)!.Title);
     }
 }

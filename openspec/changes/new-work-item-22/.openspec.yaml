@@ -3,6 +3,8 @@ skip_specs: true
 created: 2026-11-07
 x-rtm:
   id: 108
-  title: New work item
+  title: token monitor
   status: Backlog
   contributors: [Artyom-kurguzkin]
+  features: [integration-with-agents]
+  label: feature

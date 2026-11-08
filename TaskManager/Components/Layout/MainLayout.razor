@@ -1,12 +1,35 @@
 @inherits LayoutComponentBase
 @implements IDisposable
+@using TaskManager.Components.Pages
 
 @* nav items are buttons, not links: WebView2 shows a "localhost/…" bubble when hovering links *@
+@if (Detached)
+{
+    @* a separate window on one work item: the page alone, no side menu, no list *@
+    <main>@Body</main>
+}
+else
+{
 <SideNav />
-<main>@Body</main>
+@if (OpenItemId is int open && Settings.Current.Split)
+{
+    @* An open work item sits beside the list (the CSS hides the list again in a narrow window). The list is the same tree position
+       from one item to the next, so it keeps its scroll, filters and grouping while the right pane changes. *@
+    <main class="split">
+        <div class="split-list"><BoardPage Embedded="true" Current="open" /></div>
+        <div class="split-item">@Body</div>
+    </main>
+}
+else
+{
+    <main>@Body</main>
+}
+}
 <Overlays />
 
 @code {
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
     [Inject] private SettingsStore Settings { get; set; } = default!;
     [Inject] private Workspace Workspace { get; set; } = default!;
     [Inject] private UiService Popups { get; set; } = default!;
@@ -16,10 +39,27 @@
     private bool systemDark;
     private DotNetObjectReference<MainLayout>? self;
 
+    private bool split;
+
+    private bool Detached => Services.GetService(typeof(AppMode)) is AppMode { Detached: true };
+
+    /// <summary>The number of the work item the address shows (item/&lt;n&gt;), or null on any other page.</summary>
+    private int? OpenItemId =>
+        Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Split('/') is ["item", var n] && int.TryParse(n, out int id) ? id : null;
+
     protected override void OnInitialized()
     {
+        split = Settings.Current.Split;
+        if (Services.GetService(typeof(AppMode)) is AppMode { StartPath: string path } mode)
+        {
+            mode.StartPath = null;   // once
+            Nav.NavigateTo(path);    // a detached window opens on its work item
+        }
         Settings.Changed += OnSettings;
+        Nav.LocationChanged += OnLocation;
     }
+
+    private void OnLocation(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -37,7 +77,11 @@
         return InvokeAsync(ApplyTheme);
     }
 
-    private void OnSettings() => InvokeAsync(ApplyTheme);
+    private void OnSettings() => InvokeAsync(async () =>
+    {
+        if (split != Settings.Current.Split) { split = Settings.Current.Split; StateHasChanged(); }   // the split toggle
+        await ApplyTheme();
+    });
 
     /// <summary>Theme comes from Settings (Light / Dark / System); the CSS tokens switch on html[data-theme]. The keyboard
     /// hints switch goes to the script the same way.</summary>
@@ -53,6 +97,7 @@
     public void Dispose()
     {
         Settings.Changed -= OnSettings;
+        Nav.LocationChanged -= OnLocation;
         self?.Dispose();
     }
 }

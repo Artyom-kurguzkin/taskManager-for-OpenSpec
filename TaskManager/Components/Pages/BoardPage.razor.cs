@@ -24,6 +24,12 @@ public partial class BoardPage
     }
 
     private BoardOptions O = new();
+
+    /// <summary>True when the layout shows this page as the left half of a split screen (an open work item on the right): always the list.</summary>
+    [Parameter] public bool Embedded { get; set; }
+    /// <summary>The work item open on the right of a split screen; its row is marked.</summary>
+    [Parameter] public int? Current { get; set; }
+    private string View => Embedded ? "list" : O.View;
     private List<Project> projects = [];   // the visible projects (open tabs not hidden), in tab order
     private readonly HashSet<(string Root, int Id)> selected = [];   // a number is only unique within its project
     private readonly HashSet<string> selectedProjects = [];          // project headings Shift-clicked, to move with the arrow keys
@@ -42,13 +48,16 @@ public partial class BoardPage
         if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) selectedProjects.Clear();
     }
 
-    private (Project From, IReadOnlyList<(WorkItem Item, string Column)> Cards)? dragging;   // the dragged card, or every selected card of its project
+    private (Project From, IReadOnlyList<(WorkItem Item, string Column, string? Row)> Cards)? dragging;   // the dragged card, or every selected card of its project, with the column and row each is dragged from
     private (IReadOnlyList<string> Siblings, string Key)? draggingColumn;   // a column header or group name being dragged
 
     internal static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List"), ("calendar", "Calendar")];
     internal static readonly IReadOnlyList<(string, string)> Units = [("tasks", "Work items"), ("subtasks", "Subtasks")];
-    internal static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("feature", "feature"), ("label", "label"), ("contributor", "contributor"), ("due", "due date"), ("started", "start date")];
-    internal static readonly IReadOnlyList<(string, string)> Periods = [("all", "any time"), ("overdue", "overdue"), ("today", "today"), ("week", "this week"), ("month", "this month"), ("none", "no due date")];
+    // One field list for the three Organise options: columns take any of them, rows and colour also "none".
+    internal static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("feature", "feature"), ("label", "label"), ("priority", "priority"), ("contributor", "contributor"), ("due", "due date"), ("started", "start date")];
+    internal static readonly IReadOnlyList<(string, string)> Swimlanes = [("none", "none"), .. GroupBys];
+    internal static readonly IReadOnlyList<(string, string)> ColorBys = [.. GroupBys, ("none", "none")];
+    internal static readonly IReadOnlyList<(string, string)> Periods =[("all", "any time"), ("overdue", "overdue"), ("today", "today"), ("week", "this week"), ("month", "this month"), ("none", "no due date")];
     internal static readonly IReadOnlyList<(string, string)> SortBys =
         [("priority", "priority"), ("feature", "feature"), ("label", "label"), ("who", "contributor"), ("modified", "date modified"), ("created", "date created"), ("status", "status"), ("title", "title"), ("id", "id"), ("manual", "my order")];
 
@@ -58,7 +67,7 @@ public partial class BoardPage
     private bool Multi => projects.Count > 1;
 
     /// <summary>Several projects with the same columns (grouped by status or label): one header row above serves them all.</summary>
-    private bool Aligned => Multi && projects.All(p => p.Sections.Count == 1)
+    private bool Aligned => Multi && O.Swimlane == BoardModel.NoSwimlane && projects.All(p => p.Sections.Count == 1)
         && projects.Select(p => string.Join("|", p.Sections[0].Columns.Select(c => c.Key))).Distinct().Count() == 1;
 
     private IReadOnlyList<string> HeadKeys => projects[0].Sections[0].Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList();
@@ -103,6 +112,7 @@ public partial class BoardPage
         selectedProjects.RemoveWhere(r => !Multi || !projects.Any(p => p.Root == r));
         rows = [.. projects.SelectMany((p, n) => BoardModel.Rows(p.Sections, p.Names, p.Root, p.Name, n * 1000))];
         groups = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => (g.First().Column, g.First().Category, g.First().Root));
+        groupSwim = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => g.First().Swim);
         if (gridSettings is null && O.ListSettings is string json)
             try { gridSettings = System.Text.Json.JsonSerializer.Deserialize<DataGridSettings>(json); } catch (System.Text.Json.JsonException) { }
     }
@@ -116,24 +126,16 @@ public partial class BoardPage
         Load();
     }
 
-    // ── Calendar view ──
-    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
-    private static DateOnly ThisMonth => new(Today.Year, Today.Month, 1);
-    private DateOnly calMonth = ThisMonth;
-
-    /// <summary>Every work item on the board (the same filters), each once, with its project; the calendar draws these.</summary>
-    private Dictionary<WorkItem, Project> CalItems =>
-        projects.SelectMany(p => p.Flat.SelectMany(f => f.Column.Items).DistinctBy(i => i.Id).Select(i => (Item: i, Project: p))).ToDictionary(x => x.Item, x => x.Project);
-
-    private List<(Project, WorkItem)> Unscheduled => CalendarModel.Unscheduled(CalItems.Keys).Select(i => (CalItems[i], i)).ToList();
-
-    private static string BarTitle(WorkItem it) =>
-        $"#wi{it.Id} {it.Title} · {it.Status}" + (it.Started is DateOnly s ? $" · started {s:d MMM}" : "") + (it.Due is DateOnly d ? $" · due {d:d MMM}" : "");
+    // ── Calendar view: the Roadmap component draws the board's columns as groups, or the rows with the columns inside them ──
+    private IReadOnlyList<RoadmapSource> RoadmapProjects => projects.Select(p => new RoadmapSource(p.Root, p.Name, p.Sections)).ToList();
+    private void OpenFrom((string Root, int Id) at) => OpenItem(ProjectOf(at.Root), at.Id);
 
     // ── List view: a Radzen DataGrid over the projects' columns ──
     private RadzenDataGrid<GridRow>? grid;
     private IReadOnlyList<GridRow> rows = [];
     private Dictionary<int, (BoardColumn Column, string? Category, string Root)> groups = [];
+    private Dictionary<int, string> groupSwim = [];   // the swimlane value of each column group ("" without swimlanes)
+    private string? groupedSwim;                      // the swimlane field the grid's group descriptors include
     private DataGridSettings? gridSettings;   // column widths, order, visibility, sort and filters, remembered per repository
     private readonly HashSet<string> shutGroups = [];   // collapsed groups, by project and column key (kept across re-renders and data reloads)
     private bool? groupedMulti;               // whether the grid's group descriptors include the project level
@@ -142,15 +144,33 @@ public partial class BoardPage
     /// <summary>A column is shown unless hidden by the user, or it repeats what the rows are grouped by.</summary>
     private static string Day(DateTime? d) => d is { } v ? v.ToString("d MMM") : "";
 
-    private bool Shown(string column) => !BoardModel.IsHidden(O, BoardModel.ListColumnKey(column)) && column != BoardModel.GroupedColumn(O);
+    private bool Shown(string column) => !BoardModel.IsHidden(O, BoardModel.ListColumnKey(column)) && column != BoardModel.GroupedColumn(O) && column != BoardModel.SwimColumn(O);
 
     // Asks what the grid is grouped by, not Multi: after the project list changes, the grid renders once with its old group
     // descriptors (OnAfterRenderAsync swaps them), and a group keyed by column read as a project group throws a cast in the render.
     private bool IsProjectGroup(Group g) => groupedMulti == true && g.Level == 0;
 
-    private string ShutKey(Group g) => GroupOf(g) is var (col, _, root) ? root + "|" + col.Key : "";
+    /// <summary>With a swimlane set the grid groups project (when several) → swimlane → column; this is the swimlane level.</summary>
+    private bool IsSwimGroup(Group g) => groupedSwim is not (null or BoardModel.NoSwimlane) && g.Level == (groupedMulti == true ? 1 : 0);
 
-    private (BoardColumn Column, string? Category, string Root) GroupOf(Group g) => groups[Convert.ToInt32(g.Data.Key)];
+    /// <summary>The list rows under a swimlane group (its header shows their swimlane's name and how many items they hold).</summary>
+    private List<GridRow> SwimRowsOf(Group g) => [.. LeafRows((GroupResult)g.Data)];
+
+    // a group above the last level holds subgroups, the last level holds the rows
+    private static IEnumerable<GridRow> LeafRows(GroupResult r) =>
+        r.Items is { } items ? items.OfType<GridRow>() : (r.Subgroups ?? []).SelectMany(LeafRows);
+
+    private string ShutKey(Group g) =>
+        IsSwimGroup(g) ? "swim|" + SwimRowsOf(g).FirstOrDefault()?.Root + "|" + (string)g.Data.Key
+        : GroupOf(g) is var (col, _, root) ? root + "|" + SwimValue(g) + "|" + col.Key : "";
+
+    private (BoardColumn Column, string? Category, string Root) GroupOf(Group g) => groups[Convert.ToInt32((object)g.Data.Key)];
+
+    /// <summary>A column group's swimlane value ("" without swimlanes).</summary>
+    private string SwimValue(Group g) => groupSwim.TryGetValue(Convert.ToInt32((object)g.Data.Key), out string? v) ? v : "";
+
+    /// <summary>The swimlane a drop on a list row or group lands in (null without swimlanes).</summary>
+    private static string? SwimOf(GridRow row) => row.Swim.Length > 0 ? row.Swim : null;
 
     /// <summary>Marks the row for the drag script, cell copy and styling, and gives it the board's drop handlers.</summary>
     private void RowRender(RowRenderEventArgs<GridRow> args)
@@ -161,16 +181,18 @@ public partial class BoardPage
         if (row.Item is not WorkItem it)
         {
             args.Attributes["data-empty"] = "";   // an empty column's placeholder: dropping on it lands in that column
-            args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(p, row.Column, null));
+            args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(p, row.Column, SwimOf(row)));
             return;
         }
         args.Attributes["data-id"] = it.Id;
         args.Attributes["data-row"] = row.Key;
+        args.Attributes["style"] = $"--band:var({BoardModel.ColourOf(it, O.ColorBy)})";   // the row's colour stripe (app.css), as a card's band
+        if (Embedded && Current == it.Id && IsActive(p)) args.Attributes["class"] = "cur";
         if (selected.Contains((p.Root, it.Id))) args.Attributes["data-selected"] = "";
         if (it.Hidden) args.Attributes["data-hidden"] = "";
         args.Attributes["onclick"] = EventCallback.Factory.Create<MouseEventArgs>(this, e => { if (e.ShiftKey || e.CtrlKey || e.MetaKey) ToggleSelect(p, it); });   // the board's select click, anywhere on the row
-        args.Attributes["ondragstart"] = EventCallback.Factory.Create<DragEventArgs>(this, () => StartCardDrag(p, it, row.Column.Key));
-        args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => DropBefore(p, row.Column, null, it));
+        args.Attributes["ondragstart"] = EventCallback.Factory.Create<DragEventArgs>(this, () => StartCardDrag(p, it, row.Column.Key, SwimOf(row)));
+        args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => DropBefore(p, row.Column, it, SwimOf(row)));
     }
 
     /// <summary>A group row stands for its column: a drop on it lands at the column's end. A project row (several projects) only heads.</summary>
@@ -187,9 +209,16 @@ public partial class BoardPage
             }
             return;
         }
+        if (IsSwimGroup(args.Group!))   // a swimlane's heading: only heads (its cells are the column groups under it)
+        {
+            args.Attributes["data-group"] = "swim:" + (string)args.Group!.Data.Key;
+            if (shutGroups.Contains(ShutKey(args.Group!))) args.Expanded = false;
+            return;
+        }
         (BoardColumn col, _, string root) = GroupOf(args.Group!);
+        string? swim = SwimValue(args.Group!) is { Length: > 0 } sw ? sw : null;
         args.Attributes["data-group"] = col.Key;
-        args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(ProjectOf(root), col, null));
+        args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(ProjectOf(root), col, swim));
         // only ever false: Radzen takes Expanded = true as "keep open" and ignores the chevron; the collapse/expand events keep shutGroups current
         if (shutGroups.Contains(ShutKey(args.Group!))) args.Expanded = false;
     }
@@ -216,11 +245,13 @@ public partial class BoardPage
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (grid is null) return;
-        if (grid.Groups.Count == 0 || groupedMulti != Multi)   // grouped by project (when several), then by column; the group panel stays hidden
+        if (grid.Groups.Count == 0 || groupedMulti != Multi || groupedSwim != O.Swimlane)   // grouped by project (when several), swimlane (when set), then by column; the group panel stays hidden
         {
             groupedMulti = Multi;
+            groupedSwim = O.Swimlane;
             grid.Groups.Clear();
             if (Multi) grid.Groups.Add(new GroupDescriptor { Property = nameof(GridRow.Project), Title = "Project" });
+            if (O.Swimlane != BoardModel.NoSwimlane) grid.Groups.Add(new GroupDescriptor { Property = nameof(GridRow.Swim), Title = "Swimlane" });
             grid.Groups.Add(new GroupDescriptor { Property = nameof(GridRow.Group), Title = "Column" });
             await grid.Reload();
             return;
@@ -303,16 +334,17 @@ public partial class BoardPage
     }
 
     /// <summary>A card drag carries the whole selection of its project when the dragged card is part of it (as in a file manager).</summary>
-    private void StartCardDrag(Project p, WorkItem it, string from)
+    private void StartCardDrag(Project p, WorkItem it, string from, string? fromRow)
     {
         draggingColumn = null;
         dragging = (p, selected.Contains((p.Root, it.Id)) && selected.Count(s => s.Root == p.Root) > 1
-            ? p.Flat.SelectMany(f => f.Column.Items.Select(i => (Item: i, From: f.Column.Key)))   // board order
+            ? p.Sections.SelectMany(s => BoardModel.Swimlanes(s).SelectMany(r => r.Columns.Select(c => (Row: s.Rows is null ? null : r.Key, Column: c)))   // board order, row by row
+                    .SelectMany(rc => rc.Column.Items.Select(i => (Item: i, From: rc.Column.Key, rc.Row))))
                 .Where(t => selected.Contains((p.Root, t.Item.Id)))
-                .GroupBy(t => t.Item.Id)   // an item in several columns (features, people) leaves the one dragged from
-                .Select(g => g.FirstOrDefault(t => t.From == from, g.First()))
+                .GroupBy(t => t.Item.Id)   // an item in several columns or rows (features, people) leaves the one dragged from
+                .Select(g => g.FirstOrDefault(t => t.From == from && t.Row == fromRow, g.First()))
                 .ToList()
-            : [(it, from)]);
+            : [(it, from, fromRow)]);
     }
 
     /// <summary>A header dropped in front of a column in its own row (<paramref name="before"/>), or at the row's end (null).</summary>
@@ -323,9 +355,10 @@ public partial class BoardPage
         if (row.Contains(key)) Set(BoardModel.Insert(O, siblings, [key], before));
     }
 
-    private Task Drop(Project p, BoardColumn col, string? lane, string? priority = null) => DropBefore(p, col, lane, null, priority);
+    // swim: the swimlane value of the cell a card is dropped in (null without swimlanes); the card takes it, as well as the column's value
+    private Task Drop(Project p, BoardColumn col, string? swim) => DropBefore(p, col, null, swim);
 
-    private async Task DropBefore(Project p, BoardColumn col, string? lane, WorkItem? before, string? priority = null)
+    private async Task DropBefore(Project p, BoardColumn col, WorkItem? before, string? swim)
     {
         if (draggingColumn is (IReadOnlyList<string> siblings, _)) { DropColumn(siblings, BoardModel.ColumnKey(O, col.Key)); return; }
         if (dragging is not { } moving) return;
@@ -335,15 +368,15 @@ public partial class BoardPage
             Popups.Toast("A work item stays in its repository — drag it within its own project", ToastKind.Info);
             return;
         }
-        await Land(p, moving.Cards, col, lane, before?.Id, priority);
+        await Land(p, moving.Cards, col, before?.Id, swim);
     }
 
     /// <summary>Moves cards into a column, then places the ones that made it at the gap (in front of <paramref name="before"/>, or last).</summary>
-    private async Task Land(Project p, IEnumerable<(WorkItem Item, string From)> moving, BoardColumn col, string? lane, int? before, string? priority = null)
+    private async Task Land(Project p, IEnumerable<(WorkItem Item, string From, string? FromRow)> moving, BoardColumn col, int? before, string? swim = null)
     {
         List<int> landed = [];
-        foreach ((WorkItem it, string from) in moving)
-            if (await MoveInto(p, it, from, col, lane, priority)) landed.Add(it.Id);
+        foreach ((WorkItem it, string from, string? fromRow) in moving)
+            if (await MoveInto(p, it, from, fromRow, col, swim)) landed.Add(it.Id);
         // ponytail: "my order" keys cards by number, so two projects' same-numbered cards share a place; per-project keys if that shows
         if (landed.Count > 0) Set(BoardModel.PlaceCards(O, col.Items.Select(i => i.Id).ToList(), landed, before));
     }
@@ -366,23 +399,53 @@ public partial class BoardPage
         if (to < 0 || to >= columns.Count) return;
         BoardColumn target = columns[to];
         int row = ids.FindIndex(Picked);
-        await Land(p, col.Items.Where(i => Picked(i.Id)).Select(i => (i, col.Key)), target, null, row < target.Items.Count ? target.Items[row].Id : null);
+        await Land(p, col.Items.Where(i => Picked(i.Id)).Select(i => (i, col.Key, (string?)null)), target, row < target.Items.Count ? target.Items[row].Id : null);
     }
 
-    /// <summary>Sets the dimension the column stands for (and its lane); false when the card can't move there.</summary>
-    private async Task<bool> MoveInto(Project p, WorkItem it, string from, BoardColumn col, string? lane, string? priority = null)
+    /// <summary>
+    /// Sets the field the column stands for and, when dropped in a row's cell, the field the row stands for, both through <see cref="SetField"/>;
+    /// false when the card can't move to the column.
+    /// </summary>
+    private async Task<bool> MoveInto(Project p, WorkItem it, string from, string? fromRow, BoardColumn col, string? swim)
     {
-        bool ok = from == col.Key || O.GroupBy switch
+        bool ok = from == col.Key || await SetField(p, it, O.GroupBy, from, col.Key);
+        if (ok && swim is not null && swim != fromRow)   // dropped into another row: the card takes that row's value too
         {
-            "feature" => Run(Workspace.In(p.Root, () => WorkItemsApi.MoveFeature(it.Id, col.Key == BoardModel.Unassigned ? null : col.Key))),
-            "label" => Run(Workspace.In(p.Root, () => WorkItemsApi.SetLabel(it.Id, col.Key == BoardModel.Unassigned ? null : col.Key))),
-            "contributor" => Run(Workspace.In(p.Root, () => WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(x => x != from).Append(col.Key).Where(x => x != BoardModel.Unassigned)))),
-            _ => await SetStatus(p, it, col.Key),
-        };
-        if (ok && lane is not null) Run(Workspace.In(p.Root, () => WorkItemsApi.SetLane(it.Id, col.Key, lane)));
-        if (ok && priority is not null && (it.Priority == "high" ? "high" : "low") != priority)   // dropped on a priority subgroup
-            Run(Workspace.In(p.Root, () => WorkItemsApi.SetPriority(it.Id, priority)));
+            string toValue = swim == BoardModel.NoRow ? BoardModel.Unassigned : swim;
+            if (!HasValue(it, O.Swimlane, toValue)) await SetField(p, it, O.Swimlane, fromRow is null or BoardModel.NoRow ? BoardModel.Unassigned : fromRow, toValue);
+        }
         return ok;
+    }
+
+    /// <summary>Whether a work item already has a value of a field (<see cref="BoardModel.Unassigned"/>: none).</summary>
+    private static bool HasValue(WorkItem it, string field, string value) => field switch
+    {
+        "feature" => value == BoardModel.Unassigned ? it.Features.Count == 0 : it.Features.Any(f => f.Path == value),
+        "label" => (it.Label ?? "") == value,
+        "contributor" => value == BoardModel.Unassigned ? it.Contributors.Count == 0 : it.Contributors.Contains(value),
+        "priority" => (it.Priority == "high") == (value == "high"),
+        "status" => it.Status == value,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Makes a work item take a value of a field, leaving <paramref name="from"/> (a contributor drop replaces the person it came from).
+    /// Status, feature, label, contributor and priority can be set; the due and start periods can't (a period is not a date), so a drop
+    /// into another period tells the user and changes nothing. False when the change did not happen.
+    /// </summary>
+    private async Task<bool> SetField(Project p, WorkItem it, string field, string from, string value)
+    {
+        switch (field)
+        {
+            case "feature": return Run(Workspace.In(p.Root, () => WorkItemsApi.MoveFeature(it.Id, value == BoardModel.Unassigned ? null : value)));
+            case "label": return Run(Workspace.In(p.Root, () => WorkItemsApi.SetLabel(it.Id, value == BoardModel.Unassigned ? null : value)));
+            case "contributor": return Run(Workspace.In(p.Root, () => WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(x => x != from).Append(value).Where(x => x != BoardModel.Unassigned))));
+            case "priority": return Run(Workspace.In(p.Root, () => WorkItemsApi.SetPriority(it.Id, value)));
+            case "due" or "started":
+                Popups.Toast("A due or start period can't be set by dropping; change the date on the work item", ToastKind.Info);
+                return false;
+            default: return await SetStatus(p, it, value);
+        }
     }
 
     /// <summary>In a project's column, or (the shared header row) in the project the user picks.</summary>
@@ -435,11 +498,6 @@ public partial class BoardPage
     }
 
     private Task<string?> Ask(string title, string placeholder, string action) => Popups.Prompt(title, placeholder, action);
-
-    private async Task AddLane(Project p, string column, string label)
-    {
-        if (await Ask($"Add a subgroup to {label}", "e.g. Needs review", "Add") is string lane) Run(Workspace.In(p.Root, () => WorkItemsApi.AddLane(column, lane)));
-    }
 
     private async Task AddFeature(Project p)
     {

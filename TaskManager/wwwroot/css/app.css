@@ -234,6 +234,13 @@
   .menu-pop .proj-eye { margin-left: auto; padding: 2px 4px; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
   .menu-pop .proj-eye:hover { color: var(--ink); background: var(--stone); }
   .menu-pop .proj-eye.off { color: var(--ink); }   /* hidden: the crossed eye stands out */
+  /* Organise: columns, rows and colour over one field list; the legend names the colours shown */
+  .organise { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; align-self: stretch; }
+  .organise .nav-h { padding: 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 3px 10px; max-width: 100%; font-size: 12px; color: var(--ink-2); }
+  .legend .lg { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+  .legend .lg i { flex: none; width: 10px; height: 10px; border: 1.5px solid var(--line); border-radius: 3px; background: var(--sw, var(--stone)); }
+  .legend .more { font-style: italic; }
   .nav-view .seg { flex-wrap: nowrap; }
   .nav-view .seg-o { white-space: nowrap; padding: 2px 9px; }
   /* hidden columns, with the number of items each holds and an eye to bring it back */
@@ -295,8 +302,14 @@
   .col-h { display: flex; align-items: baseline; gap: 8px; padding: 2px 8px; align-self: flex-start; user-select: none; }   /* the pointer changes only once a drag is under way */
   .col-h h3 { font-size: var(--t-md); }
   .lane { display: flex; flex-direction: column; gap: var(--s2); min-height: 48px; padding: 2px; border-radius: 8px; }
-  .lane-h { display: flex; justify-content: space-between; font: 600 12px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); padding: 6px 4px 0; }
-  .lane + .lane-h { border-top: 2px dashed var(--line-soft); margin-top: 6px; padding-top: 12px; }
+  /* rows (side menu: Organise → rows): the column headers once on top, then a full-width heading and a row of cells per value,
+     one cell per column. A cell is a column too (so a drop lands in it), just not as tall as the board */
+  .swim-h { display: flex; align-items: baseline; gap: 8px; font: 700 12px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2);
+    padding: 12px 8px 2px; margin-top: 6px; border-top: 2px dashed var(--line-soft); user-select: none; }
+  .swim-h .count { font-weight: 600; }
+  .board-wrap .swim .col, .board-wrap .swim-cols .col { min-height: 0; }
+  .board-wrap .swim-cols .col { gap: 0; }
+  .swim .col > .lane { min-height: 64px; }
   /* a card: coloured title band (by status), features, dashed icon meta row, tags */
   .card { display: flex; flex-direction: column; gap: 6px; padding: 0 0 10px; overflow: hidden; cursor: pointer; user-select: none; }
   .card > :not(.band) { padding-inline: 12px; }
@@ -430,6 +443,8 @@
   .tbl-wrap tr[data-group] .rz-button { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; color: var(--ink-2); }
   .tbl-wrap tr[data-group] .rz-button:hover { background: var(--stone); color: var(--on-fill); }
   /* an empty group's "No items" and the "+ Add item" row under each group: short, faint, no rule under them */
+  /* a row's colour (side menu: colour): a stripe down its first cell, the same colour as a card's band */
+  .tbl-wrap tbody tr[data-id] > td:first-child { box-shadow: inset 4px 0 0 var(--band, transparent); }
   .tbl-wrap tr[data-empty] td { height: 32px; color: var(--ink-2); font-size: 13px; border-bottom: 0; }
   .tbl-wrap tbody tr:has(.rz-column-footer) td { height: 32px; border-bottom: 0; }
   /* spreadsheet-style cell selection (app.js): drag across cells to select a rectangle; Ctrl+C copies it */
@@ -488,7 +503,9 @@
   .desc h1, .desc h2, .desc h3 { font-size: 1rem; margin: .4em 0 .2em; }
   .desc p, .desc ul { margin: .2em 0 .6em; }
   .edit { cursor: pointer; border-radius: 8px; }
-  textarea.desc-in { border: 2px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }
+  /* the description / note editor: fills what the tile has left and has no frame of its own (the tile is the frame) */
+  textarea.desc-in { flex: 1 1 auto; min-height: 12rem; border: 0; border-radius: 0; outline: none; background: transparent; color: var(--ink); resize: none; }
+  .tile:has(> textarea.desc-in):focus-within { box-shadow: 4px 4px 0 var(--shadow); }   /* focus shows on the tile, not as a box in it */
   /* subtasks, and the work items this one waits on / blocks */
   .sub { display: flex; align-items: flex-start; gap: 8px; padding: 8px 14px; margin-bottom: 10px; cursor: pointer; }
   .sub input { accent-color: var(--accent); margin-top: 3px; }
@@ -535,6 +552,7 @@
   .note-grid .tile > [data-sk] { --stroke: var(--line-soft); }
   .note-grid .tile-h .muted { font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .note-grid { grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr); }
+  .note-grid .tile[data-tile="note"]:has(> textarea.desc-in) { align-self: stretch; min-height: 70vh; }   /* editing: tall, so the editor has the room */
   .note-grid .tile-h .btn, .note-grid .tile-h .add { margin-left: auto; }
   .note-grid .tile-h .btn { min-height: 28px; padding: 0 12px; font-size: 14px; }
   .wl { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
@@ -552,8 +570,11 @@
   .set-row p { margin: 2px 0 0; }
   .set-val { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-width: 0; }
   .set-val #f-repo { width: min(380px, 34vw); }
-  .set-val.set-folders { display: grid; grid-template-columns: auto minmax(0, 18rem); gap: 10px 12px; }
+  .set-val.set-folders { display: grid; grid-template-columns: auto minmax(0, 28rem); gap: 10px 12px; }
   .set-folders .text-in { width: 100%; min-width: 0; box-sizing: border-box; }
+  .set-loc { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .set-loc .btn { flex: none; white-space: nowrap; }
+  .set-path { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
   @media (max-width: 640px) { .set-row { grid-template-columns: 1fr; } }
 }
 
@@ -625,31 +646,64 @@
   body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none !important; }
   body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-select: none !important; }
 
-  /* ── calendar view: a month in whole weeks; a dated item is a bar from its start to its due date ── */
-  .cal { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 12px 16px 0; border: 0; background: transparent; }
-  .cal-h { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-  .cal-h h2 { margin: 0 6px; min-width: 190px; text-align: center; font-size: 18px; }
-  .cal-h .btn.ghost { min-height: 30px; padding: 0 10px; font-size: 18px; line-height: 1; color: var(--ink); }
-  .cal-h .cal-today { font-size: var(--t-md); border: 1.5px solid var(--line); border-radius: 8px; padding: 0 12px; }
-  .cal-body { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 16px; min-height: 0; flex: 1; }
-  .cal-grid { overflow: auto; border-top: 2px solid var(--line); padding-bottom: 16px; }
-  .cal-dows { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
-  .cal-dow { padding: 6px 8px 4px; font: 600 11.5px var(--f-body); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
-  .cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: 26px repeat(var(--lanes, 0), 26px); min-height: 92px; padding-bottom: 8px; border-top: 1.5px solid var(--line-soft); }
-  .cal-day { grid-row: 1 / -1; border-right: 1px solid var(--line-soft); padding: 3px 8px; font: 600 13px var(--f-body); color: var(--ink-2); }
-  .cal-day:nth-child(7) { border-right: 0; }
-  .cal-day.other { color: var(--line-soft); }
-  .cal-day.today .num { display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 999px; background: var(--sun); color: var(--on-fill); text-align: center; }
-  .cal-bar { z-index: 1; margin: 2px 3px; padding: 0 8px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--band); color: var(--on-fill);
-    font: 600 12.5px/21px var(--f-body); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-  .cal-bar:hover { filter: brightness(.95); }
-  .cal-bar.from { margin-left: 0; border-left-style: dashed; border-top-left-radius: 0; border-bottom-left-radius: 0; }
-  .cal-bar.to { margin-right: 0; border-right-style: dashed; border-top-right-radius: 0; border-bottom-right-radius: 0; }
-  .cal-unscheduled { overflow: auto; padding-top: 6px; }
-  .cal-unscheduled h3 { margin: 0 0 8px; font-size: 14px; }
-  .cal-item { display: block; width: 100%; margin-bottom: 6px; padding: 4px 8px 4px 10px; border: 1.5px solid var(--line); border-left: 6px solid var(--band); border-radius: 8px;
-    background: var(--card); color: var(--ink); font: 500 13px var(--f-body); text-align: left; cursor: pointer; }
-  .cal-item:hover { background: var(--stone); color: var(--on-fill); }
+  /* ── calendar view: a roadmap. Items by group on the left, a timeline on the right, rows in line (fixed row height in both panes) ── */
+  .rm { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 12px 16px 16px; border: 0; background: transparent; }
+  .rm-h { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .rm-h h2 { margin: 0 6px 0 0; font-size: 18px; }
+  .rm-spacer { flex: 1; }
+  .rm-today-btn, .rm-prev, .rm-next, .rm-zoom { min-height: 30px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: 600 var(--t-sm) var(--f-body); }
+  .rm-today-btn, .rm-prev, .rm-next { padding: 0 12px; cursor: pointer; }
+  .rm-prev, .rm-next { padding: 0 10px; font-size: 18px; line-height: 1; }
+  .rm-today-btn:hover, .rm-prev:hover, .rm-next:hover, .rm-zoom button:hover { background: var(--stone); color: var(--on-fill); }
+  .rm-zoom { display: inline-flex; overflow: hidden; }
+  .rm-zoom button { padding: 0 12px; border: 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+  .rm-zoom button + button { border-left: 1.5px solid var(--line); }
+  .rm-zoom button.on { background: var(--sun); color: var(--on-fill); }
+  .rm-scroll { flex: 1; min-height: 0; overflow: auto; border: 1.5px solid var(--line); border-radius: 10px; background: var(--card); }
+  .rm-grid { --rh: 36px; --hh: 52px; --lw: 340px; display: grid; grid-template-columns: var(--lw) calc(var(--cols) * var(--cw)); width: max-content; min-width: 100%; }
+  .rm-left { position: sticky; left: 0; z-index: 4; background: var(--card); border-right: 1.5px solid var(--line); }
+  .rm-corner, .rm-head { position: sticky; top: 0; z-index: 3; height: var(--hh); box-sizing: border-box; background: var(--card); border-bottom: 1.5px solid var(--line); }
+  .rm-corner { padding: 0 12px; font: 600 11.5px/var(--hh) var(--f-body); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+  .rm-lrow, .rm-trow { height: var(--rh); box-sizing: border-box; border-bottom: 1px solid var(--line-soft); }
+  .rm-lrow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 12px; }
+  .rm-group, .rm-grow { background: color-mix(in srgb, var(--line-soft) 40%, var(--card)); }
+  .rm-group { font: 700 14px var(--f-body); }
+  /* with rows: the row is the group, its columns are sub-groups a level in */
+  .rm-subgroup { padding-left: 30px; font: 600 13px var(--f-body); background: color-mix(in srgb, var(--line-soft) 18%, var(--card)); }
+  .rm-sgrow { background: color-mix(in srgb, var(--line-soft) 18%, var(--card)); }
+  .rm-sname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rm-row.deep { padding-left: 30px; }
+  .rm-gname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rm-count { flex: none; padding: 0 7px; border-radius: 999px; background: var(--stone); color: var(--on-fill); font: 600 12px/18px var(--f-body); }
+  .rm-chev { flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font-size: 14px; line-height: 1; cursor: pointer; }
+  .rm-chev:hover { background: var(--line-soft); color: var(--ink); }
+  .rm-chev.shut { transform: rotate(-90deg); }
+  .rm-row { border: 0; border-bottom: 1px solid var(--line-soft); background: none; color: var(--ink); font: 500 13px var(--f-body); text-align: left; cursor: pointer; }
+  .rm-row:hover { background: color-mix(in srgb, var(--line-soft) 55%, var(--card)); }
+  .rm-n { flex: none; width: 24px; text-align: right; color: var(--ink-2); font-size: 12px; }
+  .rm-dot { flex: none; width: 10px; height: 10px; border: 1.5px solid var(--line); border-radius: 50%; background: var(--band); }
+  .rm-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rm-id { flex: none; color: var(--ink-2); font: 12px var(--f-mono); }
+  .rm-right { position: relative; background-image: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--cw) - 1px), color-mix(in srgb, var(--line-soft) 55%, transparent) calc(var(--cw) - 1px), color-mix(in srgb, var(--line-soft) 55%, transparent) var(--cw)); }
+  .rm-months { position: relative; height: 26px; }
+  .rm-month { position: absolute; top: 0; left: calc(var(--col) * var(--cw)); width: calc(var(--span) * var(--cw)); box-sizing: border-box; padding-left: 8px; border-left: 1px solid var(--line-soft); font: 600 13px/26px var(--f-body); white-space: nowrap; overflow: hidden; }
+  .rm-ticks { display: grid; grid-auto-flow: column; grid-auto-columns: var(--cw); height: 24px; }
+  .rm-tick { font: 11.5px/24px var(--f-body); text-align: center; color: var(--ink-2); }
+  .rm-tick.first { font-weight: 700; color: var(--ink); }
+  .rm-today { position: absolute; z-index: 1; top: var(--hh); bottom: 0; left: calc(var(--x) * var(--cw) - 1px); width: 2px; background: var(--peach); pointer-events: none; }
+  .rm-trow { position: relative; }
+  .rm-gbar { position: absolute; top: 7px; height: 22px; left: calc(var(--col) * var(--cw) + 2px); width: calc(var(--span) * var(--cw) - 4px); box-sizing: border-box; padding: 0 12px; border: 1.5px solid var(--line); border-radius: 999px; background: var(--card);
+    font: 600 12.5px/19px var(--f-body); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rm-gbar.from, .rm-bar.from { border-left-style: dashed; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+  .rm-gbar.to, .rm-bar.to { border-right-style: dashed; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .rm-bar { position: absolute; z-index: 1; top: 5px; height: 26px; left: calc(var(--col) * var(--cw) + 1px); width: calc(var(--span) * var(--cw) - 2px); box-sizing: border-box; padding: 0 8px; border: 1.5px solid var(--line); border-radius: 8px;
+    background: var(--band); color: var(--on-fill); font: 600 12.5px/23px var(--f-body); text-align: left; cursor: pointer; }
+  .rm-bar:hover { filter: brightness(.95); }
+  .rm-bt { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rm-bar.short, .rm-gbar.short { padding: 0; overflow: visible; }
+  .rm-bar.short .rm-bt, .rm-gbar.short .rm-bt { position: absolute; top: 0; left: calc(100% + 8px); overflow: visible; color: var(--ink); }
+  @media (max-width: 860px) { .rm-grid { --lw: 220px; } }
+
   .date-in { padding: 2px 8px; font: 500 13px var(--f-body); color: var(--ink); background: var(--card); }
   .plan-field { gap: 6px; }
   .plan-link { text-decoration: none; }
@@ -668,7 +722,6 @@
   .rd.in { background: color-mix(in srgb, var(--sun) 35%, transparent); color: var(--ink); }
   .rd.edge { background: var(--sun); color: var(--on-fill); font-weight: 700; }
   .range-f { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 12.5px; }
-  @media (max-width: 860px) { .cal-body { grid-template-columns: 1fr; } }
 
   /* note attachments: images inline, files and links by name, each with a small remove control */
   .tile[data-tile="attachments"] { --tile: var(--sky); }
@@ -686,4 +739,31 @@
 @layer page {
   .note-title { flex: 1 1 14rem; min-width: 8rem; padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: 700 var(--t-xl) var(--f-body); }
   .note-title:hover { outline: 2px dashed var(--accent); }
+}
+
+/* ───────── split screen: an open work item beside the list (MainLayout) ───────── */
+main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; padding: 0; overflow: hidden; gap: 0; }
+.split-list, .split-item { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; padding: 4px 12px 0; }
+.split-list { border-right: 2px solid var(--line-soft); }
+.split-list .scx { min-height: 360px; }
+tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent); }
+@media (max-width: 1399px) {
+  main.split { grid-template-columns: minmax(0, 1fr); }
+  .split-list, .split-btn { display: none; }
+}
+
+@layer page {
+  /* merged items: a task group / a merged source's notes as a collapsible header with its count */
+  .sub-group, .log-group { display: flex; align-items: center; gap: 8px; margin: 14px 0 8px; padding: 6px 12px; cursor: pointer; font-weight: 700; color: var(--ink); background: var(--card); border: 2px solid var(--line); border-radius: 8px; }
+  .sub-group:first-child, .log-section:first-child .log-group { margin-top: 0; }
+  .sub-group:hover, .log-group:hover, .sub-group:focus-visible, .log-group:focus-visible { box-shadow: 3px 3px 0 var(--shadow); transform: translate(-1px, -1px); outline: none; }
+  .sub-group .chev, .log-group .chev { width: 1em; color: var(--ink-2); }
+  .sub-group .g-name, .log-group .g-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .sub-group .g-prog, .log-group .g-prog { margin-left: auto; font-size: var(--t-xs); font-weight: 400; color: var(--ink-2); white-space: nowrap; }
+  .log-section { display: flex; flex-direction: column; gap: var(--s2); }
+}
+/* the split button is a menu (WorkItemPage); in a narrow window the list is not shown, so only "Item only" and "Separate window" remain */
+@media (max-width: 1399px) {
+  .split-btn { display: inline-grid; }
+  .menu-item.wide-only { display: none; }
 }

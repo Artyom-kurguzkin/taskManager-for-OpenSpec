@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-09
+x-rtm:
+  id: 114
+  title: swimlanes
+  status: In Review
+  contributors: [Artyom-kurguzkin, Claude]
+  features: [organise-work-items]
+  label: enhancement
+  moved: 2026-11-09
+  plan: DevResources/plans/in-progress-items-2026-11-09.md
+  tests: [{suite: ArrangingTheBoardTests, test: "Rows split a section's items by priority (High / Lower) or by label (unlabeled first, then each label), empty rows included, and none means one row"}, {suite: ArrangingTheBoardTests, test: 'Rows split a section by any field the columns can use, a multi-valued field putting an item in each of its rows, and colour gives every item a band from any field'}, {suite: UsingTheBoardTests, test: 'The side menu organises work by columns, rows and colour; with columns by status, rows by feature and colour by label the board shows a row per feature and cards banded by label'}, {suite: UsingTheBoardTests, test: Dropping a card into a cell sets both the column's field and the row's field}, {suite: UsingTheBoardTests, test: The list and the roadmap group by rows then columns and colour their rows and bars by the colour field}, {suite: UsingTheBoardTests, test: 'The column menu no longer offers subgroups, and a column shows its cards in one lane whatever their priorities'}, {suite: UsingTheBoardTests, test: With swimlanes by label the list groups rows by label above the column}, {suite: UsingTheBoardTests, test: With swimlanes by priority the roadmap groups its items by priority instead of the board's columns}]
+  mergedFrom: [109, 113]
+  agentBy: Claude
+  agentAt: 2026-11-09T08:01:54

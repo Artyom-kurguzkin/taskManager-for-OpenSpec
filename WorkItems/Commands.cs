@@ -48,6 +48,8 @@ internal static partial class Commands
     [GeneratedRegex(@"^schema:.*\r?\n", RegexOptions.Multiline)]
     private static partial Regex SchemaLine();
 
+    private static string Today() => DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
+
     internal static (bool Success, string Message) SetStatus(int id, string status)
     {
         if (!WorkItemsApi.Statuses.Contains(status)) return (false, $"Unknown status \"{status}\"");
@@ -56,10 +58,10 @@ internal static partial class Commands
         if (status != "Blocked" && (item.DependsOn ?? []).Select(Queries.Get).OfType<WorkItem>().FirstOrDefault(d => !WorkItemsApi.IsResolved(d)) is WorkItem dep)
             return (false, $"Waiting on #wi{dep.Id} \"{dep.Title}\" — can't change status until it's resolved");
         if (status != "Completed")   // the first move to In Progress stamps the start day; a day already there is kept
-            return Update(id, m => { m.Status = status; if (status == "In Progress") m.Started ??= DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd"); });
+            return Update(id, m => { m.Status = status; if (item.Status != status) m.Moved = Today(); if (status == "In Progress") m.Started ??= DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd"); });
 
         // Completed = archived. Stamp the number first so the archived copy keeps it.
-        (bool ok, string message) = Update(id, _ => { });
+        (bool ok, string message) = Update(id, m => { if (item.Status != status) m.Moved = Today(); });
         if (!ok) return (ok, message);
         if (RefreshDeltas(item.Path) is { Success: false } stale) return stale;   // before the CLI sees them
         string folder = item.Folder;
@@ -227,7 +229,7 @@ internal static partial class Commands
     }
 
     internal static (bool Success, string Message, int Id) Create(string title, string status, IEnumerable<string>? features, IEnumerable<string>? contributors) =>
-        CreateFolder(title, status, features, contributors, priority: null, proposalBody: "## Why\n\n\n\n## What Changes\n\n- \n", tasks: "# Tasks\n\n## 1. Tasks\n\n", deltas: new Dictionary<string, string>());
+        CreateFolder(title, status, features, contributors, priority: null, proposalBody: "## Why\n\n\n\n## What Changes\n\n- \n", tasks: "# Tasks\n\n## 1. Tasks\n\n", deltas: new Dictionary<string, string>(), more: m => m.Moved = Today());
 
     /// <summary>
     /// A folder name no change has ever had: not under changes/ and not under changes/archive/ either (there with its
@@ -396,10 +398,13 @@ internal static partial class Commands
 
         string status = items.FirstOrDefault(i => !i.Archived)?.Status ?? items[0].Status;
         string body = Queries.GetDescription(main.Id).Trim() + "\n";
-        // Task groups stay groups, headed by the item they came from ("Title · Group" when an item had several).
+        // Task groups stay groups. The main item's keep their headings ("Title · Group" when it had several); each other source's
+        // are headed "#wiN Title · merged yyyy-MM-dd" ("#wiN Title · Group · merged yyyy-MM-dd" when it had several), so the
+        // Subtasks tile can tell what was merged in, and when. A group that already says where it came from is left as it is.
+        string mergedOn = DateTime.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         string tasks = TasksFile.CreateGrouped(items.SelectMany(it =>
             it.Subtasks.GroupBy(s => s.Group).ToList() is { Count: > 0 } groups
-                ? groups.Select(g => (Heading: groups.Count > 1 && GroupName(g.Key) is { Length: > 0 } n ? $"{it.Title} · {n}" : it.Title, Subtasks: (IReadOnlyList<Subtask>)g.ToList()))
+                ? groups.Select(g => (Heading: GroupHeading(it, g.Key, groups.Count > 1, it.Id == main.Id, mergedOn), Subtasks: (IReadOnlyList<Subtask>)g.ToList()))
                 : []));
         HashSet<int> sources = [.. items.Select(i => i.Id)];
         (bool ok, string message, int id) = CreateFolder(
@@ -413,13 +418,13 @@ internal static partial class Commands
 
         // Nothing but the folders is dropped: notes and any other files move over, and items that waited on a source now wait on this one.
         string merged = Queries.Get(id)!.Path;
-        foreach (WorkItem it in items) CopyExtras(it.Path, merged, it.Id, keepSpecs: it.Archived && !allArchived);
+        foreach (WorkItem it in items) CopyExtras(it.Path, merged, it.Id, keepSpecs: it.Archived && !allArchived, stampNotes: it.Id == main.Id ? null : mergedOn);
         // Note numbers are repository-wide and WorkItems can't reference Notes (Notes references WorkItems), so the files are written here in the notes format.
         int noteId = NextNoteId();
         foreach (WorkItem it in items.Where(i => i.Id != main.Id))
         {
             string created = DateTime.Now.ToString("s", System.Globalization.CultureInfo.InvariantCulture);
-            string note = $"---\nid: {noteId}\nby: Merge\ncreated: {created}\n---\n# Merged from #wi{it.Id} {it.Title}\n\n{Queries.GetDescription(it.Id).Trim()}\n";
+            string note = $"---\nid: {noteId}\nby: Merge\ncreated: {created}\nmergedFrom: {it.Id}\nmergedAt: {mergedOn}\n---\n# Merged from #wi{it.Id} {it.Title}\n\n{Queries.GetDescription(it.Id).Trim()}\n";
             OpenSpecStoreApi.WriteText(Path.Combine(merged, "notes", $"n{noteId++}.md"), note);
         }
         foreach (WorkItem w in Queries.GetAll(includeHidden: true).Where(w => !sources.Contains(w.Id) && (w.DependsOn ?? []).Any(sources.Contains)).ToList())
@@ -444,6 +449,29 @@ internal static partial class Commands
 
     private static string GroupName(string group) => Regex.Replace(group, @"^\d+\.\s*", "").Trim();
 
+    /// <summary>The heading (without its number) of one of an item's task groups in the merged tasks.md; see Merge.</summary>
+    private static string GroupHeading(WorkItem it, string group, bool several, bool isMain, string mergedOn)
+    {
+        string name = GroupName(group);
+        if (Regex.IsMatch(name, @"^#wi\d+ .+ · merged \d{4}-\d{2}-\d{2}$")) return name;   // merged in by an earlier merge: it keeps saying so
+        string title = isMain ? it.Title : $"#wi{it.Id} {it.Title}";
+        string heading = several && name.Length > 0 ? $"{title} · {name}" : title;
+        return isMain ? heading : $"{heading} · merged {mergedOn}";
+    }
+
+    /// <summary>
+    /// Adds <c>mergedFrom</c> and <c>mergedAt</c> to a note's frontmatter, after the keys it has (they are never reordered or
+    /// rewritten); a note that already says where it was merged in from keeps that. A note with no frontmatter gets one.
+    /// </summary>
+    internal static string StampMerged(string text, int from, string day)
+    {
+        string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+        string stamp = $"mergedFrom: {from}{nl}mergedAt: {day}{nl}";
+        Match fm = Regex.Match(text, @"\A---[ \t]*\r?\n(?<keys>(?:.*\r?\n)*?)---[ \t]*(?:\r?\n|\z)");
+        if (!fm.Success) return $"---{nl}{stamp}---{nl}{text}";
+        if (Regex.IsMatch(fm.Groups["keys"].Value, @"^mergedFrom:", RegexOptions.Multiline)) return text;
+        return text.Insert(fm.Groups["keys"].Index + fm.Groups["keys"].Length, stamp);
+    }
     /// <summary>What the sources carried in x-rtm besides the fields CreateFolder sets: label, links, tests, lanes, dependencies, old numbers.</summary>
     private static void KeepLinks(Rtm m, IReadOnlyList<WorkItem> items, HashSet<int> sources)
     {
@@ -460,7 +488,7 @@ internal static partial class Commands
     }
 
     /// <summary>Copies a source's notes into the merged change as they are, and its other files under from-wi&lt;id&gt;/.</summary>
-    private static void CopyExtras(string from, string to, int id, bool keepSpecs)
+    private static void CopyExtras(string from, string to, int id, bool keepSpecs, string? stampNotes = null)
     {
         string[] own = [".openspec.yaml", "proposal.md", "tasks.md"];
         foreach (string file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
@@ -471,7 +499,8 @@ internal static partial class Commands
             string target = top == "notes" ? Path.Combine(to, rel) : Path.Combine(to, $"from-wi{id}", rel);
             if (File.Exists(target)) continue;
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            File.Copy(file, target);
+            if (top == "notes" && stampNotes is not null && rel.EndsWith(".md")) OpenSpecStoreApi.WriteText(target, StampMerged(OpenSpecStoreApi.ReadText(file), id, stampNotes));   // a note a merge moves in says from where and when
+            else File.Copy(file, target);
         }
     }
 

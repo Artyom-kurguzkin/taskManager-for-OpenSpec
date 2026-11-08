@@ -19,7 +19,7 @@ public sealed class SwitchingProjectsTests : IDisposable
 
     private IRenderedComponent<Overlays>? overlays;
 
-    private (BunitContext Ctx, Workspace Workspace, IRenderedComponent<SideNav> Nav) NewContext()
+    private (BunitContext Ctx, Workspace Workspace, IRenderedComponent<SideNav> Nav) NewContext(FolderOpener? opener = null)
     {
         BunitContext ctx = new();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -27,6 +27,7 @@ public sealed class SwitchingProjectsTests : IDisposable
         ctx.Services.AddRadzenComponents();   // the list view is a Radzen data grid
         ctx.Services.AddSingleton(new SettingsStore(settingsFile));
         ctx.Services.AddSingleton<Workspace>();
+        if (opener is not null) ctx.Services.AddSingleton(opener);
         Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
         Assert.True(workspace.Open(repo1.Root).Success);
         overlays = ctx.Render<Overlays>();
@@ -350,6 +351,48 @@ public sealed class SwitchingProjectsTests : IDisposable
             page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Attachments folder']")!.Change("");   // empty = the default again
             Assert.Equal("local/task-tracking", settings.AttachmentsDir(repo2.Root));
             Assert.Contains("attachments=local/task-tracking", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
+        }
+    }
+
+    [Fact(DisplayName = "Settings shows every open project's location under its name, each with a Show in folder button, and the top row opens another repository")]
+    public async Task SettingsShowsEachProjectLocation()
+    {
+        using TestRepo repo3 = new();
+        List<string> shown = [];
+        (BunitContext ctx, Workspace workspace, _) = NewContext(path => { shown.Add(path); return (true, ""); });
+        await using (ctx)
+        {
+            Assert.True(workspace.OpenTab(repo2.Root).Success);
+            IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+
+            // the top row is for opening another repository: empty, and it no longer shows the active project's path
+            AngleSharp.Dom.IElement box = page.Find("input#f-repo");
+            Assert.Equal("", box.GetAttribute("value") ?? "");
+            Assert.Equal("Path to a repository…", box.GetAttribute("placeholder"));
+            Assert.Contains("Open another repository", page.Markup);
+            Assert.DoesNotContain("Folders of", page.Markup);
+
+            // every open project: its name, its full location (selectable text, title = the path), a Show in folder button
+            IReadOnlyList<AngleSharp.Dom.IElement> rows = page.FindAll("section[data-project]");
+            Assert.Equal([repo1.Root, repo2.Root], rows.Select(r => r.QuerySelector(".set-path")!.TextContent.Trim()));
+            foreach (AngleSharp.Dom.IElement row in rows)
+            {
+                Assert.Equal(row.GetAttribute("data-project"), row.QuerySelector("h3")!.TextContent.Trim());
+                Assert.Equal(row.QuerySelector(".set-path")!.TextContent.Trim(), row.QuerySelector(".set-path")!.GetAttribute("title"));
+                Assert.Equal("Show in folder", row.QuerySelector("button.show-folder")!.TextContent.Trim());
+                Assert.NotNull(row.QuerySelector("input[aria-label='Plans folder']"));
+                Assert.NotNull(row.QuerySelector("input[aria-label='Attachments folder']"));
+            }
+
+            page.FindAll("section[data-project]")[1].QuerySelector("button.show-folder")!.Click();
+            page.FindAll("section[data-project]")[0].QuerySelector("button.show-folder")!.Click();
+            Assert.Equal([repo2.Root, repo1.Root], shown);
+
+            // the top row adds the typed repository as a project and switches to it
+            page.Find("input#f-repo").Change(repo3.Root);
+            page.Find("button.open-repo").Click();
+            page.WaitForAssertion(() => Assert.Equal([repo1.Root, repo2.Root, repo3.Root], workspace.OpenRepos));
+            Assert.Equal(repo3.Root, workspace.Root);
         }
     }
 }

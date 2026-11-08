@@ -1,16 +1,12 @@
 schema: spec-driven
-created: 2026-11-06
+skip_specs: true
+created: 2026-11-09
 x-rtm:
-  id: 99
-  title: list view collumn cut
-  status: In Review
-  priority: high
-  contributors: [Artyom-kurguzkin, Claude]
-  features: [organise-work-items]
-  label: bug
-  started: 2026-11-06
-  due: 2026-11-09
-  tests: [{suite: UsingTheBoardTests, test: 'List cells keep their content inside the column: long text is cut with an ellipsis and shows in full as a tooltip'}]
-  plan: DevResources/plans/in-progress-items-2026-11-07.md
-  agentBy: Claude
-  agentAt: 2026-11-07T08:50:25
+  id: 115
+  title: i should be able to create new features from within work item details screen
+  status: In Progress
+  contributors: [Artyom-kurguzkin]
+  features: [work-item-details]
+  label: enhancement
+  started: 2026-11-09
+  moved: 2026-11-09

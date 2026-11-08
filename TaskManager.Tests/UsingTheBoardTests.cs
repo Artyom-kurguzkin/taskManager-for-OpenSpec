@@ -137,7 +137,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"], board.FindAll(".col-h h3").Select(h => h.TextContent.Trim()));
         Assert.Equal(4, board.FindAll("article.card").Count);
-        Assert.Equal(["High priority", "Lower priority"], board.FindAll(".lane-h span:first-child").Select(s => s.TextContent.Trim()));
+        Assert.Equal(7, board.FindAll(".lane").Count);   // one lane of cards per column, no subgroups
     }
 
     [Fact(DisplayName = "Switching to List shows a grid row per work item, with sortable headers and a filter row")]
@@ -333,7 +333,7 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
         nav!.Find("button.nav-toggle").Click();
-        nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector(".dd")!.Click();
+        nav.FindAll(".field").Single(f => f.TextContent.Contains("columns")).QuerySelector(".dd")!.Click();
         nav.WaitForAssertion(() => Assert.Contains(nav.FindAll(".rz-dropdown-item"), i => i.TextContent.Trim() == "feature"));
         nav.FindAll(".rz-dropdown-item").First(i => i.TextContent.Trim() == "feature").Click();
 
@@ -449,22 +449,6 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.True(board.FindAll("tr[data-id]").Single(r => r.TextContent.Contains("#wi107")).HasAttribute("data-hidden"));
     }
 
-    [Fact(DisplayName = "Adding a subgroup asks for its name in a dialog")]
-    public async Task SubCategoryPrompt()
-    {
-        await using BunitContext ctx = NewContext();
-        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
-        board.FindAll(".menu-item").First(i => i.TextContent.Contains("Add subgroup")).Click();
-
-        overlays!.WaitForAssertion(() => Assert.Contains("Add a subgroup to Blocked", overlays.Find(".dialog").TextContent));
-        overlays.Find(".dialog input").Input("Needs review");
-        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Add").Click();
-
-        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".lane-h span:first-child"), s => s.TextContent.Trim() == "Needs review"));
-        Assert.Empty(overlays.FindAll(".dialog"));
-    }
-
     [Fact(DisplayName = "Merging work items confirms it with a toast")]
     public async Task MergeToast()
     {
@@ -501,7 +485,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
 
-        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Contains("Add subgroup")));
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Contains("Hide column")));
     }
 
     [Fact(DisplayName = "Showing subtasks puts one card per tasks.md checkbox on the board")]
@@ -523,7 +507,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         nav.Find("button.nav-toggle").Click();
         Assert.Contains("expanded", nav.Find("nav.side").ClassName);
-        Assert.Contains("group by", nav.Find(".nav-view").TextContent);
+        Assert.Contains("Organise", nav.Find(".nav-view").TextContent);
         Assert.Contains("contributor", nav.Find(".nav-view").TextContent);
 
         nav.Find("button.nav-toggle").Click();
@@ -666,36 +650,6 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.DoesNotContain(health, CardsIn(board, "Availability"));
     }
 
-    [Fact(DisplayName = "The calendar view shows the month in weeks from Monday, each dated item as a bar from its start to its due date, items without dates in a side list, and a bar opens its item")]
-    public async Task CalendarView()
-    {
-        await using BunitContext ctx = NewContext();
-        DateOnly today = DateOnly.FromDateTime(DateTime.Today);
-        WorkItemsApi.SetStarted(123, today);
-        WorkItemsApi.SetDue(123, today.AddDays(1));
-        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-
-        nav!.Find("button[aria-label=Layout]").Click();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Calendar").Click();
-
-        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".cal")));
-        Assert.Contains(DateTime.Today.ToString("MMMM yyyy"), board.Find(".cal-h").TextContent);
-        Assert.Equal(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], board.FindAll(".cal-dow").Select(d => d.TextContent.Trim()));
-        Assert.Single(board.FindAll(".cal-day.today"));
-        AngleSharp.Dom.IElement bar = board.FindAll(".cal-bar[data-id='123']").First();
-        Assert.Contains("Health-check endpoint", bar.TextContent);
-        Assert.Contains(WorkItemsApi.Get(107)!.Title, board.Find(".cal-unscheduled").TextContent);   // no dates
-        Assert.DoesNotContain("Health-check", board.Find(".cal-unscheduled").TextContent);
-
-        board.Find(".cal-next").Click();
-        board.WaitForAssertion(() => Assert.Contains(DateTime.Today.AddMonths(1).ToString("MMMM yyyy"), board.Find(".cal-h").TextContent));
-        board.Find(".cal-today").Click();
-        board.WaitForAssertion(() => Assert.Contains(DateTime.Today.ToString("MMMM yyyy"), board.Find(".cal-h").TextContent));
-
-        board.FindAll(".cal-bar[data-id='123']").First().Click();
-        Assert.EndsWith("/item/123", ctx.Services.GetRequiredService<NavigationManager>().Uri);
-    }
-
     [Fact(DisplayName = "Grouped by due date the columns are Overdue, Today, This week, Next week, Later and No due date, and the period filter narrows the board to one of them")]
     public async Task GroupByDueAndPeriodFilter()
     {
@@ -706,7 +660,7 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
         nav!.Find("button.nav-toggle").Click();
-        nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector(".dd")!.Click();
+        nav.FindAll(".field").Single(f => f.TextContent.Contains("columns")).QuerySelector(".dd")!.Click();
         nav.FindAll(".rz-dropdown-item").First(i => i.TextContent.Trim() == "due date").Click();
         board.WaitForAssertion(() => Assert.Equal(["Overdue", "Today", "This week", "Next week", "Later", "No due date"], Columns(board)));
         Assert.Contains("Health-check endpoint", CardsIn(board, "Today"));
@@ -931,28 +885,6 @@ public sealed class UsingTheBoardTests : IDisposable
         board.WaitForAssertion(() => Assert.Contains("Exports", Columns(board)));
     }
 
-    [Fact(DisplayName = "A column shows priority subgroups when its cards differ in priority, and dropping a card on a subgroup sets its priority")]
-    public async Task PrioritySubgroups()
-    {
-        await using BunitContext ctx = NewContext();
-        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
-        int urgent = workspace.CreateItem("Backlog").Id, other = workspace.CreateItem("Backlog").Id;
-        Assert.True(WorkItemsApi.SetPriority(urgent, "high").Success);
-        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-
-        Assert.Equal(["High priority", "Lower priority"], Col(board, "Backlog").QuerySelectorAll(".lane-h.prio span:first-child").Select(s => s.TextContent.Trim()));
-        Assert.Empty(Col(board, "Planned").QuerySelectorAll(".lane-h.prio"));   // one priority there: no heading
-
-        AngleSharp.Dom.IElement HighLane() => Col(board, "Backlog").QuerySelector(".lane-h.prio[data-prio=high] + .lane")!;
-        Assert.Single(HighLane().QuerySelectorAll("article.card"));
-        Col(board, "Backlog").QuerySelectorAll(".lane-h.prio[data-prio=low] + .lane article.card").First(c => c.TextContent.Contains($"#wi{other}")).DragStart();
-        HighLane().Drop();
-
-        board.WaitForAssertion(() => Assert.Equal("high", WorkItemsApi.Get(other)!.Priority));
-        board.WaitForAssertion(() => Assert.Equal(2, HighLane().QuerySelectorAll("article.card").Length));   // the fixture's own Backlog item stays in the low lane
-        Assert.Equal(3, CardsIn(board, "Backlog").Count);
-    }
-
     // The layout dropdown in the side menu switches the board to the list.
     private void ShowList()
     {
@@ -963,7 +895,7 @@ public sealed class UsingTheBoardTests : IDisposable
     private void GroupByFeature()
     {
         nav!.Find("button.nav-toggle").Click();
-        nav.FindAll(".field").Single(f => f.TextContent.Contains("group by")).QuerySelector(".dd")!.Click();
+        nav.FindAll(".field").Single(f => f.TextContent.Contains("columns")).QuerySelector(".dd")!.Click();
         nav.FindAll(".rz-dropdown-item").First(i => i.TextContent.Trim() == "feature").Click();
     }
 
@@ -1282,5 +1214,282 @@ public sealed class UsingTheBoardTests : IDisposable
             AngleSharp.Dom.IElement clip = td.QuerySelector(".clip")!;
             Assert.Equal(clip.TextContent.Trim(), clip.GetAttribute("title"));
         }
+    }
+
+    [Fact(DisplayName = "The list has an 'In status since' column after Due, with the date the item last moved to its status")]
+    public async Task InStatusSinceColumn()
+    {
+        await using BunitContext ctx = NewContext();
+        DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+        Assert.True(WorkItemsApi.SetStatus(107, "In Review").Success);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        ShowList();
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll("thead th"), h => h.TextContent.Contains("In status since")));
+        List<string> heads = board.FindAll("thead th").Select(h => h.TextContent).ToList();
+        Assert.Equal(heads.FindIndex(h => h.Contains("Due")) + 1, heads.FindIndex(h => h.Contains("In status since")));
+        Assert.Contains(today.ToString("d MMM"), board.FindAll("tr[data-id='107']").First().TextContent);
+        Assert.Contains(new DateOnly(2026, 9, 12).ToString("d MMM"), board.FindAll("tr[data-id='123']").First().TextContent);   // never moved: its creation date
+    }
+
+    // One of the side menu's Organise dropdowns (columns, rows or colour): open it, pick a value.
+    private void PickField(string field, string value)
+    {
+        if (nav!.FindAll(".nav-view").Count == 0) nav.Find("button.nav-toggle").Click();
+        AngleSharp.Dom.IElement Field() => nav.FindAll(".field").Single(f => f.QuerySelector("label")!.TextContent.Trim() == field);   // "label" is a choice in several fields: stay in this one
+        Field().QuerySelector(".dd")!.Click();
+        nav.WaitForAssertion(() => Assert.Contains(Field().QuerySelectorAll(".rz-dropdown-item"), i => i.TextContent.Trim() == value));
+        Field().QuerySelectorAll(".rz-dropdown-item").First(i => i.TextContent.Trim() == value).Click();
+    }
+
+    private void PickSwimlanes(string value) => PickField("rows", value);
+
+    [Fact(DisplayName = "With swimlanes by priority the board shows a row per priority across every column, and dropping a card into another row's column changes both its status and its priority")]
+    public async Task SwimlanesByPriority()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        int urgent = workspace.CreateItem("Backlog").Id, other = workspace.CreateItem("Backlog").Id;
+        Assert.True(WorkItemsApi.SetPriority(urgent, "high").Success);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        PickSwimlanes("priority");
+
+        board.WaitForAssertion(() => Assert.Equal(["High priority", "Lower priority"], board.FindAll(".swim-h span:first-child").Select(s => s.TextContent.Trim())));
+        Assert.Equal(7, board.FindAll("section.col h3").Count);   // the column headers once, on top
+        Assert.All(board.FindAll(".swim"), row => Assert.Equal(7, row.QuerySelectorAll("section.col[data-drop]").Length));   // a drop cell per column in every row, empty ones too
+        Assert.All(board.FindAll(".swim .lane"), l => Assert.True(l.HasAttribute("data-drop")));
+        Assert.Empty(board.FindAll(".lane-h"));
+        AngleSharp.Dom.IElement Cell(string row, string column) => board.Find($".swim[data-swim={row}] section.col[data-cell='{column}']");
+        Assert.Single(Cell("high", "Backlog").QuerySelectorAll("article.card"));
+        Assert.Equal(2, Cell("low", "Backlog").QuerySelectorAll("article.card").Length);   // the fixture's own Backlog item and the new one
+
+        Cell("low", "Backlog").QuerySelectorAll("article.card").First(c => c.TextContent.Contains($"#wi{other}")).DragStart();
+        Cell("high", "In Progress").QuerySelector(".lane")!.Drop();
+
+        board.WaitForAssertion(() => Assert.Equal("In Progress", WorkItemsApi.Get(other)!.Status));
+        board.WaitForAssertion(() => Assert.Equal("high", WorkItemsApi.Get(other)!.Priority));
+        board.WaitForAssertion(() => Assert.Contains($"#wi{other}", Cell("high", "In Progress").TextContent));
+        Assert.DoesNotContain($"#wi{other}", Cell("low", "Backlog").TextContent);
+    }
+
+    [Fact(DisplayName = "The column menu no longer offers subgroups, and a column shows its cards in one lane whatever their priorities")]
+    public async Task NoSubgroups()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        int urgent = workspace.CreateItem("Backlog").Id;
+        Assert.True(WorkItemsApi.SetPriority(urgent, "high").Success);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Backlog")).Click();
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Contains("Hide column")));
+        Assert.DoesNotContain(board.FindAll(".menu-item"), i => i.TextContent.Contains("subgroup", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Single(Col(board, "Backlog").QuerySelectorAll(".lane"));
+        Assert.Equal(2, Col(board, "Backlog").QuerySelectorAll(".lane > article.card").Length);   // the high and the fixture's low-priority item, side by side
+        Assert.Empty(board.FindAll(".lane-h, .swim-h, .swim"));
+    }
+
+    [Fact(DisplayName = "With swimlanes by label the list groups rows by label above the column")]
+    public async Task SwimlanesByLabelInTheList()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.SetLabel(123, "bug").Success);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        PickSwimlanes("label");
+        ShowList();
+
+        board.WaitForAssertion(() => Assert.Equal(["~", "bug", "feature", "enhancement"], board.FindAll("tr[data-group^='swim:']").Select(g => g.GetAttribute("data-group")![5..])));   // the same values and order as label columns: unlabeled first
+        Assert.Equal(["Unlabeled", "bug", "feature", "enhancement"], board.FindAll("tr[data-group^='swim:'] .swim-name").Select(n => n.TextContent.Trim()));
+        Assert.Contains("1", board.Find("tr[data-group='swim:bug']").TextContent);   // its count
+        Assert.DoesNotContain("Label", board.FindAll("thead th .th-l").Select(h => h.TextContent.Trim()));   // the grouping says it
+
+        // under the bug swimlane, the column group holds the bug's row; the swimlane's name sits above the column's
+        List<string> order = [];
+        foreach (AngleSharp.Dom.IElement tr in board.FindAll(".rz-data-grid tbody tr"))
+        {
+            if (tr.GetAttribute("data-group") is string g) order.Add(g);
+            else if (tr.GetAttribute("data-id") is string id) order.Add("#" + id);
+        }
+        int bug = order.IndexOf("swim:bug"), feature = order.IndexOf("swim:feature");
+        Assert.True(bug >= 0 && feature > bug);
+        Assert.Contains("#123", order.Skip(bug).Take(feature - bug));
+        Assert.Contains(order.Skip(bug).Take(feature - bug), g => g == WorkItemsApi.Get(123)!.Status);   // the column group follows the swimlane's header
+    }
+
+    [Fact(DisplayName = "The calendar view is a roadmap: items listed by group on the left, bars from start to due on the right, a group bar spanning the group's dates, a today line, and Today / previous / next / zoom controls")]
+    public async Task CalendarIsARoadmap()
+    {
+        await using BunitContext ctx = NewContext();
+        DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+        WorkItemsApi.SetStarted(123, today);
+        WorkItemsApi.SetDue(123, today.AddDays(1));
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        nav!.Find("button[aria-label=Layout]").Click();
+        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Calendar").Click();
+
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".rm")));
+        string Range() => board.Find(".rm-range").TextContent;
+        Assert.Contains(today.ToString("MMM yyyy"), Range());
+        Assert.NotEmpty(board.FindAll(".rm-group"));   // the board's groups (statuses) head the left pane
+        AngleSharp.Dom.IElement row = board.Find(".rm-row[data-id='123']");
+        Assert.Contains("Health-check endpoint", row.TextContent);
+        Assert.Contains("#wi123", row.TextContent);
+        Assert.NotEmpty(board.FindAll(".rm-row[data-id='107']"));   // no dates: a row ...
+        Assert.Empty(board.FindAll(".rm-bar[data-id='107']"));      // ... and no bar
+
+        // the bar is two day-columns wide, starting at today's column of the window
+        RoadmapWindow month = RoadmapModel.Window(today, "month");
+        AngleSharp.Dom.IElement bar = board.Find(".rm-bar[data-id='123']");
+        Assert.Contains("Health-check endpoint", bar.TextContent);
+        Assert.Contains($"--col:{month.ColumnOf(today)}; --span:2;", bar.GetAttribute("style"));
+        Assert.Single(board.FindAll(".rm-today"));
+        Assert.Contains(today.ToString("ddd, MMM d") + " - " + today.AddDays(1).ToString("ddd, MMM d"), board.FindAll(".rm-gbar").Select(g => g.TextContent).First(t => t.Contains(today.ToString("ddd, MMM d"))));   // the group's span as text
+
+        board.Find(".rm-next").Click();
+        board.WaitForAssertion(() => Assert.Contains(today.AddMonths(1).ToString("MMM yyyy"), Range()));
+        board.Find(".rm-prev").Click();
+        board.WaitForAssertion(() => Assert.Contains(today.ToString("MMM yyyy"), Range()));
+        board.Find(".rm-next").Click();
+        board.Find(".rm-today-btn").Click();
+        board.WaitForAssertion(() => Assert.Equal(today.ToString("MMM yyyy"), Range().Split(" – ")[0]));
+
+        board.Find(".rm-zoom [data-zoom=quarter]").Click();
+        RoadmapWindow quarter = RoadmapModel.Window(today, "quarter");
+        board.WaitForAssertion(() => Assert.Contains($"--col:{quarter.ColumnOf(today)}; --span:1;", board.Find(".rm-bar[data-id='123']").GetAttribute("style")));   // week columns now
+
+        AngleSharp.Dom.IElement chevron = board.FindAll(".rm-lgroup").First(g => g.QuerySelector(".rm-row[data-id='123']") is not null).QuerySelector(".rm-chev")!;
+        chevron.Click();   // collapsing a group hides its rows and bars
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll(".rm-row[data-id='123']")));
+        Assert.Empty(board.FindAll(".rm-bar[data-id='123']"));
+        board.Find(".rm-chev[aria-expanded=false]").Click();
+
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".rm-bar[data-id='123']")));
+        board.Find(".rm-bar[data-id='123']").Click();
+        Assert.EndsWith("/item/123", ctx.Services.GetRequiredService<NavigationManager>().Uri);
+    }
+
+    [Fact(DisplayName = "With swimlanes by priority the roadmap groups its items by priority instead of the board's columns")]
+    public async Task RoadmapGroupsBySwimlane()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.SetPriority(123, "high").Success);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        PickSwimlanes("priority");
+        nav!.Find("button[aria-label=Layout]").Click();
+        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Calendar").Click();
+
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".rm-row[data-id='123']")));
+        List<string> groups = board.FindAll(".rm-gname").Select(g => g.TextContent).ToList();
+        Assert.Contains(groups, g => g.Contains("High priority"));
+        Assert.Contains(groups, g => g.Contains("Lower priority"));
+        Assert.DoesNotContain(groups, g => g.Contains("Backlog"));   // the swimlane field replaces the board's columns as the roadmap's groups
+        Assert.Contains("#wi123", board.FindAll(".rm-lgroup").First(g => g.QuerySelector(".rm-gname")!.TextContent.Contains("High priority")).TextContent);
+    }
+
+    [Fact(DisplayName = "The side menu organises work by columns, rows and colour; with columns by status, rows by feature and colour by label the board shows a row per feature and cards banded by label")]
+    public async Task OrganiseByColumnsRowsAndColour()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.SetLabel(123, "bug").Success);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        nav!.Find("button.nav-toggle").Click();
+        Assert.Equal(["columns", "rows", "colour"], nav.FindAll(".nav-view .organise .field label").Select(l => l.TextContent.Trim()));
+        Assert.Contains("Organise", nav.Find(".nav-view .organise .nav-h").TextContent);
+        Assert.DoesNotContain("swimlanes", nav.Find(".nav-view").TextContent);
+        Assert.DoesNotContain("group by", nav.Find(".nav-view").TextContent);
+        Assert.Equal(["status", "none", "status"], nav.FindAll(".organise .field .rz-dropdown-label").Select(l => l.TextContent.Trim()));   // today's board: columns by status, no rows, coloured by status
+
+        PickField("rows", "feature");
+        PickField("colour", "label");
+
+        board.WaitForAssertion(() => Assert.Contains("Availability", board.FindAll(".swim-h span:first-child").Select(s => s.TextContent.Trim())));
+        Assert.Contains("Banking", board.FindAll(".swim-h span:first-child").Select(s => s.TextContent.Trim()));
+        Assert.Equal(board.FindAll(".swim-h").Count, board.FindAll(".swim").Count);
+        Assert.Equal(7, board.FindAll("section.col h3").Count);   // the status columns, once, on top
+        AngleSharp.Dom.IElement Band(int id) => board.FindAll("article.card").First(c => c.TextContent.Contains($"#wi{id}")).QuerySelector(".band")!;
+        Assert.Contains("var(--peach)", Band(123).GetAttribute("style"));   // bug
+        Assert.Contains("var(--stone)", Band(107).GetAttribute("style"));   // no label
+        Assert.Contains("bug", nav.Find(".legend").TextContent);            // the legend explains the colours shown
+        Assert.Contains("var(--peach)", nav.FindAll(".legend .lg").First(l => l.TextContent.Contains("bug")).QuerySelector("i")!.GetAttribute("style"));
+        Assert.Equal("label", ctx.Services.GetRequiredService<SettingsStore>().Board(repo.Root).ColorBy);   // remembered
+    }
+
+    [Fact(DisplayName = "Dropping a card into a cell sets both the column's field and the row's field")]
+    public async Task DropSetsColumnAndRowFields()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        (bool _, string _, int pay) = WorkItemsApi.Create("Pay run", features: ["functional/banking"]);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        AngleSharp.Dom.IElement Cell(string row, string column) => board.Find($".swim[data-swim='{row}'] section.col[data-cell='{column}']");
+        void Drag(AngleSharp.Dom.IElement from, int id, AngleSharp.Dom.IElement to)
+        {
+            from.QuerySelectorAll("article.card").First(c => c.TextContent.Contains($"#wi{id}")).DragStart();
+            to.QuerySelector(".lane")!.Drop();
+        }
+
+        // columns by status, rows by feature (a field with several values: the card leaves its old feature for the new one)
+        PickField("rows", "feature");
+        board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell("functional/banking", "Backlog").TextContent));
+        Drag(Cell("functional/banking", "Backlog"), pay, Cell("non-functional/availability", "In Progress"));
+        board.WaitForAssertion(() => Assert.Equal("In Progress", WorkItemsApi.Get(pay)!.Status));
+        board.WaitForAssertion(() => Assert.Equal(["non-functional/availability"], WorkItemsApi.Get(pay)!.Features.Select(f => f.Path)));
+        board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell("non-functional/availability", "In Progress").TextContent));
+
+        // columns by priority, rows by label: two single-valued fields
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = "priority", Swimlane = "label" });
+        board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell(BoardModel.NoRow, "low").TextContent));
+        Drag(Cell(BoardModel.NoRow, "low"), pay, Cell("bug", "high"));
+        board.WaitForAssertion(() => Assert.Equal("high", WorkItemsApi.Get(pay)!.Priority));
+        board.WaitForAssertion(() => Assert.Equal("bug", WorkItemsApi.Get(pay)!.Label));
+        Assert.Equal("In Progress", WorkItemsApi.Get(pay)!.Status);   // the status was not a dimension this time
+
+        // a field a drop cannot set (due dates) stays read-only: the other dimension still applies
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = "status", Swimlane = "due" });
+        board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell("none", "In Progress").TextContent));
+        Drag(Cell("none", "In Progress"), pay, Cell("overdue", "Blocked"));
+        board.WaitForAssertion(() => Assert.Equal("Blocked", WorkItemsApi.Get(pay)!.Status));
+        Assert.Null(WorkItemsApi.Get(pay)!.Due);
+    }
+
+    [Fact(DisplayName = "The list and the roadmap group by rows then columns and colour their rows and bars by the colour field")]
+    public async Task ListAndRoadmapFollowRowsColumnsAndColour()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        DateOnly today = DateOnly.FromDateTime(DateTime.Today);
+        Assert.True(WorkItemsApi.SetLabel(123, "bug").Success);
+        WorkItemsApi.SetStarted(123, today);
+        WorkItemsApi.SetDue(123, today.AddDays(1));
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Swimlane = "label", ColorBy = "label", View = "list" });
+
+        // the list: a group per row, the status groups inside it, a colour stripe per row
+        board.WaitForAssertion(() => Assert.Contains("swim:bug", board.FindAll("tr[data-group]").Select(g => g.GetAttribute("data-group"))));
+        List<string> order = board.FindAll(".rz-data-grid tbody tr").Select(tr => tr.GetAttribute("data-group") ?? "#" + tr.GetAttribute("data-id")).ToList();
+        string status = WorkItemsApi.Get(123)!.Status;
+        Assert.True(order.IndexOf("swim:bug") < order.IndexOf("#123") && order.IndexOf("#123") > order.IndexOf(status), string.Join(",", order));
+        Assert.Contains("var(--peach)", board.Find("tr[data-id='123']").GetAttribute("style"));   // bug
+        Assert.Contains("var(--stone)", board.Find("tr[data-id='107']").GetAttribute("style"));   // no label
+
+        // the roadmap: a row header with the columns as sub-headers, bars coloured by label
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { View = "calendar" });
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".rm-bar[data-id='123']")));
+        Assert.Contains("bug", board.FindAll(".rm-group .rm-gname").Select(g => g.TextContent));
+        AngleSharp.Dom.IElement bug = board.FindAll(".rm-lgroup").First(g => g.QuerySelector(".rm-gname")!.TextContent == "bug");
+        Assert.Contains(bug.QuerySelectorAll(".rm-subgroup .rm-sname"), s => s.TextContent == status);
+        Assert.NotNull(bug.QuerySelector(".rm-subgroup ~ .rm-row.deep[data-id='123']"));   // under its column's sub-header, a level in
+        Assert.Contains("var(--peach)", board.Find(".rm-bar[data-id='123']").GetAttribute("style"));
+        Assert.Contains("var(--peach)", board.Find(".rm-row[data-id='123']").GetAttribute("style"));   // the left dot
+
+        // no rows: just the columns as groups, no sub-headers
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Swimlane = "none" });
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll(".rm-subgroup")));
+        Assert.Contains(status, board.FindAll(".rm-group .rm-gname").Select(g => g.TextContent));
     }
 }

@@ -21,52 +21,11 @@
 {
     <p class="muted">Every project is hidden. Bring one back from the side menu.</p>
 }
-else if (O.View == "calendar")
+else if (View == "calendar")
 {
-    @* A month in whole weeks. A dated item is a bar from its start date to its due date (one day when only one is set), coloured
-       by status like a card's band, stacked so bars never overlap; dashed ends say it continues into the week before or after.
-       Items with no dates are listed at the side. The same filters as the board apply (contributor, period, agent work). *@
-    <div class="cal" data-sk>
-        <header class="cal-h">
-            <button type="button" class="btn ghost cal-prev" aria-label="Previous month" @onclick="() => calMonth = calMonth.AddMonths(-1)">‹</button>
-            <h2>@calMonth.ToString("MMMM yyyy")</h2>
-            <button type="button" class="btn ghost cal-next" aria-label="Next month" @onclick="() => calMonth = calMonth.AddMonths(1)">›</button>
-            <button type="button" class="btn ghost cal-today" @onclick="() => calMonth = ThisMonth">Today</button>
-        </header>
-        <div class="cal-body">
-            <div class="cal-grid">
-                <div class="cal-dows">@foreach (string d in new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }) { <span class="cal-dow">@d</span> }</div>
-                @foreach (IReadOnlyList<DateOnly> week in CalendarModel.Weeks(calMonth))
-                {
-                    IReadOnlyList<CalendarBar> bars = CalendarModel.Bars(CalItems.Keys, week);
-                    <div class="cal-week" style="--lanes:@(bars.Count == 0 ? 0 : bars.Max(b => b.Lane) + 1)">
-                        @for (int i = 0; i < 7; i++)
-                        {
-                            DateOnly d = week[i];
-                            <div class="cal-day @(d == Today ? "today" : "") @(d.Month != calMonth.Month ? "other" : "")" style="grid-column:@(i + 1)"><span class="num">@d.Day</span></div>
-                        }
-                        @foreach (CalendarBar b in bars)
-                        {
-                            Project bp = CalItems[b.Item];
-                            <button type="button" class="cal-bar @(b.StartsBefore ? "from" : "") @(b.EndsAfter ? "to" : "")" data-id="@b.Item.Id"
-                                    style="grid-column:@(b.Col + 1) / span @b.Span; grid-row:@(b.Lane + 2); --band:var(@Ui.Band(b.Item.Status))"
-                                    title="@BarTitle(b.Item)"
-                                    @onclick="() => OpenItem(bp, b.Item.Id)">@(Multi ? bp.Name + " · " : "")@b.Item.Title</button>
-                        }
-                    </div>
-                }
-            </div>
-            <aside class="cal-unscheduled">
-                <h3>No dates <span class="count">@Unscheduled.Count</span></h3>
-                @foreach ((Project up, WorkItem u) in Unscheduled)
-                {
-                    <button type="button" class="cal-item" data-id="@u.Id" style="--band:var(@Ui.Band(u.Status))" @onclick="() => OpenItem(up, u.Id)"><span class="mono muted">#wi@(u.Id)</span> @u.Title</button>
-                }
-            </aside>
-        </div>
-    </div>
+    <Roadmap Projects="RoadmapProjects" Multi="Multi" ColorBy="@O.ColorBy" OnOpen="OpenFrom" />
 }
-else if (O.View == "list")
+else if (View == "list")
 {
     @* The list is a Radzen DataGrid over the projects' columns: one row per work item per column, in the board's order, grouped by
        project (when several are open) and column. The grid brings sorting, filtering (a funnel in each header), column resize and
@@ -87,6 +46,11 @@ else if (O.View == "list")
                 {
                     string pname = (string)context.Data.Key;
                     <b class="gname proj-name">@pname</b>
+                }
+                else if (IsSwimGroup(context))
+                {
+                    List<GridRow> swimRows = SwimRowsOf(context);
+                    <b class="gname swim-name">@(swimRows.FirstOrDefault()?.SwimLabel)</b> <span class="count">@BoardModel.Count(swimRows.Where(r => r.Item is not null).Select(r => r.Item!).DistinctBy(i => i.Id), O.Unit)</span>
                 }
                 else
                 {
@@ -141,7 +105,7 @@ else if (O.View == "list")
                         else { <span class="muted">No items</span> }
                     </Template>
                     <GroupFooterTemplate>
-                        @if (!IsProjectGroup(context))
+                        @if (!IsProjectGroup(context) && !IsSwimGroup(context))
                         {
                             (BoardColumn fcol, _, string froot) = GroupOf(context);
                             @if (!(O.GroupBy == "status" && fcol.Label == "Completed")) { <button class="add" @onclick="() => NewItem(ProjectOf(froot), fcol.Key)">+ Add item</button> }   @* completed = archived by the CLI, not created here *@
@@ -179,6 +143,9 @@ else if (O.View == "list")
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Due" Title="Due" Visible="@Shown("Due")" HeaderTemplate="@Head("Due")" Width="88px" FormatString="{0:d MMM}" CssClass="num" Filterable="false">
                     <Template Context="row"><span class="clip" title="@Day(row.Due)">@Day(row.Due)</span></Template>
+                </RadzenDataGridColumn>
+                <RadzenDataGridColumn TItem="GridRow" Property="Moved" Title="In status since" Visible="@Shown("In status since")" HeaderTemplate="@Head("In status since")" Width="110px" FormatString="{0:d MMM}" CssClass="num muted" Filterable="false">
+                    <Template Context="row"><span class="clip" title="@Day(row.Moved)">@Day(row.Moved)</span></Template>
                 </RadzenDataGridColumn>
             </Columns>
         </RadzenDataGrid>
@@ -244,6 +211,8 @@ else
                             @foreach (BoardSection sec in p.Sections)
                             {
                                 <div class="cat">
+                                    @if (O.Swimlane != BoardModel.NoSwimlane) { @Swim(p, sec) }
+                                    else {
                                     @* a header dropped past the last column (the drag script sends that drop to the row) *@
                                     <div class="cat-cols" @ondrop="() => DropColumn(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), null)">
                                         @foreach (BoardColumn col in sec.Columns)
@@ -261,11 +230,6 @@ else
                                                         <Items>
                                                             <MenuItem OnClick="() => NewItem(p, col.Key)">+ Add work item here</MenuItem>
                                                             <MenuItem OnClick="() => SelectAll(p, col)">Select all in column</MenuItem>
-                                                            <MenuItem OnClick="() => AddLane(p, col.Key, col.Label)">+ Add subgroup…</MenuItem>
-                                                            @foreach (string lane in col.Lanes)
-                                                            {
-                                                                <MenuItem OnClick="() => Run(Workspace.In(p.Root, () => WorkItemsApi.RemoveLane(col.Key, lane)))">Remove subgroup “@lane”</MenuItem>
-                                                            }
                                                             @if (col.Key != BoardModel.Unassigned)
                                                             {
                                                                 <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
@@ -278,31 +242,12 @@ else
                                                         </Items>
                                                     </Menu>
                                                 }
-                                                @if (col.Lanes.Count > 0)
-                                                {
-                                                    @foreach (string lane in col.Lanes)
-                                                    {
-                                                        List<WorkItem> inLane = BoardModel.InLane(col, lane).ToList();
-                                                        <div class="lane-h"><span>@lane</span><span class="count">@BoardModel.Count(inLane, O.Unit)</span></div>
-                                                        <div class="lane" data-drop @ondrop="() => Drop(p, col, lane)" @ondrop:stopPropagation="true">@Cards(p, col, inLane, lane)</div>
-                                                    }
-                                                }
-                                                else if (BoardModel.PriorityLanes(col) is { Count: > 1 } byPriority)   @* no custom subgroups: priority is the subgroup *@
-                                                {
-                                                    @foreach ((string prio, string label, IReadOnlyList<WorkItem> inPrio) in byPriority)
-                                                    {
-                                                        <div class="lane-h prio" data-prio="@prio"><span>@label</span><span class="count">@BoardModel.Count(inPrio, O.Unit)</span></div>
-                                                        <div class="lane" data-drop @ondrop="() => Drop(p, col, null, prio)" @ondrop:stopPropagation="true">@Cards(p, col, inPrio, null, prio)</div>
-                                                    }
-                                                }
-                                                else
-                                                {
-                                                    <div class="lane" data-drop>@Cards(p, col, col.Items, null)</div>
-                                                }
+                                                <div class="lane" data-drop>@Cards(p, col, col.Items, null)</div>
                                             </section>
                                         }
                                         @if (O.GroupBy == "feature") { <button class="add add-col" @onclick="() => AddFeature(p)">+ feature</button> }   @* a new feature is a new column *@
                                     </div>
+                                    }
                                 </div>
                             }
                         </div>
@@ -323,10 +268,10 @@ else
         <button class="btn ghost" @onclick="() => selected.Clear()">Clear</button>
     </div>
 }
-else if (O.View == "list" || O.Unit == "tasks")
+else if (View == "list" || O.Unit == "tasks")
 {
     @* shown by the drag script while Shift is held (body.shift-held), so select mode announces itself before the first click *@
-    <div class="actionbar select-hint"><span class="n">Select mode</span><span class="muted">@(O.View == "list" ? "Shift-click rows to select them" : "Shift-click cards to select them")</span></div>
+    <div class="actionbar select-hint"><span class="n">Select mode</span><span class="muted">@(View == "list" ? "Shift-click rows to select them" : "Shift-click cards to select them")</span></div>
 }
 
 @code {
@@ -339,7 +284,53 @@ else if (O.View == "list" || O.Unit == "tasks")
                 @onclick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ListColumnKey(column)))">×</button>
     };
 
-    private RenderFragment Cards(Project p, BoardColumn col, IEnumerable<WorkItem> items, string? lane, string? priority = null) => __builder =>
+    // A section with swimlanes: its column headers once, then per swimlane a heading and a cell per column. Dropping on a cell sets
+    // the column's value and the swimlane's (Drop → MoveInto). A cell has no data-key (the drag script's FLIP animation keys columns by it).
+    private RenderFragment Swim(Project p, BoardSection sec) => __builder =>
+    {
+        List<string> keys = sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList();
+        <div class="head-row cat-cols swim-cols" @ondrop="() => DropColumn(keys, null)">
+            @foreach (BoardColumn col in sec.Columns)
+            {
+                <section class="col head-only" data-key="@col.Key" @ondrop="() => DropColumn(keys, BoardModel.ColumnKey(O, col.Key))" @ondrop:stopPropagation="true">
+                    <Menu Label="Column options">
+                        <Activator>
+                            <header class="col-h hov" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
+                                    @ondragstart="() => StartColumnDrag(keys, BoardModel.ColumnKey(O, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
+                        </Activator>
+                        <Items>
+                            <MenuItem OnClick="() => NewItem(p, col.Key)">+ Add work item here</MenuItem>
+                            <MenuItem OnClick="() => SelectAll(p, col)">Select all in column</MenuItem>
+                            @if (col.Key != BoardModel.Unassigned)
+                            {
+                                <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
+                            }
+                            @if (O.GroupBy == "feature" && p.Features.FirstOrDefault(f => f.Path == col.Key) is { } feature)
+                            {
+                                <MenuItem OnClick="() => RenameFeature(p, feature)">Rename feature…</MenuItem>
+                                <MenuItem OnClick="() => DeleteFeature(p, feature)">Delete feature…</MenuItem>
+                            }
+                        </Items>
+                    </Menu>
+                </section>
+            }
+            @if (O.GroupBy == "feature") { <button class="add add-col" @onclick="() => AddFeature(p)">+ feature</button> }
+        </div>
+        @foreach (SwimRow row in BoardModel.Swimlanes(sec))
+        {
+            <div class="swim-h" data-swim="@row.Key"><span>@row.Label</span><span class="count">@BoardModel.Count(row.Items, O.Unit)</span></div>
+            <div class="cat-cols swim" data-swim="@row.Key">
+                @foreach (BoardColumn cell in row.Columns)
+                {
+                    <section class="col" data-drop data-cell="@cell.Key" @ondrop="() => Drop(p, cell, row.Key)" @ondrop:stopPropagation="true">
+                        <div class="lane" data-drop>@Cards(p, cell, cell.Items, row.Key)</div>
+                    </section>
+                }
+            </div>
+        }
+    };
+
+    private RenderFragment Cards(Project p, BoardColumn col, IEnumerable<WorkItem> items, string? swim) => __builder =>
     {
         foreach (WorkItem it in items)
         {
@@ -348,7 +339,7 @@ else if (O.View == "list" || O.Unit == "tasks")
                 foreach (Subtask s in it.Subtasks)
                 {
                     <article class="card subcard @(s.Done ? "done" : "")" data-sk @onclick="() => OpenItem(p, it.Id)">
-                        <span class="band" style="--band:var(@Ui.Band(it.Status))">
+                        <span class="band" style="--band:var(@BoardModel.ColourOf(it, O.ColorBy))">
                             <input type="checkbox" checked="@s.Done" @onclick:stopPropagation="true"
                                    @onchange="e => Run(Workspace.In(p.Root, () => WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!)))" aria-label="Done" />@s.Text
                         </span>
@@ -359,7 +350,7 @@ else if (O.View == "list" || O.Unit == "tasks")
             else
             {
                 <WorkItemCard Item="it" Options="O" Names="p.Names" Selected="selected.Contains((p.Root, it.Id))"
-                              OnClick="e => CardClick(p, it, e)" OnDragStart="i => StartCardDrag(p, i, col.Key)" OnDrop="t => DropBefore(p, col, lane, t, priority)" OnReview="i => ReviewItem(p, i)" />
+                              OnClick="e => CardClick(p, it, e)" OnDragStart="i => StartCardDrag(p, i, col.Key, swim)" OnDrop="t => DropBefore(p, col, t, swim)" OnReview="i => ReviewItem(p, i)" />
             }
         }
     };

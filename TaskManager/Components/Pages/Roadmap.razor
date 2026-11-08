@@ -1,0 +1,143 @@
+@using System.Globalization
+@using TaskManager.Board
+@using WorkItems.PublicDTOs
+@* The calendar view, as GitHub Projects' roadmap: the items listed by group on the left, a timeline on the right, rows in line.
+   A dated item is a bar from its start to its due date (one day when only one is set), coloured by the board's colour field like a
+   card's band; a dashed end says it continues past the window. A group's bar spans its earliest start to its latest due date. Groups
+   are the board's columns, or with rows set the rows, each holding the columns as sub-groups. Items with no dates keep their row but
+   have no bar. Both panes scroll together; the date header and the item list stay in view. *@
+<div class="rm" data-sk>
+    <header class="rm-h">
+        <h2 class="rm-range">@RangeLabel</h2>
+        <span class="rm-spacer"></span>
+        <div class="rm-zoom" role="group" aria-label="Zoom">
+            @foreach ((string key, string label) in new[] { ("month", "Month"), ("quarter", "Quarter") })
+            {
+                <button type="button" class="@(zoom == key ? "on" : "")" data-zoom="@key" aria-pressed="@(zoom == key ? "true" : "false")" @onclick="() => zoom = key">@label</button>
+            }
+        </div>
+        <button type="button" class="rm-today-btn" @onclick="() => anchor = Today">Today</button>
+        <button type="button" class="rm-prev" aria-label="Previous" @onclick="() => anchor = RoadmapModel.Move(anchor, zoom, -1)">‹</button>
+        <button type="button" class="rm-next" aria-label="Next" @onclick="() => anchor = RoadmapModel.Move(anchor, zoom, +1)">›</button>
+    </header>
+    <div class="rm-scroll">
+        <div class="rm-grid" style="--cols:@Window.Columns; --cw:@(Cw)px">
+            <div class="rm-left">
+                <div class="rm-corner">Items</div>
+                @{ rowNo = 0; }
+                @foreach (RoadmapGroup g in Groups)
+                {
+                    bool shut = collapsed.Contains(g.Key);
+                    <div class="rm-lgroup">
+                        <div class="rm-lrow rm-group">
+                            <button type="button" class="rm-chev @(shut ? "shut" : "")" aria-expanded="@(shut ? "false" : "true")" aria-label="@ToggleLabel(g.Name, shut)" @onclick="() => Toggle(g.Key)">▾</button>
+                            <span class="rm-gname" title="@g.Name">@g.Name</span>
+                            <span class="rm-count">@g.Rows.Count</span>
+                        </div>
+                        @if (!shut)
+                        {
+                            @if (g.Subgroups is null) { @LeftRows(g.Rows, false) }
+                            else
+                            {
+                                @foreach (RoadmapSubgroup sg in g.Subgroups)
+                                {
+                                    bool sshut = collapsed.Contains(sg.Key);
+                                    <div class="rm-lrow rm-subgroup">
+                                        <button type="button" class="rm-chev @(sshut ? "shut" : "")" aria-expanded="@(sshut ? "false" : "true")" aria-label="@ToggleLabel(sg.Name, sshut)" @onclick="() => Toggle(sg.Key)">▾</button>
+                                        <span class="rm-sname" title="@sg.Name">@sg.Name</span>
+                                        <span class="rm-count">@sg.Rows.Count</span>
+                                    </div>
+                                    @if (!sshut) { @LeftRows(sg.Rows, true) }
+                                }
+                            }
+                        }
+                    </div>
+                }
+            </div>
+            <div class="rm-right">
+                <div class="rm-head">
+                    <div class="rm-months">
+                        @foreach ((string label, int col, int span) in Months)
+                        {
+                            <span class="rm-month" style="--col:@col; --span:@span">@label</span>
+                        }
+                    </div>
+                    <div class="rm-ticks">
+                        @for (int c = 0; c < Window.Columns; c++)
+                        {
+                            DateOnly day = Window.Start.AddDays(c * Window.Unit);
+                            <span class="rm-tick @(day.Day <= Window.Unit ? "first" : "")">@day.Day</span>
+                        }
+                    </div>
+                </div>
+                @if (Today >= Window.Start && Today <= Window.End)
+                {
+                    <div class="rm-today" style="--x:@(((Today.DayNumber - Window.Start.DayNumber + 0.5) / Window.Unit).ToString("0.###", CultureInfo.InvariantCulture))" title="Today"></div>
+                }
+                @foreach (RoadmapGroup g in Groups)
+                {
+                    <div class="rm-tgroup">
+                        @GroupRow(g.Rows, "rm-grow")
+                        @if (!collapsed.Contains(g.Key))
+                        {
+                            @if (g.Subgroups is null) { @RightRows(g.Rows) }
+                            else
+                            {
+                                @foreach (RoadmapSubgroup sg in g.Subgroups)
+                                {
+                                    @GroupRow(sg.Rows, "rm-sgrow")
+                                    @if (!collapsed.Contains(sg.Key)) { @RightRows(sg.Rows) }
+                                }
+                            }
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int rowNo;   // the running number in front of each item row of the left pane
+
+    private RenderFragment LeftRows(IReadOnlyList<RoadmapRow> rows, bool deep) => __builder =>
+    {
+        foreach (RoadmapRow r in rows)
+        {
+            RoadmapRow row = r;
+            <button type="button" class="rm-lrow rm-row @(deep ? "deep" : "")" data-id="@r.Item.Id" title="@Describe(r.Item)" style="--band:var(@Colour(r.Item))" @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))">
+                <span class="rm-n">@(++rowNo)</span>
+                <span class="rm-dot"></span>
+                <span class="rm-t">@r.Item.Title</span>
+                <span class="rm-id">#wi@(r.Item.Id)</span>
+            </button>
+        }
+    };
+
+    // the group's own line on the timeline: a bar from its earliest start to its latest due date
+    private RenderFragment GroupRow(IReadOnlyList<RoadmapRow> rows, string css) => __builder =>
+    {
+        <div class="rm-trow @css">
+            @if (GroupBar(rows) is { } gbt)
+            {
+                <div class="rm-gbar @(gbt.Bar.StartsBefore ? "from" : "") @(gbt.Bar.EndsAfter ? "to" : "") @(gbt.Bar.Span * Cw < 190 ? "short" : "")" style="--col:@gbt.Bar.Col; --span:@gbt.Bar.Span"><span class="rm-bt">@gbt.Text</span></div>
+            }
+        </div>
+    };
+
+    private RenderFragment RightRows(IReadOnlyList<RoadmapRow> rows) => __builder =>
+    {
+        foreach (RoadmapRow r in rows)
+        {
+            RoadmapRow row = r;
+            <div class="rm-trow">
+                @if (RoadmapModel.Bar(r.Item, Window) is { } b)
+                {
+                    <button type="button" class="rm-bar @(b.StartsBefore ? "from" : "") @(b.EndsAfter ? "to" : "") @(b.Span * Cw < 150 ? "short" : "")"
+                            data-id="@r.Item.Id" style="--col:@b.Col; --span:@b.Span; --band:var(@Colour(r.Item))" title="@Describe(r.Item)"
+                            @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))"><span class="rm-bt">@r.Item.Title</span></button>
+                }
+            </div>
+        }
+    };
+}

@@ -7,6 +7,7 @@
 @using WorkItems.PublicDTOs
 @inherits RepoPage
 @inject TaskManager.Services.SettingsStore Settings
+@inject IServiceProvider Services
 
 @if (item is null)
 {
@@ -23,7 +24,18 @@
         {
             <button class="btn ghost hide-item" title="Shows it on the board again" @onclick="() => Run(WorkItemsApi.Unhide(item.Id))">Restore</button>
         }
-        <BackButton />
+        @if (!Detached)
+        {
+            <Menu Label="Split screen">
+                <Activator><button type="button" class="ic split-btn" aria-label="Split screen" title="Beside the list, item only, or a separate window">⇔</button></Activator>
+                <Items>
+                    <MenuItem Class="@("wide-only" + (Settings.Current.Split ? " cur" : ""))" OnClick="() => Settings.Update(s => s with { Split = true })">Beside the list</MenuItem>
+                    <MenuItem Class="@(Settings.Current.Split ? "" : "cur")" OnClick="() => Settings.Update(s => s with { Split = false })">Item only</MenuItem>
+                    <MenuItem OnClick="OpenSeparateWindow">Separate window</MenuItem>
+                </Items>
+            </Menu>
+            <BackButton />
+        }
     </div>
     @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
     <div class="head kvs">
@@ -63,6 +75,7 @@
         <div class="kv"><label>label</label><Pill Kind="label" Value="@(item.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" /></div>
         @* start and due as one range *@
         <div class="kv"><label>dates</label><DateRange Start="item.Started" End="item.Due" Changed="SetDates" /></div>
+        <div class="kv moved-field"><label>in @item.Status since</label><span class="chip">@((item.Moved ?? DateOnly.FromDateTime(item.Created)).ToString("d MMM"))</span></div>
         @* the plan file (x-rtm.plan): the chip opens it rendered in the app; when none is linked, pick one from the plans folder *@
         <div class="kv plan-field"><label>plan</label>
             @if (item.Plan is string plan)
@@ -90,7 +103,7 @@
             }
             else if (editingDescription)
             {
-                <textarea @ref="descriptionBox" class="desc-in" rows="14" @bind="description" @onblur="SaveDescription" aria-label="Description"></textarea>
+                <textarea @ref="descriptionBox" class="desc-in" @bind="description" @onblur="SaveDescription" aria-label="Description"></textarea>
             }
             else
             {
@@ -113,7 +126,22 @@
             else
             {
                 <div>
-                    @foreach (Subtask s in item.Subtasks)
+                    @foreach (IGrouping<string, Subtask> g in SubGroups)
+                    {
+                    @* more than one task group (merged items): each is a header with its progress that collapses *@
+                    @if (SubGroups.Count > 1)
+                    {
+                        bool groupOpen = !subCollapsed.Contains(g.Key);
+                        <div class="sub-group" data-sk role="button" tabindex="0" aria-expanded="@(groupOpen ? "true" : "false")"
+                             @onclick="() => ToggleSubGroup(g.Key)" @onkeydown="e => SubGroupKey(e, g.Key)">
+                            <span class="chev" aria-hidden="true">@(groupOpen ? "▾" : "▸")</span>
+                            <span class="g-name">@SubGroupName(g.Key)</span>
+                            <span class="g-prog mono">@g.Count(s => s.Done)/@g.Count()</span>
+                        </div>
+                    }
+                    @if (SubGroups.Count == 1 || !subCollapsed.Contains(g.Key))
+                    {
+                    @foreach (Subtask s in g)
                     {
                         <div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "")" data-sk>
                             <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
@@ -132,6 +160,8 @@
                                 <span class="s-t" title="Click to edit · Shift-click to select" @onclick="e => SubClick(e, s)">@s.Text</span>
                             }
                         </div>
+                    }
+                    }
                     }
                     @* items this one waits on (struck through once in review or done, so they no longer block) *@
                     @foreach (WorkItem d in WaitingOn)
@@ -258,10 +288,21 @@
             else
             {
                 <div class="change-log">
-                    @foreach (Note n in notes)
+                    @foreach (Note n in notes.Where(x => x.MergedFrom is null)) { @LogEntry(n) }
+                    @* notes a merge moved in: one section per merged source, newest merge first, collapsed until opened *@
+                    @foreach (IGrouping<(int From, DateTime? At), Note> g in MergedLog)
                     {
-                        <div class="log-e hov" data-sk role="button" tabindex="0" @onclick="@(() => Nav.NavigateTo($"note/{n.Id}"))"><b>#n@(n.Id) · @n.Title</b><span class="muted">@n.Created.ToString("d.M.yyyy") · @n.By</span>
-                            @if (n.AgentUnreviewed) { <AgentChip By="@n.AgentBy" At="n.AgentAt" OnReview="() => Run(NotesApi.MarkReviewed(n.Id))" /> }</div>
+                        string key = LogKey(g.Key);
+                        bool logOpen = mergedLogOpen.Contains(key);
+                        <div class="log-section">
+                            <div class="log-group" data-sk role="button" tabindex="0" aria-expanded="@(logOpen ? "true" : "false")"
+                                 @onclick="() => ToggleLog(key)" @onkeydown="e => LogGroupKey(e, key)">
+                                <span class="chev" aria-hidden="true">@(logOpen ? "▾" : "▸")</span>
+                                <span class="g-name">From #wi@(g.Key.From)@(g.Key.At is DateTime at ? $" · merged {at.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture)}" : "")</span>
+                                <span class="g-prog mono">@g.Count()</span>
+                            </div>
+                            @if (logOpen) { @foreach (Note n in g) { @LogEntry(n) } }
+                        </div>
                     }
                     @if (notes.Count == 0) { <p class="muted">No entries yet.</p> }
                 </div>
@@ -284,6 +325,15 @@
 @code {
     [Parameter] public int Id { get; set; }
     [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    // split menu: this window is a detached one (no menu, no back); "Separate window" moves the item out and the board comes back here
+    private bool Detached => Services.GetService(typeof(TaskManager.Services.AppMode)) is TaskManager.Services.AppMode { Detached: true };
+    private void OpenSeparateWindow()
+    {
+        if (Services.GetService(typeof(TaskManager.Services.WindowLauncher)) is not TaskManager.Services.WindowLauncher launch || Workspace.Root is not string root) return;
+        (bool ok, string message) = launch(root, Id);
+        if (ok) Nav.NavigateTo("/"); else Popups.Toast(message, ToastKind.Warning);
+    }
 
     private WorkItem? item;
     private string description = "";
@@ -330,6 +380,7 @@
         commits = [.. (item.MergedFrom ?? []).Prepend(Id).SelectMany(n => GitHistoryApi.Mentioning($"#wi{n}")).Concat(GitHistoryApi.Commits(item.Commits ?? [])).DistinctBy(c => c.Hash)];   // a merged item also owns what mentions its sources
         run = LinkedTestRuns.LinkedTestRunsApi.Latest();
         subSel.IntersectWith(item.Subtasks.Select(s => s.Number));
+        foreach (IGrouping<string, Subtask> g in SubGroups) if (subSeen.Add(g.Key) && g.All(s => s.Done)) subCollapsed.Add(g.Key);
     }
 
     private async Task SetStatus(string status)
@@ -406,6 +457,29 @@
             @if (count is not null) { <span class="count">@count</span> }
             @if (!open || narrow) { <span class="open" aria-hidden="true">@Ui.Icon(open ? "collapse" : "expand")</span> }
         </button>
+    };
+
+    /// <summary>The subtasks in task groups, in file order (a merged item has one per source group).</summary>
+    private List<IGrouping<string, Subtask>> SubGroups => item!.Subtasks.GroupBy(s => s.Group).ToList();
+    private readonly HashSet<string> subCollapsed = [], subSeen = [];   // per page view, not saved: a group that is all done starts collapsed
+
+    private static string SubGroupName(string group) => System.Text.RegularExpressions.Regex.Replace(group, @"^\d+\.\s*", "").Trim() is { Length: > 0 } n ? n : "Subtasks";
+    private void ToggleSubGroup(string group) { if (!subCollapsed.Remove(group)) subCollapsed.Add(group); }
+    private void SubGroupKey(KeyboardEventArgs e, string group) { if (e.Key is "Enter" or " ") ToggleSubGroup(group); }
+
+    /// <summary>Notes a merge moved in, by the item they came from and the merge day; the newest merge first.</summary>
+    private IEnumerable<IGrouping<(int From, DateTime? At), Note>> MergedLog => notes.Where(n => n.MergedFrom is not null)
+        .GroupBy(n => (From: n.MergedFrom!.Value, At: n.MergedAt))
+        .OrderByDescending(g => g.Key.At ?? DateTime.MinValue).ThenByDescending(g => g.Key.From);
+    private readonly HashSet<string> mergedLogOpen = [];
+    private static string LogKey((int From, DateTime? At) k) => $"{k.From}|{k.At:yyyy-MM-dd}";
+    private void ToggleLog(string key) { if (!mergedLogOpen.Remove(key)) mergedLogOpen.Add(key); }
+    private void LogGroupKey(KeyboardEventArgs e, string key) { if (e.Key is "Enter" or " ") ToggleLog(key); }
+
+    private RenderFragment LogEntry(Note n) => __builder =>
+    {
+        <div class="log-e hov" data-sk role="button" tabindex="0" @onclick="@(() => Nav.NavigateTo($"note/{n.Id}"))"><b>#n@(n.Id) · @n.Title</b><span class="muted">@n.Created.ToString("d.M.yyyy") · @n.By</span>
+            @if (n.AgentUnreviewed) { <AgentChip By="@n.AgentBy" At="n.AgentAt" OnReview="() => Run(NotesApi.MarkReviewed(n.Id))" /> }</div>
     };
 
     /// <summary>Compact subtasks: the next three still open, or the last three when all are done.</summary>

@@ -33,20 +33,6 @@ public sealed class ArrangingTheBoardTests
 
     private static IReadOnlyList<BoardSection> Build(BoardOptions o) => BoardModel.Build(Items, Features, Lanes, o);
 
-    [Fact(DisplayName = "Within a column cards fall into priority lanes, highest first, one lane per priority present")]
-    public void PriorityLanes()
-    {
-        BoardColumn Column(string label) => Build(new BoardOptions()).Single().Columns.Single(c => c.Label == label);
-
-        var lanes = BoardModel.PriorityLanes(Column("In Progress"));
-        Assert.Equal([("high", "High priority"), ("low", "Lower priority")], lanes.Select(l => (l.Priority, l.Label)));
-        Assert.Equal([[2], [3]], lanes.Select(l => l.Items.Select(i => i.Id).ToArray()).ToArray());
-
-        var single = Assert.Single(BoardModel.PriorityLanes(Column("Backlog")));   // item 1 alone
-        Assert.Equal(("low", "Lower priority"), (single.Priority, single.Label));
-        Assert.Empty(BoardModel.PriorityLanes(Column("Blocked")));
-    }
-
     [Fact(DisplayName = "Grouping by due date gives Overdue, Today, This week, Next week, Later and No due date; by start date, Earlier, This week, Next week, Later and Not started")]
     public void ByPeriod()
     {
@@ -78,25 +64,6 @@ public sealed class ArrangingTheBoardTests
         Assert.Equal("week", BoardModel.Period(new DateOnly(2026, 11, 8), today));   // Sunday still this week
         Assert.Equal("next", BoardModel.Period(new DateOnly(2026, 11, 9), today));
         Assert.Equal("none", BoardModel.Period(null, today));
-    }
-
-    [Fact(DisplayName = "A calendar month runs in whole weeks from Monday; a bar spans an item's start to its due date, clipped to the week and stacked without overlap")]
-    public void CalendarMonth()
-    {
-        IReadOnlyList<IReadOnlyList<DateOnly>> weeks = CalendarModel.Weeks(new DateOnly(2026, 11, 1));
-        Assert.Equal(6, weeks.Count);
-        Assert.Equal(new DateOnly(2026, 10, 26), weeks[0][0]);
-        Assert.Equal(new DateOnly(2026, 12, 6), weeks[^1][6]);
-        Assert.All(weeks, w => Assert.Equal(7, w.Count));
-
-        IReadOnlyList<CalendarBar> bars = CalendarModel.Bars(Items, weeks[1]);   // 2–8 Nov
-        CalendarBar Bar(int id) => bars.Single(b => b.Item.Id == id);
-        Assert.Equal((0, 6, true, false, 0), (Bar(3).Col, Bar(3).Span, Bar(3).StartsBefore, Bar(3).EndsAfter, Bar(3).Lane));   // started 28 Oct, due Sat 7 Nov
-        Assert.Equal((0, 1, false, false, 1), (Bar(1).Col, Bar(1).Span, Bar(1).StartsBefore, Bar(1).EndsAfter, Bar(1).Lane));   // due only: one day
-        Assert.Equal((1, 2, false, false, 1), (Bar(2).Col, Bar(2).Span, Bar(2).StartsBefore, Bar(2).EndsAfter, Bar(2).Lane));   // Tue–Wed, fits under item 1
-        Assert.DoesNotContain(bars, b => b.Item.Id == 4);   // due next week
-        Assert.Empty(CalendarModel.Unscheduled(Items));
-        Assert.Equal([1], CalendarModel.Unscheduled([Items[0] with { Due = null }, Items[3] with { Due = null }]).Select(i => i.Id));   // a completed item without dates is done, not unscheduled
     }
 
     [Fact(DisplayName = "Grouping by status gives one column per status in workflow order")]
@@ -149,15 +116,6 @@ public sealed class ArrangingTheBoardTests
     {
         BoardSection s = Assert.Single(Build(new BoardOptions(SortBy: "modified", SortDir: -1)));
         Assert.Equal([2, 3], s.Columns.Single(c => c.Key == "In Progress").Items.Select(i => i.Id));   // oldest first
-    }
-
-    [Fact(DisplayName = "A column's sub-categories split its items, and items without a known lane go to the first")]
-    public void LanesSplitColumn()
-    {
-        BoardColumn col = Build(new BoardOptions())[0].Columns.Single(c => c.Key == "In Progress");
-        Assert.Equal(["High priority", "Lower priority"], col.Lanes);
-        Assert.Equal([2, 3], BoardModel.InLane(col, "High priority").Select(i => i.Id));
-        Assert.Empty(BoardModel.InLane(col, "Lower priority"));
     }
 
     [Fact(DisplayName = "In subtask mode a column counts subtasks instead of work items")]
@@ -317,5 +275,115 @@ public sealed class ArrangingTheBoardTests
 
         Assert.Equal([2, 3], InProgress(mine with { SortBy = "id" }));
         Assert.Equal([3, 2], InProgress(mine with { SortBy = "id" } with { SortBy = "manual" }));
+    }
+
+    [Fact(DisplayName = "Rows split a section's items by priority (High / Lower) or by label (unlabeled first, then each label), empty rows included, and none means one row")]
+    public void Swimlanes()
+    {
+        string[] InColumn(SwimRow row, string column) => row.Columns.Single(c => c.Key == column).Items.Select(i => i.Id.ToString()).ToArray();
+        BoardSection section = Build(new BoardOptions(Swimlane: "priority")).Single();
+
+        IReadOnlyList<SwimRow> byPriority = BoardModel.Swimlanes(section);
+        Assert.Equal([("high", "High priority"), ("low", "Lower priority")], byPriority.Select(r => (r.Key, r.Label)));
+        Assert.All(byPriority, r => Assert.Equal(section.Columns.Select(c => c.Key), r.Columns.Select(c => c.Key)));   // every row spans every column
+        Assert.Equal(["2"], InColumn(byPriority[0], "In Progress"));
+        Assert.Empty(InColumn(byPriority[0], "Backlog"));   // an empty cell is still there, to drop a card into
+        Assert.Equal(["3"], InColumn(byPriority[1], "In Progress"));
+        Assert.Equal(["1"], InColumn(byPriority[1], "Backlog"));
+        Assert.Equal(["4"], InColumn(byPriority[1], "Completed"));
+
+        IReadOnlyList<SwimRow> byLabel = BoardModel.Swimlanes(Build(new BoardOptions(Swimlane: "label")).Single());
+        Assert.Equal([(BoardModel.NoRow, "Unlabeled"), ("bug", "bug"), ("feature", "feature"), ("enhancement", "enhancement")], byLabel.Select(r => (r.Key, r.Label)));
+        Assert.Equal([4], byLabel[0].Items.Select(i => i.Id));
+        Assert.Equal([2], byLabel[1].Items.Select(i => i.Id));
+        Assert.Equal([1, 3], byLabel[2].Items.Select(i => i.Id).Order());
+        Assert.Empty(byLabel[3].Items);   // no enhancement, the row is still there
+
+        SwimRow only = Assert.Single(BoardModel.Swimlanes(section with { Rows = null }));
+        Assert.Equal(section.Columns.Select(c => c.Key), only.Columns.Select(c => c.Key));
+        Assert.Equal(section.Columns.Select(c => c.Items.Count), only.Columns.Select(c => c.Items.Count));
+    }
+
+    [Fact(DisplayName = "The roadmap window is whole months at month zoom and whole weeks at quarter zoom; an item is a bar from its start to its due date, clipped at the window's edges, and an undated item has no bar")]
+    public void RoadmapWindowAndBars()
+    {
+        RoadmapWindow month = RoadmapModel.Window(new DateOnly(2026, 11, 15), "month");
+        Assert.Equal((new DateOnly(2026, 11, 1), new DateOnly(2027, 1, 31), 92), (month.Start, month.End, month.Columns));   // three whole months, a column per day
+        RoadmapWindow quarter = RoadmapModel.Window(new DateOnly(2026, 11, 15), "quarter");
+        Assert.Equal((new DateOnly(2026, 10, 26), new DateOnly(2027, 5, 2), 27), (quarter.Start, quarter.End, quarter.Columns));   // six months in whole weeks (Monday to Sunday), a column per week
+        Assert.Equal(DayOfWeek.Monday, quarter.Start.DayOfWeek);
+        Assert.Equal(DayOfWeek.Sunday, quarter.End.DayOfWeek);
+        Assert.Equal(new DateOnly(2026, 12, 15), RoadmapModel.Move(new DateOnly(2026, 11, 15), "month", +1));   // a month at month zoom
+        Assert.Equal(new DateOnly(2026, 8, 15), RoadmapModel.Move(new DateOnly(2026, 11, 15), "quarter", -1));   // a quarter at quarter zoom
+
+        static (int, int, bool, bool) Pos(RoadmapBar? b) => (b!.Col, b.Span, b.StartsBefore, b.EndsAfter);
+        Assert.Equal((0, 7, true, false), Pos(RoadmapModel.Bar(Items[2], month)));    // started 28 Oct, due Sat 7 Nov: clipped at the left edge, 1-7 Nov
+        Assert.Equal((1, 1, false, false), Pos(RoadmapModel.Bar(Items[0], month)));   // due only: a one-day bar
+        Assert.Equal((2, 2, false, false), Pos(RoadmapModel.Bar(Items[1], month)));   // 3-4 Nov
+        Assert.Equal((0, 2, false, false), Pos(RoadmapModel.Bar(Items[2], quarter)));   // the same item in week columns: this week and the next
+        Assert.Equal((1, 1, false, false), Pos(RoadmapModel.Bar(Items[1], quarter)));
+        Assert.Equal((90, 2, false, true), Pos(RoadmapModel.Bar(Items[0] with { Started = new DateOnly(2027, 1, 30), Due = new DateOnly(2027, 2, 5) }, month)));   // clipped at the right edge
+        Assert.Null(RoadmapModel.Bar(Items[0] with { Started = null, Due = null }, month));   // undated: no bar
+        Assert.Null(RoadmapModel.Bar(Items[0] with { Started = null, Due = new DateOnly(2027, 3, 1) }, month));   // entirely outside the window
+
+        Assert.Equal((new DateOnly(2026, 10, 28), new DateOnly(2026, 11, 12)), RoadmapModel.GroupSpan(Items));
+        Assert.Null(RoadmapModel.GroupSpan([Items[0] with { Started = null, Due = null }]));
+    }
+
+    [Fact(DisplayName = "Rows split a section by any field the columns can use, a multi-valued field putting an item in each of its rows, and colour gives every item a band from any field")]
+    public void RowsByAnyFieldAndColourByAnyField()
+    {
+        DateOnly today = new(2026, 11, 4);   // a Wednesday
+        IReadOnlyList<SwimRow> Rows(string field, string columns = "status") =>
+            BoardModel.Swimlanes(Assert.Single(BoardModel.Build(Items, Features, Lanes, new BoardOptions(GroupBy: columns, Swimlane: field), today)));
+        int[] Ids(SwimRow r) => [.. r.Items.Select(i => i.Id).Order()];
+
+        // feature: a row per feature, an item with two features in both rows; the cells span every column
+        IReadOnlyList<SwimRow> byFeature = Rows("feature");
+        Assert.Equal(["functional/banking", "functional/remittances", "non-functional/availability", "non-functional/security"], byFeature.Select(r => r.Key));
+        Assert.Equal(["Banking", "Remittances", "Availability", "Security"], byFeature.Select(r => r.Label));
+        Assert.Equal([[1], [3], [2], [2, 4]], byFeature.Select(Ids).ToArray());
+        Assert.All(byFeature, r => Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"], r.Columns.Select(c => c.Key)));
+
+        // contributor, due, started and status use the columns' values and labels
+        Assert.Equal(["Artyom", "Mira", "Tom"], Rows("contributor").Select(r => r.Label));
+        Assert.Equal([[2, 3], [4], [1, 2]], Rows("contributor").Select(Ids).ToArray());
+        Assert.Equal(["Overdue", "Today", "This week", "Next week", "Later", "No due date"], Rows("due").Select(r => r.Label));
+        Assert.Equal([[1], [2], [3], [4], [], []], Rows("due").Select(Ids).ToArray());
+        Assert.Equal(["Earlier", "This week", "Next week", "Later", "Not started"], Rows("started").Select(r => r.Label));
+        Assert.Equal([[3], [2], [], [], [1, 4]], Rows("started").Select(Ids).ToArray());
+        Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"], Rows("status").Select(r => r.Key));
+
+        // rows and columns may be different fields; priority is a column field too
+        BoardSection byPriority = Assert.Single(BoardModel.Build(Items, Features, Lanes, new BoardOptions(GroupBy: "priority", Swimlane: "feature"), today));
+        Assert.Equal([("high", "High priority"), ("low", "Lower priority")], byPriority.Columns.Select(c => (c.Key, c.Label)));
+        Assert.Equal("priority:high", BoardModel.ColumnKey(new BoardOptions(GroupBy: "priority"), "high"));
+        Assert.Equal([2], BoardModel.Swimlanes(byPriority)[2].Columns[0].Items.Select(i => i.Id));   // Availability, high priority
+        Assert.Equal("Priority", BoardModel.GroupedColumn(new BoardOptions(GroupBy: "priority")));
+        Assert.Equal("Feature", BoardModel.FieldColumn("feature"));
+        Assert.Null(BoardModel.FieldColumn(BoardModel.NoSwimlane));
+
+        // the list's rows follow the rows then the columns, and carry their row's key and label
+        IReadOnlyList<GridRow> grid = BoardModel.Rows(BoardModel.Build(Items, Features, Lanes, new BoardOptions(Swimlane: "contributor"), today), new Dictionary<string, string>());
+        Assert.Equal(["Artyom", "Mira", "Tom"], grid.Select(r => r.SwimLabel).Distinct());
+        Assert.Equal([2, 3], grid.Where(r => r.Swim == "Artyom" && r.Item is not null).Select(r => r.Id).Order());
+
+        // colour: a CSS variable per item, from any field
+        string Colour(int id, string field) => BoardModel.ColourOf(Items.Single(i => i.Id == id), field, today);
+        Assert.Equal(["--sun", "--sage"], [Colour(2, "status"), Colour(4, "status")]);                                 // the card band's status colours
+        Assert.Equal(["--sky", "--peach", "--stone"], [Colour(1, "label"), Colour(2, "label"), Colour(4, "label")]);   // the label pill's colours
+        Assert.Equal(["--peach", "--stone"], [Colour(2, "priority"), Colour(1, "priority")]);
+        Assert.Equal(["--peach", "--sun", "--sky", "--mint"], [Colour(1, "due"), Colour(2, "due"), Colour(3, "due"), Colour(4, "due")]);   // overdue, today, this week, next week
+        Assert.Equal("--sage", BoardModel.ColourOf(Items[0] with { Due = new DateOnly(2026, 12, 20) }, "due", today));   // later
+        Assert.Equal(["--sage", "--sun", "--stone"], [Colour(3, "started"), Colour(2, "started"), Colour(1, "started")]);   // earlier, this week, not started
+        Assert.Equal("--stone", Colour(1, "none"));
+        Assert.Equal(Colour(2, "contributor"), Colour(3, "contributor"));   // both Artyom's first: a stable pick from the palette
+        Assert.Equal(Colour(2, "feature"), BoardModel.ColourOf(Items[1] with { Id = 22 }, "feature", today));
+        Assert.All(new[] { "contributor", "feature" }, f => Assert.All(Items, i => Assert.Contains(BoardModel.ColourOf(i, f, today), new[] { "--sky", "--lilac", "--sun", "--peach", "--mint", "--sage" })));
+
+        // the legend lists the colours of what is shown, once each
+        Assert.Equal([("Backlog", "--stone"), ("In Progress", "--sun"), ("Completed", "--sage")], BoardModel.Legend(Items, Features, new BoardOptions(), today));
+        Assert.Equal([("Unlabeled", "--stone"), ("bug", "--peach"), ("feature", "--sky")], BoardModel.Legend(Items, Features, new BoardOptions(ColorBy: "label"), today));
+        Assert.Empty(BoardModel.Legend(Items, Features, new BoardOptions(ColorBy: "none"), today));
     }
 }

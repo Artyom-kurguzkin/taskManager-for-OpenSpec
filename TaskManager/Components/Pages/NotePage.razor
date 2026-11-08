@@ -15,7 +15,7 @@
 <div class="sheet" data-sk="soft">
     <div class="head kvs">
         <div class="kv"><label>note</label><h2 class="num">#n@(note.Id)</h2></div>
-        @* the title is the note's first "# " heading; changing it rewrites that line (@key re-renders the old text back when a blank is refused) *@
+        @* the title is the frontmatter title: of the note (older notes: their first "# " heading); the body is not touched (@key re-renders the old text back when a blank is refused) *@
         <div class="kv title-kv"><label>title</label><input @key="titleKey" class="note-title hov" data-sk value="@note.Title" aria-label="Note title" @onchange="SetTitle" /></div>
         <div class="kv"><label>linked to</label><a class="wl" href="item/@note.WorkItemId">#wi@(note.WorkItemId)</a></div>
         <div class="kv"><label>created</label><span class="num">@note.Created.ToString("yyyy-MM-dd HH:mm")</span></div>
@@ -31,7 +31,7 @@
             <div class="tile-h"><h3>Note</h3></div>
             @if (editing)
             {
-                <textarea @ref="editorBox" class="desc-in" rows="14" value="@body" @oninput="OnInput" @onblur="Done" aria-label="Note"></textarea>
+                <textarea @ref="editorBox" class="desc-in" value="@body" @oninput="OnInput" @onblur="Done" aria-label="Note"></textarea>
             }
             else
             {

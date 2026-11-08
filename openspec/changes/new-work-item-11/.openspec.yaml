@@ -7,4 +7,4 @@ x-rtm:
   status: Backlog
   contributors: [Artyom-kurguzkin]
   features: [track-work-items]
-  label: enhancement
+  label: feature

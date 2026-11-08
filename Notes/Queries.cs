@@ -83,8 +83,8 @@ internal static partial class Queries
 
         List<Note> notes = [];
         foreach (Raw r in raws)
-            notes.Add(new Note(r.Id, r.WorkItemId, r.File, NoteFile.Title(r.Body, r.Id), r.Meta.By ?? "", r.Created, File.GetLastWriteTime(r.File), r.Body, r.Meta.Links ?? [], r.Meta.Commits ?? [], r.Meta.Attachments ?? [],
-                r.Meta.AgentBy, Time(r.Meta.AgentAt), Time(r.Meta.ReviewedAt)));
+            notes.Add(new Note(r.Id, r.WorkItemId, r.File, NoteFile.Title(r.Meta.Title, r.Body, r.Id), r.Meta.By ?? "", r.Created, File.GetLastWriteTime(r.File), r.Body, r.Meta.Links ?? [], r.Meta.Commits ?? [], r.Meta.Attachments ?? [],
+                r.Meta.AgentBy, Time(r.Meta.AgentAt), Time(r.Meta.ReviewedAt), r.Meta.MergedFrom, Time(r.Meta.MergedAt)));
         return (notes, maxId, wrote);
     }
 

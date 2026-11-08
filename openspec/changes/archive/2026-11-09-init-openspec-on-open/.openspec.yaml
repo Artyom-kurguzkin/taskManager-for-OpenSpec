@@ -1,0 +1,15 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-05
+x-rtm:
+  id: 90
+  title: Opening a folder without openspec/ sets it up
+  status: In Review
+  contributors: [Artyom-kurguzkin]
+  features: [maintainability]
+  label: feature
+  started: 2026-11-05
+  moved: 2026-11-09
+  tests: [{suite: OpeningARepositoryTests, test: 'Opening a folder without openspec/ sets it up (config.yaml, specs/, changes/archive/) and says so; a folder that does not exist is refused'}, {suite: KeepingTheRepoValidForOpenSpecTests, test: 'A folder the app set up from nothing is valid for the OpenSpec CLI, and a work item created in it validates too'}]
+  agentBy: Claude
+  agentAt: 2026-11-05T16:40:00

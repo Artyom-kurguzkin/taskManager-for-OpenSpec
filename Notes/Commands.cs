@@ -15,9 +15,9 @@ internal static class Commands
     {
         if (WorkItemsApi.Get(workItemId) is not WorkItem wi) return (false, "That work item no longer exists", 0);
         int id = Queries.NextId();
-        NoteMeta meta = new() { Id = id, By = by, Created = DateTime.Now.ToString("s", CultureInfo.InvariantCulture) };
+        NoteMeta meta = new() { Id = id, By = by, Created = DateTime.Now.ToString("s", CultureInfo.InvariantCulture), Title = "New note" };
         string file = Path.Combine(wi.Path, "notes", $"n{id}.md");
-        (bool ok, string message) = OpenSpecStoreApi.WriteText(file, NoteFile.Compose(meta, $"# New note\n\n"));
+        (bool ok, string message) = OpenSpecStoreApi.WriteText(file, NoteFile.Compose(meta, ""));
         return ok ? (true, "", id) : (false, message, 0);
     }
 
@@ -83,17 +83,17 @@ internal static class Commands
     internal static (bool Success, string Message) AttachBytes(int id, string fileName, byte[] bytes) =>
         Store(id, Path.GetFileName(fileName ?? ""), target => File.WriteAllBytes(target, bytes));
 
-    /// <summary>Titles the note: rewrites its first "# " heading, or puts one on top when the body has none.</summary>
+    /// <summary>Titles the note: writes the frontmatter <c>title:</c> only, the body (and any heading in it) is left alone.</summary>
     internal static (bool Success, string Message) SetTitle(int id, string title)
     {
         title = string.Join(' ', (title ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
         if (title.Length == 0) return (false, "A note needs a title");
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
-        List<string> lines = [.. note.Body.Replace("\r\n", "\n").Split('\n')];
-        int at = lines.FindIndex(l => l.StartsWith("# "));
-        if (at >= 0) lines[at] = "# " + title;
-        else { lines.Insert(0, ""); lines.Insert(0, "# " + title); }
-        return SaveBody(id, string.Join('\n', lines));
+        (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
+        NoteMeta meta = NoteFile.Meta(front);
+        meta.Id = id;
+        meta.Title = title;
+        return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
     }
 
     private static (bool Success, string Message) Store(int id, string name, Action<string> write)

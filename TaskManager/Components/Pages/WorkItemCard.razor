@@ -1,4 +1,4 @@
-@* A work item on the board: coloured title band (by status), features, a plain "date · people · done/total" meta row, tags. *@
+@* A work item on the board: coloured title band (by the colour field, status unless changed),features, a plain "date · people · done/total" meta row, tags. *@
 @using TaskManager.Board
 @using WorkItems.PublicDTOs
 @inject TaskManager.Services.Workspace Workspace
@@ -7,7 +7,7 @@
 <article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @(Item.Hidden ? "hidden-item" : "")" data-sk data-id="@Item.Id"
          @ondragstart="() => OnDragStart.InvokeAsync(Item)" @onclick="OnClick"
          @ondrop="() => OnDrop.InvokeAsync(Item)" @ondrop:stopPropagation="true">
-    <span class="band" style="--band:var(@Ui.Band(Item.Status))">@Item.Title</span>
+    <span class="band" style="--band:var(@BoardModel.ColourOf(Item, Options.ColorBy))">@Item.Title</span>
     @if (!Options.Compact)
     {
         @* features as chips (the column already is the feature when grouped by feature, so the status goes there) *@

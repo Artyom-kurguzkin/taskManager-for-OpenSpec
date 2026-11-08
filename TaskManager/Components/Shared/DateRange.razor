@@ -14,7 +14,7 @@
             </div>
             <div class="range-grid">
                 @foreach (string d in new[] { "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" }) { <span class="rdow">@d</span> }
-                @foreach (DateOnly day in CalendarModel.Weeks(month).SelectMany(w => w))
+                @foreach (DateOnly day in RoadmapModel.Weeks(month).SelectMany(w => w))
                 {
                     <button type="button" class="rd @Look(day)" data-day="@day.ToString("yyyy-MM-dd")" @onclick="() => Pick(day)">@day.Day</button>
                 }

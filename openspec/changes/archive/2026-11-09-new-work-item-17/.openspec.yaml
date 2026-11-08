@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-05
+x-rtm:
+  id: 93
+  title: split screen view
+  status: In Review
+  contributors: [Artyom-kurguzkin, Claude]
+  features: [organise-work-items]
+  label: enhancement
+  started: 2026-11-07
+  moved: 2026-11-09
+  plan: DevResources/plans/in-progress-items-2026-11-09.md
+  tests: [{suite: UsingThePagesTests, test: "An open work item sits beside the list: the layout renders the list on the left with the open item's row marked, the item on the right, and the split toggle hides the list and is remembered"}, {suite: UsingThePagesTests, test: 'The split button is a menu with Beside the list, Item only and Separate window; Separate window asks the launcher for a window on this item and the main window goes back to the board'}, {suite: UsingThePagesTests, test: 'A detached window shows only the work item page, without the side menu, the split menu or the back button, and never writes the settings file'}]
+  agentBy: Claude
+  agentAt: 2026-11-09T07:48:17

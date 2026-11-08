@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-10-28
+x-rtm:
+  id: 64
+  title: Notes editor
+  status: In Review
+  contributors: [Artyom-kurguzkin, Claude]
+  label: enhancement
+  started: 2026-11-07
+  moved: 2026-11-09
+  plan: DevResources/plans/in-progress-items-2026-11-09.md
+  tests: [{suite: UsingThePagesTests, test: 'A note is edited like a work item description: click the text for a plain text box, leave it and the note is saved and shown rendered'}, {suite: UsingThePagesTests, test: 'The note page edits in place: the title is an input, clicking the note opens the editor, focusing out saves and shows the rendered note; a pasted image becomes an attachment'}, {suite: UsingThePagesTests, test: 'Typing in the editor keeps every keystroke: the app binds the text, it never pushes an older copy back'}, {suite: UsingThePagesTests, test: A note is saved automatically shortly after typing stops}, {suite: UsingThePagesTests, test: 'Typing a [[doc]] link in a note adds it to the linked list straight away'}, {suite: KeepingNotesTests, test: "A note's title lives in its frontmatter: setting it leaves the body and its first heading alone, and a note without a title reads it from its first heading"}, {suite: UsingThePagesTests, test: The description and note editors fill their tile and have no border of their own while editing}]
+  agentBy: Claude
+  agentAt: 2026-11-09T07:52:47

@@ -9,9 +9,9 @@
     </section>
 
     <section class="set-row">
-        <div><h3>Repository</h3><p class="muted">Folder with the openspec/ directory this app reads and writes. A folder without one is set up for OpenSpec when opened.</p></div>
+        <div><h3>Open another repository</h3><p class="muted">Folder with the openspec/ directory this app reads and writes. A folder without one is set up for OpenSpec when opened. It joins the projects below.</p></div>
         <div class="set-val">
-            <input id="f-repo" class="box text-in" data-sk value="@repoPath" @onchange="e => repoPath = (string?)e.Value ?? string.Empty" aria-label="Repository folder" />
+            <input id="f-repo" class="box text-in" data-sk value="@repoPath" placeholder="Path to a repository…" @onchange="e => repoPath = (string?)e.Value ?? string.Empty" aria-label="Repository folder" />
             @if (Picker is not null) { <button class="btn" data-sk @onclick="Browse">Browse…</button> }
             <button class="btn primary open-repo" data-sk @onclick="Open">Open</button>
         </div>
@@ -38,8 +38,13 @@
     {
         string project = System.IO.Path.GetFileName(repo.TrimEnd('\\', '/'));
         <section class="set-row" data-project="@project">
-            <div><h3>Folders of @project</h3><p class="muted">Relative to the repository (yours only; agents read them from openspec/REPO-TASKS.md). Empty = @SettingsStore.DefaultPlansDir for plans, @SettingsStore.DefaultAttachmentsDir for attachments (kept out of git).</p></div>
+            <div><h3>@project</h3><p class="muted">Plans and attachments folders are relative to the repository (yours only; agents read them from openspec/REPO-TASKS.md). Empty = @SettingsStore.DefaultPlansDir for plans, @SettingsStore.DefaultAttachmentsDir for attachments (kept out of git).</p></div>
             <div class="set-val set-folders">
+                <span class="muted">Location</span>
+                <div class="set-loc">
+                    <span class="set-path" title="@repo">@repo</span>
+                    <button class="btn show-folder" data-sk @onclick="() => ShowInFolder(repo)">Show in folder</button>
+                </div>
                 <span class="muted">Plans</span>
                 <input class="box text-in" data-sk value="@Settings.PlansDir(repo)" placeholder="@SettingsStore.DefaultPlansDir"
                        @onchange="e => Settings.SetPlansDir(repo, (string?)e.Value)" aria-label="Plans folder" />
@@ -72,7 +77,12 @@
     private string repoPath = "";
     private string? error;
 
-    protected override void OnInitialized() => repoPath = Workspace.Root ?? Settings.Current.LastRepo ?? "";
+    private FolderOpener? FolderOpener => Services.GetService(typeof(FolderOpener)) as FolderOpener;
+
+    private void ShowInFolder(string repo)
+    {
+        if (FolderOpener?.Invoke(repo) is { Success: false, Message: string message }) Popups.Toast(message, ToastKind.Warning);
+    }
 
     private void Browse()
     {
@@ -81,7 +91,7 @@
 
     private void Open()
     {
-        (bool ok, string message) = Workspace.Open(repoPath);
+        (bool ok, string message) = Workspace.OpenTab(repoPath);
         error = ok ? null : message;
         if (ok && Workspace.TakeGuideNotice() is string notice) Popups.Toast(notice, ToastKind.Info);
         if (ok) Nav.NavigateTo("");

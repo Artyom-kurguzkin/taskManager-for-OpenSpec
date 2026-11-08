@@ -1,0 +1,12 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-09
+x-rtm:
+  id: 119
+  title: add attachments to work item descriptions
+  status: In Progress
+  contributors: [Artyom-kurguzkin]
+  features: [work-item-details]
+  label: enhancement
+  started: 2026-11-09
+  moved: 2026-11-09

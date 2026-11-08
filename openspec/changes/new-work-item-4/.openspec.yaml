@@ -7,5 +7,5 @@ x-rtm:
   status: Blocked
   contributors: [Artyom-kurguzkin]
   features: [organise-work-items]
-  tests: [{suite: UsingTheBoardTests, test: Agent-added work shows an agent chip on its card; clicking it marks the item and its agent subtasks reviewed without opening it}, {suite: UsingTheBoardTests, test: The side menu can show only work with unreviewed agent changes}, {suite: SwitchingProjectsTests, test: "Opening a project creates openspec/REPO-TASKS.md once (and has the UI say so), leaves a file of the user's alone, and refreshes an older copy of its own"}]
+  tests: [{suite: UsingTheBoardTests, test: 'Agent-added work carries no agent chip on its card or list row; the review click is on the item page, the filter still finds it'}, {suite: UsingTheBoardTests, test: The side menu can show only work with unreviewed agent changes}, {suite: SwitchingProjectsTests, test: "Opening a project creates openspec/REPO-TASKS.md once (and has the UI say so), leaves a file of the user's alone, and refreshes an older copy of its own"}]
   dependsOn: [34]

@@ -15,7 +15,8 @@ public sealed record AppSettings(
     List<string>? HiddenProjects = null,      // tabs taken off the board and list (by Key); the side menu brings them back
     List<string>? CollapsedProjects = null,   // tabs folded to their heading on the board (by Key)
     Dictionary<string, string>? PlansDirs = null,   // where plans live, per repository (by Key); missing = DevResources/plans
-    Dictionary<string, string>? AttachmentsDirs = null);   // where note attachments are copied, per repository (by Key); missing = local/task-tracking
+    Dictionary<string, string>? AttachmentsDirs = null,   // where note attachments are copied, per repository (by Key); missing = local/task-tracking
+    bool Split = true);                // an open work item sits beside the list (half-screen) when the window is wide enough
 
 /// <summary>Per-user settings in a JSON file (AppData/RepoTaskManager/settings.json). Host-only, not repo data.</summary>
 public sealed class SettingsStore(string path)
@@ -26,11 +27,17 @@ public sealed class SettingsStore(string path)
 
     public event Action? Changed;
 
+    /// <summary>A detached window reads the settings but never writes the file: its changes live in memory, so two processes never race on it.</summary>
+    public bool ReadOnly { get; set; }
+
     public void Update(Func<AppSettings, AppSettings> change)
     {
         Current = change(Current);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(Current, Json));
+        if (!ReadOnly)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(Current, Json));
+        }
         Changed?.Invoke();
     }
 
