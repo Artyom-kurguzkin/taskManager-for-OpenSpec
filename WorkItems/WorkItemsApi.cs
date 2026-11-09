@@ -43,6 +43,15 @@ public static class WorkItemsApi
     public static int NextId() => Queries.NextId();
     public static IReadOnlyList<string> GetWarnings() => Queries.GetWarnings();
 
+    /// <summary>Compare-and-swap guard for agents: succeeds when <paramref name="expected"/> is null/empty or equals the item's current revision.</summary>
+    public static (bool Success, string Message) CheckRevision(int id, string? expected)
+    {
+        WorkItem? item = Queries.Get(id);
+        if (item is null) return (false, "That work item no longer exists");
+        if (string.IsNullOrEmpty(expected) || expected == item.Revision) return (true, "");
+        return (false, $"#wi{id} changed since you read it (revision {item.Revision} now); read it again before writing");
+    }
+
     /// <summary>Gives every change that shares its number with an earlier one the next free number; returns what changed.</summary>
     public static IReadOnlyList<(int OldId, int NewId, string Folder)> ResolveDuplicateIds() => Commands.ResolveDuplicateIds();
     public static string GetDescription(int id) => Queries.GetDescription(id);
@@ -89,6 +98,19 @@ public static class WorkItemsApi
 
     /// <summary>Marks the agent's work on an item as reviewed (x-rtm.reviewedAt = now).</summary>
     public static (bool Success, string Message) MarkReviewed(int id) => Commands.MarkReviewed(id);
+
+    /// <summary>An agent created or changed this item: x-rtm.agentBy = <paramref name="agent"/>, agentAt = now.</summary>
+    public static (bool Success, string Message) StampAgent(int id, string agent) => Commands.StampAgent(id, agent);
+
+    /// <summary>Writes the change's delta spec for a capability (specs/&lt;capability&gt;/spec.md); null deletes it. skip_specs is kept in sync.</summary>
+    public static (bool Success, string Message) SetDeltaSpec(int id, string capability, string? markdown) => Commands.SetDeltaSpec(id, capability, markdown);
+
+    /// <summary>Runs the pinned OpenSpec CLI, <c>validate &lt;folder&gt; --strict</c>, in the repository root; Message is its output.</summary>
+    public static (bool Success, string Message) Validate(int id) => Commands.Validate(id);
+
+    /// <summary>How <see cref="Validate"/> runs the CLI; tests replace it so npx never starts. Null restores the CLI.</summary>
+    public static void ConfigureValidator(Func<string, (bool Success, string Message)>? validate) =>
+        Commands.Validator = validate ?? Infrastructure.OpenSpecCli.Validate;
 
     /// <summary>Takes the agent stamp off one subtask.</summary>
     public static (bool Success, string Message) MarkSubtaskReviewed(int id, string number) => Commands.MarkSubtaskReviewed(id, number);

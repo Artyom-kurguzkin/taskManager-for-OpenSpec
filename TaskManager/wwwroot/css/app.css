@@ -590,6 +590,10 @@
   .set-loc { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .set-loc .btn { flex: none; white-space: nowrap; }
   .set-path { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .set-row pre.box { display: block; flex: 1 1 100%; margin: 0; min-width: 0; max-width: 100%; overflow-x: auto; user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.5; text-align: left; }
+  .set-row code { font-family: ui-monospace, Consolas, monospace; font-size: .85em; overflow-wrap: anywhere; user-select: text; }
+  .mcp-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 10px; }   /* the hint column is narrow: the button drops under the chip */
+  .mcp-status .chip.on { border-style: solid; background: var(--lilac); color: var(--on-fill); }
   @media (max-width: 640px) { .set-row { grid-template-columns: 1fr; } }
 }
 

@@ -11,6 +11,8 @@
     <PackageReference Include="Photino.Blazor" Version="4.0.13" />
     <PackageReference Include="Markdig" Version="1.4.1" />
     <PackageReference Include="Radzen.Blazor" Version="12.1.6" />
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />
@@ -19,6 +21,7 @@
     <ProjectReference Include="../WorkItems/WorkItems.csproj" />
     <ProjectReference Include="../Notes/Notes.csproj" />
     <ProjectReference Include="../LinkedTestRuns/LinkedTestRuns.csproj" />
+    <ProjectReference Include="../TaskManager.Mcp/TaskManager.Mcp.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />

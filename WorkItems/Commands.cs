@@ -256,7 +256,7 @@ internal static partial class Commands
         if (OpenSpecStoreApi.OpenSpecRoot is not string root) return (false, "No repository is open", 0);
         if (string.IsNullOrWhiteSpace(title)) return (false, "Give the work item a title", 0);
         StampProvisionalIds();
-        int id = Queries.NextId();
+        int id = OpenSpecStoreApi.Allocate("work-item", roots => roots.Max(r => Queries.MaxIdUnder(r)));
         string basePath = inArchive ? Path.Combine("changes", "archive") : "changes";
         string slug = FreeFolderName(folder ?? Proposal.Slug(title));
         string name = inArchive ? $"{DateTime.Today:yyyy-MM-dd}-{slug}" : slug;
@@ -303,7 +303,7 @@ internal static partial class Commands
         {
             foreach (WorkItem w in twins.OrderBy(w => w.Archived ? 0 : 1).ThenBy(w => w.Created).ThenBy(w => w.Folder, StringComparer.Ordinal).Skip(1))
             {
-                int newId = Queries.NextId();
+                int newId = OpenSpecStoreApi.Allocate("work-item", roots => roots.Max(r => Queries.MaxIdUnder(r)));
                 string yaml = Queries.Yaml(w.Path);
                 Rtm meta = Metadata.Read<Rtm>(yaml);
                 meta.Id = newId;
@@ -535,4 +535,25 @@ internal static partial class Commands
         if (lanes.Count == 0) all.Remove(column);
         return Metadata.WriteSection(yaml, "lanes", all.Count == 0 ? null : all);
     }
+
+    internal static (bool Success, string Message) StampAgent(int id, string agent) =>
+        Update(id, m => { m.AgentBy = agent; m.AgentAt = DateTime.Now.ToString("s", System.Globalization.CultureInfo.InvariantCulture); });
+
+    internal static (bool Success, string Message) SetDeltaSpec(int id, string capability, string? markdown)
+    {
+        capability = (capability ?? "").Replace('\\', '/').Trim('/');
+        if (capability.Length == 0 || Path.IsPathRooted(capability) || capability.Split('/').Contains("..")) return (false, "A capability is a path under openspec/specs, like billing or functional/banking");
+        if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
+        string dir = Path.Combine(item.Path, "specs", capability.Replace('/', Path.DirectorySeparatorChar));
+        (bool ok, string message) = markdown is null
+            ? (Directory.Exists(dir) ? OpenSpecStoreApi.DeleteFolder(dir) : (true, ""))
+            : OpenSpecStoreApi.WriteText(Path.Combine(dir, "spec.md"), markdown.Replace("\r\n", "\n"));
+        return ok ? SyncSkipSpecs(item.Path) : (ok, message);
+    }
+
+    /// <summary>How Validate runs the CLI (tests swap it).</summary>
+    internal static Func<string, (bool Success, string Message)> Validator = OpenSpecCli.Validate;
+
+    internal static (bool Success, string Message) Validate(int id) =>
+        Queries.Get(id) is WorkItem item ? Validator(item.Folder) : (false, NotFound);
 }

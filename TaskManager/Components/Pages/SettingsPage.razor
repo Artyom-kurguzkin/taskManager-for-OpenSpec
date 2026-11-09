@@ -55,6 +55,25 @@
         </section>
     }
 
+    <section class="set-row mcp">
+        <div>
+            <h3>Agents over MCP</h3>
+            <p class="muted">Add this to <code>.mcp.json</code> in a repository so agents can read and write its board with tools instead of editing files. The path is this app's exe on this machine.</p>
+            @if (Server is not null && server is not null)
+            {
+                <p class="mcp-status">
+                    <span class="chip @(server.Running ? "on" : null)">@(busy ? "Working…" : server.Running ? $"Server running · port {server.Port}" : "Server not running")</span>
+                    <button class="btn" data-sk disabled="@busy" @onclick="ToggleServer">@(server.Running ? "Stop" : "Start")</button>
+                </p>
+                @if (!server.Running) { <p class="muted">It starts by itself when an agent connects, and stops after three idle hours.</p> }
+            }
+        </div>
+        <div class="set-val">
+            <pre class="box mcp-snippet" data-sk>@AgentGuide.McpSnippet()</pre>
+            <p class="muted">One line instead: <code>@AgentGuide.McpAddCommand()</code></p>
+        </div>
+    </section>
+
     <section class="set-row">
         <div><h3>External editor</h3><p class="muted">Command "Edit in …" launches on a note, e.g. code, notepad++, subl. Empty = ask next time.</p></div>
         <div class="set-val"><input class="box text-in" data-sk value="@Settings.Current.Editor" placeholder="e.g. code"
@@ -70,6 +89,30 @@
     /// <summary>Native folder dialog, registered by the desktop host (absent in tests).</summary>
     [Inject] private IServiceProvider Services { get; set; } = default!;
     private FolderPicker? Picker => Services.GetService(typeof(FolderPicker)) as FolderPicker;
+
+    /// <summary>The headless MCP server's status and switch, registered by the desktop host (absent in tests).</summary>
+    private TaskManager.Hosting.McpServerControl? Server => Services.GetService(typeof(TaskManager.Hosting.McpServerControl)) as TaskManager.Hosting.McpServerControl;
+    private TaskManager.Hosting.McpServerState? server;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Server is not null) server = await Server.Status();
+    }
+
+    private async Task ToggleServer()
+    {
+        if (Server is null || server is null) return;
+        bool starting = !server.Running;
+        busy = true;
+        try
+        {
+            await (starting ? Server.Start() : Server.Stop());
+            server = await Server.Status();
+            if (starting && !server.Running) Popups.Toast("The MCP server did not start; see the log under %LOCALAPPDATA%/RepoTaskManager/logs.", ToastKind.Warning);
+        }
+        finally { busy = false; }
+    }
 
     private static readonly IReadOnlyList<(string, string)> Themes = [("light", "Light"), ("dark", "Dark"), ("system", "System")];
     private static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List")];

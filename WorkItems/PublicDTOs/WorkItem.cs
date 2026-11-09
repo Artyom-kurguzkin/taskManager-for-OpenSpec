@@ -34,7 +34,8 @@ public sealed record WorkItem(
     DateOnly? Started = null,                  // x-rtm.started: the day work started (stamped on the first move to In Progress)
     DateOnly? Due = null,                      // x-rtm.due
     DateOnly? Moved = null,                    // x-rtm.moved: the day the item last moved to its status (null = never recorded: read it as Created)
-    string? Plan = null)                       // x-rtm.plan: repo-relative path of a plan file
+    string? Plan = null,                       // x-rtm.plan: repo-relative path of a plan file
+    string Revision = "")                      // hash of every file in the change folder: agents pass it back on a write (compare-and-swap); "" = unreadable
 {
     /// <summary>An agent stamped this item and the user has not reviewed it since.</summary>
     public bool AgentUnreviewed => AgentBy is not null && (ReviewedAt is null || (AgentAt is DateTime a && ReviewedAt < a));

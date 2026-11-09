@@ -93,6 +93,21 @@ internal static partial class Queries
     /// <summary>One more than the highest number any note file carries anywhere in the repository, by file name or frontmatter, archived changes included.</summary>
     internal static int NextId() { var c = Cached(); return Math.Max(c.MaxId, c.Notes.Select(n => n.Id).DefaultIfEmpty(0).Max()) + 1; }
 
+    /// <summary>The highest note number in one worktree, by <c>notes/n&lt;N&gt;.md</c> file name or frontmatter id (archived changes included); 0 when none.</summary>
+    internal static int MaxNoteIdUnder(string repoRoot)
+    {
+        string changes = Path.Combine(repoRoot, "openspec", "changes");
+        if (!Directory.Exists(changes)) return 0;
+        int max = 0;
+        foreach (string file in Directory.EnumerateFiles(changes, "n*.md", SearchOption.AllDirectories))
+        {
+            if (!string.Equals(Path.GetFileName(Path.GetDirectoryName(file)), "notes", StringComparison.OrdinalIgnoreCase)) continue;
+            if (int.TryParse(Path.GetFileNameWithoutExtension(file)[1..], out int number)) max = Math.Max(max, number);
+            max = Math.Max(max, NoteFile.Meta(NoteFile.Split(File.ReadAllText(file)).Frontmatter).Id);
+        }
+        return max;
+    }
+
     [GeneratedRegex(@"\[\[(?<doc>[^\]]+)\]\]|#wi(?<wi>\d+)\b|#n(?<n>\d+)\b")]
     private static partial Regex Reference();
 

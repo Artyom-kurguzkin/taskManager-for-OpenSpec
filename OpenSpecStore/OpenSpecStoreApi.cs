@@ -12,6 +12,8 @@ public static class OpenSpecStoreApi
 
     /// <summary>Changes whenever repo content may have changed; modules cache their parsed data against it.</summary>
     public static long Version => OpenSpecStoreModule.Version;
+    /// <summary>Makes every module read the current repository from disk again on its next call, for a caller that cannot wait for the watcher (a tool call right after an outside edit).</summary>
+    public static void Refresh() => OpenSpecStoreModule.Bump();
     public static string? OpenSpecRoot => OpenSpecStoreModule.RepoRoot is null ? null : Path.Combine(OpenSpecStoreModule.RepoRoot, "openspec");
     /// <summary>Opens a repository and makes it current. With <paramref name="keepOthers"/> the other open ones stay open (tabs); otherwise they close.</summary>
     public static (bool Success, string Message) Open(string repoRoot, bool keepOthers = false) => Commands.Open(repoRoot, keepOthers);
@@ -29,6 +31,15 @@ public static class OpenSpecStoreApi
         add => OpenSpecStoreModule.Changed += value;
         remove => OpenSpecStoreModule.Changed -= value;
     }
+
+    // ── Ids ──
+    /// <summary>
+    /// The next free number of a counter ("work-item", "note"), allocated under a lock shared by every git worktree of the repository.
+    /// <paramref name="maxOver"/> gets the root of every worktree and returns the highest number it finds in them; the counter file keeps
+    /// the last number handed out, so a deleted item never frees its number.
+    /// </summary>
+    public static int Allocate(string counter, Func<IEnumerable<string>, int> maxOver) =>
+        IdAllocator.Allocate(RepoRoot ?? throw new InvalidOperationException("No repository is open"), counter, maxOver);
 
     // ── Files ──
     public static string ReadText(string path) => Queries.ReadText(path);

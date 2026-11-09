@@ -1,9 +1,9 @@
 # One MCP server for every agent — 9 Nov 2026
 
-- **Status:** planned, not started
+- **Status:** done (2026-11-09), uncommitted, #wi121 In Review
 - **Date:** 2026-11-09
 - **Author:** Claude (agent)
-- **Work item:** #wi120
+- **Work item:** #wi121 (merged from #wi110 and #wi120)
 - **Replaces:** the hand-edited conventions in `openspec/REPO-TASKS.md` §1–§5 as the primary way agents touch the board (the file stays as the fallback)
 
 ## Why
@@ -40,7 +40,7 @@ Requirements from the user:
 6. **Edits are compare-and-swap.** `board_get` returns a `revision` (hash of the item's files); `board_update` and `board_note` accept it and refuse with the current revision when it moved. Optional so a quick status change does not need a read first, recommended in the tool description.
 7. **Seven tools, no deferral.** Fewer than ten, so Claude Code loads them all; names are prefixed `board_` and Claude Code adds the server prefix. Archive and delete are not tools: `Completed` is refused with the message "the user archives from the app", as the workflow already says.
 8. **Agent identity** is a parameter with a default: `agent` on every write, defaulting to `RTM_AGENT` from `.mcp.json` (`Claude`). Every write stamps `agentBy`/`agentAt`, note `by`, subtask `<!-- agent: X -->`, and `contributors` on create, exactly as the guide demands today.
-9. **Server instructions** (under 4,096 chars) carry the short rules: one item per deliverable, `#wiN` links, revision use, validate before stopping. `REPO-TASKS.md` gains a §0 line "if the `repo-tasks` tools are present, use them; the rest of this file is what they do for you".
+9. **The generated guide teaches the server, not just mentions it.** `openspec/REPO-TASKS.md` is the one file every agent reads, so its new first section says, in order: (a) how to tell whether the `repo-tasks` tools are already loaded (a `board_list` call, or `claude mcp list`); (b) how to turn them on when they are not: the `.mcp.json` entry to add (stdio shim, `RTM_AGENT`), the `claude mcp add` one-liner, and `TaskManager.exe --serve` for a client that only speaks HTTP, with the token file's location; (c) how to use them: create → update → note → validate, the `revision` rule, status `In Review` when done and never `Completed`; (d) that the hand-editing rules below are the fallback when no tools can be loaded. The app writes the running exe's path into the snippet, so the guide is machine-specific but correct; the committed `.mcp.json` uses `${RTM_APP:-…}`. The server's own `instructions` field (under 4,096 chars) repeats the short usage rules for clients that never show the file.
 10. **Not doing:** REST beside MCP (MCP *is* the API), resources/prompts (model-controlled calls belong in tools), DuckDB or any index (the in-memory cache is the index), hash ids, remote fetch on allocation, Native AOT.
 
 ## Tool surface
@@ -90,7 +90,7 @@ Phase 1 runs in parallel from HEAD; phase 2 starts after phase 1 is integrated, 
 | B | Revision on items and compare-and-swap | `WorkItems/Queries.cs` (`Revision` in the DTO), `WorkItemsApi.Update*(…, expectedRevision)`, `NotesApi.Create(…, expectedRevision)` | A's files except a one-line call | `EditingWorkItemsTests`: stale revision refused with the current one; matching revision accepted | — (exercised by E) |
 | C | Tool library `TaskManager.Mcp` with the seven tools against *today's* APIs (no revision yet, ids via existing `NextId`), structured DTOs, agent stamping, repo resolution, global semaphore, server instructions | new project `TaskManager.Mcp/`, `RepoTaskManager.slnx` | modules, `TaskManager/` | new `UsingTheBoardOverMcpTests` (in-memory pipe client): list/get/features/create/update/note/validate round-trips on the sample repo; stamps present; `Completed` refused | `claude -p` against the stdio shim once D lands |
 | D | Hosts: `--serve`, `--mcp` shim (discover, start, version check, forward, in-process fallback), token, Origin, server.json, idle exit, `/health`, `/shutdown`, logging to file/stderr | `TaskManager/Program.cs` (branch before Photino), new `TaskManager/Hosting/*`, `TaskManager.csproj` refs | tool bodies (uses C's project with an `echo`-level placeholder until integration) | new `ServingTheBoardTests` (Category `Server`): `--serve` answers `/health`; wrong token 401; foreign `Origin` 403; shim starts a server when none, reuses it when present, replaces an older `version` | WinExe stdio inheritance spike first; then `claude mcp list` sees the server |
-| G | Guide and docs: `AgentGuide` v12 (§0 "use the tools when present"), `CLAUDE.md`, `README.md`, `.mcp.json`, Settings page snippet | `TaskManager/Services/AgentGuide.cs`, `CLAUDE.md`, `README.md`, `.mcp.json`, `Components/Pages/Settings*.razor` | everything else | `GuidingAgentsTests`: v12 text present, older copy refreshed | Settings page shows the snippet (CDP, light and dark) |
+| G | Guide and docs: `AgentGuide` v12 with the new first section (detect, turn on, use, fallback; exe path and token location filled in), `CLAUDE.md`, `README.md`, `.mcp.json`, Settings page snippet | `TaskManager/Services/AgentGuide.cs`, `CLAUDE.md`, `README.md`, `.mcp.json`, `Components/Pages/Settings*.razor` | everything else | `GuidingAgentsTests`: v12 text present with the `.mcp.json` snippet, `claude mcp add` line, `--serve` and the token path; older copy refreshed | Settings page shows the snippet (CDP, light and dark) |
 | E | Wire C to A and B: real allocator, `revision` in/out, test-name check against the trx, validate after writes | `TaskManager.Mcp/*` | hosts | extend `UsingTheBoardOverMcpTests`: concurrent creates over two clients never collide; stale revision refused | — |
 | F | Desktop app hosts `/mcp` when the port is free; server status chip in Settings | `TaskManager/Program.cs`, `Workspace.cs`, Settings page | modules | `ServingTheBoardTests`: app-mode host answers `/health`; yields when a `--serve` holds the port | hidden app + `--mcp` shim: create an item over MCP, the board shows it with the agent stamp, light and dark screenshots |
 
@@ -110,3 +110,16 @@ Owners: A, B, C, D, G → sonnet agents in worktrees (phase 1); E, F → sonnet 
 - **SDK 2.x API drift** from blog samples: agents read the v2 docs linked above, not tutorials.
 - **Claude Code and worktree subagents**: the docs only state `.mcp.json` resolution for desktop-app worktree sessions; D tests an `isolation: worktree` subagent calling `board_list`.
 - **Static store, one current repo**: the global semaphore is the ceiling; fine for a handful of agents, revisit if calls queue.
+
+## What was built, and where it differs from the plan (9 Nov 2026)
+
+All chunks are in the working tree. Fast suite 424 pass (the 8 `Server` tests included), OpenSpec CLI suite green; the collision proof (two server processes, two worktrees, 20 simultaneous rounds) gave 40 items with 40 different ids; the real-app check ran on the hidden desktop in light and dark.
+
+- **Decision 4 changed: the desktop app does not host the endpoint.** The modules keep one *current* repository per process (`OpenSpecStoreApi.Use`), so a tool call for another repository would switch it under the window between two UI reads. The server stays its own process; Settings shows its status (port) with a Start/Stop button, and the window sees an agent's writes through the file watcher.
+- **Caller identity over HTTP.** One server answers many shims, so environment variables cannot carry the repository or the agent name. The shim sends `X-Rtm-Repo` (its working directory) and `X-Rtm-Agent` with every POST (percent-encoded); the host puts them in `BoardMcp.Caller` (an `AsyncLocal`) for the tools. A plain HTTP call without `repo` is refused: the server's own working directory is nobody's default.
+- **Version = assembly version + newest build time of the app's dlls.** The assembly version alone never changes between builds, so "replace an older server" would never have fired.
+- **Every tool call re-reads the repository** (`OpenSpecStoreApi.Refresh`): the watcher lags 300 ms and can drop events in a process that runs for hours.
+- **WinExe and stdio:** the spike held, no console exe. One real problem found and fixed: a shim-started server inherited the shim's stdout pipe, so the agent never saw EOF; the shim now clears the inherit flag on its std handles before starting the server.
+- **Token file race** (two shims starting at once): reading the file while the other process was writing it crashed one shim; the read is retried now.
+- **Tool details:** `board_create` needs `why` of 50 to 1000 characters (OpenSpec's own rule); list fields in `board_update` replace; a validator rejection comes back as `valid: false` with the output, not as an error, because the item already exists.
+- **Not done:** `claude mcp list` / a worktree subagent calling `board_list` (needs `dist/` rebuilt and a new session: `.mcp.json` points at `dist/TaskManager.exe`).

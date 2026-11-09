@@ -1187,4 +1187,46 @@ public sealed class EditingWorkItemsTests
         Assert.Null(Notes.NotesApi.Get(own)!.MergedFrom);
         Assert.Null(Notes.NotesApi.Get(own)!.MergedAt);
     }
+
+    [Fact(DisplayName = "A work item's revision changes when any of its files changes, and stays the same when nothing changed")]
+    public void RevisionTracksFiles()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        string first = Item(123).Revision;
+        Assert.Equal(first, Item(123).Revision);
+        Assert.Matches("^[0-9a-f]{12}$", first);
+
+        WorkItemsApi.SetTitle(123, "A different title");
+        string afterTitle = Item(123).Revision;
+        Assert.NotEqual(first, afterTitle);
+
+        OpenSpecStoreApi.WriteText(repo.PathOf("openspec/changes/add-health-check/notes/n999.md"), "# a note\n");
+        Assert.NotEqual(afterTitle, Item(123).Revision);
+    }
+
+    [Fact(DisplayName = "A write guarded by a stale revision is refused with the current revision in the message")]
+    public void StaleRevisionIsRefused()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool success, string message) = WorkItemsApi.CheckRevision(123, "000000000000");
+
+        Assert.False(success);
+        Assert.Contains(Item(123).Revision, message);
+        Assert.False(WorkItemsApi.CheckRevision(999999, "000000000000").Success);
+    }
+
+    [Fact(DisplayName = "A matching or absent revision passes the guard")]
+    public void MatchingRevisionPasses()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.True(WorkItemsApi.CheckRevision(123, Item(123).Revision).Success);
+        Assert.True(WorkItemsApi.CheckRevision(123, null).Success);
+        Assert.True(WorkItemsApi.CheckRevision(123, "").Success);
+    }
 }

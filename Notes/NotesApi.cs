@@ -44,4 +44,7 @@ public static class NotesApi
 
     /// <summary>Marks an agent's note as reviewed (frontmatter reviewedAt = now).</summary>
     public static (bool Success, string Message) MarkReviewed(int id) => Commands.MarkReviewed(id);
+
+    /// <summary>An agent wrote this note: frontmatter agentBy = <paramref name="agent"/>, agentAt = now.</summary>
+    public static (bool Success, string Message) StampAgent(int id, string agent) => Commands.StampAgent(id, agent);
 }

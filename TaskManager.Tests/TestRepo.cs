@@ -34,6 +34,9 @@ internal sealed class TestRepo : IDisposable
     {
         OpenSpecStore.OpenSpecStoreApi.Close();
         try { Directory.Delete(Root, recursive: true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } // ponytail: temp folder (git objects are read-only), best effort
+        // A repository without git keeps its id counter in %TEMP%/rtm/<hash of its path> (OpenSpecStore's IdAllocator): take that along, or every run leaves a folder per test.
+        string counters = Path.Combine(Path.GetTempPath(), "rtm", Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(Root)))).ToLowerInvariant()[..16]);
+        try { if (Directory.Exists(counters)) Directory.Delete(counters, recursive: true); } catch (IOException) { }
     }
 }
 

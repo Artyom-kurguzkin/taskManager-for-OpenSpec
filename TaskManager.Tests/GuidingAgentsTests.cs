@@ -88,4 +88,37 @@ public sealed partial class GuidingAgentsTests
 
         if (p.ExitCode != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
     }
+
+    [Fact(DisplayName = "The agent guide opens with how to detect the repo-tasks tools, turn them on and use them, and names the hand rules as the fallback")]
+    public void GuideOpensWithTheMcpTools()
+    {
+        string text = AgentGuide.Text("DevResources/plans", appPath: @"C:\apps\TaskManager.exe");
+
+        foreach (string s in new[] { "board_list", "board_get", "board_features", "board_create", "board_update", "board_note", "board_validate",
+                     "claude mcp list", "claude mcp add", "--serve", "RepoTaskManager/token", "127.0.0.1:7431/mcp", "C:/apps/TaskManager.exe", "RTM_AGENT", "RTM_APP", "In Review", "fallback" })
+            Assert.Contains(s, text);
+        Assert.Matches(@"(?i)never.{0,40}`Completed`", text);
+        Assert.DoesNotContain(@"C:\apps", text);   // the snippet is JSON, forward slashes
+
+        string[] lines = text.Split('\n');
+        string firstHeading = lines.First(l => l.StartsWith("## "));
+        Assert.StartsWith("## 0.", firstHeading);
+        Assert.Contains("repo-tasks", firstHeading);
+        Assert.DoesNotContain("apps", lines[0]);   // the marker line carries no path
+    }
+
+    [Fact(DisplayName = "An older guide is refreshed to version 12 with the running app's path in its .mcp.json snippet")]
+    public void OlderGuideIsRefreshedWithTheAppPath()
+    {
+        using TestRepo repo = new();
+        repo.Write("openspec/REPO-TASKS.md", "<!-- repo-tasks-guide v11 plans=DevResources/plans attachments=" + SettingsStore.DefaultAttachmentsDir + " -->\nold text\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        GuideChange change = AgentGuide.Ensure(repo.Root, "DevResources/plans", appPath: @"C:\apps\TaskManager.exe");
+
+        Assert.Equal(GuideChange.Updated, change);
+        string text = repo.Read("openspec/REPO-TASKS.md");
+        Assert.StartsWith("<!-- repo-tasks-guide v12 ", text);
+        Assert.Contains("C:/apps/TaskManager.exe", text);
+    }
 }

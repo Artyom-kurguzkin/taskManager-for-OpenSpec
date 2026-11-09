@@ -13,6 +13,10 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // Headless modes (no window): --serve is the one MCP server, --mcp the stdio shim agents start.
+        if (args.Contains("--serve")) { Environment.ExitCode = Hosting.ServeHost.RunAsync(args).GetAwaiter().GetResult(); return; }
+        if (args.Contains("--mcp")) { Environment.ExitCode = Hosting.McpShim.RunAsync(args).GetAwaiter().GetResult(); return; }
+
         PhotinoBlazorAppBuilder builder = PhotinoBlazorAppBuilder.CreateDefault(args);
         PhotinoBlazorApp? app = null;
 
@@ -38,6 +42,7 @@ internal static class Program
         builder.Services.AddSingleton<EditorLauncher>(EditorLaunchers.Default);
         builder.Services.AddSingleton<FolderOpener>(FolderOpeners.Default);
         builder.Services.AddSingleton<WindowLauncher>(WindowLaunchers.Default);
+        builder.Services.AddSingleton(Hosting.McpServerControl.Default);   // Settings shows the headless MCP server and can start or stop it
         builder.Services.AddSingleton(new WindowFrame(() => app?.MainWindow.WindowHandle ?? IntPtr.Zero));
         builder.RootComponents.Add<App>("#app");
 

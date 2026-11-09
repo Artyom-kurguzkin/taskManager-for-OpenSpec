@@ -1,4 +1,5 @@
 using OpenSpecStore;
+using WorkItems;
 
 namespace TaskManager.Tests;
 
@@ -101,5 +102,127 @@ public sealed class EditingRepoFilesSafelyTests
         (bool ok, string _) = OpenSpecStoreApi.WriteText(repo.PathOf("openspec/changes/new-one/proposal.md"), "# Proposal\n");
         Assert.True(ok);
         Assert.Equal("# Proposal\n", repo.Read("openspec/changes/new-one/proposal.md"));
+    }
+
+    // ── Id allocation under the shared lock ──
+
+    private static string RunGit(string dir, params string[] args)
+    {
+        System.Diagnostics.ProcessStartInfo psi = new("git") { WorkingDirectory = dir, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string a in args) psi.ArgumentList.Add(a);
+        using System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi)!;
+        string output = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+        p.WaitForExit();
+        Assert.True(p.ExitCode == 0, $"git {string.Join(' ', args)} failed: {output}");
+        return output;
+    }
+
+    /// <summary>A bare .git folder is enough for the allocator to find its common dir; no git needed.</summary>
+    private static string StubCommonDir(TestRepo repo)
+    {
+        string dotGit = Path.Combine(repo.Root, ".git");
+        Directory.CreateDirectory(Path.Combine(dotGit, "rtm"));
+        return Path.Combine(dotGit, "rtm");
+    }
+
+    [Fact(DisplayName = "Two worktrees of one repository share the id counter, so an item created in the second gets a number above the first's")]
+    public void WorktreesShareTheCounter()
+    {
+        try { RunGit(Path.GetTempPath(), "--version"); }
+        catch (System.ComponentModel.Win32Exception) { return; }   // xunit 2 has no runtime skip: without git on PATH this test has nothing to check
+
+        using TestRepo repo = new();
+        string worktree = Path.Combine(Path.GetTempPath(), "rtm-tests", Guid.NewGuid().ToString("N"));
+        bool added = false;
+        try
+        {
+            RunGit(repo.Root, "init", "-q");
+            RunGit(repo.Root, "-c", "user.name=t", "-c", "user.email=t@t", "add", "-A");
+            RunGit(repo.Root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fixture");
+            RunGit(repo.Root, "worktree", "add", "-q", worktree, "-b", "wt");
+            added = true;
+
+            OpenSpecStoreApi.Open(repo.Root);
+            int first = WorkItemsApi.Create("one").Id;
+            OpenSpecStoreApi.Open(worktree);
+            (bool ok, string message, int second) = WorkItemsApi.Create("two");
+
+            Assert.True(ok, message);
+            Assert.True(second > first, $"second {second} should be above first {first}");
+        }
+        finally
+        {
+            OpenSpecStoreApi.Close();
+            if (added) try { RunGit(repo.Root, "worktree", "remove", "--force", worktree); } catch (Exception e) when (e is Xunit.Sdk.XunitException or IOException) { }
+            try { Directory.Delete(worktree, recursive: true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException or DirectoryNotFoundException) { }
+        }
+    }
+
+    [Fact(DisplayName = "A deleted item does not free its number: the next item gets a higher one")]
+    public void DeletedItemKeepsItsNumber()
+    {
+        using TestRepo repo = new();
+        StubCommonDir(repo);
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int deleted) = WorkItemsApi.Create("short lived");
+        string path = WorkItemsApi.Get(deleted)!.Path;
+
+        Directory.Delete(path, recursive: true);
+        (bool ok, string message, int next) = WorkItemsApi.Create("replacement");
+
+        Assert.True(ok, message);
+        Assert.True(next > deleted, $"{next} should be above the deleted {deleted}");
+    }
+
+    [Fact(DisplayName = "Allocation waits while another process holds the lock, then continues")]
+    public void WaitsForTheLock()
+    {
+        using TestRepo repo = new();
+        string dir = StubCommonDir(repo);
+        OpenSpecStoreApi.Open(repo.Root);
+        using ManualResetEventSlim held = new();
+        Task holder = Task.Run(() =>
+        {
+            using FileStream fs = new(Path.Combine(dir, "work-item.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            held.Set();
+            Thread.Sleep(300);
+        });
+        Assert.True(held.Wait(TimeSpan.FromSeconds(5)));
+
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        (bool ok, string message, int _) = WorkItemsApi.Create("waited");
+        watch.Stop();
+
+        Assert.True(ok, message);
+        Assert.True(watch.ElapsedMilliseconds >= 250, $"returned after {watch.ElapsedMilliseconds} ms, before the holder let go");
+        holder.Wait();
+    }
+
+    [Fact(DisplayName = "A lock file left behind by a dead process does not block allocation")]
+    public void StaleLockFileDoesNotBlock()
+    {
+        using TestRepo repo = new();
+        string dir = StubCommonDir(repo);
+        File.WriteAllText(Path.Combine(dir, "work-item.lock"), "pid 999999");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message, int _) = WorkItemsApi.Create("after a crash");
+
+        Assert.True(ok, message);
+    }
+
+    [Fact(DisplayName = "Notes allocate their ids through the same lock")]
+    public void NotesUseTheCounter()
+    {
+        using TestRepo repo = new();
+        string dir = StubCommonDir(repo);
+        File.WriteAllText(Path.Combine(dir, "note"), "500");
+        OpenSpecStoreApi.Open(repo.Root);
+        int item = WorkItemsApi.GetAll(includeHidden: true)[0].Id;
+
+        (bool ok, string message, int id) = Notes.NotesApi.Create(item, "t");
+
+        Assert.True(ok, message);
+        Assert.Equal(501, id);
     }
 }

@@ -49,6 +49,24 @@ internal static partial class Queries
 
     internal static int NextId() => All().Select(w => w.Id).DefaultIfEmpty(0).Max() + 1;
 
+    /// <summary>The highest stored x-rtm id of any change (archived included) in one worktree; 0 when none. Reads files directly, so a sibling worktree needs no open repository.</summary>
+    internal static int MaxIdUnder(string repoRoot)
+    {
+        string changes = Path.Combine(repoRoot, "openspec", "changes");
+        if (!Directory.Exists(changes)) return 0;
+        int max = 0;
+        foreach (string file in Directory.EnumerateFiles(changes, ".openspec.yaml", SearchOption.AllDirectories))
+        {
+            // ponytail: a regex over the x-rtm block instead of a YAML parse; the first indented "id:" after "x-rtm:" is the item's number.
+            Match m = StoredId().Match(File.ReadAllText(file));
+            if (m.Success && int.TryParse(m.Groups[1].Value, out int id)) max = Math.Max(max, id);
+        }
+        return max;
+    }
+
+    [GeneratedRegex(@"^x-rtm:[^\n]*\n(?:[ \t]+[^\n]*\n|[ \t]*\n)*?[ \t]+id:[ \t]*(\d+)", RegexOptions.Multiline)]
+    private static partial Regex StoredId();
+
     /// <summary>Work items whose x-rtm.dependsOn names this one, i.e. what this item is blocking.</summary>
     internal static IReadOnlyList<WorkItem> GetBlocking(int id) => GetAll(includeHidden: true).Where(w => (w.DependsOn ?? []).Contains(id)).ToList();
 
@@ -106,7 +124,21 @@ internal static partial class Queries
             meta.Lanes ?? [],
             archived, created, modified, warning, meta.Hidden == true, meta.Contributors,
             meta.Label, meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList(), meta.DependsOn ?? [], meta.MergedFrom ?? [], unlinked,
-            meta.AgentBy, Time(meta.AgentAt), Time(meta.ReviewedAt), Day(meta.Started), Day(meta.Due), Day(meta.Moved), meta.Plan);
+            meta.AgentBy, Time(meta.AgentAt), Time(meta.ReviewedAt), Day(meta.Started), Day(meta.Due), Day(meta.Moved), meta.Plan, Revision(dir));
+    }
+
+    /// <summary>First 12 hex chars of SHA-256 over path + content of every file in the change folder, sorted by repo-relative path; "" when the folder cannot be read.</summary>
+    private static string Revision(string dir)
+    {
+        try
+        {
+            string root = OpenSpecStoreApi.RepoRoot ?? dir;
+            using var sha = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+            foreach (string file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Select(f => (Path: Path.GetRelativePath(root, f).Replace('\\', '/'), Full: f)).OrderBy(f => f.Path, StringComparer.Ordinal).Select(f => f.Full))
+                sha.AppendData(System.Text.Encoding.UTF8.GetBytes(Path.GetRelativePath(root, file).Replace('\\', '/') + "\n" + File.ReadAllText(file)));
+            return Convert.ToHexStringLower(sha.GetHashAndReset())[..12];
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return ""; }
     }
 
     private static DateOnly? Day(string? text) => DateOnly.TryParseExact(text, "yyyy-MM-dd", out DateOnly d) ? d : null;

@@ -39,7 +39,7 @@ cd repo-task-manager
 dotnet build RepoTaskManager.slnx
 ```
 
-The first build downloads the NuGet packages (Photino.Blazor, Radzen.Blazor for the list view's data grid, YamlDotNet, Markdig, xunit, bUnit).
+The first build downloads the NuGet packages (Photino.Blazor, Radzen.Blazor for the list view's data grid, YamlDotNet, Markdig, ModelContextProtocol for the agent tools, xunit, bUnit).
 
 Run the tests:
 
@@ -49,6 +49,9 @@ dotnet test TaskManager.Tests --filter Category!=OpenSpecCli
 
 # everything, including `openspec validate --strict` on a repo the app has edited (needs Node.js, ~10 s)
 dotnet test TaskManager.Tests
+
+# only the MCP server and stdio entry, run as real processes (~15 s, ports 7450-7459, their own RTM_HOME)
+dotnet test TaskManager.Tests --filter Category=Server
 ```
 
 ## 3. Have a repository with an `openspec/` folder
@@ -94,6 +97,66 @@ dotnet publish TaskManager -p:PublishProfile=dist-small
 
 This adds `dist\TaskManager-small.exe`, which shares the same `dist\wwwroot\`.
 
+## Agents over MCP
+
+The app can serve the board to coding agents (Claude Code and other [MCP](https://modelcontextprotocol.io/) clients) as seven tools: `board_list`, `board_get`, `board_features`, `board_create`, `board_update`, `board_note` and `board_validate`. They sit on the same code the app uses, so ids are allocated under a lock, what an agent writes is signed with its name, and test names and OpenSpec validity are checked, instead of an agent following the conventions in `openspec/REPO-TASKS.md` by hand (that file stays as the fallback and is rewritten with the instructions for the tools).
+
+| Tool | What it does |
+|---|---|
+| `board_list` | work items filtered by status, feature, label, contributor, title text or `ready` (can be started now), in pages |
+| `board_get` | one item in full: description, subtasks, notes, delta specs, linked tests with their outcome, commits, dependencies, and its `revision` |
+| `board_features` | the features with the open items on each |
+| `board_create` | a new work item with the next id: proposal, subtasks, delta specs, plan and dependencies, signed and validated |
+| `board_update` | status, priority, label, feature, dates, plan, dependencies, contributors, description, tests, commits, subtasks and specs of an item |
+| `board_note` | a change-log note on an item, with the next note id |
+| `board_validate` | `openspec validate --strict` for one item or every open one, plus the app's own warnings |
+
+What the tools guarantee:
+
+- **No two items share a number.** Work-item and note ids come from one counter under a file lock in `.git/rtm/`, shared by every git worktree of the repository and by the desktop app. A deleted item's number is not handed out again.
+- **No lost edits.** `board_get` returns a `revision`; `board_update` and `board_note` refuse a write that carries an older one and say the current one. A write without a revision goes through unchecked.
+- **Agents never archive.** Status `Completed` is refused: set `In Review` and archive from the app.
+
+One server serves every repository on the machine. The same exe runs in three ways:
+
+| Command | What it does |
+|---|---|
+| `TaskManager.exe` | the desktop app. It does not serve the tools itself; **Settings → Agents over MCP** shows whether the server is running, on which port, and starts or stops it |
+| `TaskManager.exe --serve [--port N] [--idle H]` | headless server for streamable HTTP MCP at `http://127.0.0.1:7431/mcp` (loopback only); exits after `H` idle hours (three by default, `--idle 0` = never) |
+| `TaskManager.exe --mcp [--agent X]` | stdio entry for MCP clients: finds the server, starts it when none is running, replaces one left over from an older build, and forwards to it. If no server can be reached it serves the tools in its own process |
+
+The desktop app and the server are separate processes on purpose: the app shows what an agent wrote within a moment (it watches the files), and an agent reads what you changed in the app on its next call.
+
+Most clients want the stdio entry. Add this to `.mcp.json` in the repository the agents work in (the Settings page shows it with this machine's path; `claude mcp add repo-tasks -- <path to TaskManager.exe> --mcp` does the same):
+
+```json
+{
+  "mcpServers": {
+    "repo-tasks": {
+      "type": "stdio",
+      "command": "C:/path/to/TaskManager.exe",
+      "args": ["--mcp"],
+      "env": { "RTM_AGENT": "Claude" }
+    }
+  }
+}
+```
+
+`RTM_AGENT` is the name the tools sign with. The path is specific to the machine; a `.mcp.json` that is committed can use `"${RTM_APP:-C:/path/to/TaskManager.exe}"` so each person can point `RTM_APP` at their own exe.
+
+The stdio entry tells the server which repository it was started in and which agent it speaks for, so an agent never has to pass `repo`: a call acts on the repository the client runs in, also from a git worktree.
+
+A client that only speaks HTTP connects to `--serve` with the header `Authorization: Bearer <token>`. The token is the content of `%LOCALAPPDATA%\RepoTaskManager\token`, created on first use and readable by you only. Requests without it get 401, and requests from a browser origin other than localhost get 403. Over plain HTTP every call must pass `repo` (any path inside the repository): the server serves all of them and has no default.
+
+| Environment variable | What it does |
+|---|---|
+| `RTM_AGENT` | the name the tools sign with (default `Claude`); `--agent X` and a tool's `agent` argument override it |
+| `RTM_PORT` | the port a server started by the stdio entry listens on (default 7431) |
+| `RTM_HOME` | where the token, `server.json` and logs live instead of `%LOCALAPPDATA%\RepoTaskManager`, for demos and tests |
+| `RTM_APP` | not read by the app: the variable a committed `.mcp.json` can use for the exe's path (above) |
+
+When something goes wrong, the server's log is `%LOCALAPPDATA%\RepoTaskManager\logs\serve-<date>.log`; the stdio entry logs to stderr, which the client shows. After `dotnet publish` or a rebuild, the next agent that connects replaces the running server with the new build by itself.
+
 ## Where things are stored
 
 | Data | Location | In git? |
@@ -103,6 +166,8 @@ This adds `dist\TaskManager-small.exe`, which shares the same `dist\wwwroot\`.
 | Board sub-categories, new feature sub-groups | `x-rtm:` block in `openspec/config.yaml` | yes |
 | Notes | `openspec/changes/<change>/notes/n<id>.md` (they move with the change when it's archived) | yes |
 | Your settings (theme, last repo, name, board view per repo) | `%APPDATA%\RepoTaskManager\settings.json` | no |
+| The last work-item and note numbers handed out, and their lock files | `.git/rtm/` in the repository (shared by its worktrees); `%TEMP%\rtm\` for a folder without git | no |
+| The MCP server's token, `server.json` (pid, port, version) and logs | `%LOCALAPPDATA%\RepoTaskManager\` | no |
 
 Set the `RTM_SETTINGS` environment variable to a file path to use a different settings file, for example for demos.
 
@@ -110,10 +175,12 @@ Set the `RTM_SETTINGS` environment variable to a file path to use a different se
 
 A modular monolith with one static class library per domain entity, plus the app host:
 
-- `OpenSpecStore/`: repo folder, safe file reads and writes, the `x-rtm` YAML block, the file watcher
+- `OpenSpecStore/`: repo folder, safe file reads and writes, the `x-rtm` YAML block, the file watcher, the id allocator
 - `GitHistory/`: git CLI wrapper
 - `Features/`, `WorkItems/`, `Notes/`: the domain modules
-- `TaskManager/`: the Photino + Blazor app, the only project with UI
+- `LinkedTestRuns/`: reads the latest test results file for linked tests
+- `TaskManager.Mcp/`: the seven `board_*` MCP tools over the modules (no UI, no host)
+- `TaskManager/`: the Photino + Blazor app, the only project with UI; `Hosting/` holds the headless server (`--serve`) and the stdio entry (`--mcp`)
 - `TaskManager.Tests/`: xunit and bUnit tests, plus a sample repo in `Fixtures/`
 - `openspec/`: this project's own specs and changes
 - `design/mockup.html`: the design system mockup

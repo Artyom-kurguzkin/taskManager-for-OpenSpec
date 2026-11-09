@@ -52,6 +52,40 @@ internal static class OpenSpecCli
         }
     }
 
+    /// <summary><c>openspec validate &lt;folder&gt; --strict</c> in the repository root. Message is the CLI's output (or why it could not run).</summary>
+    internal static (bool Success, string Message) Validate(string folder)
+    {
+        if (OpenSpecStoreApi.RepoRoot is not string root) return (false, "No repository is open");
+        ProcessStartInfo psi;
+        if (FindCached(NpmCache()) is string entry)
+        {
+            psi = new("node");
+            foreach (string a in new[] { entry, "validate", folder, "--strict" }) psi.ArgumentList.Add(a);
+        }
+        else
+        {
+            string command = $"{Npx} validate {folder} --strict";
+            psi = OperatingSystem.IsWindows() ? new("cmd.exe", $"/c {command}") : new("/bin/sh", $"-c \"{command}\"");
+        }
+        psi.WorkingDirectory = root;
+        psi.RedirectStandardOutput = psi.RedirectStandardError = true;
+        psi.StandardOutputEncoding = psi.StandardErrorEncoding = System.Text.Encoding.UTF8;
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
+        try
+        {
+            using Process p = Process.Start(psi)!;
+            Task<string> err = p.StandardError.ReadToEndAsync();
+            string output = p.StandardOutput.ReadToEnd();
+            if (!p.WaitForExit(TimeSpan.FromMinutes(2))) { p.Kill(true); return (false, "openspec validate timed out"); }
+            return (p.ExitCode == 0, (output + err.Result).Trim());
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            return (false, "Couldn't run the OpenSpec CLI (needs Node.js/npx on PATH): " + e.Message);
+        }
+    }
+
     /// <summary>npm's cache folder: <c>npm_config_cache</c> if set, else npm's default for this OS.</summary>
     private static string NpmCache() =>
         Environment.GetEnvironmentVariable("npm_config_cache") is { Length: > 0 } set ? set

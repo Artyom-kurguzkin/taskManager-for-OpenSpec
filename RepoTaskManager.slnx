@@ -3,6 +3,7 @@
   <Project Path="GitHistory/GitHistory.csproj" />
   <Project Path="Notes/Notes.csproj" />
   <Project Path="OpenSpecStore/OpenSpecStore.csproj" />
+  <Project Path="TaskManager.Mcp/TaskManager.Mcp.csproj" />
   <Project Path="TaskManager.Tests/TaskManager.Tests.csproj" />
   <Project Path="TaskManager/TaskManager.csproj" />
   <Project Path="LinkedTestRuns/LinkedTestRuns.csproj" />

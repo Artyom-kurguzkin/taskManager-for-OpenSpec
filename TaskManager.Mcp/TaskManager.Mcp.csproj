@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The board as MCP tools: one tool library over the module facades. Sits above the modules, below the host. -->
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
+    <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />
+    <ProjectReference Include="../WorkItems/WorkItems.csproj" />
+    <ProjectReference Include="../Notes/Notes.csproj" />
+    <ProjectReference Include="../Features/Features.csproj" />
+    <ProjectReference Include="../GitHistory/GitHistory.csproj" />
+    <ProjectReference Include="../LinkedTestRuns/LinkedTestRuns.csproj" />
+  </ItemGroup>
+</Project>

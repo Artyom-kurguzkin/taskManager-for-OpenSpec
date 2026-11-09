@@ -14,7 +14,7 @@ internal static class Commands
     internal static (bool Success, string Message, int Id) Create(int workItemId, string by)
     {
         if (WorkItemsApi.Get(workItemId) is not WorkItem wi) return (false, "That work item no longer exists", 0);
-        int id = Queries.NextId();
+        int id = OpenSpecStoreApi.Allocate("note", roots => roots.Max(r => Queries.MaxNoteIdUnder(r)));
         NoteMeta meta = new() { Id = id, By = by, Created = DateTime.Now.ToString("s", CultureInfo.InvariantCulture), Title = "New note" };
         string file = Path.Combine(wi.Path, "notes", $"n{id}.md");
         (bool ok, string message) = OpenSpecStoreApi.WriteText(file, NoteFile.Compose(meta, ""));
@@ -179,6 +179,17 @@ internal static class Commands
         NoteMeta meta = NoteFile.Meta(front);
         meta.Id = id;
         meta.Commits = hashes.Distinct().ToList();
+        return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+    }
+
+    internal static (bool Success, string Message) StampAgent(int id, string agent)
+    {
+        if (NotesApi.Get(id) is not Note note) return (false, NotFound);
+        (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
+        NoteMeta meta = NoteFile.Meta(front);
+        meta.Id = id;
+        meta.AgentBy = agent;
+        meta.AgentAt = DateTime.Now.ToString("s", CultureInfo.InvariantCulture);
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
     }
 }

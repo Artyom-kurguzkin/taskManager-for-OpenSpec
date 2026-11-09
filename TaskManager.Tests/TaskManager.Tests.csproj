@@ -16,6 +16,7 @@
     <ProjectReference Include="../WorkItems/WorkItems.csproj" />
     <ProjectReference Include="../Notes/Notes.csproj" />
     <ProjectReference Include="../LinkedTestRuns/LinkedTestRuns.csproj" />
+    <ProjectReference Include="../TaskManager.Mcp/TaskManager.Mcp.csproj" />
     <ProjectReference Include="../TaskManager/TaskManager.csproj" />
   </ItemGroup>
   <ItemGroup>

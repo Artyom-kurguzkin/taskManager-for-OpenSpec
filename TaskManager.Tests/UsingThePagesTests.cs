@@ -19,9 +19,10 @@ public sealed class UsingThePagesTests : IDisposable
     private readonly string settingsFile = Path.Combine(Path.GetTempPath(), "rtm-ui-" + Guid.NewGuid().ToString("N") + ".json");
     private IRenderedComponent<Overlays>? overlays;
 
-    private BunitContext NewContext(EditorLauncher? launcher = null, WindowLauncher? windows = null, AppMode? mode = null)
+    private BunitContext NewContext(EditorLauncher? launcher = null, WindowLauncher? windows = null, AppMode? mode = null, TaskManager.Hosting.McpServerControl? server = null)
     {
         BunitContext ctx = new();
+        if (server is not null) ctx.Services.AddSingleton(server);
         if (windows is not null) ctx.Services.AddSingleton(windows);
         if (mode is not null) ctx.Services.AddSingleton(mode);
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -748,6 +749,42 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
         page.Find("input[name=theme][value=dark]").Change("dark");
         Assert.Equal("dark", ctx.Services.GetRequiredService<SettingsStore>().Current.Theme);
+    }
+
+    [Fact(DisplayName = "The settings page shows the .mcp.json snippet with the running app's path")]
+    public async Task SettingsShowsMcpSnippet()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+
+        string snippet = page.Find("section.mcp pre.box").TextContent;
+        Assert.Contains("--mcp", snippet);
+        Assert.Contains("RTM_AGENT", snippet);
+        Assert.Contains((Environment.ProcessPath ?? "").Replace('\\', '/'), snippet);
+        Assert.Contains("claude mcp add repo-tasks", page.Find("section.mcp").TextContent);
+        Assert.Empty(page.FindAll(".mcp-status"));   // no server control registered (the desktop host does that): no status line
+    }
+
+    [Fact(DisplayName = "The settings page shows whether the MCP server is running, with its port, and starts or stops it")]
+    public async Task SettingsShowsServerStatus()
+    {
+        TaskManager.Hosting.McpServerState state = new(false, 0, 0);
+        await using BunitContext ctx = NewContext(server: new(
+            () => Task.FromResult(state),
+            () => { state = new(true, 7431, 4242); return Task.CompletedTask; },
+            () => { state = new(false, 0, 0); return Task.CompletedTask; }));
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+
+        page.WaitForAssertion(() => Assert.Contains("not running", page.Find(".mcp-status").TextContent));
+        Assert.Equal("Start", page.Find(".mcp-status button").TextContent.Trim());
+
+        page.Find(".mcp-status button").Click();
+        page.WaitForAssertion(() => Assert.Contains("port 7431", page.Find(".mcp-status").TextContent));
+        Assert.Equal("Stop", page.Find(".mcp-status button").TextContent.Trim());
+
+        await page.InvokeAsync(() => { });
+        page.Find(".mcp-status button").Click();
+        page.WaitForAssertion(() => Assert.Contains("not running", page.Find(".mcp-status").TextContent));
     }
 
     [Fact(DisplayName = "Keyboard hints (F) are off until switched on in Settings; the switch is pushed to the page script")]

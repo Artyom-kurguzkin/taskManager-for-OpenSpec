@@ -75,7 +75,10 @@ internal static class Commands
         if (OpenSpecStoreModule.LastSeen.TryGetValue(full, out string? seen) && onDisk is not null && seen != onDisk) return (false, StaleMessage);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         OpenSpecStoreModule.MarkOwn(full);
-        File.WriteAllText(full, content);
+        string tmp = full + ".tmp";   // write beside, then swap in: a reader or a crash never sees half a file
+        OpenSpecStoreModule.MarkOwn(tmp);   // the watcher would report the temp file otherwise
+        File.WriteAllText(tmp, content);
+        File.Move(tmp, full, overwrite: true);
         OpenSpecStoreModule.LastSeen[full] = content;
         OpenSpecStoreModule.Bump();   // after the write, so a cache rebuilt meanwhile still counts as stale
         return (true, "");

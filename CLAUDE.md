@@ -23,6 +23,8 @@ Follow the `delegate-workflow` skill (`~/.claude/skills/delegate-workflow/SKILL.
 
 ## After the work: update the board
 
+When the `repo-tasks` MCP tools are loaded (`board_list`, `board_get`, `board_features`, `board_create`, `board_update`, `board_note`, `board_validate`; `.mcp.json` at the repo root starts them), use them for every board write (create, update, note, validate) instead of hand-editing `openspec/`: they allocate the ids under a lock, stamp `agentBy`/`agentAt`, check test names and validate. Pass the `revision` from `board_get` into writes, set `In Review` when done, never `Completed`. The hand rules below stay as the fallback when the tools cannot be loaded.
+
 When a piece of work lands, find the work items it touches — the change you made **and** any older item whose topic it advances — in every status except Completed (archived), and update each:
 
 - **Change-log note**: `openspec/changes/<change>/notes/n<id>.md`, id = max over every `notes/n*.md` in the repo + 1; frontmatter `id`, `by: Claude`, `created: yyyy-MM-ddTHH:mm:ss`; then `# <title>` and what changed, in plain words.
