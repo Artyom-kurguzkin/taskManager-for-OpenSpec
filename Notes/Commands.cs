@@ -101,20 +101,32 @@ internal static class Commands
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
         if (RootOf(note) is not string root) return (false, "No repository is open");
         if (name.Length == 0) return (false, "That file has no name");
+        try { return Append(note, WriteUnique(root, $"wi{note.WorkItemId}/n{id}", name, write)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (false, e.Message); }
+    }
+
+    /// <summary>Writes pasted bytes (an image in a work item's description) under the attachments folder in wi&lt;item&gt;/, no note involved. Message is the repository-relative path on success.</summary>
+    internal static (bool Success, string Message) AttachItemImage(string repoRoot, int workItemId, string fileName, byte[] bytes)
+    {
+        string name = Path.GetFileName(fileName ?? "");
+        if (name.Length == 0) return (false, "That file has no name");
+        try { return (true, WriteUnique(repoRoot, $"wi{workItemId}", name, target => File.WriteAllBytes(target, bytes))); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (false, e.Message); }
+    }
+
+    /// <summary>The one place the attachments folder rules live: &lt;attachments dir&gt;/&lt;sub&gt;/&lt;name&gt;, never overwriting (-2, -3), the folder git-ignored. Returns the repository-relative path.</summary>
+    private static string WriteUnique(string root, string sub, string name, Action<string> write)
+    {
         string attachDir = AttachmentsDir(root);
-        string relDir = $"{attachDir}/wi{note.WorkItemId}/n{id}";
+        string relDir = $"{attachDir}/{sub}";
         string dir = Path.Combine(root, relDir.Replace('/', Path.DirectorySeparatorChar));
         string stem = Path.GetFileNameWithoutExtension(name), ext = Path.GetExtension(name);
-        try
-        {
-            Directory.CreateDirectory(dir);
-            string target = Path.Combine(dir, name);
-            for (int n = 2; File.Exists(target); n++) target = Path.Combine(dir, $"{stem}-{n}{ext}");
-            write(target);
-            IgnoreFolder(root, attachDir);
-            return Append(note, $"{relDir}/{Path.GetFileName(target)}");
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (false, e.Message); }
+        Directory.CreateDirectory(dir);
+        string target = Path.Combine(dir, name);
+        for (int n = 2; File.Exists(target); n++) target = Path.Combine(dir, $"{stem}-{n}{ext}");
+        write(target);
+        IgnoreFolder(root, attachDir);
+        return $"{relDir}/{Path.GetFileName(target)}";
     }
 
     internal static (bool Success, string Message) AttachLink(int id, string url)

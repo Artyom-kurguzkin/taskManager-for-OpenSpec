@@ -40,7 +40,7 @@
     @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
     <div class="head kvs">
         <div class="kv"><label>feature</label>
-            <Dropdown Label="feature" Class="mini" Placeholder="no feature" Options="FeatureChoices" Value="@(item.Features.FirstOrDefault()?.Path ?? "")" ValueChanged="SetFeature" />
+            <Dropdown @key="featureKey" Label="feature" Class="mini" Placeholder="no feature" Options="FeatureChoices" Value="@(item.Features.FirstOrDefault()?.Path ?? "")" ValueChanged="SetFeature" />
         </div>
         <div class="kv contributors"><label>contributors</label>
             @* the agent that created or changed the item is a contributor too; while unreviewed its chip is the review control *@
@@ -99,17 +99,17 @@
             @Head("description", "Description", null)
             @if (focus != "description")
             {
-                <div class="peek-desc">@if (string.IsNullOrWhiteSpace(description)) { <span class="muted">No description yet</span> } else { @Ui.Markdown(description) }</div>
+                <div class="peek-desc">@if (string.IsNullOrWhiteSpace(description)) { <span class="muted">No description yet</span> } else { @Ui.Markdown(description, ItemRoot) }</div>
             }
             else if (editingDescription)
             {
-                <textarea @ref="descriptionBox" class="desc-in" @bind="description" @onblur="SaveDescription" aria-label="Description"></textarea>
+                <textarea @ref="descriptionBox" class="desc-in" data-paste-img @bind="description" @onblur="SaveDescription" aria-label="Description"></textarea>
             }
             else
             {
                 <div class="desc edit hov" data-sk tabindex="0" @onclick="EditDescription">
                     @if (string.IsNullOrWhiteSpace(description)) { <span class="muted">Click to add a description</span> }
-                    else { @Ui.Markdown(description) }
+                    else { @Ui.Markdown(description, ItemRoot) }
                 </div>
             }
         </section>
@@ -357,7 +357,7 @@
         get
         {
             List<Features.PublicDTOs.Feature> all = Features.FeaturesApi.GetAll().ToList();
-            return [("", "no feature"), .. all.Select(f => (f.Path, all.Count(x => x.Name == f.Name) > 1 ? $"{f.Name} ({f.Group})" : f.Name))];   // the group only tells two same-named features apart
+            return [("", "no feature"), .. all.Select(f => (f.Path, all.Count(x => x.Name == f.Name) > 1 ? $"{f.Name} ({f.Group})" : f.Name)), (NewFeature, "+ New feature…")];   // the group only tells two same-named features apart
         }
     }
 
@@ -395,7 +395,19 @@
         Run(WorkItemsApi.SetStatus(Id, status));
     }
 
-    private void SetFeature(string path) => Run(WorkItemsApi.MoveFeature(Id, path.Length == 0 ? null : path));
+    private int featureKey;   // a new key rebuilds the dropdown, so it drops the "New feature" row it kept as its value
+    private const string NewFeature = "\0new-feature";   // the last option of the feature list; never a feature path
+
+    private async Task SetFeature(string path)
+    {
+        if (path != NewFeature) { Run(WorkItemsApi.MoveFeature(Id, path.Length == 0 ? null : path)); return; }
+        // the board's "+ feature" dialog; the new feature then goes on this item
+        if (await Popups.Prompt("New feature", "e.g. Exports", "Create") is not string name) { featureKey++; return; }
+        (bool ok, string message, Features.PublicDTOs.Feature? created) = Features.FeaturesApi.CreateFeature(Features.FeaturesApi.Ungrouped, name);
+        if (ok && created is not null) Run(WorkItemsApi.MoveFeature(Id, created.Path));
+        else Popups.Toast(message, ToastKind.Warning);
+        featureKey++;
+    }
 
     private void SetDates((DateOnly? Start, DateOnly? End) r)
     {
@@ -501,9 +513,61 @@
         // Narrow windows (one-column bento) open with every tile minimised; desktop keeps the description open.
         if (firstRender && await IsNarrow()) { narrow = true; focus = null; StateHasChanged(); }
         if (focusSub) { focusSub = false; try { await subBox.FocusAsync(); } catch (InvalidOperationException) { } }
+        if (firstRender) { self = DotNetObjectReference.Create(this); try { await Js.InvokeVoidAsync("rtm.pasteDescription", self); } catch (JSException) { } }
+        if (descriptionCaret is int caret && editingDescription)
+        {
+            descriptionCaret = null;
+            try { await Js.InvokeVoidAsync("rtm.setCaret", descriptionBox, caret); } catch (JSException) { }
+        }
         if (!focusDescription) return;
         focusDescription = false;
         await descriptionBox.FocusAsync();
+    }
+
+    private DotNetObjectReference<WorkItemPage>? self;
+    private int? descriptionCaret;
+
+    /// <summary>The open repository a work item lives in, by its own folder (a switch of the active project meanwhile cannot send its files elsewhere); the active one when none matches.</summary>
+    public static string? RootOf(string itemPath, IEnumerable<string> openRepos, string? active) =>
+        openRepos.FirstOrDefault(r => System.IO.Path.GetFullPath(itemPath).StartsWith(System.IO.Path.GetFullPath(r).TrimEnd('\\', '/') + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) ?? active;
+
+    private string? ItemRoot => item is null ? Workspace.Root : RootOf(item.Path, Workspace.OpenRepos, Workspace.Root);
+
+    /// <summary>
+    /// Called by rtm.pasteDescription with a clipboard image pasted into the description box: the file is saved under the project's attachments
+    /// folder (wi&lt;item&gt;/, no note) and a link to it goes in at the caret, on its own line. <paramref name="text"/> is what the box holds now
+    /// (its binding only catches up when it loses focus), minus any selection the paste replaced.
+    /// </summary>
+    [JSInvokable]
+    public void PastedDescriptionImage(string name, string base64, string text, int caret)
+    {
+        if (item is null || ItemRoot is not string root) return;
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(base64); }
+        catch (FormatException) { Popups.Toast("That image could not be read", ToastKind.Warning); return; }
+        (bool ok, string path) = NotesApi.AttachItemImage(root, item.Id, name, bytes);
+        if (!ok) { Popups.Toast(path, ToastKind.Warning); return; }
+        caret = Math.Clamp(caret, 0, text.Length);
+        string before = text[..caret], after = text[caret..];
+        string insert = (before.Length > 0 && !before.EndsWith('\n') ? "\n" : "") + $"![]({path})" + (after.Length > 0 && !after.StartsWith('\n') ? "\n" : "");
+        description = before + insert + after;
+        descriptionCaret = before.Length + insert.Length;
+        editingDescription = true;
+        Run(WorkItemsApi.SetDescription(item.Id, description));   // saved at once: the file is not left unreferenced
+        StateHasChanged();
+    }
+
+    public override void Dispose()
+    {
+        base.Dispose();
+        self?.Dispose();
+        _ = StopPaste();
+    }
+
+    private async Task StopPaste()
+    {
+        try { await Js.InvokeVoidAsync("rtm.stopPasteDescription"); }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException or TaskCanceledException) { }
     }
 
     private void SaveDescription()

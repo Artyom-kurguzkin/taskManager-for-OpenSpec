@@ -31,6 +31,12 @@ public static class NotesApi
     /// <summary>Stores pasted data (e.g. a clipboard image) exactly like <see cref="AttachFile"/>.</summary>
     public static (bool Success, string Message) AttachBytes(int id, string fileName, byte[] bytes) => Commands.AttachBytes(id, fileName, bytes);
 
+    /// <summary>
+    /// Saves pasted bytes (an image pasted into a work item's description) as &lt;attachments folder&gt;/wi&lt;item&gt;/&lt;fileName&gt; of that repository, never overwriting
+    /// (a -2 suffix), git-ignoring the folder like note attachments. No note is made; Message is the repository-relative path (forward slashes) on success.
+    /// </summary>
+    public static (bool Success, string Message) AttachItemImage(string repoRoot, int workItemId, string fileName, byte[] bytes) => Commands.AttachItemImage(repoRoot, workItemId, fileName, bytes);
+
     /// <summary>Rewrites the note's first "# " heading (adds one when the body has none); a blank title is refused.</summary>
     public static (bool Success, string Message) SetTitle(int id, string title) => Commands.SetTitle(id, title);
     public static (bool Success, string Message) AttachLink(int id, string url) => Commands.AttachLink(id, url);

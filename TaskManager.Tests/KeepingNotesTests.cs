@@ -311,4 +311,30 @@ public sealed class KeepingNotesTests
         Assert.Contains("title: New note", repo.Read("openspec/changes/export-remittances/notes/n" + id + ".md"));
         Assert.Equal("New note", NotesApi.Get(id)!.Title);
     }
+
+    [Fact(DisplayName = "An image pasted into a description is saved under the project's attachments folder for that work item, never overwriting, and the folder is git-ignored")]
+    public void DescriptionImage()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        byte[] png = [0x89, 0x50, 0x4E, 0x47];
+        const string dir = "local/task-tracking/wi123/";
+        try
+        {
+            (bool ok, string path) = NotesApi.AttachItemImage(repo.Root, 123, "pasted-20261109-101500.png", png);
+            Assert.True(ok);
+            Assert.Equal(dir + "pasted-20261109-101500.png", path);   // the repository-relative path, forward slashes: what the description links to
+            Assert.Equal(png, File.ReadAllBytes(repo.PathOf(path)));
+            Assert.Equal(dir + "pasted-20261109-101500-2.png", NotesApi.AttachItemImage(repo.Root, 123, "pasted-20261109-101500.png", [1]).Message);   // never overwritten
+            Assert.Equal(png, File.ReadAllBytes(repo.PathOf(path)));
+            Assert.Single(repo.Read(".gitignore").Replace("\r", "").Split('\n'), l => l.Trim() == "local/");
+            Assert.Empty(NotesApi.Get(123)!.Attachments);   // no note was involved
+            Assert.False(NotesApi.AttachItemImage(repo.Root, 123, "", png).Success);
+
+            NotesApi.SetAttachmentsDir(repo.Root, "files/shots");   // a project's own folder is honoured and git-ignored too
+            Assert.Equal("files/shots/wi123/pasted-a.png", NotesApi.AttachItemImage(repo.Root, 123, "pasted-a.png", png).Message);
+            Assert.Contains(repo.Read(".gitignore").Replace("\r", "").Split('\n'), l => l.Trim() == "files/shots/");
+        }
+        finally { NotesApi.SetAttachmentsDir(repo.Root, null); }
+    }
 }

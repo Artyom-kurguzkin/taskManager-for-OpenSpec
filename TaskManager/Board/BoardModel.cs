@@ -87,10 +87,10 @@ public static class BoardModel
             .. Arrange(values.Where(v => v.Key != Unassigned), v => ColumnKey(o, v.Key), o).Select(Col),
         ];
 
-        // rows: the same values for the row field, each a copy of every column holding only the row's items
+        // rows: the same values for the row field, in the user's order without the hidden ones, each a copy of every column holding only the row's items
         List<SwimRow>? rows = o.Swimlane == NoSwimlane ? null :
         [
-            .. Values(o.Swimlane, items, visible, features, now).Select(v =>
+            .. Arrange(Values(o.Swimlane, items, visible, features, now), v => RowKey(o.Swimlane, v.Key == Unassigned ? NoRow : v.Key), o).Select(v =>
                 new SwimRow(v.Key == Unassigned ? NoRow : v.Key, v.Label, [.. columns.Select(c => c with { Items = [.. c.Items.Where(v.Match)] })])),
         ];
         return [new(null, columns, rows)];
@@ -287,6 +287,20 @@ public static class BoardModel
         _ => "status:" + column,
     };
 
+    /// <summary>Key of a row (<see cref="SwimRow.Key"/>) under a row field, for the saved order / hidden lists: each field keeps its own.</summary>
+    public static string RowKey(string field, string row) => $"row:{field}:{row}";
+
+    /// <summary>The rows the user hid under the current row field, in their usual order, with how many items (or subtasks, per the unit) each would hold.</summary>
+    public static IReadOnlyList<(string Key, string Label, int Count)> HiddenRows(
+        IReadOnlyList<WorkItem> items, IReadOnlyList<Feature> features, IReadOnlyDictionary<string, IReadOnlyList<string>> lanes, BoardOptions o)
+    {
+        if (o.Swimlane == NoSwimlane) return [];
+        BoardOptions all = o with { Hidden = o.Hidden?.Where(k => !k.StartsWith($"row:{o.Swimlane}:")).ToList() };   // every row, but still without the hidden columns
+        return [.. Build(items, features, lanes, all).SelectMany(Swimlanes)
+            .Select(r => (Key: RowKey(o.Swimlane, r.Key), r.Label, Count: Count(r.Items, o.Unit)))
+            .Where(r => IsHidden(o, r.Key))];
+    }
+
     /// <summary>Readable name of a saved key (for the side menu's list of hidden columns).</summary>
     public static string KeyLabel(string key, IReadOnlyList<Feature> features) => key.Split(':', 2) switch
     {
@@ -352,14 +366,31 @@ public static class BoardModel
     /// </summary>
     public static BoardOptions Step(BoardOptions o, IReadOnlyList<int> column, IReadOnlyList<int> moving, int dir)
     {
-        List<int> all = column.ToList(), block = all.Where(moving.Contains).ToList();
+        List<int> block = column.Where(moving.Contains).ToList();
         if (block.Count == 0) return o;
-        int top = all.IndexOf(block[0]), bottom = all.IndexOf(block[^1]);
+        string? before = StepBefore([.. column.Select(ItemKey)], [.. block.Select(ItemKey)], dir);
+        return PlaceCards(o, column, block, before is null ? null : int.Parse(before["item:".Length..]));
+    }
+
+    /// <summary>
+    /// Arrow key on selected row headers (<paramref name="moving"/>, a subset of <paramref name="siblings"/>, the rows in their shown order):
+    /// the same step as <see cref="Step"/>, on keys. Returns <paramref name="o"/> itself when nothing would change.
+    /// </summary>
+    public static BoardOptions StepKeys(BoardOptions o, IReadOnlyList<string> siblings, IReadOnlyList<string> moving, int dir)
+    {
+        List<string> block = siblings.Where(moving.Contains).ToList();
+        return block.Count == 0 ? o : Insert(o, siblings, block, StepBefore(siblings, block, dir));
+    }
+
+    /// <summary>The key a block (in <paramref name="all"/>'s order) lands in front of after one step up (-1) or down (+1), null for the end.</summary>
+    private static string? StepBefore(IReadOnlyList<string> all, IReadOnlyList<string> block, int dir)
+    {
+        int top = all.ToList().IndexOf(block[0]), bottom = all.ToList().IndexOf(block[^1]);
         bool together = bottom - top + 1 == block.Count;
-        List<int> others = column.Except(block).ToList();
-        int at = !together ? (dir < 0 ? top : bottom - block.Count + 1)   // gather: the block starts where its top (or ends where its bottom) card is
+        List<string> others = all.Except(block).ToList();
+        int at = !together ? (dir < 0 ? top : bottom - block.Count + 1)   // gather: the block starts where its top (or ends where its bottom) item is
                : Math.Clamp(top + dir, 0, others.Count);
-        return PlaceCards(o, column, block, at < others.Count ? others[at] : null);
+        return at < others.Count ? others[at] : null;
     }
 
     /// <summary>The row field meaning "no rows".</summary>

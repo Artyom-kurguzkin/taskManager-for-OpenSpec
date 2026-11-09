@@ -4,8 +4,9 @@ created: 2026-11-09
 x-rtm:
   id: 110
   title: MCP
-  status: Planned
+  status: In Progress
   contributors: [Artyom-kurguzkin]
   features: [integration-with-agents]
   label: feature
+  started: 2026-11-09
   moved: 2026-11-09

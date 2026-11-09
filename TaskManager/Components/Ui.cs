@@ -64,6 +64,33 @@ public static class Ui
 
     public static MarkupString Markdown(string text) => new(Markdig.Markdown.ToHtml(text, Pipeline));
 
+    private static readonly Dictionary<string, string> ImageTypes = new(StringComparer.OrdinalIgnoreCase)
+    { [".png"] = "image/png", [".jpg"] = "image/jpeg", [".jpeg"] = "image/jpeg", [".gif"] = "image/gif", [".webp"] = "image/webp", [".svg"] = "image/svg+xml" };
+
+    /// <summary>A repository-relative image file as a data URL the WebView can load, or null (not an image, outside the repository, missing).</summary>
+    public static string? ImageSrc(string repoRoot, string entry)
+    {
+        entry = Uri.UnescapeDataString(entry ?? "");
+        if (entry.Length == 0 || entry.Contains("..") || entry.Contains(':') || entry.StartsWith('/') || entry.StartsWith('\\')) return null;
+        if (!ImageTypes.TryGetValue(System.IO.Path.GetExtension(entry), out string? type)) return null;
+        string file = System.IO.Path.Combine(repoRoot, entry.Replace('/', System.IO.Path.DirectorySeparatorChar));
+        return System.IO.File.Exists(file) ? $"data:{type};base64,{Convert.ToBase64String(System.IO.File.ReadAllBytes(file))}" : null;
+    }
+
+    /// <summary>Markdown → HTML where an image link to a file of the repository (<c>![](local/…/pasted.png)</c>) shows that file.</summary>
+    public static MarkupString Markdown(string text, string? repoRoot)
+    {
+        if (repoRoot is null || !text.Contains("![", StringComparison.Ordinal)) return Markdown(text);
+        Markdig.Syntax.MarkdownDocument doc = Markdig.Markdown.Parse(text, Pipeline);
+        foreach (Markdig.Syntax.Inlines.LinkInline link in Markdig.Syntax.MarkdownObjectExtensions.Descendants<Markdig.Syntax.Inlines.LinkInline>(doc).Where(l => l.IsImage && l.Url is not null))
+            if (ImageSrc(repoRoot, link.Url!) is string src) link.Url = src;
+        System.IO.StringWriter html = new();
+        Markdig.Renderers.HtmlRenderer renderer = new(html);
+        Pipeline.Setup(renderer);
+        renderer.Render(doc);
+        return new(html.ToString());
+    }
+
     public static MarkupString Icon(string name) => new(
         $"<svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">{Paths[name]}</svg>");
 }

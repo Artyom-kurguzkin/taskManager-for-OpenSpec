@@ -191,6 +191,8 @@
   .scx .board-wrap, .scx .tbl-wrap { height: 100%; }
   /* a page: the item, note and settings sheets */
   .sheet { flex: 1; display: flex; flex-direction: column; gap: var(--s4); padding: 16px 20px 20px; }
+  /* the item, note and doc pages sit flush on the page like the list: no outline, radius, fill or shadow, no padding for a frame (the tiles inside keep theirs) */
+  .sheet[data-sk="soft"]:not(.settings) { padding: 8px 0 16px; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
   .empty { max-width: 640px; gap: 8px; }
   .head { display: flex; flex-wrap: wrap; gap: var(--s3) var(--s6); align-items: center; }
   .head h2 { font-size: var(--t-lg); }
@@ -231,6 +233,7 @@
   /* the view options */
   .nav-view { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 4px 0; padding: 8px 6px; border-block: 2px dashed var(--line-soft); }
   .nav-view .field { gap: 6px; }
+  .nav-sep { align-self: stretch; margin-block: 2px; border-top: 2px dashed var(--line-soft); }   /* between the organise block, the sort and filters, and the display switches */
   .menu-pop .proj-eye { margin-left: auto; padding: 2px 4px; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
   .menu-pop .proj-eye:hover { color: var(--ink); background: var(--stone); }
   .menu-pop .proj-eye.off { color: var(--ink); }   /* hidden: the crossed eye stands out */
@@ -262,6 +265,7 @@
     .nav-toggle .nav-l { display: inline; }   /* the repo name stays visible in the header */
     .nav-btn { min-height: 36px; }
     nav.side .menu-wrap, nav.side .menu-activator { display: inline-block; }
+    .nav-sep { display: none; }   /* the header bar's options run in one wrapping row */
     .nav-view { flex: 1 1 100%; order: 10; flex-flow: row wrap; align-items: center; margin: 0; border-bottom: 0; }
     .nav-hidden { flex: 1 1 100%; order: 11; max-width: 420px; border-bottom: 0; }
   }
@@ -307,6 +311,16 @@
   .swim-h { display: flex; align-items: baseline; gap: 8px; font: 700 12px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2);
     padding: 12px 8px 2px; margin-top: 6px; border-top: 2px dashed var(--line-soft); user-select: none; }
   .swim-h .count { font-weight: 600; }
+  /* a row header is picked with Shift-click (the arrow keys move it, a drag too) and hidden with its ×, like a column or a project */
+  .swim-h { align-items: center; border-radius: 8px; padding-bottom: 8px; }
+  .swim-h .swim-hide { flex: none; width: 0; height: 18px; padding: 0; border: 0; border-radius: 5px; overflow: hidden; background: none; color: var(--ink-2); font: 700 14px/1 var(--f-body); cursor: pointer; opacity: 0; }
+  .swim-h:hover .swim-hide, .swim-h .swim-hide:focus-visible { width: 18px; opacity: 1; }
+  .swim-h .swim-hide:hover { background: var(--stone); color: var(--on-fill); }
+  .swim-h.selected { outline: 3px solid var(--ink); outline-offset: -3px; background: color-mix(in srgb, var(--sun) 35%, transparent); }
+  body.shift-held .swim-h { cursor: cell; }
+  body.shift-held .swim-h:hover { background: color-mix(in srgb, var(--sun) 25%, transparent); }
+  .swim-h.swim-drop { box-shadow: 0 -4px 0 var(--ink); }          /* the gap a dragged header would land in: a bar above this row */
+  .swim.swim-drop-end { box-shadow: 0 4px 0 var(--ink); }         /* ... or below the last one */
   .board-wrap .swim .col, .board-wrap .swim-cols .col { min-height: 0; }
   .board-wrap .swim-cols .col { gap: 0; }
   .swim .col > .lane { min-height: 64px; }
@@ -500,6 +514,7 @@
   .peek-desc p, .peek-desc ul { margin: 0 0 .3em; }
   /* description: rendered markdown, click to edit */
   .desc { padding: var(--s2); min-height: 4em; }
+  .desc img, .peek-desc img { display: block; max-width: 100%; height: auto; margin: .4em 0; border-radius: 6px; }   /* a pasted screenshot scales to the tile */
   .desc h1, .desc h2, .desc h3 { font-size: 1rem; margin: .4em 0 .2em; }
   .desc p, .desc ul { margin: .2em 0 .6em; }
   .edit { cursor: pointer; border-radius: 8px; }
@@ -647,7 +662,7 @@
   body.is-resizing, body.is-resizing * { cursor: col-resize !important; user-select: none !important; }
 
   /* ── calendar view: a roadmap. Items by group on the left, a timeline on the right, rows in line (fixed row height in both panes) ── */
-  .rm { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 12px 16px 16px; border: 0; background: transparent; }
+  .rm { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 8px 0 8px; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
   .rm-h { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .rm-h h2 { margin: 0 6px 0 0; font-size: 18px; }
   .rm-spacer { flex: 1; }
@@ -659,10 +674,10 @@
   .rm-zoom button { padding: 0 12px; border: 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
   .rm-zoom button + button { border-left: 1.5px solid var(--line); }
   .rm-zoom button.on { background: var(--sun); color: var(--on-fill); }
-  .rm-scroll { flex: 1; min-height: 0; overflow: auto; border: 1.5px solid var(--line); border-radius: 10px; background: var(--card); }
+  .rm-scroll { flex: 1; min-height: 0; overflow: auto; border: 0; border-radius: 0; background: transparent; }
   .rm-grid { --rh: 36px; --hh: 52px; --lw: 340px; display: grid; grid-template-columns: var(--lw) calc(var(--cols) * var(--cw)); width: max-content; min-width: 100%; }
-  .rm-left { position: sticky; left: 0; z-index: 4; background: var(--card); border-right: 1.5px solid var(--line); }
-  .rm-corner, .rm-head { position: sticky; top: 0; z-index: 3; height: var(--hh); box-sizing: border-box; background: var(--card); border-bottom: 1.5px solid var(--line); }
+  .rm-left { position: sticky; left: 0; z-index: 4; background: var(--paper); border-right: 1.5px solid var(--line); }
+  .rm-corner, .rm-head { position: sticky; top: 0; z-index: 3; height: var(--hh); box-sizing: border-box; background: var(--paper); border-bottom: 1.5px solid var(--line); }
   .rm-corner { padding: 0 12px; font: 600 11.5px/var(--hh) var(--f-body); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
   .rm-lrow, .rm-trow { height: var(--rh); box-sizing: border-box; border-bottom: 1px solid var(--line-soft); }
   .rm-lrow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 12px; }

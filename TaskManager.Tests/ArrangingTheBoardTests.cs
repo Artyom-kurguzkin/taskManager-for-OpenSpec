@@ -386,4 +386,35 @@ public sealed class ArrangingTheBoardTests
         Assert.Equal([("Unlabeled", "--stone"), ("bug", "--peach"), ("feature", "--sky")], BoardModel.Legend(Items, Features, new BoardOptions(ColorBy: "label"), today));
         Assert.Empty(BoardModel.Legend(Items, Features, new BoardOptions(ColorBy: "none"), today));
     }
+
+    [Fact(DisplayName = "Rows follow the board's saved order and leave out hidden rows, keyed by the row field and value")]
+    public void RowsFollowTheSavedOrderAndLeaveOutHiddenRows()
+    {
+        BoardOptions byLabel = new(Swimlane: "label");
+        string[] Keys(BoardOptions o) => [.. BoardModel.Swimlanes(Build(o).Single()).Select(r => r.Key)];
+        string Row(string field, string value) => BoardModel.RowKey(field, value);
+        Assert.Equal("row:label:bug", Row("label", "bug"));
+        Assert.Equal(["~", "bug", "feature", "enhancement"], Keys(byLabel));   // the usual order
+
+        // the saved order wins; rows it doesn't list keep their usual places after it
+        BoardOptions ordered = byLabel with { Order = [Row("label", "feature"), Row("label", "bug")] };
+        Assert.Equal(["feature", "bug", "~", "enhancement"], Keys(ordered));
+        Assert.Equal([1, 3], BoardModel.Swimlanes(Build(ordered).Single())[0].Items.Select(i => i.Id).Order());   // a row keeps its items when it moves
+
+        // a hidden row is left out, with its items, but only for its own row field and never as a column
+        BoardOptions hidden = ordered with { Hidden = [Row("label", "bug"), Row("priority", "high"), Row("status", "Backlog")] };
+        Assert.Equal(["feature", "~", "enhancement"], Keys(hidden));
+        Assert.DoesNotContain(2, BoardModel.Swimlanes(Build(hidden).Single()).SelectMany(r => r.Items).Select(i => i.Id));
+        Assert.Contains("Backlog", Build(hidden).Single().Columns.Select(c => c.Key));
+        Assert.Equal(["low"], Keys(hidden with { Swimlane = "priority" }));   // priority rows have their own hidden list: its "high" row is hidden by its own key, the label ones no longer matter
+        Assert.Equal(["high", "low"], Keys(ordered with { Swimlane = "priority" }));   // and the label order doesn't touch them
+        Assert.Equal([("row:label:bug", "bug", 1)], BoardModel.HiddenRows(Items, Features, Lanes, hidden));   // what the side menu lists to bring back
+
+        // Insert (a drag) and StepKeys (the arrow keys) move row keys through the same list
+        string[] all = [Row("label", "~"), Row("label", "bug"), Row("label", "feature"), Row("label", "enhancement")];
+        Assert.Equal(["~", "feature", "bug", "enhancement"], Keys(BoardModel.Insert(byLabel, all, [Row("label", "feature")], Row("label", "bug"))));
+        Assert.Equal(["bug", "~", "feature", "enhancement"], Keys(BoardModel.StepKeys(byLabel, all, [Row("label", "bug")], -1)));
+        Assert.Equal(["~", "bug", "enhancement", "feature"], Keys(BoardModel.StepKeys(byLabel, all, [Row("label", "feature")], +1)));
+        Assert.Same(byLabel, BoardModel.StepKeys(byLabel, all, [Row("label", "~")], -1));   // already first: nothing changes
+    }
 }

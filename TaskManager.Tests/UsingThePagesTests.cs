@@ -1068,4 +1068,96 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal(before, File.ReadAllText(settingsFile));
         Assert.Equal("light", new SettingsStore(settingsFile).Current.Theme);
     }
+
+    [Fact(DisplayName = "The item page's feature list ends with New feature…, which creates a feature and sets it on the item")]
+    public async Task NewFeatureFromTheItemPage()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        Assert.Equal("+ New feature…", page.FindAll("[aria-label='feature'] .rz-dropdown-item").Last().TextContent.Trim());
+
+        // cancelling leaves the item as it was, and the dropdown still shows its feature
+        page.FindAll("[aria-label='feature'] .rz-dropdown-item").Last().Click();
+        overlays!.WaitForAssertion(() => Assert.Contains("New feature", overlays.Find(".dialog").TextContent));
+        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Cancel").Click();
+        overlays.WaitForAssertion(() => Assert.Empty(overlays.FindAll(".dialog")));
+        Assert.Equal(["non-functional/security"], WorkItemsApi.Get(123)!.Features.Select(f => f.Path));
+        page.WaitForAssertion(() => Assert.Contains("Security", page.Find(".head.kvs [aria-label='feature'] .rz-dropdown-label").TextContent));
+
+        page.FindAll("[aria-label='feature'] .rz-dropdown-item").Last().Click();
+        overlays.WaitForAssertion(() => overlays.Find(".dialog input").Input("Exports"));
+        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Create").Click();
+
+        page.WaitForAssertion(() => Assert.EndsWith("exports", WorkItemsApi.Get(123)!.Features.Single().Path));
+        page.WaitForAssertion(() => Assert.Contains("Exports", page.Find(".head.kvs [aria-label='feature'] .rz-dropdown-label").TextContent));
+        Assert.Contains("exports", File.ReadAllText(repo.PathOf("openspec/config.yaml")));   // listed there until OpenSpec creates its spec
+    }
+    [Fact(DisplayName = "Pasting an image into the description inserts a link to the saved file at the caret, and the description renders the image in view mode")]
+    public async Task DescriptionImagePaste()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        page.Find(".desc.edit").Click();
+        Assert.NotEmpty(page.FindAll("textarea.desc-in[data-paste-img]"));   // the paste script listens to this box only
+
+        string png = Convert.ToBase64String([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        const string link = "![](local/task-tracking/wi123/pasted-x.png)";
+        await page.InvokeAsync(() => page.Instance.PastedDescriptionImage("pasted-x.png", png, "line one\nline two", 8));   // caret at the end of line one
+
+        Assert.True(File.Exists(repo.PathOf("local/task-tracking/wi123/pasted-x.png")));
+        Assert.Equal($"line one\n{link}\nline two", page.Find("textarea.desc-in").GetAttribute("value"));   // on its own line, at the caret
+        Assert.Contains(link, WorkItemsApi.GetDescription(123));   // saved at once: the file is not left unreferenced
+        Assert.Empty(NotesApi.GetForWorkItem(123).SelectMany(n => n.Attachments).Where(a => a.Contains("pasted-x")));   // no note
+
+        page.Find("textarea.desc-in").Blur();
+
+        Assert.Empty(page.FindAll("textarea.desc-in"));
+        string src = page.Find(".desc img").GetAttribute("src")!;
+        Assert.StartsWith("data:image/png;base64," + png[..8], src);   // the WebView can load it
+        Assert.Contains("line two", page.Find(".desc").TextContent);
+
+        page.Find(".desc.edit").Click();
+        await page.InvokeAsync(() => page.Instance.PastedDescriptionImage("pasted-x.png", png, "", 0));   // the same name again: never overwritten
+        Assert.True(File.Exists(repo.PathOf("local/task-tracking/wi123/pasted-x-2.png")));
+    }
+
+    [Fact(DisplayName = "A pasted description image goes to the repository the work item lives in, not to whichever project is active")]
+    public void DescriptionImageRoot()
+    {
+        string a = Path.Combine(Path.GetTempPath(), "repo-a"), b = Path.Combine(Path.GetTempPath(), "repo-b");
+        string item = Path.Combine(b, "openspec", "changes", "export");
+
+        Assert.Equal(b, TaskManager.Components.Pages.WorkItemPage.RootOf(item, [a, b], active: a));   // the item's own repository wins over the active one
+        Assert.Equal(a, TaskManager.Components.Pages.WorkItemPage.RootOf(Path.Combine(Path.GetTempPath(), "elsewhere", "x"), [a, b], active: a));   // unknown: the active one
+        Assert.Equal(b, TaskManager.Components.Pages.WorkItemPage.RootOf(Path.Combine(b + "-other", "openspec", "changes", "x"), [b], active: b));   // a sibling folder with a longer name is not inside b
+    }
+
+    [Fact(DisplayName = "The calendar, the work item page and the note page have no outer frame, like the list")]
+    public async Task NoOuterFrame()
+    {
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        string Rule(string selector) => System.Text.RegularExpressions.Regex.Matches(css, @"\n\s*" + System.Text.RegularExpressions.Regex.Escape(selector) + @"\s*\{([^}]*)\}").Last().Groups[1].Value;   // the last one wins the cascade
+
+        // the item, note (and doc) pages: the sheet loses the [data-sk] outline, radius, fill and shadow
+        string sheet = Rule(@".sheet[data-sk=""soft""]:not(.settings)");
+        Assert.Matches(@"border:\s*0\b", sheet);
+        Assert.Matches(@"border-radius:\s*0\b", sheet);
+        Assert.Matches(@"box-shadow:\s*none", sheet);
+        Assert.Matches(@"background:\s*transparent", sheet);
+
+        // the calendar: neither the roadmap nor its scroll pane is framed, and the extra padding goes
+        string rm = Rule(".rm");
+        Assert.Matches(@"border:\s*0\b", rm);
+        Assert.Matches(@"box-shadow:\s*none", rm);
+        Assert.DoesNotMatch(@"padding:\s*12px 16px", rm);
+        string scroll = Rule(".rm-scroll");
+        Assert.Matches(@"border:\s*0\b", scroll);
+        Assert.Matches(@"border-radius:\s*0\b", scroll);
+        Assert.Matches(@"background:\s*transparent", scroll);
+
+        // the markup still carries the class the rule is for
+        await using BunitContext ctx = NewContext();
+        Assert.Contains("sheet", ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123)).Find("div[data-sk=soft]").ClassList);
+        Assert.Contains("sheet", ctx.Render<NotePage>(p => p.Add(c => c.Id, 123)).Find("div[data-sk=soft]").ClassList);
+    }
 }

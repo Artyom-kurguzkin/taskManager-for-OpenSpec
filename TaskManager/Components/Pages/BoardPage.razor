@@ -289,6 +289,7 @@ else if (View == "list" || O.Unit == "tasks")
     private RenderFragment Swim(Project p, BoardSection sec) => __builder =>
     {
         List<string> keys = sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList();
+        List<string> rowKeys = RowKeys(sec);
         <div class="head-row cat-cols swim-cols" @ondrop="() => DropColumn(keys, null)">
             @foreach (BoardColumn col in sec.Columns)
             {
@@ -318,8 +319,15 @@ else if (View == "list" || O.Unit == "tasks")
         </div>
         @foreach (SwimRow row in BoardModel.Swimlanes(sec))
         {
-            <div class="swim-h" data-swim="@row.Key"><span>@row.Label</span><span class="count">@BoardModel.Count(row.Items, O.Unit)</span></div>
-            <div class="cat-cols swim" data-swim="@row.Key">
+            string rowKey = BoardModel.RowKey(O.Swimlane, row.Key);
+            @* Shift-click selects the row (the arrow keys then move it), a drag moves it (app.js, kind "swim"), the × hides it *@
+            <div class="swim-h @(selectedRows.Contains(rowKey) ? "selected" : "")" data-swim="@row.Key" title="Shift-click to select · drag to reorder"
+                 @onclick="e => RowClick(rowKey, e)" @ondragstart="() => StartRowDrag(rowKeys, rowKey)" @ondrop="() => DropRow(rowKey)" @ondrop:stopPropagation="true">
+                <span>@row.Label</span><span class="count">@BoardModel.Count(row.Items, O.Unit)</span>
+                <button type="button" class="swim-hide" aria-label="Hide row @row.Label" title="Hide row" @onclick:stopPropagation="true"
+                        @onclick="() => HideRow(rowKey)">×</button>
+            </div>
+            <div class="cat-cols swim" data-swim="@row.Key" @ondrop="() => DropRow(null)">
                 @foreach (BoardColumn cell in row.Columns)
                 {
                     <section class="col" data-drop data-cell="@cell.Key" @ondrop="() => Drop(p, cell, row.Key)" @ondrop:stopPropagation="true">

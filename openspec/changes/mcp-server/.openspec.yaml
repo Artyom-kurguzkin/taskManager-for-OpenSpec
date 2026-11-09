@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-09
+x-rtm:
+  id: 120
+  title: One MCP server for every agent
+  status: In Progress
+  priority: high
+  contributors: [Claude]
+  features: [integration-with-agents]
+  label: feature
+  started: 2026-11-09
+  moved: 2026-11-09
+  plan: DevResources/plans/mcp-server-2026-11-09.md
+  agentBy: Claude
+  agentAt: 2026-11-09T08:51:15

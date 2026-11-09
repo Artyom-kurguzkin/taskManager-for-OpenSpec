@@ -38,14 +38,61 @@ public partial class BoardPage
     private void ProjectClick(string root, MouseEventArgs e)
     {
         if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) return;
-        selected.Clear();   // projects or cards, never both: the arrow keys move one kind
+        selected.Clear();   // projects, rows or cards, never mixed: the arrow keys move one kind
+        selectedRows.Clear();
         Toggle(selectedProjects, root);
     }
 
-    /// <summary>A plain click on the board or list (not on a project heading) lets go of the selected projects.</summary>
+    /// <summary>A plain click on the board or list (not on a project heading) lets go of the selected projects and rows.</summary>
     private void BackgroundClick(MouseEventArgs e)
     {
-        if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) selectedProjects.Clear();
+        if (e.ShiftKey || e.CtrlKey || e.MetaKey) return;
+        selectedProjects.Clear();
+        selectedRows.Clear();
+    }
+
+    private readonly HashSet<string> selectedRows = [];   // swimlane headers Shift-clicked (BoardModel.RowKey), to move with the arrow keys
+    private (IReadOnlyList<string> Siblings, IReadOnlyList<string> Moving)? draggingRow;   // a swimlane header being dragged, or every selected one
+
+    private List<string> RowKeys(BoardSection sec) => [.. BoardModel.Swimlanes(sec).Select(r => BoardModel.RowKey(O.Swimlane, r.Key))];
+
+    /// <summary>Shift / Ctrl / ⌘-click on a swimlane header selects it, as on a project heading; the arrow keys then move it.</summary>
+    private void RowClick(string key, MouseEventArgs e)
+    {
+        if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) return;   // a plain click is the board's (BackgroundClick): it lets go
+        selected.Clear();
+        selectedProjects.Clear();
+        Toggle(selectedRows, key);
+    }
+
+    private void HideRow(string key)
+    {
+        selectedRows.Remove(key);
+        Set(BoardModel.ToggleHidden(O, key));   // the side menu's Hidden list brings it back
+    }
+
+    /// <summary>A header drag carries every selected header when the dragged one is part of the selection, as a card drag does.</summary>
+    private void StartRowDrag(IReadOnlyList<string> siblings, string key)
+    {
+        dragging = null;
+        draggingColumn = null;
+        draggingRow = (siblings, selectedRows.Contains(key) ? [.. siblings.Where(selectedRows.Contains)] : [key]);
+    }
+
+    /// <summary>The dragged headers dropped in front of a row (<paramref name="before"/>), or after the last one (null).</summary>
+    private void DropRow(string? before)
+    {
+        if (draggingRow is not (IReadOnlyList<string> siblings, IReadOnlyList<string> moving)) return;
+        draggingRow = null;
+        if (before is null || siblings.Contains(before)) Set(BoardModel.Insert(O, siblings, moving, before));
+    }
+
+    /// <summary>Arrow keys on selected swimlane headers: up / down past the unselected neighbour.</summary>
+    private void MoveRows(int dir)
+    {
+        List<List<string>> rowsOfProjects = [.. projects.SelectMany(p => p.Sections).Select(RowKeys)];
+        if (rowsOfProjects.FirstOrDefault(r => selectedRows.All(r.Contains)) is { } siblings)
+            Set(BoardModel.StepKeys(O, siblings, [.. siblings.Where(selectedRows.Contains)], dir));
     }
 
     private (Project From, IReadOnlyList<(WorkItem Item, string Column, string? Row)> Cards)? dragging;   // the dragged card, or every selected card of its project, with the column and row each is dragged from
@@ -110,6 +157,7 @@ public partial class BoardPage
         })).ToList();
         selected.RemoveWhere(s => !projects.Any(p => p.Root == s.Root && p.Items.Any(i => i.Id == s.Id)));
         selectedProjects.RemoveWhere(r => !Multi || !projects.Any(p => p.Root == r));
+        selectedRows.RemoveWhere(k => !projects.Any(p => p.Sections.Any(s => RowKeys(s).Contains(k))));   // a hidden row, or another row field
         rows = [.. projects.SelectMany((p, n) => BoardModel.Rows(p.Sections, p.Names, p.Root, p.Name, n * 1000))];
         groups = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => (g.First().Column, g.First().Category, g.First().Root));
         groupSwim = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => g.First().Swim);
@@ -299,6 +347,7 @@ public partial class BoardPage
     private void ToggleSelect(Project p, WorkItem it)
     {
         selectedProjects.Clear();
+        selectedRows.Clear();
         Toggle(selected, (p.Root, it.Id));
     }
 
@@ -386,6 +435,7 @@ public partial class BoardPage
     {
         int dir = e.Key switch { "ArrowUp" => -1, "ArrowDown" => 1, "ArrowLeft" => -2, "ArrowRight" => 2, _ => 0 };
         if (selectedProjects.Count > 0 && Math.Abs(dir) == 1) { Workspace.MoveTabs(selectedProjects, dir); return; }   // projects first: their headings are what is selected
+        if (selectedRows.Count > 0 && Math.Abs(dir) == 1) { MoveRows(dir); return; }   // then rows
         if (dir == 0 || selected.Count == 0 || O.Unit == "subtasks") return;
         Project? p = projects.FirstOrDefault(x => selected.All(s => s.Root == x.Root));
         List<BoardColumn> columns = p?.Flat.Select(f => f.Column).ToList() ?? [];

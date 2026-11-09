@@ -78,19 +78,21 @@
                         </div>
                     }
                 </div>
+                <div class="nav-sep" role="separator"></div>
                 <div class="field"><label>sort by</label><Dropdown Label="sort by" Options="BoardPage.SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
                 <div class="field"><label>contributor</label><Dropdown Label="contributor" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
                 <div class="field"><label>period</label><Dropdown Label="period" Options="BoardPage.Periods" Value="@O.Period" ValueChanged="v => Set(O with { Period = v })" /></div>
                 @if (O.View == "board")
                 {
                     <Seg Name="unit" Options="BoardPage.Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />
+                    <div class="nav-sep" role="separator"></div>
                 }
                 @if (O.View == "list") { <label class="check"><input type="checkbox" checked="@O.ShowSubtasks" @onchange="e => Set(O with { ShowSubtasks = (bool)e.Value! })" /> show subtasks</label> }
                 else { <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> compact cards</label> }
                 <label class="check"><input type="checkbox" id="f-agent" checked="@O.AgentOnly" @onchange="e => Set(O with { AgentOnly = (bool)e.Value! })" /> agent work to review</label>
                 <label class="check"><input type="checkbox" id="f-hidden" checked="@O.ShowHidden" @onchange="e => Set(O with { ShowHidden = (bool)e.Value! })" /> show hidden</label>
             </div>
-            @if (HiddenHere.Count > 0 || HiddenProjects.Count > 0)
+            @if (HiddenHere.Count > 0 || HiddenProjects.Count > 0 || HiddenRows.Count > 0)
             {
                 @* hide from a column header (or a project header) on the board; only hidden ones are listed here, to bring back *@
                 <div class="nav-hidden">
@@ -106,6 +108,11 @@
                     {
                         string name = BoardModel.KeyLabel(key, FeaturesApi.GetAll());
                         <div class="grp-row"><span class="nm">@name</span>@if (!key.StartsWith(BoardModel.ListColumnKey(""))) { <span class="count" title="@(O.Unit == "subtasks" ? "subtasks" : "work items") in this column">@held.GetValueOrDefault(key)</span> }
+                            <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(O, key))">@Ui.Icon("eye")</button></div>
+                    }
+                    @foreach ((string key, string name, int count) in HiddenRows)
+                    {
+                        <div class="grp-row"><span class="nm">@name</span><span class="count" title="@(O.Unit == "subtasks" ? "subtasks" : "work items") in this row">@count</span>
                             <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(O, key))">@Ui.Icon("eye")</button></div>
                     }
                 </div>
@@ -142,6 +149,9 @@
 
     // Hidden columns of the current grouping, and in the list view the grid's hidden columns too.
     private List<string> HiddenHere => (O.Hidden ?? []).Where(k => k.StartsWith(BoardModel.ColumnKey(O, "")) || (O.View == "list" && k.StartsWith(BoardModel.ListColumnKey("")))).ToList();
+
+    // Rows (swimlanes) of the current row field taken off the board with the × on their header.
+    private IReadOnlyList<(string Key, string Label, int Count)> HiddenRows => BoardModel.HiddenRows(WorkItemsApi.GetAll(includeHidden: O.ShowHidden), FeaturesApi.GetAll(), WorkItemsApi.GetLanes(), O);
 
     // Open tabs taken off the board and list.
     private List<string> HiddenProjects => Workspace.Projects.Where(Settings.ProjectHidden).ToList();

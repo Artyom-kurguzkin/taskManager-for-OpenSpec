@@ -1492,4 +1492,68 @@ public sealed class UsingTheBoardTests : IDisposable
         board.WaitForAssertion(() => Assert.Empty(board.FindAll(".rm-subgroup")));
         Assert.Contains(status, board.FindAll(".rm-group .rm-gname").Select(g => g.TextContent));
     }
+
+    [Fact(DisplayName = "The side menu separates the organise block, the sort and filters, and the display switches with dashed lines")]
+    public async Task SideMenuSeparators()
+    {
+        await using BunitContext ctx = NewContext();
+        ctx.Render<BoardPage>();
+        nav!.Find("button.nav-toggle").Click();
+
+        List<AngleSharp.Dom.IElement> parts = nav.Find(".nav-view").Children.ToList();
+        List<AngleSharp.Dom.IElement> seps = parts.Where(p => p.ClassList.Contains("nav-sep")).ToList();
+        Assert.Equal(2, seps.Count);
+        Assert.All(seps, s => Assert.Equal("separator", s.GetAttribute("role")));
+        Assert.True(parts[parts.IndexOf(seps[0]) - 1].ClassList.Contains("organise"));          // after the organise block (columns, rows, colour, legend)
+        Assert.Contains("sort by", parts[parts.IndexOf(seps[0]) + 1].TextContent);              // before sort by
+        Assert.True(parts[parts.IndexOf(seps[1]) - 1].ClassList.Contains("seg"));               // after the Work items / Subtasks switch
+        Assert.Contains("compact cards", parts[parts.IndexOf(seps[1]) + 1].TextContent);        // before the checkboxes
+
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css"));
+        Assert.Matches(@"\.nav-sep\s*\{[^}]*2px dashed var\(--line-soft\)", css);               // the same dashed line as the menu's other separators
+        Assert.Matches(@"\.nav-hidden\s*\{[^}]*2px dashed var\(--line-soft\)", css);
+    }
+
+    [Fact(DisplayName = "Shift-clicking a swimlane header selects it, the arrow keys move it past its neighbour, and its × hides it until the side menu brings it back")]
+    public async Task SwimlaneHeadersSelectMoveAndHide()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        PickSwimlanes("label");
+        List<string> Rows() => board.FindAll(".swim-h").Select(h => h.GetAttribute("data-swim")!).ToList();
+        AngleSharp.Dom.IElement Head(string row) => board.Find($".swim-h[data-swim='{row}']");
+        board.WaitForAssertion(() => Assert.Equal(["~", "bug", "feature", "enhancement"], Rows()));
+
+        // Shift-click selects (tinted); the up arrow moves the row past its neighbour and the order is remembered per row field
+        Head("feature").Click(new MouseEventArgs { ShiftKey = true });
+        board.WaitForAssertion(() => Assert.Contains("selected", Head("feature").ClassName));
+        await board.InvokeAsync(() => { });
+        board.Find(".board-wrap").KeyDown("ArrowUp");
+        board.WaitForAssertion(() => Assert.Equal(["~", "feature", "bug", "enhancement"], Rows()));
+        Assert.Contains("selected", Head("feature").ClassName);   // still selected, so the next press moves it again
+        Assert.Equal(["row:label:~", "row:label:feature", "row:label:bug", "row:label:enhancement"], settings.Board(repo.Root).Order!.Where(k => k.StartsWith("row:label:")));
+        board.Find(".board-wrap").KeyDown("ArrowDown");
+        board.WaitForAssertion(() => Assert.Equal(["~", "bug", "feature", "enhancement"], Rows()));
+        Assert.Contains(".swim-h.selected", File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js")));   // arrows reach the page while a row is selected
+
+        // a plain click lets go of the selection
+        Head("bug").Click();
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll(".swim-h.selected")));
+
+        // dragging a header onto another moves it in front of that one
+        Head("enhancement").DragStart();
+        Head("bug").Drop();
+        board.WaitForAssertion(() => Assert.Equal(["~", "enhancement", "bug", "feature"], Rows()));
+
+        // the × hides the row (its cells too); the side menu lists it with an eye that brings it back in its place
+        Head("bug").QuerySelector("button.swim-hide")!.Click();
+        board.WaitForAssertion(() => Assert.Equal(["~", "enhancement", "feature"], Rows()));
+        Assert.Equal(Rows().Count, board.FindAll(".swim").Count);
+        Assert.Contains("row:label:bug", settings.Board(repo.Root).Hidden!);
+        nav!.WaitForAssertion(() => Assert.Equal(["bug"], nav.FindAll(".nav-hidden .grp-row .nm").Select(n => n.TextContent.Trim())));
+        nav.Find(".nav-hidden button[aria-label='Show bug']").Click();
+        board.WaitForAssertion(() => Assert.Equal(["~", "enhancement", "bug", "feature"], Rows()));
+        Assert.Empty(nav.FindAll(".nav-hidden"));
+    }
 }

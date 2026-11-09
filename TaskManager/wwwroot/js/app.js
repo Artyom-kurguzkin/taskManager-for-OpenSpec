@@ -218,9 +218,9 @@ function _base(el) {
 }
 function _key(el) {
   const proj = el.closest("[data-proj]")?.dataset.proj ?? "";   // cards and columns repeat their keys across projects
-  return el.dataset.row !== undefined ? "r" + el.dataset.row : el.dataset.id !== undefined ? "i" + proj + ":" + el.dataset.id : el.dataset.tile !== undefined ? "t" + el.dataset.tile : "k" + proj + ":" + el.dataset.key;
+  return el.matches(".swim-h") ? "w" + proj + ":" + el.dataset.swim : el.dataset.row !== undefined ? "r" + el.dataset.row : el.dataset.id !== undefined ? "i" + proj + ":" + el.dataset.id : el.dataset.tile !== undefined ? "t" + el.dataset.tile : "k" + proj + ":" + el.dataset.key;
 }
-const _FLIPPED = ".lane > .card[data-id], section.col[data-key], tr[data-row], .tile[data-tile]";   // board cards and columns, list rows, work item page tiles
+const _FLIPPED = ".lane > .card[data-id], section.col[data-key], .swim-h[data-swim], tr[data-row], .tile[data-tile]";   // board cards, columns and row headers, list rows, work item page tiles
 function _snapshot() {
   const m = new Map();
   for (const el of document.querySelectorAll(_FLIPPED)) m.set(_key(el), _rect(el));
@@ -239,8 +239,9 @@ document.addEventListener("pointerdown", (e) => {
   if (e.button !== 0 || e.target.closest("input, button, a, select, textarea, .pop")) return;
   const card = e.target.closest(".lane > .card:not(.subcard)"), head = !card && e.target.closest(".col-h[data-drag-col]");   // Blazor renders a true bool as a bare attribute
   const grip = !card && !head && e.target.closest("tr[data-id] .grip");   // list rows drag by their handle, so dragging across cells can select them instead
-  if (!card && !head && !grip) return;
-  _press = { handle: card || head || grip, el: card || (head ? head.closest("section.col") : grip.closest("tr")), kind: card ? "card" : head ? "col" : "row", x: e.clientX, y: e.clientY, pointer: e.pointerId };
+  const swim = !card && !head && !grip && e.target.closest(".swim-h");   // a swimlane header drags whole (its cells follow in the re-render)
+  if (!card && !head && !grip && !swim) return;
+  _press = { handle: card || head || grip || swim, el: card || (head ? head.closest("section.col") : grip ? grip.closest("tr") : swim), kind: card ? "card" : head ? "col" : swim ? "swim" : "row", x: e.clientX, y: e.clientY, pointer: e.pointerId };
 });
 
 document.addEventListener("pointermove", (e) => {
@@ -250,12 +251,14 @@ document.addEventListener("pointermove", (e) => {
   _autoscroll(d, e);
   const dx = e.clientX - d.x + d.scroller.scrollLeft - d.sx, dy = d.kind === "col" ? 0 : e.clientY - d.y + d.scroller.scrollTop - d.sy;
   d.el.style.transform = `translate(${dx}px, ${dy}px)` + (d.kind === "card" ? " scale(1.02)" : "");
+  if (d.kind === "swim") { _swimSpot(d, e); return; }
   d.spot = _findSpot(d, e) ?? d.spot;   // over nothing: keep the last gap
   _layoutGap(d);
 });
 
 function _startDrag(e) {
   const p = _press; _press = null;
+  if (p.kind === "swim") { _startSwimDrag(p, e); return; }
   const box = p.el.parentElement, scroller = p.el.closest(".board-wrap, .tbl-wrap");
   const picked = p.kind !== "col" && p.el.classList.contains("selected") ? [...document.querySelectorAll(p.kind === "card" ? ".lane > .card.selected" : "tr[data-id][data-selected]")] : [];
   const r = _rect(p.el), axis = p.kind === "col" ? "X" : "Y";
@@ -272,6 +275,27 @@ function _startDrag(e) {
   if (p.kind === "row") { p.el.style.position = "relative"; for (const td of p.el.cells) td.style.background = "var(--card)"; }   // z-index needs position; cells are see-through
   for (const el of d.els) if (el !== p.el) el.style.opacity = ".35";
   document.body.classList.add("is-dragging");
+}
+
+/** A swimlane header drag: the header follows the pointer, a bar marks the gap it would land in (no sliding: a row is a header and a strip of cells). */
+function _startSwimDrag(p, e) {
+  const scroller = p.el.closest(".board-wrap"), picked = [...p.el.closest(".cat").querySelectorAll(".swim-h.selected")];
+  const d = _drag = { ...p, scroller, sx: scroller.scrollLeft, sy: scroller.scrollTop, shifted: new Map(), spot: null, els: picked.length > 1 && picked.includes(p.el) ? picked : [p.el] };
+  p.el.setPointerCapture?.(e.pointerId);
+  p.handle.dispatchEvent(_synthetic("dragstart"));   // BoardPage records what is moving
+  Object.assign(p.el.style, { transition: "none", zIndex: "5", pointerEvents: "none", position: "relative", background: "var(--card)", boxShadow: "6px 6px 0 var(--shadow)" });
+  for (const el of d.els) if (el !== p.el) el.style.opacity = ".35";
+  document.body.classList.add("is-dragging");
+}
+
+/** The row header the dragged one would land in front of (null = after the last row), found by where the pointer is among the other rows. */
+function _swimSpot(d, e) {
+  const cat = d.el.closest(".cat"), heads = [...cat.querySelectorAll(":scope > .swim-h")].filter(h => !d.els.includes(h));
+  const mid = h => (_rect(h).top + _rect(h.nextElementSibling).bottom) / 2;
+  const before = heads.find(h => e.clientY < mid(h)) ?? null;
+  for (const el of cat.querySelectorAll(".swim-drop, .swim-drop-end")) el.classList.remove("swim-drop", "swim-drop-end");
+  if (before) before.classList.add("swim-drop"); else heads.at(-1)?.nextElementSibling.classList.add("swim-drop-end");
+  d.spot = { cat, before, heads };
 }
 
 /** The other cards in a lane, the other columns in a row, or every other row of the list (group, item, detail and placeholder rows), in layout order. */
@@ -330,6 +354,7 @@ function _restore(d, slide) {
     Object.assign(el.style, { transform: "", opacity: "", zIndex: "", pointerEvents: "", boxShadow: "" });
   }
   if (d.kind === "row") { d.el.style.position = ""; for (const td of d.el.cells) td.style.background = ""; }
+  if (d.kind === "swim") { Object.assign(d.el.style, { position: "", background: "" }); for (const el of document.querySelectorAll(".swim-drop, .swim-drop-end")) el.classList.remove("swim-drop", "swim-drop-end"); }
   setTimeout(() => els.forEach(el => el.style.transition = ""), MS + 50);
   document.body.classList.remove("is-dragging");
 }
@@ -340,6 +365,15 @@ document.addEventListener("pointerup", (e) => {
   if (!d || e.pointerId !== d.pointer) return;
   _drag = null;
   _swallowClick = true; setTimeout(() => _swallowClick = false);   // the click that follows a drag is not a click on the card
+  if (d.kind === "swim") {
+    const s = d.spot, all = [...d.el.closest(".cat").querySelectorAll(":scope > .swim-h")], i0 = all.indexOf(d.el), at = s ? (s.before ? all.indexOf(s.before) : all.length) : -1;
+    if (!s || (d.els.length === 1 && (at === i0 || at === i0 + 1))) { _restore(d, true); return; }   // nowhere, or back where it started
+    _armFlip();
+    (s.before ?? d.el.nextElementSibling).dispatchEvent(_synthetic("drop"));   // a header: in front of it; a row's cells: after the last row
+    _settling = d;
+    d.giveUp = setTimeout(() => _restore(d, true), 800);
+    return;
+  }
   const s = d.spot, at = s ? (s.before ? s.items.indexOf(s.before) : s.items.length) : -1;
   if (!s || (s.box === d.box && at === d.i0)) { _restore(d, true); return; }   // nowhere, or back where it started
   _armFlip();
@@ -363,7 +397,7 @@ addEventListener("keydown", (e) => {
   // BoardPage.KeyDown, on the view's wrapper, moves the selected cards / checked rows. The key is re-sent there whatever has
   // the focus (a checkbox, the grid, the body after a hint-mode pick), and neither the page nor the grid may act on it as well.
   const wrap = document.querySelector(".board-wrap, .tbl-wrap");
-  if (!wrap || !document.querySelector(".lane > .card.selected, tr[data-id][data-selected], .proj-h.selected, tr[data-group^='proj:'][data-selected]")) return;
+  if (!wrap || !document.querySelector(".lane > .card.selected, tr[data-id][data-selected], .proj-h.selected, .swim-h.selected, tr[data-group^='proj:'][data-selected]")) return;
   e.preventDefault(); e.stopPropagation(); _armFlip();
   wrap.dispatchEvent(new KeyboardEvent("keydown", { key: e.key, bubbles: true }));
 }, true);
@@ -473,16 +507,24 @@ document.addEventListener("copy", (e) => {
 });
 
 // Note page: pasting a clipboard image attaches it to the note.
+// The clipboard's images as { file, name } with a pasted-<yyyyMMdd-HHmmss>.<ext> name; prevents the default paste when there is one.
+function _pastedImages(e) {
+  const found = [];
+  for (const item of e.clipboardData?.items ?? []) {
+    const file = item.type.startsWith("image/") ? item.getAsFile() : null;
+    if (!file) continue;
+    e.preventDefault();
+    const d = new Date(), p = (n) => String(n).padStart(2, "0");
+    const ext = item.type.slice(6).replace("jpeg", "jpg").replace(/\+.*/, "") || "png";
+    found.push({ file, name: `pasted-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}` });
+  }
+  return found;
+}
 rtm.pasteImages = function (dotnet) {
   rtm.stopPasteImages();
   const h = (e) => {
-    for (const item of e.clipboardData?.items ?? []) {
-      const file = item.type.startsWith("image/") ? item.getAsFile() : null;
-      if (!file) continue;
-      e.preventDefault();
-      const d = new Date(), p = (n) => String(n).padStart(2, "0");
-      const ext = item.type.slice(6).replace("jpeg", "jpg").replace(/\+.*/, "") || "png";
-      const name = `pasted-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+    if (e.target?.closest?.("[data-paste-img]")) return;   // the work item description has its own paste handling
+    for (const { file, name } of _pastedImages(e)) {
       const reader = new FileReader();
       reader.onload = () => dotnet.invokeMethodAsync("PastedImage", name, String(reader.result).split(",")[1] ?? "");
       reader.readAsDataURL(file);
@@ -492,3 +534,24 @@ rtm.pasteImages = function (dotnet) {
   document.addEventListener("paste", h);
 };
 rtm.stopPasteImages = function () { if (rtm._paste) document.removeEventListener("paste", rtm._paste); rtm._paste = null; };
+
+// Work item page: an image pasted into the description box (textarea[data-paste-img]) is saved by the app and a link goes in at the caret.
+// The box's text and caret are sent along (Blazor's binding only catches up on blur); a selection the paste replaces is cut out first.
+rtm.pasteDescription = function (dotnet) {
+  rtm.stopPasteDescription();
+  rtm.stopPasteImages();   // a note page's listener may still be around: it must not also attach this image to a note
+  const h = (e) => {
+    const ta = e.target;
+    if (!(ta instanceof HTMLTextAreaElement) || !ta.hasAttribute("data-paste-img")) return;
+    const img = _pastedImages(e)[0];
+    if (!img) return;
+    const s = ta.selectionStart, text = ta.value.slice(0, s) + ta.value.slice(ta.selectionEnd);
+    const reader = new FileReader();
+    reader.onload = () => dotnet.invokeMethodAsync("PastedDescriptionImage", img.name, String(reader.result).split(",")[1] ?? "", text, s);
+    reader.readAsDataURL(img.file);
+  };
+  rtm._pasteDesc = h;
+  document.addEventListener("paste", h);
+};
+rtm.stopPasteDescription = function () { if (rtm._pasteDesc) document.removeEventListener("paste", rtm._pasteDesc); rtm._pasteDesc = null; };
+rtm.setCaret = function (el, pos) { if (!el) return; el.focus(); el.setSelectionRange(pos, pos); };
