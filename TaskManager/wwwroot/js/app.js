@@ -1,6 +1,6 @@
 // Theme switch, OS dark-mode watch, menu placement, and keyboard handling (Esc).
 window.rtm = {
-  // Same breakpoint as the work item page's one-column bento in app.css: there it opens with every tile minimised.
+  // Same breakpoint as the work item page's one-column views in app.css (the description and the linked tasks stack).
   isNarrow() { return matchMedia("(max-width: 860px)").matches; },
 
   setTheme(theme) {
@@ -19,6 +19,14 @@ window.rtm = {
   watchDark(dotnet) {
     const q = matchMedia("(prefers-color-scheme: dark)");
     q.addEventListener("change", (e) => dotnet.invokeMethodAsync("SystemDarkChanged", e.matches));
+    return q.matches;
+  },
+
+  // Returns whether the window is too narrow for the split screen (same breakpoint as `main.split` in app.css, where the list is hidden),
+  // and tells .NET (MainLayout.NarrowChanged) when that changes: a list the CSS hides is not worth rendering.
+  watchNarrow(dotnet) {
+    const q = matchMedia("(max-width: 1399px)");
+    q.addEventListener("change", (e) => dotnet.invokeMethodAsync("NarrowChanged", e.matches));
     return q.matches;
   },
 
@@ -189,9 +197,45 @@ function _updateFades() {
     box.classList.toggle("more-right", !!s && s.scrollLeft + s.clientWidth < s.scrollWidth - 1);
     box.classList.toggle("more-bottom", !!s && s.scrollTop + s.clientHeight < s.scrollHeight - 1);
   }
+  _updatePath();
 }
 function _queueFades() { if (!_fadeQueued) { _fadeQueued = true; requestAnimationFrame(_updateFades); } }
-document.addEventListener("scroll", _queueFades, true);
+document.addEventListener("scroll", _queueFades, { capture: true, passive: true });   // passive: never holds up the scrolling
+
+// List header path: the sticky header has a strip (.hdr-path) that names the group the rows under the header belong to: project (when
+// several are open) › column › row value, in the look of their group headers. The group rows carry their labels (BoardPage.GroupRowRender:
+// data-path-proj / -col / -swim, and -fill for a status column's colour). Runs once per frame at most, on scroll and on every DOM change,
+// entirely in the page: no Blazor round trip per scroll. Group rows are in order, so the last one that starts above the header's bottom
+// edge decides, and a column row resets the row value below it, a project row both. Nothing scrolled out: the strip is empty.
+function _updatePath() {
+  const bar = document.querySelector(".tbl-wrap .hdr-path");
+  if (!bar) return;
+  const wrap = bar.parentElement, edge = wrap.querySelector("thead th")?.getBoundingClientRect().bottom ?? 0;   // the th is what sticks, not the thead
+  let proj = null, col = null, swim = null;
+  for (const tr of wrap.querySelectorAll("tbody tr[data-group]")) {
+    if (!tr.getClientRects().length) continue;   // an empty column's placeholder row is hidden
+    const pad = parseFloat(getComputedStyle(tr.cells[0]).borderTopWidth) || 0;   // the space above a group header is its own border
+    if (tr.getBoundingClientRect().top + pad >= edge - 1) break;
+    const d = tr.dataset;
+    if (d.pathProj !== undefined) { proj = d; col = swim = null; }
+    else if (d.pathCol !== undefined) { col = d; swim = null; }
+    else if (d.pathSwim !== undefined) swim = d;
+  }
+  const parts = [];
+  if (proj) parts.push(["gname proj-name", proj.pathProj]);
+  if (col) parts.push(["gname", col.pathCol, col.pathFill]);
+  if (swim) parts.push(["gname swim-name", swim.pathSwim]);
+  const sig = JSON.stringify(parts);
+  if (bar.dataset.sig === sig) return;
+  bar.dataset.sig = sig;
+  bar.replaceChildren(...parts.flatMap(([cls, text, fill], i) => {
+    const b = document.createElement("b"), sep = document.createElement("span");
+    b.className = cls; b.textContent = text;
+    if (fill) b.style.setProperty("--fill", fill);
+    sep.className = "sep"; sep.textContent = "›";
+    return i ? [sep, b] : [b];
+  }));
+}
 addEventListener("resize", _queueFades);
 new MutationObserver(_queueFades).observe(document.documentElement, { childList: true, subtree: true });
 
@@ -203,7 +247,7 @@ new MutationObserver(_queueFades).observe(document.documentElement, { childList:
 // the outcome; they get synthetic events, the drop sent to what sits right after the gap: a card or column means
 // "in front of this one", the lane / column / row itself (all marked data-drop) means "at the end".
 const EASE = "cubic-bezier(.2,0,0,1)", MS = 200, GRAB = 6;
-let _press = null;    // pointer is down on a card or column header; becomes a drag after GRAB px
+let _press = null;    // pointer is down on a card, column header, row header or list row; becomes a drag after GRAB px (a list row: after HOLD ms)
 let _drag = null;     // the drag in progress: see _startDrag
 let _settling = null; // a dropped drag kept frozen until Blazor re-renders
 let _flip = null;     // last frame's rects of every card and column, by data-id / data-key, while a re-render is expected
@@ -218,9 +262,9 @@ function _base(el) {
 }
 function _key(el) {
   const proj = el.closest("[data-proj]")?.dataset.proj ?? "";   // cards and columns repeat their keys across projects
-  return el.matches(".swim-h") ? "w" + proj + ":" + el.dataset.swim : el.dataset.row !== undefined ? "r" + el.dataset.row : el.dataset.id !== undefined ? "i" + proj + ":" + el.dataset.id : el.dataset.tile !== undefined ? "t" + el.dataset.tile : "k" + proj + ":" + el.dataset.key;
+  return el.matches(".swim-h") ? "w" + proj + ":" + el.dataset.swim : el.dataset.row !== undefined ? "r" + el.dataset.row : el.dataset.id !== undefined ? "i" + proj + ":" + el.dataset.id : "k" + proj + ":" + el.dataset.key;
 }
-const _FLIPPED = ".lane > .card[data-id], section.col[data-key], .swim-h[data-swim], tr[data-row], .tile[data-tile]";   // board cards, columns and row headers, list rows, work item page tiles
+const _FLIPPED = ".lane > .card[data-id], section.col[data-key], .swim-h[data-swim], tr[data-row]";   // board cards, columns and row headers, list rows
 function _snapshot() {
   const m = new Map();
   for (const el of document.querySelectorAll(_FLIPPED)) m.set(_key(el), _rect(el));
@@ -234,22 +278,46 @@ function _armFlip() {
 }
 function _synthetic(type) { return new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }); }
 
+// A list row has no handle: a press anywhere on it (but on a control: input, select, button, link, chevron, pill dropdown) is a click
+// when released without moving; pressed and held HOLD ms without moving more than HOLD_SLOP px it is lifted (_liftRow) and then
+// follows the pointer like a card; moved at once, before the hold time, it is not a drag at all and selects cells instead (List cells,
+// below). A touch screen follows the same rule, the hold being what tells a drag from a scroll.
+const HOLD = 250, HOLD_SLOP = 4;
+function _rowAt(target) {
+  const tr = target.closest?.("tr[data-id]");
+  return tr && !target.closest("input, select, textarea, a, .chev, .pop, .dd, .menu-wrap, button:not(.row-title)") ? tr : null;
+}
+function _endPress() { if (_press) clearTimeout(_press.hold); _press = null; }
+/** The hold time has passed: the row lifts where it stands (the cursor turns to a grabbing hand, the cells select no more) and may now move. */
+function _liftRow() {
+  const p = _press;
+  if (!p || p.kind !== "row" || !p.el.isConnected) { _press = null; return; }
+  _clearCells();   // the press had started a one-cell selection
+  _cells.moved = false;
+  _startDrag(null);
+}
 document.addEventListener("pointerdown", (e) => {
-  if (e.button === 0 && e.target.closest(".tile:not(.focus), .tile-h")) _armFlip();   // focusing or minimising a work item tile: slide the tiles to their new places
-  if (e.button !== 0 || e.target.closest("input, button, a, select, textarea, .pop")) return;
+  if (e.button !== 0) return;
+  const tr = !(e.shiftKey || e.ctrlKey || e.metaKey) && _rowAt(e.target);   // a modifier click is the row's select click
+  if (tr) { _endPress(); _press = { handle: tr, el: tr, kind: "row", x: e.clientX, y: e.clientY, pointer: e.pointerId }; _press.hold = setTimeout(_liftRow, HOLD); return; }
+  if (e.target.closest("input, button, a, select, textarea, .pop")) return;
   const card = e.target.closest(".lane > .card:not(.subcard)"), head = !card && e.target.closest(".col-h[data-drag-col]");   // Blazor renders a true bool as a bare attribute
-  const grip = !card && !head && e.target.closest("tr[data-id] .grip");   // list rows drag by their handle, so dragging across cells can select them instead
-  const swim = !card && !head && !grip && e.target.closest(".swim-h");   // a swimlane header drags whole (its cells follow in the re-render)
-  if (!card && !head && !grip && !swim) return;
-  _press = { handle: card || head || grip || swim, el: card || (head ? head.closest("section.col") : grip ? grip.closest("tr") : swim), kind: card ? "card" : head ? "col" : swim ? "swim" : "row", x: e.clientX, y: e.clientY, pointer: e.pointerId };
+  const swim = !card && !head && e.target.closest(".swim-h");   // a swimlane header drags whole (its cells follow in the re-render)
+  if (!card && !head && !swim) return;
+  _press = { handle: card || head || swim, el: card || (head ? head.closest("section.col") : swim), kind: card ? "card" : head ? "col" : "swim", x: e.clientX, y: e.clientY, pointer: e.pointerId };
 });
 
 document.addEventListener("pointermove", (e) => {
-  if (_press && !_drag && e.pointerId === _press.pointer && Math.hypot(e.clientX - _press.x, e.clientY - _press.y) >= GRAB) _startDrag(e);
+  if (_press && !_drag && e.pointerId === _press.pointer) {
+    const moved = Math.hypot(e.clientX - _press.x, e.clientY - _press.y);
+    if (_press.kind === "row") { if (moved >= HOLD_SLOP) _endPress(); }   // moved before the hold time: not a drag, the cell selection takes over
+    else if (moved >= GRAB) _startDrag(e);
+  }
   const d = _drag;
   if (!d || e.pointerId !== d.pointer) return;
   _autoscroll(d, e);
-  const dx = e.clientX - d.x + d.scroller.scrollLeft - d.sx, dy = d.kind === "col" ? 0 : e.clientY - d.y + d.scroller.scrollTop - d.sy;
+  // a list row slides up and down only: it is held anywhere along its width, so following the pointer sideways would carry it off the table
+  const dx = d.kind === "row" ? 0 : e.clientX - d.x + d.scroller.scrollLeft - d.sx, dy = d.kind === "col" ? 0 : e.clientY - d.y + d.scroller.scrollTop - d.sy;
   d.el.style.transform = `translate(${dx}px, ${dy}px)` + (d.kind === "card" ? " scale(1.02)" : "");
   if (d.kind === "swim") { _swimSpot(d, e); return; }
   d.spot = _findSpot(d, e) ?? d.spot;   // over nothing: keep the last gap
@@ -269,10 +337,10 @@ function _startDrag(e) {
   };
   d.i0 = _items(d, box).findIndex(c => p.el.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING);   // its place among the others
   if (d.i0 < 0) d.i0 = _items(d, box).length;
-  p.el.setPointerCapture?.(e.pointerId);
+  p.el.setPointerCapture?.(p.pointer);   // e is null for a row lifted by the hold timer, which has no event
   p.handle.dispatchEvent(_synthetic("dragstart"));   // BoardPage records what is moving
   Object.assign(p.el.style, { transition: "none", zIndex: "5", pointerEvents: "none", boxShadow: p.kind === "card" ? "6px 6px 0 var(--shadow)" : "" });
-  if (p.kind === "row") { p.el.style.position = "relative"; for (const td of p.el.cells) td.style.background = "var(--card)"; }   // z-index needs position; cells are see-through
+  if (p.kind === "row") { p.el.style.position = "relative"; p.el.classList.add("lifted"); for (const td of p.el.cells) td.style.background = "var(--card)"; }   // z-index needs position; cells are see-through
   for (const el of d.els) if (el !== p.el) el.style.opacity = ".35";
   document.body.classList.add("is-dragging");
 }
@@ -353,14 +421,14 @@ function _restore(d, slide) {
     el.style.transition = slide ? `transform ${MS}ms ${EASE}, opacity ${MS}ms` : "none";
     Object.assign(el.style, { transform: "", opacity: "", zIndex: "", pointerEvents: "", boxShadow: "" });
   }
-  if (d.kind === "row") { d.el.style.position = ""; for (const td of d.el.cells) td.style.background = ""; }
+  if (d.kind === "row") { d.el.style.position = ""; d.el.classList.remove("lifted"); for (const td of d.el.cells) td.style.background = ""; }
   if (d.kind === "swim") { Object.assign(d.el.style, { position: "", background: "" }); for (const el of document.querySelectorAll(".swim-drop, .swim-drop-end")) el.classList.remove("swim-drop", "swim-drop-end"); }
   setTimeout(() => els.forEach(el => el.style.transition = ""), MS + 50);
   document.body.classList.remove("is-dragging");
 }
 
 document.addEventListener("pointerup", (e) => {
-  _press = null;
+  _endPress();
   const d = _drag;
   if (!d || e.pointerId !== d.pointer) return;
   _drag = null;
@@ -381,7 +449,10 @@ document.addEventListener("pointerup", (e) => {
   _settling = d;   // hold the gap until Blazor re-renders, then FLIP takes over from exactly here
   d.giveUp = setTimeout(() => _restore(d, true), 800);   // the drop changed nothing (refused, or archive declined)
 });
-document.addEventListener("pointercancel", () => { if (_drag) { _restore(_drag, true); _drag = null; } _press = null; });
+document.addEventListener("pointercancel", () => { if (_drag) { _restore(_drag, true); _drag = null; } _endPress(); });
+// Touch: once a row is lifted the finger drags it and the list must not scroll under it; a long press must not open the context menu.
+document.addEventListener("touchmove", (e) => { if (_drag) e.preventDefault(); }, { passive: false });
+document.addEventListener("contextmenu", (e) => { if (_drag || (_press && _press.kind === "row")) e.preventDefault(); });
 document.addEventListener("click", (e) => { if (_swallowClick) { e.stopPropagation(); e.preventDefault(); } }, true);
 
 // Holding Shift is select mode: the board shows its hint bar and cards show they can be picked (css: body.shift-held).
@@ -407,7 +478,7 @@ addEventListener("keydown", (e) => {
 new MutationObserver((records) => {
   if (!_flip) return;
   const board = records.some(r => !(r.type === "attributes" && r.attributeName === "style") &&
-    (r.target.nodeType === 1 ? r.target : r.target.parentElement)?.closest?.(".board, .tbl-wrap, .bento"));
+    (r.target.nodeType === 1 ? r.target : r.target.parentElement)?.closest?.(".board, .tbl-wrap"));
   if (!board) return;
   const was = _flip;
   if (_settling) _restore(_settling, false);
@@ -426,14 +497,15 @@ new MutationObserver((records) => {
 // ── List cells: select a rectangle of cells, as in a spreadsheet, and copy it ──
 // Drag across cells to select the rectangle between the first and the last; Ctrl+C copies it as
 // tab-separated text, one line per row. Rows are the work items (tr[data-id]); group and subtask rows are skipped.
-// Row drags start from the grip only, so the two never compete for the same pointer. A selection can start on any cell, a
+// A row drag needs the press held HOLD ms first (see the board drag above), a selection a press that moves at once, so the two
+// never compete for the same pointer (the hold lifting the row clears the cell it began). A selection can start on any cell, a
 // dropdown or the title included: only a press that moves to another cell selects, and that press's click is swallowed, so
 // a still click still works the cell's control.
 const _cells = { anchor: null, focus: null, dragging: false, moved: false };   // { row, col, table }
 
 function _cellAt(target) {
   const td = target?.closest?.("td"), tr = td?.closest("tr[data-id]");
-  if (!tr || target.closest("input, a, select, textarea, .grip, .chev, .pop")) return null;
+  if (!tr || target.closest("input, a, select, textarea, .chev, .pop")) return null;
   const table = tr.closest("table");
   return { row: [...table.querySelectorAll("tr[data-id]")].indexOf(tr), col: td.cellIndex, table };
 }
@@ -555,3 +627,7 @@ rtm.pasteDescription = function (dotnet) {
 };
 rtm.stopPasteDescription = function () { if (rtm._pasteDesc) document.removeEventListener("paste", rtm._pasteDesc); rtm._pasteDesc = null; };
 rtm.setCaret = function (el, pos) { if (!el) return; el.focus(); el.setSelectionRange(pos, pos); };
+// Worklog: a Shift-click on a date or an entry opens its menu; the browser would also extend the text selection to it, so that mousedown is not let through.
+document.addEventListener("mousedown", (e) => { if (e.shiftKey && e.target.closest?.(".wk-e, .wk-date") && !e.target.closest(".wk-edit")) e.preventDefault(); });
+// Worklog: whether the focus is (still) inside the element, asked after a focusout (Tab from the note's title to its text keeps the editor, a click elsewhere leaves it).
+rtm.focusStays = function (el) { return !!el && el.contains(document.activeElement); };

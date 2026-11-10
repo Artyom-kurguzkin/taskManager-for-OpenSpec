@@ -263,6 +263,56 @@ public sealed class SwitchingProjectsTests : IDisposable
         }
     }
 
+    [Fact(DisplayName = "A refresh from the file watcher never throws while folders are moved or removed under it: the app shows a warning and carries on")]
+    public async Task RefreshSurvivesMovingFolders()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            string changes = Path.Combine(repo1.Root, "openspec", "changes");
+            string archive = Path.Combine(changes, "archive");
+            // another process moves whole folders in and out, as a merge or an archive does, and removes the archive itself
+            using CancellationTokenSource stop = new(TimeSpan.FromSeconds(3));
+            Task churn = Task.Run(() =>
+            {
+                for (int n = 0; !stop.IsCancellationRequested; n++)
+                    try
+                    {
+                        string dir = Path.Combine(archive, $"2026-11-10-moving-{n % 3}");
+                        Directory.CreateDirectory(dir);
+                        File.WriteAllText(Path.Combine(dir, ".openspec.yaml"), $"schema: spec-driven\ncreated: 2026-11-10\nx-rtm:\n  id: 123\n  title: Moving {n}\n");   // a duplicate number: Notify renumbers it
+                        File.WriteAllText(Path.Combine(dir, "proposal.md"), "# Moving\n");
+                        if (n % 5 == 0) Directory.Delete(archive, recursive: true); else Directory.Delete(dir, recursive: true);
+                    }
+                    catch (IOException) { } catch (UnauthorizedAccessException) { }
+            });
+            List<Exception> thrown = [];
+            while (!stop.IsCancellationRequested)
+                try { workspace.Notify(); } catch (Exception e) { thrown.Add(e); }
+            await churn;
+
+            Assert.Empty(thrown.Select(e => e.GetType().Name + ": " + e.Message).Distinct());
+            workspace.Notify();
+            Assert.Contains(WorkItems.WorkItemsApi.GetAll(), w => w.Id == 107);   // the board reads as usual afterwards
+        }
+    }
+
+    [Fact(DisplayName = "What the user changes in the app is recorded in the worklog under their name")]
+    public async Task AppChangesAreLoggedUnderTheUser()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Name = "Dana" });
+            Assert.Equal("Dana", workspace.Me);
+
+            Assert.True(WorkItems.WorkItemsApi.SetStatus(107, "In Progress").Success);
+
+            WorkItems.PublicDTOs.WorkItemEvent last = WorkItems.WorkItemsApi.GetEvents(107)[^1];
+            Assert.Equal(("status", "Dana"), (last.Kind, last.By));
+        }
+    }
+
     [Fact(DisplayName = "With one project open, New work item creates it straight away, without asking")]
     public async Task NewItemOneProjectDoesNotAsk()
     {

@@ -1,6 +1,7 @@
 using Notes;
 using Notes.PublicDTOs;
 using OpenSpecStore;
+using WorkItems;
 
 namespace TaskManager.Tests;
 
@@ -336,5 +337,133 @@ public sealed class KeepingNotesTests
             Assert.Contains(repo.Read(".gitignore").Replace("\r", "").Split('\n'), l => l.Trim() == "files/shots/");
         }
         finally { NotesApi.SetAttachmentsDir(repo.Root, null); }
+    }
+
+    [Fact(DisplayName = "Unticked checkboxes in a note become subtasks once: each line gets (created subtask) appended and stays in the note; ticked lines and code blocks are left alone")]
+    public void PromoteSubtasks()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        const string body = "# Plan\n\n- [ ] restrict permissions\n  * [ ] write the docs\n- [x] already done\n- [ ]   \n```\n- [ ] inside a code block\n```\n- [ ] kept as is (created subtask)\nplain text\n";
+        Assert.True(NotesApi.SaveBody(123, body).Success);
+
+        (bool ok, string message, IReadOnlyList<string> created) = NotesApi.PromoteSubtasks(123);
+
+        Assert.True(ok, message);
+        Assert.Equal(["2.2", "2.3"], created);
+        Assert.Equal(["Hide internals from anonymous callers", "restrict permissions", "write the docs"], WorkItemsApi.Get(123)!.Subtasks.TakeLast(3).Select(s => s.Text));
+        Assert.Contains("- [ ] restrict permissions (created subtask)\n", NotesApi.Get(123)!.Body);
+        Assert.Contains("  * [ ] write the docs (created subtask)\n", NotesApi.Get(123)!.Body);
+        Assert.Contains("- [x] already done\n", NotesApi.Get(123)!.Body);
+        Assert.Contains("```\n- [ ] inside a code block\n```\n", NotesApi.Get(123)!.Body);
+        Assert.Contains("- [ ] kept as is (created subtask)\nplain text\n", NotesApi.Get(123)!.Body);
+        Assert.Equal(2, WorkItemsApi.GetEvents(123).Count(e => e.Kind == "subtask-added"));
+        string tasks = repo.Read("openspec/changes/add-health-check/tasks.md");
+        Assert.Contains("restrict permissions", tasks);
+        Assert.DoesNotContain("inside a code block", tasks);
+
+        // a second pass finds nothing new: nothing is written and nothing is made twice
+        string after = repo.Read(NoteFile);
+        (ok, message, created) = NotesApi.PromoteSubtasks(123);
+        Assert.True(ok, message);
+        Assert.Empty(created);
+        Assert.Equal(after, repo.Read(NoteFile));
+        Assert.Equal(2, WorkItemsApi.GetEvents(123).Count(e => e.Kind == "subtask-added"));
+        Assert.False(NotesApi.PromoteSubtasks(9999).Success);
+    }
+
+    [Fact(DisplayName = "A note can be created with a date of its own, which is its created time")]
+    public void NoteWithOwnDate()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        DateTime when = new(2026, 11, 1, 10, 30, 0);
+
+        (bool ok, string message, int id) = NotesApi.Create(123, "Claude", when);
+
+        Assert.True(ok, message);
+        Assert.Equal(when, NotesApi.Get(id)!.Created);
+        Assert.Contains("created: 2026-11-01T10:30:00", repo.Read("openspec/changes/add-health-check/notes/n" + id + ".md"));
+        (ok, message, int now) = NotesApi.Create(123, "Claude");   // the two-argument form still dates it now
+        Assert.True(ok, message);
+        Assert.True(NotesApi.Get(now)!.Created > DateTime.Now.AddMinutes(-1));
+    }
+
+    [Fact(DisplayName = "A note whose frontmatter does not parse still shows with its body and a warning")]
+    public void NoteWithBrokenFrontmatter()
+    {
+        using TestRepo repo = new();
+        const string text = "---\nid: 7\nby: Artyom\nlinks: [unclosed\ntitle: Fine\n---\n# Heading\n\nThe body survives.\n";
+        repo.Write("openspec/changes/add-health-check/notes/n7.md", text);
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Note note = NotesApi.GetForWorkItem(123).Single(n => n.Id == 7);
+
+        Assert.Contains("could not be read", note.Title);
+        Assert.Contains("line 4", note.Title);
+        Assert.Contains("The body survives.", note.Body);
+        Assert.False(NotesApi.SetTitle(7, "New title").Success);   // never overwrites the frontmatter it could not read
+        Assert.Equal(text, repo.Read("openspec/changes/add-health-check/notes/n7.md"));
+        Assert.Equal("Ping test", NotesApi.Get(123)!.Title);   // the other notes are unaffected
+    }
+
+    [Fact(DisplayName = "A note's title, author, links and attachments read back identical whatever characters they contain")]
+    public void FrontmatterValuesReadBackIdentical()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        foreach (string v in YamlChecks.Nasty)
+        {
+            string because = $"(value: {v})";
+            (bool ok, string message, int id) = NotesApi.Create(123, v);
+            Assert.True(ok, message);
+            string title = string.Join(' ', v.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+            Assert.True(NotesApi.SetTitle(id, v).Success, because);
+            Assert.True(NotesApi.AddManualLink(id, v).Success, because);
+            Assert.True(NotesApi.SetLinkedCommits(id, [v]).Success, because);
+            Assert.True(NotesApi.StampAgent(id, v).Success, because);
+            string url = "https://example.com/" + v.Replace('\n', ' ');
+            bool linked = Uri.TryCreate(url.Trim(), UriKind.Absolute, out _);
+            if (linked) Assert.True(NotesApi.AttachLink(id, url).Success, because);
+            string name = string.Concat(v.Where(c => !Path.GetInvalidFileNameChars().Contains(c))).Trim().TrimEnd('.');
+            if (name.Length > 0) Assert.True(NotesApi.AttachBytes(id, name, [1, 2, 3]).Success, because);
+
+            string file = $"openspec/changes/add-health-check/notes/n{id}.md";
+            (string front, string _) = Notes.BusinessRules.NoteFile.Split(repo.Read(file));
+            YamlChecks.Valid(front[4..^5], YamlChecks.Nasty, because);
+            OpenSpecStoreApi.Open(repo.Root);   // from the files, not from the cache
+            Note note = NotesApi.Get(id)!;
+            Assert.Equal(title, note.Title);
+            Assert.Equal(v, note.By);
+            Assert.Equal(v, note.AgentBy);
+            Assert.Equal([v], note.Commits);
+            Assert.Equal(v.Trim(), note.ManualLinks[0]);
+            Assert.Equal(Convert.ToInt32(linked) + Convert.ToInt32(name.Length > 0), note.Attachments.Count);
+            if (linked) Assert.Equal(url.Trim(), note.Attachments[0]);
+            if (name.Length > 0) Assert.EndsWith("/" + name, note.Attachments[^1]);
+        }
+    }
+
+    [Fact(DisplayName = "A note frontmatter title with an unquoted colon is repaired on read")]
+    public void NoteWithUnquotedColonIsRepaired()
+    {
+        using TestRepo repo = new();
+        const string file = "openspec/changes/add-health-check/notes/n7.md";
+        repo.Write(file, "---\nid: 7\nby: Dr. No: the villain\ntitle: Ping: pong #1\ncreated: 2026-10-02T09:14:00\n---\n# Heading\n\nThe body survives.\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Note note = NotesApi.GetForWorkItem(123).Single(n => n.Id == 7);
+
+        Assert.Equal("Ping: pong #1", note.Title);
+        Assert.Equal("Dr. No: the villain", note.By);
+        Assert.Equal(new DateTime(2026, 10, 2, 9, 14, 0), note.Created);
+        Assert.Contains("The body survives.", note.Body);
+        Assert.True(NotesApi.AddManualLink(7, "#wi123").Success);   // a write is allowed, and writes the repaired form
+        string after = repo.Read(file).Replace("\r\n", "\n");
+        Assert.Matches("(?m)^title: [\"']Ping: pong #1[\"']$", after);   // quoted, whichever quote the writer picks
+        Assert.Matches("(?m)^by: [\"']Dr. No: the villain[\"']$", after);
+        YamlChecks.Valid(Notes.BusinessRules.NoteFile.Split(after).Frontmatter[4..^5], []);
+        Assert.EndsWith("The body survives.\n", after);
+        Assert.Equal("Ping: pong #1", NotesApi.Get(7)!.Title);
     }
 }

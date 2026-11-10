@@ -363,9 +363,11 @@ public sealed class ArrangingTheBoardTests
         Assert.Equal("Feature", BoardModel.FieldColumn("feature"));
         Assert.Null(BoardModel.FieldColumn(BoardModel.NoSwimlane));
 
-        // the list's rows follow the rows then the columns, and carry their row's key and label
+        // the list's rows follow the columns then the rows (a group per column), and carry their row's key and label
         IReadOnlyList<GridRow> grid = BoardModel.Rows(BoardModel.Build(Items, Features, Lanes, new BoardOptions(Swimlane: "contributor"), today), new Dictionary<string, string>());
-        Assert.Equal(["Artyom", "Mira", "Tom"], grid.Select(r => r.SwimLabel).Distinct());
+        Assert.Equal(["Artyom", "Mira", "Tom"], grid.Select(r => r.SwimLabel).Where(l => l.Length > 0).Distinct().Order());
+        Assert.Equal(grid.Select(r => r.Column.Key).Distinct(), grid.Select(r => r.Group).Distinct().Select(g => grid.First(r => r.Group == g).Column.Key));   // one group per column
+        Assert.Equal(grid.Count, grid.Select(r => r.Key).Distinct().Count());   // every row has its own key, even an item in two row values of one column
         Assert.Equal([2, 3], grid.Where(r => r.Swim == "Artyom" && r.Item is not null).Select(r => r.Id).Order());
 
         // colour: a CSS variable per item, from any field
@@ -379,12 +381,77 @@ public sealed class ArrangingTheBoardTests
         Assert.Equal("--stone", Colour(1, "none"));
         Assert.Equal(Colour(2, "contributor"), Colour(3, "contributor"));   // both Artyom's first: a stable pick from the palette
         Assert.Equal(Colour(2, "feature"), BoardModel.ColourOf(Items[1] with { Id = 22 }, "feature", today));
-        Assert.All(new[] { "contributor", "feature" }, f => Assert.All(Items, i => Assert.Contains(BoardModel.ColourOf(i, f, today), new[] { "--sky", "--lilac", "--sun", "--peach", "--mint", "--sage" })));
+        Assert.All(new[] { "contributor", "feature" }, f => Assert.All(Items, i => Assert.Contains(BoardModel.ColourOf(i, f, today), PaletteTokens)));
 
         // the legend lists the colours of what is shown, once each
         Assert.Equal([("Backlog", "--stone"), ("In Progress", "--sun"), ("Completed", "--sage")], BoardModel.Legend(Items, Features, new BoardOptions(), today));
         Assert.Equal([("Unlabeled", "--stone"), ("bug", "--peach"), ("feature", "--sky")], BoardModel.Legend(Items, Features, new BoardOptions(ColorBy: "label"), today));
         Assert.Empty(BoardModel.Legend(Items, Features, new BoardOptions(ColorBy: "none"), today));
+    }
+
+    // the twelve categorical colours features and contributors take in turn (CSS variables in app.css); --stone is the neutral "none"
+    private static readonly string[] PaletteTokens = ["--sky", "--lilac", "--sun", "--peach", "--mint", "--sage", "--rose", "--teal", "--sand", "--green", "--indigo", "--orchid"];
+
+    [Fact(DisplayName = "Colour by feature gives the first twelve features twelve different colours, in the board's feature order, and the legend matches the cards")]
+    public void ColourByFeatureGivesTwelveDifferentColours()
+    {
+        DateOnly today = new(2026, 11, 4);
+        Feature[] fifteen = [.. Enumerable.Range(1, 15).Select(n => new Feature($"area/f{n:00}", $"Feature {n:00}", "Area"))];
+        WorkItem[] items = [.. fifteen.Select((f, n) => W(n + 1, "Backlog", [f.Path], []))];
+        BoardOptions o = new(ColorBy: "feature");
+
+        IReadOnlyDictionary<string, string> map = BoardModel.ColourMap("feature", items, fifteen);
+        string[] cards = [.. items.Select(i => BoardModel.ColourOf(i, "feature", today, map))];
+        Assert.Equal(PaletteTokens, cards.Take(12));            // the board's feature order picks the colours, none twice
+        Assert.Equal(PaletteTokens.Take(3), cards.Skip(12));    // only after twelve do they cycle
+
+        // the legend shows each feature in the colour its card has
+        IReadOnlyList<(string Label, string Colour)> legend = BoardModel.Legend(items, fifteen, o, today);
+        Assert.Equal(fifteen.Select(f => f.Name), legend.Select(l => l.Label));
+        Assert.Equal(cards, legend.Select(l => l.Colour));
+
+        // a value that is not in the map falls back to a stable pick from the palette
+        string fallback = BoardModel.ColourOf(items[0], "feature", today);
+        Assert.Contains(fallback, PaletteTokens);
+        Assert.Equal(fallback, BoardModel.ColourOf(items[0], "feature", today, new Dictionary<string, string>()));
+
+        // other fields have no map
+        Assert.Empty(BoardModel.ColourMap("status", items, fifteen));
+    }
+
+    [Fact(DisplayName = "Colour by contributor gives each person a different colour, stable when a filter hides some of them")]
+    public void ColourByContributorGivesEachPersonAColour()
+    {
+        DateOnly today = new(2026, 11, 4);
+        IReadOnlyDictionary<string, string> map = BoardModel.ColourMap("contributor", Items, Features);
+        Assert.Equal(["Artyom", "Mira", "Tom"], map.Keys.Order());   // the people list is every contributor of every item
+        Assert.Equal(3, map.Values.Distinct().Count());
+        Assert.Equal(PaletteTokens.Take(3), new[] { "Artyom", "Mira", "Tom" }.Select(p => map[p]));   // in the people list's order
+
+        // a card takes its first contributor's colour, and the legend shows the same
+        string Card(int id) => BoardModel.ColourOf(Items.Single(i => i.Id == id), "contributor", today, map);
+        Assert.Equal([map["Tom"], map["Artyom"], map["Artyom"], map["Mira"]], [Card(1), Card(2), Card(3), Card(4)]);
+        Assert.Equal([("Artyom", map["Artyom"]), ("Mira", map["Mira"]), ("Tom", map["Tom"])], BoardModel.Legend(Items, Features, new BoardOptions(ColorBy: "contributor"), today));
+
+        // a filter that hides some people does not repaint the others
+        BoardOptions onlyTom = new(ColorBy: "contributor", Who: "Tom");
+        IReadOnlyList<(string Label, string Colour)> filtered = BoardModel.Legend(Items, Features, onlyTom, today);
+        Assert.Contains(("Tom", map["Tom"]), filtered);
+        Assert.Equal(PaletteTokens[2], map["Tom"]);   // the third in the people list, not the first of those shown
+        Assert.DoesNotContain(filtered, l => l.Colour != map[l.Label]);
+    }
+
+    [Fact(DisplayName = "Every palette colour has a light and a dark value")]
+    public void EveryPaletteColourHasLightAndDarkValues()
+    {
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        const string darkMedia = "@media (prefers-color-scheme: dark) { :root:not([data-theme=\"light\"])", darkTheme = ":root[data-theme=\"dark\"]";
+        int media = css.IndexOf(darkMedia, StringComparison.Ordinal), theme = css.IndexOf(darkTheme, StringComparison.Ordinal);
+        Assert.True(media > 0 && theme > media);
+        string light = css[..media], dark = css[media..theme], forced = css[theme..css.IndexOf('}', theme)];   // the light :root, the system dark theme, the chosen dark theme
+        foreach (string token in PaletteTokens)
+            Assert.All(new[] { light, dark, forced }, block => Assert.Matches($@"{token}:\s*#[0-9a-fA-F]{{6}}\b", block));
+        Assert.Matches(@"--stone:\s*#[0-9a-fA-F]{6}\b", light);   // the neutral colour stays outside the palette
     }
 
     [Fact(DisplayName = "Rows follow the board's saved order and leave out hidden rows, keyed by the row field and value")]

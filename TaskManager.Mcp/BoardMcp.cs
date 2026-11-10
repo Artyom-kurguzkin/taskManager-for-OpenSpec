@@ -30,7 +30,8 @@ public static class BoardMcp
         Rules
         - One work item per deliverable (one result that can be finished and archived on its own). Steps toward it are subtasks. More than about ten subtasks means several items.
         - Look before you create: board_list (text, feature) so you do not duplicate an item. board_features shows the capabilities.
-        - Workflow: board_create (or board_update) -> do the work -> board_update (tick subtasks, link tests and commits, set status) -> board_note (a change log: what changed, in plain words) -> board_validate.
+        - Workflow: board_create (or board_update) -> do the work -> board_update (tick subtasks, link tests, commits and docs, set status) -> board_note -> board_validate.
+        - The worklog is the item's history. Status changes, links and ticked subtasks are logged for you under your name when you use these tools. Write a `board_note` yourself for what the tools cannot see: a command you ran against a server or environment and what came back (put it in a code block), a decision and why, a blocker, the result of a chunk of work. One short entry per event, as you go, not one summary at the end. `title` is optional.
         - Pass `revision` from board_get into board_update and board_note when you read first, so you do not overwrite someone else's edit.
         - Status: Backlog, Planned, Confirmed, In Progress, Blocked, In Review. When the work is done set In Review. Never Completed: the user archives from the app and reviews what you did.
         - Write #wiN for another work item and #nN for a note in any text. Commits that mention #wiN link themselves; others go in `commits`.

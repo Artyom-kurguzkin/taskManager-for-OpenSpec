@@ -1,3 +1,5 @@
+using GitHistory.PublicDTOs;
+
 namespace GitHistory;
 
 /// <summary>What is known about one repository, kept while it stays open (and across switches between open ones).</summary>
@@ -14,6 +16,12 @@ internal sealed class GitState
 
     /// <summary>Every commit author in the repo, one name per person, plus each name variant → that name; kept until HEAD moves.</summary>
     public (string Head, IReadOnlyList<string> Names, Dictionary<string, string> Canonical)? People;
+
+    /// <summary>The newest commits of the current branch, newest first, read with one git log and kept until HEAD moves.
+    /// Singles holds commits looked up one by one because they are older than the log (null = git does not know the hash).</summary>
+    public sealed record CommitLog(string Head, List<Queries.LogEntry> Commits, Dictionary<string, CommitInfo?> Singles);
+
+    public CommitLog? Log;
 }
 
 internal static class GitHistoryModule
@@ -28,4 +36,10 @@ internal static class GitHistoryModule
     /// <summary>How many times the git-repo check actually ran (tests use it to prove it's cached).</summary>
     internal static int RepoChecks;
     internal static int UserNameLookups;
+
+    /// <summary>How many git processes were started (tests use it to prove a question was answered from memory).</summary>
+    internal static int Processes;
+
+    /// <summary>How many of the newest commits of the current branch the cached log holds; older hashes are fetched one by one.</summary>
+    internal static int LogLimit = 5000;
 }

@@ -144,4 +144,88 @@ public sealed class ReadingWorkItemsTests
         OpenSpecStoreApi.WriteText(yaml, OpenSpecStoreApi.ReadText(yaml).Replace("\r\n", "\n").Replace("  id: 123", "  id: 123\n  moved: 2026-10-03"));
         Assert.Equal(new DateOnly(2026, 10, 3), Item(123).Moved);
     }
+
+    // an unclosed list: no one can tell what was meant, so it is not repaired
+    private const string BrokenYaml = "schema: spec-driven\nx-rtm:\n  id: 130\n  features: [unclosed\n  status: In Progress\n";
+
+    [Fact(DisplayName = "An x-rtm value with an unquoted colon is repaired on read: the item shows its real title with a warning, and the next save writes it quoted")]
+    public void UnquotedColonIsRepaired()
+    {
+        using TestRepo repo = new();
+        const string file = "openspec/changes/broken-one/.openspec.yaml";
+        repo.Write(file, "schema: spec-driven\r\nx-rtm:\r\n  id: 130\r\n  title: The app answers at once: no second-long waits #12\r\n  status: In Progress\r\n  label: bug\r\n  plan: docs/a: b.md\r\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        WorkItem it = Assert.Single(WorkItemsApi.GetAll(includeHidden: true), w => w.Folder == "broken-one");
+
+        Assert.Equal(130, it.Id);
+        Assert.Equal("The app answers at once: no second-long waits #12", it.Title);
+        Assert.Equal(("In Progress", "bug", "docs/a: b.md"), (it.Status, it.Label, it.Plan));
+        Assert.Contains("title on line 4 was not valid YAML and was read as text", it.Warning);
+        Assert.Contains("plan on line 7", it.Warning);
+        Assert.Contains("the file is fixed on the next save", it.Warning);
+        Assert.Contains(WorkItemsApi.GetWarnings(), w => w.StartsWith("#wi130: title on line 4"));
+        Assert.Contains("  title: The app answers at once: no second-long waits #12\r\n", repo.Read(file));   // reading changes nothing
+
+        Assert.True(WorkItemsApi.SetPriority(130, "high").Success);
+
+        string after = repo.Read(file);
+        Assert.Matches("(?m)^  title: [\"']The app answers at once: no second-long waits #12[\"']\r$", after);   // quoted, whichever quote the writer picks
+        Assert.Matches("(?m)^  plan: [\"']docs/a: b.md[\"']\r$", after);
+        Assert.Contains("  priority: high\r\n", after);
+        Assert.StartsWith("schema: spec-driven\r\n", after);
+        Assert.Contains("x-rtm:\r\n  id: 130\r\n", after);
+        YamlChecks.Valid(after, []);
+        WorkItem fixedIt = WorkItemsApi.Get(130)!;
+        Assert.Equal("The app answers at once: no second-long waits #12", fixedIt.Title);
+        Assert.Null(fixedIt.Warning);
+    }
+
+    [Fact(DisplayName = "A valid value with a trailing comment is not touched by the repair of another line")]
+    public void RepairLeavesValidLinesAlone()
+    {
+        using TestRepo repo = new();
+        const string file = "openspec/changes/broken-one/.openspec.yaml";
+        repo.Write(file, "schema: spec-driven\nx-rtm:\n  id: 130\n  title: Fine title # a comment\n  status: In Progress\n  plan: docs/a: b.md\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        WorkItem it = Item(130);
+
+        Assert.Equal("Fine title", it.Title);
+        Assert.Contains("plan on line 6", it.Warning);
+        Assert.DoesNotContain("title on line", it.Warning);
+    }
+
+    [Fact(DisplayName = "A change whose .openspec.yaml does not parse still shows, with a warning naming the file and the line, and the other items are unaffected")]
+    public void UnparsableYamlStillShows()
+    {
+        using TestRepo repo = new();
+        repo.Write("openspec/changes/broken-one/.openspec.yaml", BrokenYaml);
+        OpenSpecStoreApi.Open(repo.Root);
+
+        WorkItem it = Assert.Single(WorkItemsApi.GetAll(includeHidden: true), w => w.Folder == "broken-one");
+
+        Assert.Equal("Broken one", it.Title);   // the folder's name: the fields could not be read
+        Assert.Equal("Backlog", it.Status);
+        Assert.Contains(".openspec.yaml", it.Warning);
+        Assert.Contains("line 4", it.Warning);
+        Assert.Contains("fix it", it.Warning);
+        Assert.Contains(WorkItemsApi.GetWarnings(), w => w.Contains("line 4"));
+        Assert.Equal("Health-check endpoint", Item(123).Title);
+        Assert.Equal("In Progress", Item(123).Status);
+        Assert.Null(Item(123).Warning);
+    }
+
+    [Fact(DisplayName = "A .openspec.yaml with mixed line endings is read")]
+    public void MixedLineEndings()
+    {
+        using TestRepo repo = new();
+        repo.Write("openspec/changes/mixed-ends/.openspec.yaml", "schema: spec-driven\r\nx-rtm:\n  id: 140\r\n  title: Mixed endings\n  status: In Progress\r\n  priority: high\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        WorkItem it = Item(140);
+
+        Assert.Equal(("Mixed endings", "In Progress", "high"), (it.Title, it.Status, it.Priority));
+        Assert.Null(it.Warning);
+    }
 }

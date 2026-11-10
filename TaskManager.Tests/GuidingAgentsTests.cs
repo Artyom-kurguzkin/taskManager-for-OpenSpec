@@ -107,7 +107,25 @@ public sealed partial class GuidingAgentsTests
         Assert.DoesNotContain("apps", lines[0]);   // the marker line carries no path
     }
 
-    [Fact(DisplayName = "An older guide is refreshed to version 12 with the running app's path in its .mcp.json snippet")]
+    [Fact(DisplayName = "The agent guide tells agents to keep the worklog current, with the tools and by hand in events.log")]
+    public void GuideTellsAgentsToKeepTheWorklog()
+    {
+        string text = AgentGuide.Text("DevResources/plans");
+
+        string tools = text[..text.IndexOf("## 0a.", StringComparison.Ordinal)];
+        Assert.Contains("worklog", tools);
+        Assert.Contains("logged for you", tools);   // the tools write the events themselves
+        Assert.Contains("`board_note`", tools);
+        Assert.Contains("`docs`", tools);
+
+        string hand = text[text.IndexOf("Keep the worklog current by hand", StringComparison.Ordinal)..];
+        foreach (string s in new[] { "events.log", "yyyy-MM-ddTHH:mm:ss | <who> | <kind> | <text>", "append", "never rewrite", "x-rtm.docs:",
+                     "status", "Old -> New", "commit-linked", "commit-unlinked", "test-linked", "test-unlinked", "doc-linked", "doc-unlinked",
+                     "subtask-done", "subtask-reopened", "subtask-added", "dependency-added", "dependency-removed", "created" })
+            Assert.Contains(s, hand);
+    }
+
+    [Fact(DisplayName = "An older guide is refreshed to the current version with the running app's path in its .mcp.json snippet")]
     public void OlderGuideIsRefreshedWithTheAppPath()
     {
         using TestRepo repo = new();
@@ -118,7 +136,15 @@ public sealed partial class GuidingAgentsTests
 
         Assert.Equal(GuideChange.Updated, change);
         string text = repo.Read("openspec/REPO-TASKS.md");
-        Assert.StartsWith("<!-- repo-tasks-guide v12 ", text);
+        Assert.StartsWith("<!-- repo-tasks-guide v14 ", text);
         Assert.Contains("C:/apps/TaskManager.exe", text);
+    }
+
+    [Fact(DisplayName = "The agent guide tells agents to quote values with colons, hashes or leading special characters")]
+    public void GuideTellsToQuote()
+    {
+        string line = Assert.Single(Guide.Split('\n'), l => l.Contains("title: \"Fix: the thing\""));
+        Assert.Contains("Quote", line);
+        foreach (string s in new[] { "`:`", "`#`", "starts with a special character" }) Assert.Contains(s, line);
     }
 }

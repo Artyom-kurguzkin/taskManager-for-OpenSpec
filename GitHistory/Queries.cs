@@ -7,7 +7,7 @@ namespace GitHistory;
 
 internal static class Queries
 {
-    private const string Format = "--format=%h%x1f%s%x1f%an%x1f%aI";
+    private const string Format = "--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI";
 
     /// <summary>True only when the configured folder is itself the top of a work tree (not just inside a parent repo).</summary>
     internal static bool IsRepository()
@@ -35,7 +35,7 @@ internal static class Queries
     {
         if (!IsRepository()) return [];
         Regex whole = new($"(?<![\\w#]){Regex.Escape(token)}(?![\\w])");
-        return Parse(GitCli.Run("log", Format, "--fixed-strings", $"--grep={token}").Output).Where(c => whole.IsMatch(c.Subject)).ToList();
+        return CurrentLog().Commits.Where(c => whole.IsMatch(c.Info.Subject)).Select(c => c.Info).ToList();
     }
 
     internal static IReadOnlyList<string> AuthorsOfChange(string folder)
@@ -119,32 +119,96 @@ internal static class Queries
     /// <summary>"2026-09-18-session-timeout" (archived) and "session-timeout" are the same change.</summary>
     private static string ChangeName(string folder) => Regex.Replace(folder, @"^\d{4}-\d{2}-\d{2}-", "");
 
-    // ponytail: reads .git/HEAD and the branch ref directly; worktrees/submodules (.git is a file) fall back to git rev-parse.
+    /// <summary>
+    /// The commit the current branch points at, read from .git files (no process): HEAD, then the branch's loose ref file,
+    /// then packed-refs (a fetch, gc or pack-refs moves refs there). A linked work tree keeps its HEAD in its own git dir
+    /// and its refs in the main one (the "commondir" file). Anything unexpected falls back to git rev-parse.
+    /// </summary>
     internal static string HeadToken()
     {
         if (GitHistoryModule.RepoRoot is not string root) return "";
-        string git = Path.Combine(root, ".git");
-        if (!Directory.Exists(git)) return GitCli.Run("rev-parse", "HEAD").Output.Trim();
-        string head = File.ReadAllText(Path.Combine(git, "HEAD")).Trim();
-        if (!head.StartsWith("ref: ", StringComparison.Ordinal)) return head;
-        string name = head[5..];
-        string loose = Path.Combine(git, name);
-        if (File.Exists(loose)) return File.ReadAllText(loose).Trim();
-        string packed = Path.Combine(git, "packed-refs");
-        return File.Exists(packed) ? File.ReadLines(packed).FirstOrDefault(l => l.EndsWith(" " + name, StringComparison.Ordinal)) ?? "" : "";
+        try
+        {
+            string dotGit = Path.Combine(root, ".git");
+            string gitDir = dotGit;
+            if (File.Exists(dotGit))
+            {
+                string pointer = File.ReadAllText(dotGit).Trim();
+                if (!pointer.StartsWith("gitdir: ", StringComparison.Ordinal)) return RevParseHead();
+                gitDir = Path.GetFullPath(pointer[8..], root);
+            }
+            else if (!Directory.Exists(dotGit)) return RevParseHead();
+
+            string common = gitDir;
+            string commonFile = Path.Combine(gitDir, "commondir");
+            if (File.Exists(commonFile)) common = Path.GetFullPath(File.ReadAllText(commonFile).Trim(), gitDir);
+
+            string head = File.ReadAllText(Path.Combine(gitDir, "HEAD")).Trim();
+            if (!head.StartsWith("ref: ", StringComparison.Ordinal)) return head;
+            string name = head[5..];
+            string loose = Path.Combine(common, name);
+            if (File.Exists(loose)) return File.ReadAllText(loose).Trim();
+            string packed = Path.Combine(common, "packed-refs");
+            if (!File.Exists(packed)) return "";
+            string? line = File.ReadLines(packed).FirstOrDefault(l => l.EndsWith(" " + name, StringComparison.Ordinal));   // "<hash> <ref>"; "^<hash>" lines are tag peels
+            return line is null ? "" : line[..line.IndexOf(' ')];
+        }
+        catch (IOException) { return RevParseHead(); }   // a ref being rewritten while we read it
+        catch (UnauthorizedAccessException) { return RevParseHead(); }
+    }
+
+    private static string RevParseHead() => GitCli.Run("rev-parse", "HEAD").Output.Trim();
+
+    /// <summary>One commit of the cached log: the full hash is kept to match picked hashes of any length.</summary>
+    internal sealed record LogEntry(string Full, CommitInfo Info);
+
+    /// <summary>
+    /// The newest commits of the current branch (at most GitHistoryModule.LogLimit), from one git log per HEAD.
+    /// Older commits are not in it: Commits() asks git for those one at a time. Recent and Mentioning only look at the
+    /// newest LogLimit commits, which is far more than a board links to.
+    /// </summary>
+    private static GitState.CommitLog CurrentLog()
+    {
+        GitState state = GitHistoryModule.State;
+        lock (state)
+        {
+            string head = HeadToken();
+            if (state.Log is { } log && log.Head == head) return log;
+            string output = GitCli.Run("log", Format, $"-{GitHistoryModule.LogLimit}").Output;
+            state.Log = new GitState.CommitLog(head, ParseLog(output), []);
+            return state.Log;
+        }
     }
 
     internal static IReadOnlyList<CommitInfo> Recent(int count) =>
-        IsRepository() ? Parse(GitCli.Run("log", Format, $"-{count}").Output) : [];
+        IsRepository() ? CurrentLog().Commits.Take(count).Select(c => c.Info).ToList() : [];
 
-    // One "git show" per hash: an unknown hash fails on its own instead of failing the whole list.
-    internal static IReadOnlyList<CommitInfo> Commits(IReadOnlyList<string> hashes) =>
-        IsRepository() ? hashes.SelectMany(h => Parse(GitCli.Run("show", "-s", Format, h).Output)).ToList() : [];
+    internal static IReadOnlyList<CommitInfo> Commits(IReadOnlyList<string> hashes)
+    {
+        if (!IsRepository()) return [];
+        GitState.CommitLog log = CurrentLog();
+        List<CommitInfo> found = [];
+        foreach (string hash in hashes)
+        {
+            string h = hash.Trim();
+            if (h.Length == 0) continue;
+            LogEntry? hit = log.Commits.FirstOrDefault(c => c.Full.StartsWith(h, StringComparison.OrdinalIgnoreCase));
+            if (hit is not null) { found.Add(hit.Info); continue; }
+            lock (GitHistoryModule.State)
+            {
+                // Older than the log (or on another branch): one "git show" per hash, so an unknown hash fails on its own; remembered until HEAD moves.
+                if (!log.Singles.TryGetValue(h, out CommitInfo? single))
+                    log.Singles[h] = single = ParseLog(GitCli.Run("show", "-s", Format, h).Output).FirstOrDefault()?.Info;
+                if (single is not null) found.Add(single);
+            }
+        }
+        return found;
+    }
 
-    private static List<CommitInfo> Parse(string output) =>
+    private static List<LogEntry> ParseLog(string output) =>
         output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(l => l.TrimEnd('\r').Split('\x1f'))
-            .Where(p => p.Length == 4)
-            .Select(p => new CommitInfo(p[0], p[1], p[2], DateTime.Parse(p[3], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)))
+            .Where(p => p.Length == 5)
+            .Select(p => new LogEntry(p[0], new CommitInfo(p[1], p[2], p[3], DateTime.Parse(p[4], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind))))
             .ToList();
 }

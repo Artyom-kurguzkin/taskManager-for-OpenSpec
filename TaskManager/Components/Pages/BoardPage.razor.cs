@@ -18,7 +18,7 @@ public partial class BoardPage
 
     /// <summary>One open repository on the board: its items and features, and the columns they fall into under the current options.</summary>
     private sealed record Project(string Root, string Name, IReadOnlyList<WorkItem> Items, IReadOnlyList<Feature> Features,
-        IReadOnlyDictionary<string, string> Names, IReadOnlyList<BoardSection> Sections)
+        IReadOnlyDictionary<string, string> Names, IReadOnlyList<BoardSection> Sections, IReadOnlyDictionary<string, string> Colours)
     {
         public IEnumerable<(string? Category, BoardColumn Column)> Flat => Sections.SelectMany(s => s.Columns.Select(c => (s.Category, c)));
     }
@@ -147,22 +147,38 @@ public partial class BoardPage
         StateHasChanged();
     });
 
+    /// <summary>The board reads once, then on a workspace or settings change: its parameters (embedded, the open item) only mark rows.</summary>
+    protected override object? LoadKey => "board";
+
     protected override void Load()
     {
         projects = Workspace.Projects.Where(r => !Settings.ProjectHidden(r)).Select(r => Workspace.In(r, () =>
         {
             IReadOnlyList<WorkItem> items = WorkItemsApi.GetAll(includeHidden: O.ShowHidden);
             IReadOnlyList<Feature> features = FeaturesApi.GetAll();
-            return new Project(r, Path.GetFileName(r), items, features, Workspace.FeatureNames, BoardModel.Build(items, features, WorkItemsApi.GetLanes(), O));
+            return new Project(r, Path.GetFileName(r), items, features, Workspace.FeatureNames, BoardModel.Build(items, features, WorkItemsApi.GetLanes(), O), BoardModel.ColourMap(O.ColorBy, items, features));
         })).ToList();
         selected.RemoveWhere(s => !projects.Any(p => p.Root == s.Root && p.Items.Any(i => i.Id == s.Id)));
         selectedProjects.RemoveWhere(r => !Multi || !projects.Any(p => p.Root == r));
         selectedRows.RemoveWhere(k => !projects.Any(p => p.Sections.Any(s => RowKeys(s).Contains(k))));   // a hidden row, or another row field
         rows = [.. projects.SelectMany((p, n) => BoardModel.Rows(p.Sections, p.Names, p.Root, p.Name, n * 1000))];
         groups = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => (g.First().Column, g.First().Category, g.First().Root));
-        groupSwim = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => g.First().Swim);
         if (gridSettings is null && O.ListSettings is string json)
             try { gridSettings = System.Text.Json.JsonSerializer.Deserialize<DataGridSettings>(json); } catch (System.Text.Json.JsonException) { }
+        if (grid is null) FillGroups();   // before the grid's first render: grouped from the start, not flat first and regrouped after it (a second pass over every row)
+    }
+
+    private readonly System.Collections.ObjectModel.ObservableCollection<GroupDescriptor> groupDescriptors = [];
+
+    /// <summary>Groups by project (when several), column, then row value (when set); the group panel stays hidden. The grid is given this collection (Groups).</summary>
+    private void FillGroups()
+    {
+        groupedMulti = Multi;
+        groupedSwim = O.Swimlane;
+        groupDescriptors.Clear();
+        if (Multi) groupDescriptors.Add(new GroupDescriptor { Property = nameof(GridRow.Project), Title = "Project" });
+        groupDescriptors.Add(new GroupDescriptor { Property = nameof(GridRow.Group), Title = "Column" });
+        if (O.Swimlane != BoardModel.NoSwimlane) groupDescriptors.Add(new GroupDescriptor { Property = nameof(GridRow.Swim), Title = "Row" });
     }
 
     private Project ProjectOf(string root) => projects.First(p => p.Root == root);
@@ -175,17 +191,16 @@ public partial class BoardPage
     }
 
     // ── Calendar view: the Roadmap component draws the board's columns as groups, or the rows with the columns inside them ──
-    private IReadOnlyList<RoadmapSource> RoadmapProjects => projects.Select(p => new RoadmapSource(p.Root, p.Name, p.Sections)).ToList();
+    private IReadOnlyList<RoadmapSource> RoadmapProjects => projects.Select(p => new RoadmapSource(p.Root, p.Name, p.Sections, p.Colours)).ToList();
     private void OpenFrom((string Root, int Id) at) => OpenItem(ProjectOf(at.Root), at.Id);
 
     // ── List view: a Radzen DataGrid over the projects' columns ──
     private RadzenDataGrid<GridRow>? grid;
     private IReadOnlyList<GridRow> rows = [];
     private Dictionary<int, (BoardColumn Column, string? Category, string Root)> groups = [];
-    private Dictionary<int, string> groupSwim = [];   // the swimlane value of each column group ("" without swimlanes)
     private string? groupedSwim;                      // the swimlane field the grid's group descriptors include
     private DataGridSettings? gridSettings;   // column widths, order, visibility, sort and filters, remembered per repository
-    private readonly HashSet<string> shutGroups = [];   // collapsed groups, by project and column key (kept across re-renders and data reloads)
+    private readonly HashSet<string> shutGroups = [];   // collapsed groups, by project and column key (and row value, for a row-value group), kept across re-renders and data reloads
     private bool? groupedMulti;               // whether the grid's group descriptors include the project level
     private bool? subtasksApplied;            // the ShowSubtasks setting last pushed into the grid's expanded rows
 
@@ -198,10 +213,13 @@ public partial class BoardPage
     // descriptors (OnAfterRenderAsync swaps them), and a group keyed by column read as a project group throws a cast in the render.
     private bool IsProjectGroup(Group g) => groupedMulti == true && g.Level == 0;
 
-    /// <summary>With a swimlane set the grid groups project (when several) → swimlane → column; this is the swimlane level.</summary>
-    private bool IsSwimGroup(Group g) => groupedSwim is not (null or BoardModel.NoSwimlane) && g.Level == (groupedMulti == true ? 1 : 0);
+    /// <summary>With rows set the grid groups project (when several) → column → row value; this is the row-value level, inside a column.</summary>
+    private bool IsSwimGroup(Group g) => groupedSwim is not (null or BoardModel.NoSwimlane) && g.Level == (groupedMulti == true ? 2 : 1);
 
-    /// <summary>The list rows under a swimlane group (its header shows their swimlane's name and how many items they hold).</summary>
+    /// <summary>The last level of groups, the one that holds the item rows (and gets the "+ Add item" footer).</summary>
+    private bool IsLeafGroup(Group g) => !IsProjectGroup(g) && (groupedSwim is null or BoardModel.NoSwimlane || IsSwimGroup(g));
+
+    /// <summary>The list rows under a group (a row-value group's header shows its name and how many items it holds).</summary>
     private List<GridRow> SwimRowsOf(Group g) => [.. LeafRows((GroupResult)g.Data)];
 
     // a group above the last level holds subgroups, the last level holds the rows
@@ -209,15 +227,12 @@ public partial class BoardPage
         r.Items is { } items ? items.OfType<GridRow>() : (r.Subgroups ?? []).SelectMany(LeafRows);
 
     private string ShutKey(Group g) =>
-        IsSwimGroup(g) ? "swim|" + SwimRowsOf(g).FirstOrDefault()?.Root + "|" + (string)g.Data.Key
-        : GroupOf(g) is var (col, _, root) ? root + "|" + SwimValue(g) + "|" + col.Key : "";
+        IsSwimGroup(g) ? SwimRowsOf(g).FirstOrDefault() is { } r ? r.Root + "|" + r.Column.Key + "|swim|" + (string)g.Data.Key : ""
+        : GroupOf(g) is var (col, _, root) ? root + "|" + col.Key : "";
 
     private (BoardColumn Column, string? Category, string Root) GroupOf(Group g) => groups[Convert.ToInt32((object)g.Data.Key)];
 
-    /// <summary>A column group's swimlane value ("" without swimlanes).</summary>
-    private string SwimValue(Group g) => groupSwim.TryGetValue(Convert.ToInt32((object)g.Data.Key), out string? v) ? v : "";
-
-    /// <summary>The swimlane a drop on a list row or group lands in (null without swimlanes).</summary>
+    /// <summary>The row value a drop on a list row lands in (null without rows).</summary>
     private static string? SwimOf(GridRow row) => row.Swim.Length > 0 ? row.Swim : null;
 
     /// <summary>Marks the row for the drag script, cell copy and styling, and gives it the board's drop handlers.</summary>
@@ -234,7 +249,7 @@ public partial class BoardPage
         }
         args.Attributes["data-id"] = it.Id;
         args.Attributes["data-row"] = row.Key;
-        args.Attributes["style"] = $"--band:var({BoardModel.ColourOf(it, O.ColorBy)})";   // the row's colour stripe (app.css), as a card's band
+        args.Attributes["style"] = $"--band:var({BoardModel.ColourOf(it, O.ColorBy, null, p.Colours)})";   // the row's colour stripe (app.css), as a card's band
         if (Embedded && Current == it.Id && IsActive(p)) args.Attributes["class"] = "cur";
         if (selected.Contains((p.Root, it.Id))) args.Attributes["data-selected"] = "";
         if (it.Hidden) args.Attributes["data-hidden"] = "";
@@ -249,6 +264,7 @@ public partial class BoardPage
         if (IsProjectGroup(args.Group!))
         {
             args.Attributes["data-group"] = "proj:" + args.Group!.Data.Key;
+            args.Attributes["data-path-proj"] = (string)args.Group!.Data.Key;   // the sticky header's path (app.js _updatePath)
             if (projects.FirstOrDefault(p => p.Name == (string)args.Group!.Data.Key) is { } gp)
             {
                 if (selectedProjects.Contains(gp.Root)) args.Attributes["data-selected"] = "";
@@ -257,16 +273,29 @@ public partial class BoardPage
             }
             return;
         }
-        if (IsSwimGroup(args.Group!))   // a swimlane's heading: only heads (its cells are the column groups under it)
+        if (IsSwimGroup(args.Group!))   // a row value inside a column: a drop on it lands in that column with that row value
         {
-            args.Attributes["data-group"] = "swim:" + (string)args.Group!.Data.Key;
-            if (shutGroups.Contains(ShutKey(args.Group!))) args.Expanded = false;
+            if (SwimRowsOf(args.Group!).FirstOrDefault() is not { } first) return;
+            string value = (string)args.Group!.Data.Key;
+            args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(ProjectOf(first.Root), first.Column, value.Length > 0 ? value : null));
+            if (value.Length == 0)   // an empty column's placeholder row has no row value: no heading, only the column above it
+            {
+                args.Attributes["data-group"] = "";
+                args.Attributes["style"] = "display:none";
+            }
+            else
+            {
+                args.Attributes["data-group"] = "swim:" + value;
+                args.Attributes["data-path-swim"] = first.SwimLabel;
+                if (shutGroups.Contains(ShutKey(args.Group!))) args.Expanded = false;
+            }
             return;
         }
         (BoardColumn col, _, string root) = GroupOf(args.Group!);
-        string? swim = SwimValue(args.Group!) is { Length: > 0 } sw ? sw : null;
         args.Attributes["data-group"] = col.Key;
-        args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(ProjectOf(root), col, swim));
+        args.Attributes["data-path-col"] = col.Label;
+        if (O.GroupBy == "status") args.Attributes["data-path-fill"] = $"var({Ui.Band(col.Label)})";   // the status pill's colour, as the group header wears it
+        args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(ProjectOf(root), col, null));   // the column's end; the item keeps its row value
         // only ever false: Radzen takes Expanded = true as "keep open" and ignores the chevron; the collapse/expand events keep shutGroups current
         if (shutGroups.Contains(ShutKey(args.Group!))) args.Expanded = false;
     }
@@ -293,14 +322,9 @@ public partial class BoardPage
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (grid is null) return;
-        if (grid.Groups.Count == 0 || groupedMulti != Multi || groupedSwim != O.Swimlane)   // grouped by project (when several), swimlane (when set), then by column; the group panel stays hidden
+        if (grid.Groups.Count == 0 || groupedMulti != Multi || groupedSwim != O.Swimlane)   // grouped by project (when several), column, then row value (when set); the group panel stays hidden
         {
-            groupedMulti = Multi;
-            groupedSwim = O.Swimlane;
-            grid.Groups.Clear();
-            if (Multi) grid.Groups.Add(new GroupDescriptor { Property = nameof(GridRow.Project), Title = "Project" });
-            if (O.Swimlane != BoardModel.NoSwimlane) grid.Groups.Add(new GroupDescriptor { Property = nameof(GridRow.Swim), Title = "Swimlane" });
-            grid.Groups.Add(new GroupDescriptor { Property = nameof(GridRow.Group), Title = "Column" });
+            FillGroups();
             await grid.Reload();
             return;
         }

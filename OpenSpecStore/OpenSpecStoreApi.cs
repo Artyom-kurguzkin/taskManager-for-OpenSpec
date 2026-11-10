@@ -12,6 +12,8 @@ public static class OpenSpecStoreApi
 
     /// <summary>Changes whenever repo content may have changed; modules cache their parsed data against it.</summary>
     public static long Version => OpenSpecStoreModule.Version;
+    /// <summary>What the open repositories' content versions add up to: unlike <see cref="Version"/> it moves when a write lands in a repository that is open but not the current one.</summary>
+    public static long TotalVersion { get { lock (OpenSpecStoreModule.Repos) return OpenSpecStoreModule.Repos.Values.Sum(r => Interlocked.Read(ref r.Version)); } }
     /// <summary>Makes every module read the current repository from disk again on its next call, for a caller that cannot wait for the watcher (a tool call right after an outside edit).</summary>
     public static void Refresh() => OpenSpecStoreModule.Bump();
     public static string? OpenSpecRoot => OpenSpecStoreModule.RepoRoot is null ? null : Path.Combine(OpenSpecStoreModule.RepoRoot, "openspec");
@@ -60,6 +62,28 @@ public static class OpenSpecStoreApi
     /// <summary>Replaces one section inside the x-rtm block (null removes it); sibling sections and the rest of the file are untouched.</summary>
     public static (bool Success, string Message) WriteRtmSection(string yamlPath, string key, string? sectionYaml) => Commands.WriteRtmSection(yamlPath, key, sectionYaml);
 
+    /// <summary>
+    /// The serializer for every YAML the app writes: strings are quoted when YAML would read them as something else (colons, hashes, a leading
+    /// indicator, yes/no/null, numbers, empty or multi-line text) and left plain otherwise. <paramref name="model"/>: camelCase names, nulls and empty lists left out.
+    /// <paramref name="flowLists"/>: lists as [a, b] on one line.
+    /// </summary>
+    public static YamlDotNet.Serialization.ISerializer YamlWriter(bool model, bool flowLists) => YamlText.Writer(model, flowLists);
+
+    /// <summary>
+    /// Mends a block of hand-written YAML: a <c>key: value</c> line (top-level, one of <paramref name="textKeys"/>) that is not valid YAML on its own, like
+    /// <c>title: Fix: the thing</c>, has its value quoted. Valid lines stay as they are. Returns the text and the 1-based line of each mended line.
+    /// </summary>
+    public static (string Text, IReadOnlyList<(string Key, int Line)> Mended) MendYaml(string text, IReadOnlySet<string> textKeys) => YamlText.Mend(text, textKeys);
+
     /// <summary>Tells the watcher that the app itself is about to change this path (e.g. through a CLI it runs).</summary>
     public static void MarkOwnChange(string path) => OpenSpecStoreModule.MarkOwn(path);
+
+    /// <summary>Which repository session is open (goes up on every open, so a closed and reopened one is a new session): what a module's per-repository cache is valid for.</summary>
+    public static long RepoGeneration => OpenSpecStoreModule.Current?.Opened ?? 0;
+
+    /// <summary>
+    /// The paths the app itself wrote, deleted or moved after position <paramref name="cursor"/> (start with 0), and the position to ask from next time.
+    /// A module that caches per folder reads those folders again whatever their timestamps say, since two quick edits can share a timestamp and a size.
+    /// </summary>
+    public static (IReadOnlyList<string> Paths, long Cursor) ChangesSince(long cursor) => OpenSpecStoreModule.TouchesSince(cursor);
 }

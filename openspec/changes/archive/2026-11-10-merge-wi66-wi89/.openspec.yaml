@@ -1,0 +1,11 @@
+schema: spec-driven
+created: 2026-11-10
+x-rtm:
+  id: 129
+  title: support for attachments
+  status: Backlog
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  label: feature
+  tests: [{suite: KeepingNotesTests, test: 'A note takes attachments: a file is copied under local/task-tracking and .gitignore learns local/, a link is kept as a URL, and removing an attachment forgets it (and deletes the copied file)'}, {suite: UsingThePagesTests, test: 'The note page lists attachments: an image inline, a file by name, a link as a link, each removable; a link can be added from the page'}, {suite: EditingWorkItemsTests, test: 'A work item links a plan file: SetPlan writes x-rtm.plan as a repo-relative path, it reads back, and null removes the key'}, {suite: UsingThePagesTests, test: 'A markdown file under the repository opens on the doc page, rendered, with its path shown; a missing file or a path outside the repository shows not found'}, {suite: UsingThePagesTests, test: "A work item's plan is picked from the plans folder: the chip opens it rendered in the app, its × unlinks it; there is no path box"}, {suite: RememberingSettingsTests, test: 'The plans folder is a per-repository setting: DevResources/plans unless changed, remembered between sessions, other repositories unaffected'}, {suite: SwitchingProjectsTests, test: The agent guide tells agents the workflow and where plans go; changing the plans folder in Settings rewrites the guide at once}]
+  mergedFrom: [66, 89]

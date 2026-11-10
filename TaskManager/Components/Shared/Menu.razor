@@ -16,21 +16,38 @@
     [Parameter, EditorRequired] public RenderFragment Items { get; set; } = default!;
     [Parameter] public string Class { get; set; } = "";
     [Parameter] public string Label { get; set; } = "";
+    /// <summary>Opens on a Shift-click of the activator only (a plain click stays the activator's own); <see cref="Open"/> opens it from the keyboard.</summary>
+    [Parameter] public bool ShiftClick { get; set; }
+    /// <summary>Shows the list from the first render, next to the activator (a picker that a menu item asked for).</summary>
+    [Parameter] public bool OpenAtOnce { get; set; }
+    /// <summary>Fired when the list closes: an item picked, a click outside, Esc.</summary>
+    [Parameter] public EventCallback OnClosed { get; set; }
     [Inject] private IJSRuntime Js { get; set; } = default!;
 
     private bool open, place;
     private ElementReference anchor, pop;
 
-    private void Toggle()
+    protected override void OnInitialized() => open = place = OpenAtOnce;
+
+    private void Toggle(MouseEventArgs e)
     {
+        if (ShiftClick && !e.ShiftKey) return;
         open = !open;
         place = open;
     }
 
+    public void Open()
+    {
+        open = place = true;
+        StateHasChanged();
+    }
+
     public void Close()
     {
+        bool was = open;
         open = false;
         StateHasChanged();
+        if (was) _ = OnClosed.InvokeAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

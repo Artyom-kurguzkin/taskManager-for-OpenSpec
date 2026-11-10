@@ -31,10 +31,13 @@ else if (View == "list")
        project (when several are open) and column. The grid brings sorting, filtering (a funnel in each header), column resize and
        reorder, and remembers them per repository. A column is hidden from the × in its header and brought back from the side
        menu's Hidden list, like a board column; the side menu's compact switch hides every row's subtasks. Grouping, row drag
-       (app.js, by the grip), arrow keys, cell copy and the subtask detail are the app's own, as on the board.
+       (app.js: press and hold anywhere on a row, then move), arrow keys, cell copy and the subtask detail are the app's own, as on
+       the board. .hdr-path is the sticky header's strip: app.js writes the group path of the rows scrolled under the header into it
+       (from the data-path-* marks GroupRowRender puts on the group rows).
        tabindex: a click in the table focuses the wrapper, so arrow keys reach KeyDown and Ctrl+C reaches the cell copy. *@
     <div class="scx"><div class="tbl-wrap" tabindex="0" @onkeydown="KeyDown" @onclick="BackgroundClick">
-        <RadzenDataGrid @ref="grid" TItem="GridRow" Data="rows" KeyProperty="Key" Density="Density.Compact"
+        <div class="hdr-path" aria-hidden="true"></div>
+        <RadzenDataGrid @ref="grid" TItem="GridRow" Data="rows" KeyProperty="Key" Density="Density.Compact" Groups="groupDescriptors"
                         AllowSorting="true" AllowMultiColumnSorting="true" AllowFiltering="true" FilterMode="FilterMode.Advanced"
                         FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" AllowColumnResize="true" AllowColumnReorder="true"
                         GroupFootersAlwaysVisible="false" ExpandMode="DataGridExpandMode.Multiple" ShowExpandColumn="false"
@@ -50,7 +53,11 @@ else if (View == "list")
                 else if (IsSwimGroup(context))
                 {
                     List<GridRow> swimRows = SwimRowsOf(context);
-                    <b class="gname swim-name">@(swimRows.FirstOrDefault()?.SwimLabel)</b> <span class="count">@BoardModel.Count(swimRows.Where(r => r.Item is not null).Select(r => r.Item!).DistinctBy(i => i.Id), O.Unit)</span>
+                    @* an empty column's placeholder has no row value, so no heading *@
+                    if (swimRows.FirstOrDefault()?.Swim.Length > 0)
+                    {
+                        <b class="gname swim-name">@(swimRows.First().SwimLabel)</b> <span class="count">@BoardModel.Count(swimRows.Where(r => r.Item is not null).Select(r => r.Item!).DistinctBy(i => i.Id), O.Unit)</span>
+                    }
                 }
                 else
                 {
@@ -73,31 +80,22 @@ else if (View == "list")
                 }
             </Template>
             <Columns>
-                @* the left gutter: the drag grip, shown on hover. No tick boxes: Shift-click selects a row, as it does a card *@
-                <RadzenDataGridColumn TItem="GridRow" Title="" Width="28px" Sortable="false" Filterable="false" Pickable="false" Resizable="false" Reorderable="false" CssClass="rowctl">
-                    <Template Context="row">
-                        @if (row.Item is WorkItem it)
-                        {
-                            <span class="grip" title="Drag to move">@Ui.Icon("grip")</span>
-                        }
-                    </Template>
-                </RadzenDataGridColumn>
+                @* no gutter and no tick boxes: Shift-click selects a row, as it does a card, and a held press drags it (app.js) *@
                 <RadzenDataGridColumn TItem="GridRow" Property="Id" Title="ID" Visible="@Shown("ID")" HeaderTemplate="@Head("ID")" Width="72px" CssClass="num" Filterable="false">
                     <Template Context="row">@if (row.Item is not null) { <span class="muted num id clip" title="#wi@(row.Id)">#wi@(row.Id)</span> }</Template>
                 </RadzenDataGridColumn>
-                @* the title: a chevron slot (subtasks fold out under the row) and the one-line title, like a task name in Asana or Linear *@
-                <RadzenDataGridColumn TItem="GridRow" Property="Title" Title="Title" Visible="@Shown("Title")" HeaderTemplate="@Head("Title")" MinWidth="260px" CssClass="title">
+                @* the title: the one-line title, like a task name in Asana or Linear. A row with subtasks has a chevron (they fold out under
+                   it) that hangs in the title column's left padding, so every title starts where the "Title" header does *@
+                <RadzenDataGridColumn TItem="GridRow" Property="Title" Title="Title" Visible="@Shown("Title")" HeaderTemplate="@Head("Title")" MinWidth="260px" CssClass="title" HeaderCssClass="title">
                     <Template Context="row">
                         @if (row.Item is WorkItem it)
                         {
                             <span class="tcell">
-                                <span class="chev-slot">
-                                    @if (it.Subtasks.Count > 0)
-                                    {
-                                        bool open = grid?.IsRowExpanded(row) == true;
-                                        <button class="chev @(open ? "open" : "")" @onclick="() => ToggleRow(row)" aria-expanded="@open" aria-label="Subtasks">@Ui.Icon("chev")</button>
-                                    }
-                                </span>
+                                @if (it.Subtasks.Count > 0)
+                                {
+                                    bool open = grid?.IsRowExpanded(row) == true;
+                                    <button class="chev @(open ? "open" : "")" @onclick="() => ToggleRow(row)" aria-expanded="@open" aria-label="Subtasks">@Ui.Icon("chev")</button>
+                                }
                                 @* a modifier click is the row's (RowRender): it selects, as on a card; a plain click opens *@
                                 <button class="row-title" title="@it.Title" @onclick="e => { if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) OpenItem(ProjectOf(row.Root), it.Id); }">@it.Title</button>
                             </span>
@@ -105,9 +103,10 @@ else if (View == "list")
                         else { <span class="muted">No items</span> }
                     </Template>
                     <GroupFooterTemplate>
-                        @if (!IsProjectGroup(context) && !IsSwimGroup(context))
+                        @if (IsLeafGroup(context))   @* the last level: the column, or with rows set its row values *@
                         {
-                            (BoardColumn fcol, _, string froot) = GroupOf(context);
+                            GridRow? fgrow = IsSwimGroup(context) ? SwimRowsOf(context).FirstOrDefault() : null;
+                            (BoardColumn fcol, _, string froot) = fgrow is null ? GroupOf(context) : (fgrow.Column, fgrow.Category, fgrow.Root);
                             @if (!(O.GroupBy == "status" && fcol.Label == "Completed")) { <button class="add" @onclick="() => NewItem(ProjectOf(froot), fcol.Key)">+ Add item</button> }   @* completed = archived by the CLI, not created here *@
                         }
                     </GroupFooterTemplate>
@@ -347,7 +346,7 @@ else if (View == "list" || O.Unit == "tasks")
                 foreach (Subtask s in it.Subtasks)
                 {
                     <article class="card subcard @(s.Done ? "done" : "")" data-sk @onclick="() => OpenItem(p, it.Id)">
-                        <span class="band" style="--band:var(@BoardModel.ColourOf(it, O.ColorBy))">
+                        <span class="band" style="--band:var(@BoardModel.ColourOf(it, O.ColorBy, null, p.Colours))">
                             <input type="checkbox" checked="@s.Done" @onclick:stopPropagation="true"
                                    @onchange="e => Run(Workspace.In(p.Root, () => WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!)))" aria-label="Done" />@s.Text
                         </span>
@@ -357,7 +356,7 @@ else if (View == "list" || O.Unit == "tasks")
             }
             else
             {
-                <WorkItemCard Item="it" Options="O" Names="p.Names" Selected="selected.Contains((p.Root, it.Id))"
+                <WorkItemCard Item="it" Options="O" Names="p.Names" Colours="p.Colours" Selected="selected.Contains((p.Root, it.Id))"
                               OnClick="e => CardClick(p, it, e)" OnDragStart="i => StartCardDrag(p, i, col.Key, swim)" OnDrop="t => DropBefore(p, col, t, swim)" OnReview="i => ReviewItem(p, i)" />
             }
         }

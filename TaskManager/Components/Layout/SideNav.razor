@@ -70,11 +70,11 @@
                     @if (Legend is { Count: > 0 } legend)
                     {
                         <div class="legend" aria-label="Colour legend">
-                            @foreach ((string label, string colour) in legend.Take(8))
+                            @foreach ((string label, string colour) in legend.Take(BoardModel.Palette.Count))
                             {
                                 <span class="lg"><i style="--sw:var(@colour)"></i>@label</span>
                             }
-                            @if (legend.Count > 8) { <span class="lg more">+@(legend.Count - 8) more</span> }
+                            @if (legend.Count > BoardModel.Palette.Count) { <span class="lg more">+@(legend.Count - BoardModel.Palette.Count) more</span> }
                         </div>
                     }
                 </div>

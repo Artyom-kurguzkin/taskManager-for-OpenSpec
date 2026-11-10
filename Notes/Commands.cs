@@ -11,11 +11,11 @@ internal static class Commands
 {
     private const string NotFound = "That note no longer exists";
 
-    internal static (bool Success, string Message, int Id) Create(int workItemId, string by)
+    internal static (bool Success, string Message, int Id) Create(int workItemId, string by, DateTime created)
     {
         if (WorkItemsApi.Get(workItemId) is not WorkItem wi) return (false, "That work item no longer exists", 0);
         int id = OpenSpecStoreApi.Allocate("note", roots => roots.Max(r => Queries.MaxNoteIdUnder(r)));
-        NoteMeta meta = new() { Id = id, By = by, Created = DateTime.Now.ToString("s", CultureInfo.InvariantCulture), Title = "New note" };
+        NoteMeta meta = new() { Id = id, By = by, Created = created.ToString("s", CultureInfo.InvariantCulture), Title = "New note" };
         string file = Path.Combine(wi.Path, "notes", $"n{id}.md");
         (bool ok, string message) = OpenSpecStoreApi.WriteText(file, NoteFile.Compose(meta, ""));
         return ok ? (true, "", id) : (false, message, 0);
@@ -29,12 +29,47 @@ internal static class Commands
         return OpenSpecStoreApi.WriteText(note.Path, front + body.Replace("\r\n", "\n"));
     }
 
+    private const string Promoted = "(created subtask)";
+    private static readonly System.Text.RegularExpressions.Regex Unticked = new(@"^\s*[-*]\s+\[ \]\s+(?<text>\S.*?)\s*$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Every unticked checkbox line of the note (outside code fences, not yet marked) becomes a subtask of its work item, and the line stays in the
+    /// note with " (created subtask)" after it. The note is written once, and only when something was made.
+    /// </summary>
+    internal static (bool Success, string Message, IReadOnlyList<string> Created) PromoteSubtasks(int id)
+    {
+        if (NotesApi.Get(id) is not Note note) return (false, NotFound, []);
+        string[] lines = note.Body.Split('\n');
+        List<string> created = [];
+        string failure = "";
+        bool fenced = false;
+        for (int i = 0; i < lines.Length && failure.Length == 0; i++)
+        {
+            string trimmed = lines[i].TrimStart();
+            if (trimmed.StartsWith("```") || trimmed.StartsWith("~~~")) { fenced = !fenced; continue; }
+            if (fenced || lines[i].TrimEnd().EndsWith(Promoted, StringComparison.Ordinal)) continue;
+            if (Unticked.Match(lines[i].TrimEnd('\r')) is not { Success: true } m) continue;
+            HashSet<string> had = [.. WorkItemsApi.Get(note.WorkItemId)?.Subtasks.Select(s => s.Number) ?? []];
+            (bool ok, string message) = WorkItemsApi.AddSubtask(note.WorkItemId, m.Groups["text"].Value);
+            if (!ok) { failure = message; break; }
+            if (WorkItemsApi.Get(note.WorkItemId)?.Subtasks.LastOrDefault(s => !had.Contains(s.Number)) is Subtask added) created.Add(added.Number);
+            lines[i] = lines[i].TrimEnd() + " " + Promoted + (lines[i].EndsWith('\r') ? "\r" : "");
+        }
+        if (created.Count > 0)
+        {
+            (bool saved, string message) = SaveBody(id, string.Join('\n', lines));
+            if (!saved) return (false, message, created);
+        }
+        return failure.Length == 0 ? (true, "", created) : (false, failure, created);
+    }
+
     internal static (bool Success, string Message) AddManualLink(int id, string link)
     {
         if (string.IsNullOrWhiteSpace(link)) return (false, "Type the link first");
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
         (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
         NoteMeta meta = NoteFile.Meta(front);
+        if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");   // never written over
         meta.Id = id;
         (meta.Links ??= []).Add(link.Trim());
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
@@ -46,6 +81,7 @@ internal static class Commands
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
         (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
         NoteMeta meta = NoteFile.Meta(front);
+        if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");   // never written over
         meta.Id = id;
         DateTime at = DateTime.Now;   // after what it reviews, even when the agent's clock was ahead
         if (DateTime.TryParse(meta.AgentAt, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime a) && a >= at) at = a.AddSeconds(1);
@@ -91,6 +127,7 @@ internal static class Commands
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
         (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
         NoteMeta meta = NoteFile.Meta(front);
+        if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");   // never written over
         meta.Id = id;
         meta.Title = title;
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
@@ -142,6 +179,7 @@ internal static class Commands
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
         (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
         NoteMeta meta = NoteFile.Meta(front);
+        if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");   // never written over
         meta.Id = id;
         if (meta.Attachments?.Remove(entry) != true) return (false, "That attachment is already gone");
         (bool ok, string message) = OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
@@ -155,6 +193,7 @@ internal static class Commands
     {
         (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
         NoteMeta meta = NoteFile.Meta(front);
+        if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");   // never written over
         meta.Id = note.Id;
         (meta.Attachments ??= []).Add(entry);
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
@@ -177,6 +216,7 @@ internal static class Commands
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
         (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
         NoteMeta meta = NoteFile.Meta(front);
+        if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");   // never written over
         meta.Id = id;
         meta.Commits = hashes.Distinct().ToList();
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
@@ -187,6 +227,7 @@ internal static class Commands
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
         (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
         NoteMeta meta = NoteFile.Meta(front);
+        if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");   // never written over
         meta.Id = id;
         meta.AgentBy = agent;
         meta.AgentAt = DateTime.Now.ToString("s", CultureInfo.InvariantCulture);

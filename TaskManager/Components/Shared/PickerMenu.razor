@@ -1,7 +1,7 @@
 @typeparam TItem
 @* A "+ …" button that opens a list with a filter box; picking an entry closes it. Used wherever something existing is linked:
    a contributor, a commit, a test, another work item. With OnTyped, text that matches nothing is offered as a new entry. *@
-<Menu Label="@Label" Class="@Class">
+<Menu Label="@Label" Class="@Class" OpenAtOnce="OpenAtOnce" OnClosed="OnClosed">
     <Activator><button type="button" class="@ButtonClass" data-sk="@(Boxed ? "" : null)" aria-label="@Label">@ButtonText</button></Activator>
     <Items>
         <input class="menu-filter" placeholder="@Placeholder" aria-label="@Placeholder" @bind="filter" @bind:event="oninput" @onkeydown="OnKey" />
@@ -24,6 +24,10 @@
     [Parameter] public bool Boxed { get; set; }
     [Parameter] public string Placeholder { get; set; } = "Filter…";
     [Parameter] public string Class { get; set; } = "";
+    /// <summary>Shows the list at once, without a click on the button (the worklog opens it from a menu item).</summary>
+    [Parameter] public bool OpenAtOnce { get; set; }
+    /// <summary>Fired when the list closes, whether an entry was picked or not.</summary>
+    [Parameter] public EventCallback OnClosed { get; set; }
     [Parameter, EditorRequired] public IEnumerable<TItem> Items { get; set; } = [];
     /// <summary>The fields the filter text is matched against.</summary>
     [Parameter, EditorRequired] public Func<TItem, string[]> Text { get; set; } = _ => [];

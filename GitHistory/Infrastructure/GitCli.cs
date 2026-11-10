@@ -14,6 +14,7 @@ internal static class GitCli
             WorkingDirectory = root, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
         };
         foreach (string a in args) psi.ArgumentList.Add(a);
+        Interlocked.Increment(ref GitHistoryModule.Processes);
         try
         {
             using Process p = Process.Start(psi)!;

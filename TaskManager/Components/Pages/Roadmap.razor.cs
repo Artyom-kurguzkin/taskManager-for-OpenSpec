@@ -27,7 +27,7 @@ public partial class Roadmap
     private RoadmapWindow Window => RoadmapModel.Window(anchor, zoom);
     private int Cw => zoom == "quarter" ? 44 : 26;   // column width in px
     private IReadOnlyList<RoadmapGroup> Groups => RoadmapModel.Groups(Projects, Multi);
-    private string Colour(WorkItem it) => BoardModel.ColourOf(it, ColorBy);
+    private string Colour(RoadmapRow r) => BoardModel.ColourOf(r.Item, ColorBy, null, Projects.FirstOrDefault(p => p.Root == r.Root)?.Colours);
 
     private string RangeLabel
     {

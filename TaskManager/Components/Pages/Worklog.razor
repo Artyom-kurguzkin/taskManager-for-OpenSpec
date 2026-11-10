@@ -1,0 +1,634 @@
+@using System.Globalization
+@using GitHistory
+@using GitHistory.PublicDTOs
+@using LinkedTestRuns
+@using LinkedTestRuns.PublicDTOs
+@using Notes
+@using Notes.PublicDTOs
+@using WorkItems
+@using WorkItems.PublicDTOs
+@inherits RepoPage
+@inject IServiceProvider Services
+@inject IJSRuntime Js
+
+@* The item's worklog: a feed of what happened, by day, newest first. A day header folds the day; Shift-click on it adds to the day (a note, a
+   linked document, test or commit). Entries are the item's notes, what the app logged about it (status changes, links, subtasks, waits) and the
+   commits that mention it; links made before the log existed show at their commit time or under "Linked earlier". Shift-click on a note edits it
+   in place; on a link it unlinks it. A plain click on an entry does nothing, so text can be selected and links in it work. *@
+<div class="worklog">
+    @foreach (Day day in days)
+    {
+        bool open = !folded.Contains(day.Date);
+        <section class="wk-day @(day.Date == Today ? "today" : null)" data-day="@day.Date.ToString("yyyy-MM-dd")">
+            <Menu @ref="dayMenus[day.Date]" Label="@($"Add to {DayLabel(day.Date)}")" Class="wk-day-menu" ShiftClick>
+                <Activator>
+                    <div class="wk-date hov" data-sk role="button" tabindex="0" aria-expanded="@(open ? "true" : "false")" title="Click to fold · Shift-click to add an entry"
+                         @onclick="e => ToggleDay(day.Date, e)" @onkeydown="e => DayKey(e, day.Date)">
+                        <span class="chev" aria-hidden="true">@(open ? "▾" : "▸")</span><span class="wk-date-t">@DayLabel(day.Date)</span>
+                    </div>
+                </Activator>
+                <Items>
+                    <MenuItem OnClick="() => AddNote(day.Date)">Add note</MenuItem>
+                    <MenuItem OnClick="LinkDocument">Link document</MenuItem>
+                    @if (run.File is null) { <button type="button" role="menuitem" class="menu-item" disabled title="No test results file configured">Link test</button> }
+                    else { <MenuItem OnClick="() => OpenPicker(day.Date, TestPicker)">Link test</MenuItem> }
+                    @if (!IsRepository) { <button type="button" role="menuitem" class="menu-item" disabled title="Not a git repository">Link commit</button> }
+                    else { <MenuItem OnClick="() => OpenPicker(day.Date, CommitPicker)">Link commit</MenuItem> }
+                    <MenuItem OnClick="() => OpenSubtaskInput(day.Date)">Add subtask</MenuItem>
+                </Items>
+            </Menu>
+            @if (open)
+            {
+                <div class="wk-list">
+                    @if (day.Rows.Count == 0) { <p class="muted wk-empty">Nothing yet today. Shift-click the date to add an entry.</p> }
+                    @foreach (Row r in day.Rows) { @Entry(r) }
+                    @if (subtaskDay == day.Date)
+                    {
+                        @* one line to type a subtask in: Enter adds it and keeps the line for the next one, Esc or leaving it takes it down *@
+                        <div class="wk-add-subtask">
+                            <input @ref="subtaskBox" @bind="subtaskText" @bind:event="oninput" placeholder="Subtask… Enter adds it, Esc closes" aria-label="New subtask"
+                                   @onkeydown="SubtaskKey" @onfocusout="CloseSubtaskInput" />
+                        </div>
+                    }
+                    @if (picker is { } pick && pick.Day == day.Date)
+                    {
+                        @* the list of commits or tests, open at once next to its button; picking or clicking away takes it down *@
+                        <div class="wk-pick">
+                            @if (pick.Kind == CommitPicker)
+                            {
+                                <PickerMenu TItem="CommitInfo" Label="Link a commit" ButtonText="Link a commit…" ButtonClass="add" OpenAtOnce OnClosed="ClosePicker" Placeholder="Filter commits…"
+                                            Items="CommitChoices" Text="c => [c.Hash, c.Subject, c.Author]" OnPick="LinkCommit">
+                                    <ItemTemplate Context="c"><span class="mono">@c.Hash</span> @c.Subject <span class="muted">· @c.Author</span></ItemTemplate>
+                                </PickerMenu>
+                            }
+                            else
+                            {
+                                <PickerMenu TItem="TestResult" Label="Link a test" ButtonText="Link a test…" ButtonClass="add" OpenAtOnce OnClosed="ClosePicker" Placeholder="Filter tests…"
+                                            Items="TestChoices" Text="r => [r.Suite, r.Test]" OnPick="LinkTest">
+                                    <ItemTemplate Context="r"><span class="muted">@r.Suite /</span> @r.Test</ItemTemplate>
+                                </PickerMenu>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+    }
+    @if (earlier.Count > 0)
+    {
+        <section class="wk-day wk-earlier">
+            <h3 class="wk-earlier-h">Linked earlier</h3>
+            <div class="wk-list">
+                @foreach (Row r in earlier) { @Entry(r) }
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    /// <summary>The work item whose entries are shown.</summary>
+    [Parameter, EditorRequired] public WorkItem Item { get; set; } = default!;
+    /// <summary>The repository the item lives in (images in the entries are read from it).</summary>
+    [Parameter] public string? Root { get; set; }
+    /// <summary>Fired after this worklog changed the item (an entry added, a link made or removed, a note saved); the page reloads the item.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private const string CommitPicker = "commit", TestPicker = "test";
+
+    /// <summary>One entry of the feed. Kind: note, commit, mention, test, doc, or the kind of a logged event (status, commit-linked, …).</summary>
+    private sealed class Row
+    {
+        public required string Key, Kind;
+        public DateTime? At;
+        public int Order;
+        public string By = "", Text = "";
+        public Note? Note;
+        public MarkupString? Html;   // a note's text as HTML, converted once per Load
+        public CommitInfo? Commit;
+        public int Mention;
+        public string? Unlink;       // "commit:abc1234", "test:Suite / Test" or "doc:path" when a Shift-click may unlink it
+        public bool Linked;          // a link event whose link still stands
+        public string? MenuLabel => Note is not null ? "Edit" : Unlink is not null ? "Unlink" : null;
+    }
+
+    private sealed record Day(DateTime Date, List<Row> Rows);
+
+    private static DateTime Today => DateTime.Today;
+    private WorkItem item = default!;
+    private IReadOnlyList<Note> notes = [];
+    private List<Day> days = [];
+    private List<Row> earlier = [];
+    private readonly HashSet<DateTime> folded = [];
+    private readonly Dictionary<DateTime, Menu?> dayMenus = [];
+    private readonly Dictionary<string, Menu?> entryMenus = [];
+    private (DateTime Day, string Kind)? picker;
+
+    // What the markup needs besides the rows is read once per Load, when first asked for (null until then): never once per render.
+    private TestRun? latestRun;
+    private TestRun run => latestRun ??= LinkedTestRunsApi.Latest();
+    private bool? isRepository;
+    private bool IsRepository => isRepository ??= GitHistoryApi.IsRepository();
+    private IReadOnlyList<CommitInfo>? commitChoices;
+    private IReadOnlyList<TestResult>? testChoices;
+    private readonly Dictionary<string, string?> imageNow = [];   // entry → data URL, as the file is at this Load
+    private readonly Dictionary<int, string> dependencyTitle = [];
+
+    /// <summary>The worklog reads again when it shows another item; a re-render of the page it sits in is not a reason.</summary>
+    protected override object? LoadKey => (Item.Id, Root);
+
+    protected override void Load()
+    {
+        (latestRun, isRepository, commitChoices, testChoices) = (null, null, null, null);
+        imageNow.Clear();
+        dependencyTitle.Clear();
+        item = WorkItemsApi.Get(Item.Id) ?? Item;
+        notes = NotesApi.GetForWorkItem(item.Id);
+        if (editId is int editing && notes.All(n => n.Id != editing)) editId = null;   // the note is gone
+        (days, earlier) = Build();
+    }
+
+    // ── The feed ──
+
+    private (List<Day> Days, List<Row> Earlier) Build()
+    {
+        List<Row> rows = [], old = [];
+        int order = 0;
+        IReadOnlyList<string> commits = item.Commits ?? [];
+        IReadOnlyList<TestLink> tests = item.Tests ?? [];
+        IReadOnlyList<string> docs = item.Docs ?? [];
+        IReadOnlyList<WorkItemEvent> events = WorkItemsApi.GetEvents(item.Id);
+
+        // the last link event of each target is the one that stands (it gets the Unlink menu and the test's outcome)
+        Dictionary<string, int> lastLinked = [];
+        for (int i = 0; i < events.Count; i++) if (events[i].Kind.EndsWith("-linked")) lastLinked[events[i].Kind + ":" + events[i].Text] = i;
+        for (int i = 0; i < events.Count; i++)
+        {
+            WorkItemEvent e = events[i];
+            Row r = new() { Key = $"e{i}", Kind = e.Kind, At = e.At, By = e.By, Text = e.Text, Order = order++ };
+            string? what = e.Kind switch
+            {
+                "commit-linked" when commits.Any(h => SameHash(h, e.Text)) => "commit",
+                "test-linked" when tests.Any(t => TestKey(t) == e.Text) => "test",
+                "doc-linked" when docs.Any(d => d.Equals(e.Text, StringComparison.OrdinalIgnoreCase)) => "doc",
+                _ => null,
+            };
+            if (what is not null && lastLinked.GetValueOrDefault(e.Kind + ":" + e.Text) == i) { r.Linked = true; r.Unlink = $"{what}:{e.Text}"; }
+            rows.Add(r);
+        }
+        foreach (Note n in notes)
+            rows.Add(new Row { Key = $"n{n.Id}", Kind = "note", At = n.Created, By = n.By, Note = n, Order = order++, Html = BodyOf(n) is { Length: > 0 } body ? Ui.Markdown(body, Root ?? Workspace.Root) : null });
+        foreach (WorkItemEvent e in events.Where(e => e.Kind.StartsWith("dependency-")))   // "waits on #wi12 · its title"
+            if (e.Text.StartsWith("#wi") && int.TryParse(e.Text[3..], out int dep) && WorkItemsApi.Get(dep) is WorkItem w) dependencyTitle[dep] = w.Title;
+
+        // commits: the ones picked by hand plus the ones that mention the item (or an item merged into it), each at its commit time
+        bool Logged(string hash) => events.Any(e => e.Kind == "commit-linked" && SameHash(e.Text, hash));
+        List<(CommitInfo Commit, int Mention)> mentioning = [.. (item.MergedFrom ?? []).Prepend(item.Id).SelectMany(n => Mentioning(n).Select(c => (c, n)))];
+        // one git call for every commit the feed names: the picked ones and the ones its link events mention (their subjects)
+        known = GitHistoryApi.Commits([.. commits.Concat(events.Where(e => e.Kind is "commit-linked" or "commit-unlinked").Select(e => e.Text)).Distinct()]);
+        IReadOnlyList<CommitInfo> picked = [.. known.Where(c => commits.Any(h => SameHash(h, c.Hash)))];
+        foreach (CommitInfo c in picked.Concat(mentioning.Select(m => m.Commit)).DistinctBy(c => c.Hash))
+        {
+            bool linked = commits.Any(h => SameHash(h, c.Hash));
+            if (linked && Logged(c.Hash)) continue;   // its link event shows it
+            DateTime at = c.Date.Kind == DateTimeKind.Utc ? c.Date.ToLocalTime() : c.Date;
+            rows.Add(new Row
+            {
+                Key = (linked ? "c" : "m") + c.Hash, Kind = linked ? "commit" : "mention", At = at, By = c.Author, Commit = c, Order = order++,
+                Mention = mentioning.FirstOrDefault(m => m.Commit.Hash == c.Hash).Mention, Unlink = linked ? $"commit:{c.Hash}" : null,
+            });
+        }
+        // links that no event names (made before the log existed): a commit git does not know, tests and documents have no time
+        foreach (string h in commits.Where(h => !Logged(h) && !picked.Any(c => SameHash(c.Hash, h))))
+            old.Add(new Row { Key = "c" + h, Kind = "commit", Text = h, Unlink = $"commit:{h}", Order = order++ });
+        foreach (TestLink t in tests.Where(t => !events.Any(e => e.Kind == "test-linked" && e.Text == TestKey(t))))
+            old.Add(new Row { Key = "t" + TestKey(t), Kind = "test", Text = TestKey(t), Unlink = $"test:{TestKey(t)}", Linked = true, Order = order++ });
+        foreach (string d in docs.Where(d => !events.Any(e => e.Kind == "doc-linked" && e.Text.Equals(d, StringComparison.OrdinalIgnoreCase))))
+            old.Add(new Row { Key = "d" + d, Kind = "doc", Text = d, Unlink = $"doc:{d}", Linked = true, Order = order++ });
+
+        List<Day> built = rows.GroupBy(r => r.At!.Value.Date)
+            .Select(g => new Day(g.Key, [.. g.OrderByDescending(r => r.At).ThenByDescending(r => r.Order)])).ToList();
+        if (built.All(d => d.Date != Today)) built.Add(new Day(Today, []));   // today is always there, to add to
+        return ([.. built.OrderByDescending(d => d.Date)], old);
+    }
+
+    private static bool SameHash(string a, string b) => a.Length > 0 && b.Length > 0 && (a.StartsWith(b, StringComparison.OrdinalIgnoreCase) || b.StartsWith(a, StringComparison.OrdinalIgnoreCase));
+    private static string TestKey(TestLink t) => $"{t.Suite} / {t.Test}";
+
+    private static string DayLabel(DateTime d) =>
+        d == Today ? $"Today · {d.ToString("d MMM", CultureInfo.InvariantCulture)}" : d.ToString("d MMM yyyy", CultureInfo.InvariantCulture);
+
+    private void ToggleDay(DateTime day, MouseEventArgs e)
+    {
+        if (e.ShiftKey) return;   // Shift-click opens the day's menu instead
+        if (!folded.Remove(day)) folded.Add(day);
+    }
+
+    private void DayKey(KeyboardEventArgs e, DateTime day)
+    {
+        if (e.Key == "Enter" && e.ShiftKey) { if (dayMenus.GetValueOrDefault(day) is Menu m) m.Open(); }
+        else if (e.Key is "Enter" or " ") ToggleDay(day, new MouseEventArgs());
+    }
+
+    private void EntryKey(KeyboardEventArgs e, Row r)
+    {
+        if (e.Key == "Enter" && e.ShiftKey && entryMenus.GetValueOrDefault(r.Key) is Menu m) m.Open();
+    }
+
+    // ── Markup of the entries ──
+
+    private RenderFragment Entry(Row r) => @<text>
+        @if (r.Note is not null && r.Note.Id == editId) { @Editor(r.Note) }
+        else if (r.MenuLabel is string label)
+        {
+            <Menu @ref="entryMenus[r.Key]" Label="@label" Class="wk-menu" ShiftClick>
+                <Activator>@Line(r)</Activator>
+                <Items><MenuItem OnClick="() => Act(r)">@label</MenuItem></Items>
+            </Menu>
+        }
+        else { @Line(r) }
+    </text>;
+
+    private RenderFragment Line(Row r) => @<article class="wk-e @(r.Note is not null ? "wk-note" : r.Unlink is not null ? "wk-ev hov" : "wk-ev")" data-kind="@r.Kind" tabindex="0" data-sk="@(r.MenuLabel is null ? null : "")"
+                 title="@(r.Note is not null ? "Shift-click to edit" : r.Unlink is not null ? "Shift-click to unlink" : null)" @onkeydown="e => EntryKey(e, r)">
+        <span class="wk-mark" aria-hidden="true"></span>
+        <div class="wk-main">
+            @if (r.Note is Note n)
+            {
+                <div class="wk-line">
+                    <b class="wk-title">@n.Title</b>
+                    @if (n.AgentUnreviewed) { <AgentChip By="@n.AgentBy" At="n.AgentAt" OnReview="() => Review(n)" /> }
+                    @if (n.MergedFrom is int from) { <span class="muted wk-from">from #wi@(from)</span> }
+                </div>
+                @if (r.Html is MarkupString body) { <div class="desc wk-body">@body</div> }
+                @if (n.Attachments.Count > 0) { <div class="wk-atts">@Attachments(n)</div> }
+            }
+            else
+            {
+                <div class="wk-line">@What(r)</div>
+            }
+        </div>
+        <div class="wk-meta">
+            @if (r.By.Length > 0) { <span class="wk-by muted">@r.By</span> }
+            @if (r.At is DateTime at) { <time class="wk-time mono">@at.ToString("HH:mm")</time> }
+        </div>
+    </article>;
+
+    /// <summary>What an event line says, phrased for a person.</summary>
+    private RenderFragment What(Row r) => @<text>
+        @switch (r.Kind)
+        {
+            case "created": <span>created the item</span> break;
+            case "status": <span>status: @r.Text.Replace(" -> ", " → ")</span> break;
+            case "commit-linked": <span>linked a commit: @CommitText(r.Text)</span> break;
+            case "commit-unlinked": <span>unlinked a commit: <span class="mono">@r.Text</span></span> break;
+            case "test-linked": <span>linked a test: @r.Text @if (r.Linked) { @Dot(r.Text) }</span> break;
+            case "test-unlinked": <span>unlinked a test: @r.Text</span> break;
+            case "doc-linked": <span>linked a document: @DocLink(r.Text)</span> break;
+            case "doc-unlinked": <span>unlinked a document: @r.Text</span> break;
+            case "subtask-done": <span>ticked @SubtaskText(r.Text)</span> break;
+            case "subtask-reopened": <span>reopened @SubtaskText(r.Text)</span> break;
+            case "subtask-added": <span>added subtask @SubtaskText(r.Text)</span> break;
+            case "dependency-added": <span>waits on @Dependency(r.Text)</span> break;
+            case "dependency-removed": <span>no longer waits on @Dependency(r.Text)</span> break;
+            case "commit": <span>commit <span class="mono">@r.Commit!.Hash</span> @r.Commit.Subject</span> break;
+            case "mention": <span>mentions #wi@(r.Mention) <span class="mono">@r.Commit!.Hash</span> @r.Commit.Subject</span> break;
+            case "test": <span>test: @r.Text @Dot(r.Text)</span> break;
+            case "doc": <span>document: @DocLink(r.Text)</span> break;
+            default: <span>@r.Kind: @r.Text</span> break;
+        }
+    </text>;
+
+    /// <summary>A commit by its short hash, with its subject when git knows it.</summary>
+    private RenderFragment CommitText(string hash) => @<text><span class="mono">@hash</span>@(CommitOf(hash) is CommitInfo c ? " " + c.Subject : "")</text>;
+
+    private IReadOnlyList<CommitInfo> known = [];
+
+    private CommitInfo? CommitOf(string hash) => known.FirstOrDefault(c => SameHash(c.Hash, hash));
+
+    /// <summary>The commits that mention work item <paramref name="n"/>; kept while HEAD stays where it was, because each read is a git call and the feed reads on every change.</summary>
+    private IReadOnlyList<CommitInfo> Mentioning(int n)
+    {
+        string head = GitHistoryApi.HeadToken();
+        if (mentions.TryGetValue(n, out var hit) && hit.Head == head) return hit.Commits;
+        IReadOnlyList<CommitInfo> found = GitHistoryApi.Mentioning($"#wi{n}");
+        mentions[n] = (head, found);
+        return found;
+    }
+
+    private readonly Dictionary<int, (string Head, IReadOnlyList<CommitInfo> Commits)> mentions = [];
+
+    private static RenderFragment SubtaskText(string text) => @<text><span class="mono">@(text.Split(' ', 2)[0])</span> @(text.Contains(' ') ? text.Split(' ', 2)[1] : "")</text>;
+
+    private RenderFragment Dependency(string text) => @<text>
+        @if (text.StartsWith("#wi") && int.TryParse(text[3..], out int dep))
+        {
+            <a class="wl" href="item/@dep">@text</a>@(dependencyTitle.TryGetValue(dep, out string? title) ? $" · {title}" : "")
+        }
+        else { @text }
+    </text>;
+
+    private RenderFragment DocLink(string path) => @<text>
+        @if (path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) { <a class="wl" href="doc/@path">@path</a> }
+        else { <button type="button" class="wk-file" @onclick="() => OpenFile(path)">@path</button> }
+    </text>;
+
+    /// <summary>A linked test's outcome in the newest results file, as a dot: passed, failed, skipped, or not in the results.</summary>
+    private RenderFragment Dot(string testKey) => @<text>
+        @{
+            string outcome = run.Results.FirstOrDefault(x => $"{x.Suite} / {x.Test}" == testKey)?.Outcome ?? "none";
+        }
+        <span class="wk-dot @outcome" role="img" aria-label="@(outcome == "none" ? "not in the results" : outcome)" title="@(outcome == "none" ? "Not in the results" : outcome)"></span>
+    </text>;
+
+    /// <summary>A note's text, without a first "# heading" that only repeats its title.</summary>
+    private static string BodyOf(Note n)
+    {
+        string body = n.Body.Trim();
+        if (!body.StartsWith("# ")) return body;
+        int eol = body.IndexOf('\n');
+        string heading = (eol < 0 ? body : body[..eol])[2..].Trim();
+        return heading == n.Title ? (eol < 0 ? "" : body[eol..].Trim()) : body;
+    }
+
+    private RenderFragment Attachments(Note n) => @<text>
+        @foreach (string a in n.Attachments)
+        {
+            if (IsUrl(a)) { <a class="att-link" href="@a" target="_blank" rel="noopener">@a</a> }
+            else if (IsImage(a) && ImageSrc(a) is string src) { <img class="att-img" src="@src" alt="@System.IO.Path.GetFileName(a)" /> }
+            else if (IsImage(a)) { <span class="muted">@System.IO.Path.GetFileName(a)</span> }
+            else { <button type="button" class="att-file" @onclick="() => OpenFile(a)">@System.IO.Path.GetFileName(a)</button> }
+        }
+    </text>;
+
+    // ── The note editor, in place ──
+
+    private int? editId;
+    private string editTitle = "", editBody = "";
+    private bool focusEditor, pasting;
+    private ElementReference editorWrap, editorBox;
+    private DotNetObjectReference<Worklog>? self;
+
+    private RenderFragment Editor(Note n) => @<div class="wk-e wk-note wk-edit" data-kind="note" @ref="editorWrap" @onfocusout="EditorFocusOut">
+        <span class="wk-mark" aria-hidden="true"></span>
+        <div class="wk-main">
+            <input class="wk-title-in" value="@editTitle" @oninput="SetEditTitle" aria-label="Note title" />
+            <textarea @ref="editorBox" class="desc-in" value="@editBody" @oninput="SetEditBody" aria-label="Note text" placeholder="Write in markdown. Paste an image to attach it."></textarea>
+            @if (n.Attachments.Count > 0) { <div class="wk-atts">@Attachments(n)</div> }
+        </div>
+    </div>;
+
+    private void SetEditTitle(ChangeEventArgs e) => editTitle = e.Value?.ToString() ?? "";
+    private void SetEditBody(ChangeEventArgs e) => editBody = e.Value?.ToString() ?? "";
+
+    private void StartEdit(Note n)
+    {
+        if (editId != n.Id) SaveEdit();   // another note being edited is saved first
+        editId = n.Id;
+        (editTitle, editBody) = (n.Title, n.Body);
+        focusEditor = true;
+    }
+
+    /// <summary>Leaving the editor with the focus (a click outside, Tab, Esc): while it stays inside the editor (title to text) nothing happens.</summary>
+    private async Task EditorFocusOut()
+    {
+        if (editId is null) return;
+        bool stays = false;
+        try { stays = await Js.InvokeAsync<bool>("rtm.focusStays", editorWrap); } catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException) { }
+        if (stays || editId is null) return;
+        await FinishEdit();
+    }
+
+    private async Task FinishEdit()
+    {
+        if (!SaveEdit()) return;
+        await OnChanged.InvokeAsync();
+    }
+
+    /// <summary>Saves the open editor and closes it: the text when it changed, the title when it changed and is not blank. False when there was nothing open.</summary>
+    private bool SaveEdit()
+    {
+        if (editId is not int id) return false;
+        editId = null;
+        if (notes.FirstOrDefault(n => n.Id == id) is Note n)
+        {
+            // the text first: the title rewrites the same file. The workspace is told once, after both.
+            bool saved = false;
+            if (editBody.Replace("\r\n", "\n") != n.Body) saved |= Write(NotesApi.SaveBody(id, editBody));
+            if (editTitle.Trim() is { Length: > 0 } title && title != n.Title) saved |= Write(NotesApi.SetTitle(id, title));
+            // then the checkboxes in it: each unticked one becomes a subtask (and the feed gets its "added subtask" event)
+            (bool promoted, string why, IReadOnlyList<string> made) = NotesApi.PromoteSubtasks(id);
+            if (!promoted) Popups.Toast(why, ToastKind.Warning);
+            if (made.Count > 0)
+            {
+                saved = true;
+                Popups.Toast($"Created {made.Count} subtask{(made.Count == 1 ? "" : "s")} from the note", ToastKind.Info);
+            }
+            if (saved) Run((true, ""));
+        }
+        return true;
+    }
+
+    /// <summary>A write whose failure is a toast; its success is announced by the caller (one notice for several writes).</summary>
+    private bool Write((bool Success, string Message) result)
+    {
+        if (!result.Success) Popups.Toast(result.Message, ToastKind.Warning);
+        return result.Success;
+    }
+
+    /// <summary>Called by rtm.pasteImages with a clipboard image: it becomes an attachment of the note being edited, as on the note page.</summary>
+    [JSInvokable]
+    public void PastedImage(string name, string base64)
+    {
+        if (editId is not int id) return;
+        try { Run(NotesApi.AttachBytes(id, name, Convert.FromBase64String(base64))); }
+        catch (FormatException) { Popups.Toast("That image could not be read", ToastKind.Warning); }
+        InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            if (editId is not null && !pasting)
+            {
+                pasting = true;
+                await Js.InvokeVoidAsync("rtm.pasteImages", self ??= DotNetObjectReference.Create(this));
+            }
+            else if (editId is null && pasting)
+            {
+                pasting = false;
+                await Js.InvokeVoidAsync("rtm.stopPasteImages");
+            }
+            if (focusSubtask && subtaskDay is not null)
+            {
+                focusSubtask = false;
+                await subtaskBox.FocusAsync();
+            }
+            if (focusEditor && editId is not null)
+            {
+                focusEditor = false;
+                await editorBox.FocusAsync();
+            }
+        }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException) { }
+    }
+
+    // ── Menus and links ──
+
+    private async Task Act(Row r)
+    {
+        if (r.Note is Note n) { StartEdit(n); return; }
+        if (r.Unlink is string spec) await Unlink(spec);
+    }
+
+    private async Task AddNote(DateTime day)
+    {
+        DateTime created = day == Today ? DateTime.Now : day.Add(DateTime.Now.TimeOfDay);   // an older day gets the time of day it is now
+        (bool ok, string message, int id) = NotesApi.Create(item.Id, Workspace.Me, created);
+        if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
+        Workspace.Notify();   // every page (this one too) reads again
+        folded.Remove(day);
+        if (NotesApi.Get(id) is Note note) StartEdit(note);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task LinkDocument()
+    {
+        string? root = Root ?? Workspace.Root;
+        string? path;
+        if (Services.GetService(typeof(FilePicker)) is FilePicker choose)
+        {
+            if (choose("Link a document") is not string chosen) return;
+            string rel = root is null ? ".." : System.IO.Path.GetRelativePath(root, System.IO.Path.GetFullPath(chosen));
+            if (rel == ".." || rel.StartsWith("../") || rel.StartsWith("..\\") || System.IO.Path.IsPathRooted(rel))
+            {
+                Popups.Toast("That file is outside the repository, so it can't be linked", ToastKind.Warning);
+                return;
+            }
+            path = rel.Replace('\\', '/');
+        }
+        else path = await Popups.Prompt("Link a document", "path inside the repository, e.g. docs/guide.md", "Link");
+        if (string.IsNullOrWhiteSpace(path)) return;
+        await Linked(WorkItemsApi.SetLinkedDocs(item.Id, [.. item.Docs ?? [], path.Trim()]));
+    }
+
+    private void OpenPicker(DateTime day, string kind)
+    {
+        folded.Remove(day);
+        picker = (day, kind);
+    }
+
+    private void ClosePicker() => picker = null;
+
+    private DateTime? subtaskDay;
+    private string subtaskText = "";
+    private bool focusSubtask;    private ElementReference subtaskBox;
+
+    private void OpenSubtaskInput(DateTime day)
+    {
+        folded.Remove(day);
+        (subtaskDay, subtaskText, focusSubtask) = (day, "", true);
+    }
+
+    private void CloseSubtaskInput() => (subtaskDay, subtaskText) = (null, "");
+
+    private async Task SubtaskKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") { CloseSubtaskInput(); return; }
+        if (e.Key != "Enter" || string.IsNullOrWhiteSpace(subtaskText)) return;
+        string text = subtaskText;
+        (subtaskText, focusSubtask) = ("", true);   // the line stays for the next one
+        if (!Run(WorkItemsApi.AddSubtask(item.Id, text))) { subtaskText = text; return; }
+        await OnChanged.InvokeAsync();
+    }
+
+    // Read when a picker opens (and kept until the next Load), not on every render while it is open.
+    private IReadOnlyList<CommitInfo> CommitChoices => commitChoices ??= [.. GitHistoryApi.Recent(50).Where(c => !(item.Commits ?? []).Any(h => SameHash(h, c.Hash)))];
+
+    private IReadOnlyList<TestResult> TestChoices => testChoices ??= [.. run.Results
+        .Where(r => !(item.Tests ?? []).Any(t => t.Suite == r.Suite && t.Test == r.Test))
+        .OrderBy(r => r.Suite, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Test, StringComparer.OrdinalIgnoreCase)];
+
+    private Task LinkCommit(CommitInfo c) => Linked(WorkItemsApi.SetLinkedCommits(item.Id, [.. item.Commits ?? [], c.Hash]));
+
+    private Task LinkTest(TestResult r) => Linked(WorkItemsApi.SetLinkedTests(item.Id, [.. item.Tests ?? [], new TestLink(r.Suite, r.Test, null)]));
+
+    private Task Unlink(string spec)
+    {
+        int cut = spec.IndexOf(':');
+        string kind = spec[..cut], key = spec[(cut + 1)..];
+        return Linked(kind switch
+        {
+            "commit" => WorkItemsApi.SetLinkedCommits(item.Id, (item.Commits ?? []).Where(h => !SameHash(h, key))),
+            "test" => WorkItemsApi.SetLinkedTests(item.Id, (item.Tests ?? []).Where(t => TestKey(t) != key)),
+            _ => WorkItemsApi.SetLinkedDocs(item.Id, (item.Docs ?? []).Where(d => !d.Equals(key, StringComparison.OrdinalIgnoreCase))),
+        });
+    }
+
+    /// <summary>After a link command: its failure is a toast, its success is read again and told to the page.</summary>
+    private async Task Linked((bool Success, string Message) result)
+    {
+        if (!Run(result)) return;
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task Review(Note n)
+    {
+        if (!Run(NotesApi.MarkReviewed(n.Id))) return;
+        await OnChanged.InvokeAsync();
+    }
+
+    // ── Files ──
+
+    private static bool IsUrl(string a) => a.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || a.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly Dictionary<string, string> ImageTypes = new(StringComparer.OrdinalIgnoreCase)
+    { [".png"] = "image/png", [".jpg"] = "image/jpeg", [".jpeg"] = "image/jpeg", [".gif"] = "image/gif", [".webp"] = "image/webp", [".svg"] = "image/svg+xml" };
+
+    private static bool IsImage(string a) => ImageTypes.ContainsKey(System.IO.Path.GetExtension(a));
+
+    private string? FullPath(string entry) =>
+        (Root ?? Workspace.Root) is string root && !entry.Contains("..") ? System.IO.Path.Combine(root, entry.Replace('/', System.IO.Path.DirectorySeparatorChar)) : null;
+
+    private readonly Dictionary<string, (DateTime Stamp, string Src)> images = [];
+
+    /// <summary>The image as a data URL (kept while the file is unchanged, so typing in the editor does not read it again), or null when its file is missing.</summary>
+    private string? ImageSrc(string entry)
+    {
+        if (imageNow.TryGetValue(entry, out string? have)) return have;   // looked at once per Load, not on every render
+        return imageNow[entry] = ReadImage(entry);
+    }
+
+    private string? ReadImage(string entry)
+    {
+        if (FullPath(entry) is not string p || !System.IO.File.Exists(p)) return null;
+        DateTime stamp = System.IO.File.GetLastWriteTimeUtc(p);
+        if (images.TryGetValue(p, out var hit) && hit.Stamp == stamp) return hit.Src;
+        string src = $"data:{ImageTypes[System.IO.Path.GetExtension(entry)]};base64,{Convert.ToBase64String(System.IO.File.ReadAllBytes(p))}";
+        images[p] = (stamp, src);
+        return src;
+    }
+
+    /// <summary>Opens a file of the repository with the program the system has for it, as the Related list does.</summary>
+    private void OpenFile(string entry)
+    {
+        if (FullPath(entry) is not string file || !System.IO.File.Exists(file)) { Popups.Toast("That file is no longer there", ToastKind.Warning); return; }
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file) { UseShellExecute = true }); }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { Popups.Toast(e.Message, ToastKind.Warning); }
+    }
+
+    public override void Dispose()
+    {
+        base.Dispose();
+        SaveEdit();   // leaving the view with the editor open keeps what was typed
+        if (self is null) return;
+        if (pasting) _ = StopPaste();
+        self.Dispose();
+    }
+
+    private async Task StopPaste()
+    {
+        try { await Js.InvokeVoidAsync("rtm.stopPasteImages"); }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException or TaskCanceledException) { }
+    }
+}

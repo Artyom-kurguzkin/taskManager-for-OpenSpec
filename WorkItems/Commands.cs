@@ -16,7 +16,9 @@ internal static partial class Commands
     {
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
         string yaml = Queries.Yaml(item.Path);
-        Rtm meta = Metadata.Read<Rtm>(yaml);
+        Rtm meta;
+        try { meta = Metadata.Read<Rtm>(yaml); }
+        catch (MetadataException e) { return (false, item.Warning ?? e.Message); }   // a yaml that does not parse is never written over: it is the user's to fix
         meta.Id ??= item.Id;
         change(meta);
         (bool ok, string message) = Metadata.Write(yaml, meta);
@@ -50,6 +52,60 @@ internal static partial class Commands
 
     private static string Today() => DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
 
+    /// <summary>Who an event is recorded as: the configured actor, trimmed, else "someone".</summary>
+    private static string Actor()
+    {
+        try { return WorkItemsModule.Actor?.Invoke()?.Trim() is { Length: > 0 } name ? name : "someone"; }
+        catch (Exception) { return "someone"; }   // a host callback must not fail a command
+    }
+
+    /// <summary>Records events in the item's change folder after a command succeeded. A log that can't be written never changes the command's result.</summary>
+    private static void Log(int id, params (string Kind, string Text)[] events)
+    {
+        if (events.Length > 0 && Queries.PathOf(id) is string path) EventLog.Append(path, Actor(), events);
+    }
+
+    /// <summary>One event per entry that is in <paramref name="after"/> but not <paramref name="before"/> (linked), and per entry the other way round (unlinked).</summary>
+    private static (string Kind, string Text)[] Diff(string noun, IEnumerable<string> before, IEnumerable<string> after, string addedKind = "linked", string removedKind = "unlinked") =>
+        [.. before.Except(after).Select(t => ($"{noun}-{removedKind}", t)), .. after.Except(before).Select(t => ($"{noun}-{addedKind}", t))];
+
+    internal static (bool Success, string Message) LogEvent(int id, string kind, string text)
+    {
+        if (string.IsNullOrWhiteSpace(kind)) return (false, "An event needs a kind");
+        if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
+        return EventLog.Append(item.Path, Actor(), [(kind.Trim(), text ?? "")]);
+    }
+
+    internal static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes)
+    {
+        List<string> now = hashes.Distinct().ToList(), before = [];
+        (bool ok, string message) = Update(id, m => { before = m.Commits ?? []; m.Commits = now; });
+        if (ok) Log(id, Diff("commit", before, now));
+        return (ok, message);
+    }
+
+    internal static (bool Success, string Message) SetLinkedTests(int id, IEnumerable<TestLink> tests)
+    {
+        List<RtmTest> now = tests.Distinct().Select(t => new RtmTest { Suite = t.Suite, Test = t.Test, Note = t.Note }).ToList();
+        List<string> before = [];
+        (bool ok, string message) = Update(id, m => { before = (m.Tests ?? []).Select(TestName).ToList(); m.Tests = now; });
+        if (ok) Log(id, Diff("test", before, now.Select(TestName).Distinct().ToList()));
+        return (ok, message);
+    }
+
+    private static string TestName(RtmTest t) => $"{t.Suite} / {t.Test}";
+
+    internal static (bool Success, string Message) SetLinkedDocs(int id, IEnumerable<string> paths)
+    {
+        List<string> now = paths.Select(p => (p ?? "").Replace('\\', '/').Trim()).Where(p => p.Length > 0).Distinct().ToList();
+        if (now.FirstOrDefault(p => Path.IsPathRooted(p) || p.StartsWith('/') || (p.Length > 1 && p[1] == ':') || p.Split('/').Contains("..")) is string bad)
+            return (false, $"A document is a path inside the repository, like docs/guide.md (not \"{bad}\")");
+        List<string> before = [];
+        (bool ok, string message) = Update(id, m => { before = m.Docs ?? []; m.Docs = now; });
+        if (ok) Log(id, Diff("doc", before, now));
+        return (ok, message);
+    }
+
     internal static (bool Success, string Message) SetStatus(int id, string status)
     {
         if (!WorkItemsApi.Statuses.Contains(status)) return (false, $"Unknown status \"{status}\"");
@@ -58,7 +114,11 @@ internal static partial class Commands
         if (status != "Blocked" && (item.DependsOn ?? []).Select(Queries.Get).OfType<WorkItem>().FirstOrDefault(d => !WorkItemsApi.IsResolved(d)) is WorkItem dep)
             return (false, $"Waiting on #wi{dep.Id} \"{dep.Title}\" — can't change status until it's resolved");
         if (status != "Completed")   // the first move to In Progress stamps the start day; a day already there is kept
-            return Update(id, m => { m.Status = status; if (item.Status != status) m.Moved = Today(); if (status == "In Progress") m.Started ??= DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd"); });
+        {
+            (bool changed, string reason) = Update(id, m => { m.Status = status; if (item.Status != status) m.Moved = Today(); if (status == "In Progress") m.Started ??= DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd"); });
+            if (changed && item.Status != status) Log(id, ("status", $"{item.Status} -> {status}"));
+            return (changed, reason);
+        }
 
         // Completed = archived. Stamp the number first so the archived copy keeps it.
         (bool ok, string message) = Update(id, m => { if (item.Status != status) m.Moved = Today(); });
@@ -84,6 +144,7 @@ internal static partial class Commands
             if (archived && i == 2) NoteSpecsNotMerged(folder, first);
         }
         OpenSpecStoreApi.MarkOwnChange(item.Path);   // the CLI moved folders: invalidate cached reads
+        if (archived) Log(id, ("status", $"{item.Status} -> {status}"));   // into the archived folder, where the item lives now
         return archived ? (true, "") : (false, first);
     }
 
@@ -147,7 +208,7 @@ internal static partial class Commands
     /// </summary>
     internal static (bool Success, string Message) DeleteFeature(string path)
     {
-        List<WorkItem> linked = Queries.GetAll(includeHidden: true).Where(i => !i.Archived && (Metadata.Read<Rtm>(Queries.Yaml(i.Path)).Features ?? []).Contains(path)).ToList();
+        List<WorkItem> linked = Queries.GetAll(includeHidden: true).Where(i => !i.Archived && (Metadata.TryRead<Rtm>(Queries.Yaml(i.Path), out _).Features ?? []).Contains(path)).ToList();
         List<WorkItem> specced = Queries.GetAll(includeHidden: true).Where(i => !i.Archived && Queries.DeltaCapabilities(i.Path).Contains(path)).ToList();
         string main = Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, "specs", path.Replace('/', Path.DirectorySeparatorChar));
         if (Directory.Exists(main) && Directory.EnumerateFiles(main, "spec.md", SearchOption.AllDirectories).Count() > 1)
@@ -184,7 +245,7 @@ internal static partial class Commands
         {
             string delta = Path.Combine(it.Path, "specs", Rel(path));
             if (Directory.Exists(delta) && OpenSpecStoreApi.MoveFolder(delta, Path.Combine(it.Path, "specs", Rel(newPath!))) is { Success: false } moveFailed) return (false, moveFailed.Message, null);
-            if (Metadata.Read<Rtm>(Queries.Yaml(it.Path)) is { } meta && ((meta.Features ?? []).Contains(path) || (meta.UnlinkedFeatures ?? []).Contains(path)))
+            if (Metadata.TryRead<Rtm>(Queries.Yaml(it.Path), out _) is { } meta && ((meta.Features ?? []).Contains(path) || (meta.UnlinkedFeatures ?? []).Contains(path)))
                 if (Update(it.Id, m => { if (m.Features is not null) m.Features = Swap(m.Features); if (m.UnlinkedFeatures is not null) m.UnlinkedFeatures = Swap(m.UnlinkedFeatures); }) is { Success: false } failed) return (false, failed.Message, null);
         }
         return (true, "", newPath);
@@ -197,8 +258,13 @@ internal static partial class Commands
         return OpenSpecStoreApi.WriteText(path, Proposal.WithBody(OpenSpecStoreApi.ReadText(path), body));
     }
 
-    internal static (bool Success, string Message) SetSubtaskDone(int id, string number, bool done) =>
-        EditTasks(id, text => TasksFile.SetDone(text, number, done));
+    internal static (bool Success, string Message) SetSubtaskDone(int id, string number, bool done)
+    {
+        Subtask? before = Queries.Get(id)?.Subtasks.FirstOrDefault(s => s.Number == number && !s.Number.StartsWith('#'));
+        (bool ok, string message) = EditTasks(id, text => TasksFile.SetDone(text, number, done));
+        if (ok && before is not null && before.Done != done) Log(id, (done ? "subtask-done" : "subtask-reopened", $"{number} {before.Text}"));
+        return (ok, message);
+    }
 
     internal static (bool Success, string Message) SetSubtaskText(int id, string number, string text) =>
         string.IsNullOrWhiteSpace(text) ? (false, "A subtask needs some text") : EditTasks(id, t => TasksFile.SetText(t, number, text.Trim()));
@@ -218,8 +284,14 @@ internal static partial class Commands
         return at.ToString("s", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    internal static (bool Success, string Message) AddSubtask(int id, string text) =>
-        string.IsNullOrWhiteSpace(text) ? (false, "Type the subtask first") : EditTasks(id, t => TasksFile.Append(t, text.Trim()));
+    internal static (bool Success, string Message) AddSubtask(int id, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return (false, "Type the subtask first");
+        HashSet<string> had = [.. Queries.Get(id)?.Subtasks.Select(s => s.Number) ?? []];
+        (bool ok, string message) = EditTasks(id, t => TasksFile.Append(t, text.Trim()));
+        if (ok && Queries.Get(id)?.Subtasks.LastOrDefault(s => !had.Contains(s.Number)) is Subtask added) Log(id, ("subtask-added", $"{added.Number} {added.Text}"));
+        return (ok, message);
+    }
 
     private static (bool Success, string Message) EditTasks(int id, Func<string, string> edit)
     {
@@ -281,6 +353,7 @@ internal static partial class Commands
         }
         (bool written, string error) = Metadata.Write(yaml, meta);
         if (written) (written, error) = SyncSkipSpecs(dir);
+        if (written) EventLog.Append(dir, Actor(), [("created", meta.Title!)]);
         return written ? (true, "", id) : (false, error, 0);
     }
 
@@ -296,6 +369,7 @@ internal static partial class Commands
     /// </summary>
     internal static IReadOnlyList<(int OldId, int NewId, string Folder)> ResolveDuplicateIds()
     {
+        WorkItemsModule.DuplicateScans++;
         if (OpenSpecStoreApi.OpenSpecRoot is null) return [];
         StampProvisionalIds();
         List<(int, int, string)> renumbered = [];
@@ -305,7 +379,8 @@ internal static partial class Commands
             {
                 int newId = OpenSpecStoreApi.Allocate("work-item", roots => roots.Max(r => Queries.MaxIdUnder(r)));
                 string yaml = Queries.Yaml(w.Path);
-                Rtm meta = Metadata.Read<Rtm>(yaml);
+                Rtm meta = Metadata.TryRead<Rtm>(yaml, out string? problem);
+                if (problem is not null) continue;   // does not parse: left as it is until fixed, and the warning stays
                 meta.Id = newId;
                 if (Metadata.Write(yaml, meta).Success) renumbered.Add((w.Id, newId, w.Folder));
             }
@@ -315,11 +390,11 @@ internal static partial class Commands
 
     private static void StampProvisionalIds()
     {
-        foreach (WorkItem w in Queries.GetAll(includeHidden: true))
+        foreach (WorkItem w in Queries.WithoutStoredId())   // only those: reading every item's file for a number it already has was most of this scan's cost
         {
             string yaml = Queries.Yaml(w.Path);
-            Rtm meta = Metadata.Read<Rtm>(yaml);
-            if (meta.Id is not null) continue;
+            Rtm meta = Metadata.TryRead<Rtm>(yaml, out string? problem);
+            if (problem is not null || meta.Id is not null) continue;
             meta.Id = w.Id;
             Metadata.Write(yaml, meta);
         }
@@ -346,7 +421,9 @@ internal static partial class Commands
     {
         (bool ok, string message, int newId) = MoveSubtasksToNew(id, numbers);
         if (!ok) return (ok, message, 0);
+        string was = Queries.Get(id)?.Status ?? "";
         (ok, message) = Update(id, m => { m.DependsOn = [.. m.DependsOn ?? [], newId]; m.Status = "Blocked"; });
+        if (ok) Log(id, DependencyAdded(newId, was, blocked: true));
         return ok ? (true, "", newId) : (false, message, 0);
     }
 
@@ -360,11 +437,22 @@ internal static partial class Commands
         if ((item.DependsOn ?? []).Contains(dependencyId)) return (false, $"Already waiting on #wi{dep.Id}");
         if ((dep.DependsOn ?? []).Contains(id)) return (false, $"#wi{dep.Id} already waits on #wi{id}, so they can't wait on each other");
         bool blocks = !WorkItemsApi.IsResolved(dep);
-        return Update(id, m => { m.DependsOn = [.. m.DependsOn ?? [], dependencyId]; if (blocks) m.Status = "Blocked"; });
+        (bool ok, string message) = Update(id, m => { m.DependsOn = [.. m.DependsOn ?? [], dependencyId]; if (blocks) m.Status = "Blocked"; });
+        if (ok) Log(id, DependencyAdded(dependencyId, item.Status, blocks));
+        return (ok, message);
     }
 
-    internal static (bool Success, string Message) SetDependencies(int id, IEnumerable<int> ids) =>
-        Update(id, m => m.DependsOn = ids.Distinct().ToList());
+    /// <summary>The dependency, then the move to Blocked it caused (when the item was not Blocked already).</summary>
+    private static (string Kind, string Text)[] DependencyAdded(int dependencyId, string was, bool blocked) =>
+        blocked && was != "Blocked" ? [("dependency-added", $"#wi{dependencyId}"), ("status", $"{was} -> Blocked")] : [("dependency-added", $"#wi{dependencyId}")];
+
+    internal static (bool Success, string Message) SetDependencies(int id, IEnumerable<int> ids)
+    {
+        List<int> now = ids.Distinct().ToList(), before = [];
+        (bool ok, string message) = Update(id, m => { before = m.DependsOn ?? []; m.DependsOn = now; });
+        if (ok) Log(id, Diff("dependency", before.Select(d => $"#wi{d}"), now.Select(d => $"#wi{d}"), "added", "removed"));
+        return (ok, message);
+    }
 
     internal static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids) => Merge(ids, ids.Count > 0 ? ids[0] : 0);
 
@@ -418,6 +506,7 @@ internal static partial class Commands
 
         // Nothing but the folders is dropped: notes and any other files move over, and items that waited on a source now wait on this one.
         string merged = Queries.Get(id)!.Path;
+        EventLog.Prepend(merged, EventLog.SortedLines(items.Select(i => i.Path)));   // every source's events, oldest first, then the merged item's own created
         foreach (WorkItem it in items) CopyExtras(it.Path, merged, it.Id, keepSpecs: it.Archived && !allArchived, stampNotes: it.Id == main.Id ? null : mergedOn);
         // Note numbers are repository-wide and WorkItems can't reference Notes (Notes references WorkItems), so the files are written here in the notes format.
         int noteId = NextNoteId();
@@ -477,6 +566,7 @@ internal static partial class Commands
     {
         m.Label = items.Select(i => i.Label).FirstOrDefault(l => !string.IsNullOrEmpty(l));   // one label: the first set
         if (items.SelectMany(i => i.Commits ?? []).Distinct().ToList() is { Count: > 0 } commits) m.Commits = commits;
+        if (items.SelectMany(i => i.Docs ?? []).Distinct().ToList() is { Count: > 0 } docs) m.Docs = docs;
         List<RtmTest> tests = [.. items.SelectMany(i => i.Tests ?? []).GroupBy(t => (t.Suite, t.Test))
             .Select(g => g.FirstOrDefault(t => t.Note is not null) ?? g.First()).Select(t => new RtmTest { Suite = t.Suite, Test = t.Test, Note = t.Note })];
         if (tests.Count > 0) m.Tests = tests;
@@ -490,7 +580,7 @@ internal static partial class Commands
     /// <summary>Copies a source's notes into the merged change as they are, and its other files under from-wi&lt;id&gt;/.</summary>
     private static void CopyExtras(string from, string to, int id, bool keepSpecs, string? stampNotes = null)
     {
-        string[] own = [".openspec.yaml", "proposal.md", "tasks.md"];
+        string[] own = [".openspec.yaml", "proposal.md", "tasks.md", EventLog.FileName];
         foreach (string file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
         {
             string rel = Path.GetRelativePath(from, file);
@@ -529,7 +619,9 @@ internal static partial class Commands
     {
         if (OpenSpecStoreApi.OpenSpecRoot is not string root) return (false, "No repository is open");
         string yaml = Path.Combine(root, "config.yaml");
-        Dictionary<string, List<string>> all = Metadata.ReadSection<Dictionary<string, List<string>>>(yaml, "lanes") ?? [];
+        Dictionary<string, List<string>> all;
+        try { all = Metadata.ReadSection<Dictionary<string, List<string>>>(yaml, "lanes") ?? []; }
+        catch (MetadataException e) { return (false, e.Message); }   // not written over
         List<string> lanes = all.TryGetValue(column, out List<string>? l) ? l : all[column] = [];
         edit(lanes);
         if (lanes.Count == 0) all.Remove(column);

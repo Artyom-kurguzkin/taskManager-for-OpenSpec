@@ -32,6 +32,12 @@ public sealed record SubtaskRow(string Number, string Text, bool Done, string Gr
 
 public sealed record NoteRow(int Id, string Title, string By, string Created, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Body = null);
 
+/// <summary>One entry of the worklog. A note has Kind "note", its title as Text, its NoteId and (detailed only) Body; an event has its kind and text.</summary>
+public sealed record WorklogRow(
+    string At, string By, string Kind, string Text,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? NoteId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Body = null);
+
 public sealed record DeltaSpecRow(string Capability, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Markdown = null);
 
 /// <summary>Outcome is passed, failed, skipped, or missing (not in the latest results file).</summary>
@@ -48,7 +54,8 @@ public sealed record GetResult(
     string Revision, string Description,
     IReadOnlyList<SubtaskRow> Subtasks, IReadOnlyList<NoteRow> Notes, IReadOnlyList<DeltaSpecRow> DeltaSpecs,
     string? TestResultsFile, IReadOnlyList<TestRow> Tests, IReadOnlyList<CommitRow> Commits,
-    IReadOnlyList<DependencyRow> DependsOn, IReadOnlyList<DependencyRow> Blocking);
+    IReadOnlyList<DependencyRow> DependsOn, IReadOnlyList<DependencyRow> Blocking,
+    IReadOnlyList<string> Docs, IReadOnlyList<WorklogRow> Worklog, int WorklogTotal);
 
 public sealed record FeatureItem(int Id, string Title, string Status);
 
@@ -64,7 +71,7 @@ public sealed record CreateResult(int Id, string Folder, bool Valid, string Vali
 
 public sealed record UpdateResult(int Id, IReadOnlyList<string> Applied, IReadOnlyList<string> Warnings, bool? Valid, string? Validation, string Revision);
 
-public sealed record NoteResult(int NoteId, int WorkItemId, string Path, IReadOnlyList<string> Warnings);
+public sealed record NoteResult(int NoteId, int WorkItemId, string Path, IReadOnlyList<string> Warnings, IReadOnlyList<string> SubtasksCreated);
 
 public sealed record ValidationRow(int Id, string Folder, bool Valid, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Output);
 

@@ -104,11 +104,11 @@ The app can serve the board to coding agents (Claude Code and other [MCP](https:
 | Tool | What it does |
 |---|---|
 | `board_list` | work items filtered by status, feature, label, contributor, title text or `ready` (can be started now), in pages |
-| `board_get` | one item in full: description, subtasks, notes, delta specs, linked tests with their outcome, commits, dependencies, and its `revision` |
+| `board_get` | one item in full: description, subtasks, notes, the worklog (notes and events, newest first), delta specs, linked tests with their outcome, commits, documents, dependencies, and its `revision` |
 | `board_features` | the features with the open items on each |
 | `board_create` | a new work item with the next id: proposal, subtasks, delta specs, plan and dependencies, signed and validated |
-| `board_update` | status, priority, label, feature, dates, plan, dependencies, contributors, description, tests, commits, subtasks and specs of an item |
-| `board_note` | a change-log note on an item, with the next note id |
+| `board_update` | status, priority, label, feature, dates, plan, dependencies, contributors, description, tests, commits, documents, subtasks and specs of an item |
+| `board_note` | a worklog entry on an item (a note, with the next note id); the title is optional |
 | `board_validate` | `openspec validate --strict` for one item or every open one, plus the app's own warnings |
 
 What the tools guarantee:
@@ -116,6 +116,7 @@ What the tools guarantee:
 - **No two items share a number.** Work-item and note ids come from one counter under a file lock in `.git/rtm/`, shared by every git worktree of the repository and by the desktop app. A deleted item's number is not handed out again.
 - **No lost edits.** `board_get` returns a `revision`; `board_update` and `board_note` refuse a write that carries an older one and say the current one. A write without a revision goes through unchecked.
 - **Agents never archive.** Status `Completed` is refused: set `In Review` and archive from the app.
+- **The worklog keeps itself.** What a tool call changes (status, links, subtasks, dependencies) is recorded in the item's worklog under the agent's name; the agent writes a `board_note` only for what the tools cannot see, such as a command it ran and what came back.
 
 One server serves every repository on the machine. The same exe runs in three ways:
 
@@ -162,9 +163,10 @@ When something goes wrong, the server's log is `%LOCALAPPDATA%\RepoTaskManager\l
 | Data | Location | In git? |
 |---|---|---|
 | Work items, subtasks, specs | standard OpenSpec files in `openspec/` | yes |
-| Item metadata (number, title, status, priority, contributors, lanes, hidden) | `x-rtm:` block in each change's `.openspec.yaml` | yes |
+| Item metadata (number, title, status, priority, contributors, lanes, hidden, linked commits, tests and documents) | `x-rtm:` block in each change's `.openspec.yaml` | yes |
 | Board sub-categories, new feature sub-groups | `x-rtm:` block in `openspec/config.yaml` | yes |
 | Notes | `openspec/changes/<change>/notes/n<id>.md` (they move with the change when it's archived) | yes |
+| Events of a work item (created, status changes, links, ticked subtasks, dependencies: who and when) | `openspec/changes/<change>/events.log`, one line each; the item page's Worklog shows them with the notes | yes |
 | Your settings (theme, last repo, name, board view per repo) | `%APPDATA%\RepoTaskManager\settings.json` | no |
 | The last work-item and note numbers handed out, and their lock files | `.git/rtm/` in the repository (shared by its worktrees); `%TEMP%\rtm\` for a folder without git | no |
 | The MCP server's token, `server.json` (pid, port, version) and logs | `%LOCALAPPDATA%\RepoTaskManager\` | no |

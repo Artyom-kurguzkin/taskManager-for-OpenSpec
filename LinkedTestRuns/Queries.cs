@@ -27,8 +27,15 @@ internal static class Queries
         return run;
     }
 
-    private static IReadOnlyList<string> Globs() =>
-        OpenSpecStoreApi.OpenSpecRoot is string os && OpenSpecStoreApi.ReadRtmSection(Path.Combine(os, "config.yaml"), "testResults") is string s && s.Trim().Length > 0
-            ? Reader.Deserialize<List<string>>(s) ?? []
-            : [];
+    /// <summary>The globs of x-rtm.testResults; none when the list is not valid YAML (a hand edit must not take the app down).</summary>
+    private static IReadOnlyList<string> Globs()
+    {
+        try
+        {
+            return OpenSpecStoreApi.OpenSpecRoot is string os && OpenSpecStoreApi.ReadRtmSection(Path.Combine(os, "config.yaml"), "testResults") is string s && s.Trim().Length > 0
+                ? Reader.Deserialize<List<string>>(s) ?? []
+                : [];
+        }
+        catch (Exception e) when (e is YamlDotNet.Core.YamlException or FormatException or InvalidCastException or InvalidOperationException) { return []; }
+    }
 }

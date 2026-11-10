@@ -17,3 +17,4 @@
 - [x] 2.3 Verify in the real app
 - [x] 2.5 Guide v8: a "Create a work item" section: work item or subtask, folder name, number, feature, links (plan, dependencies, tests, commits, dates, notes), a complete example, and when a requirement is ADDED or MODIFIED. The example is tested against the app and `openspec validate --strict` <!-- agent: Claude -->
 - [x] 2.6 Guide v12: opens with the MCP tools (detect, turn on, use), hand rules as the fallback; done with #wi121 <!-- agent: Claude -->
+- [x] 2.7 Guide v13: keep the worklog current, with the tools and by hand in `events.log`; done with #wi94 <!-- agent: Claude -->

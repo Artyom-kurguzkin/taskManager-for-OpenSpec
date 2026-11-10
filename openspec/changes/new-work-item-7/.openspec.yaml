@@ -1,0 +1,11 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-10
+x-rtm:
+  id: 136
+  title: global feed view
+  status: Backlog
+  contributors: [Artyom-kurguzkin]
+  features: [track-work-items]
+  label: enhancement
+  moved: 2026-11-10

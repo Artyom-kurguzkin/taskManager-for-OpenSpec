@@ -9,6 +9,7 @@ using ModelContextProtocol.Server;
 using OpenSpecStore;
 using TaskManager.Mcp;
 using WorkItems;
+using WorkItems.PublicDTOs;
 
 namespace TaskManager.Tests;
 
@@ -305,6 +306,105 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
         Assert.Equal(ids.Length, ids.Distinct().Count());
     }
 
+    [Fact(DisplayName = "What an agent changes through the tools is recorded in the item's worklog under the agent's name")]
+    public async Task ToolsRecordEventsUnderTheAgent()
+    {
+        await Ok("board_update", new()
+        {
+            ["id"] = 107, ["status"] = "In Progress", ["commits"] = new[] { "abc1234" }, ["agent"] = "Codex",
+            ["subtasks"] = new object[] { new { number = "1.2", done = true } },
+        });
+
+        IReadOnlyList<WorkItems.PublicDTOs.WorkItemEvent> events = WorkItemsApi.GetEvents(107);
+        Assert.Contains(events, e => e.Kind == "status" && e.Text == "Planned -> In Progress");
+        Assert.Contains(events, e => e.Kind == "commit-linked" && e.Text == "abc1234");
+        Assert.Contains(events, e => e.Kind == "subtask-done" && e.Text.StartsWith("1.2 ", StringComparison.Ordinal));
+        Assert.NotEmpty(events);
+        Assert.All(events, e => Assert.Equal("Codex", e.By));
+
+        // the actor is the agent only while its tool runs: a direct command afterwards is somebody else's
+        WorkItemsApi.SetSubtaskDone(107, "1.2", false);
+        Assert.NotEqual("Codex", WorkItemsApi.GetEvents(107)[^1].By);
+    }
+
+    [Fact(DisplayName = "board_get returns the worklog, notes and events together, newest first, the newest twenty in concise format")]
+    public async Task GetReturnsTheWorklog()
+    {
+        string log = string.Concat(Enumerable.Range(1, 24).Select(n => $"2020-01-01T10:{n:00}:00 | Codex | status | Step {n}\n"));
+        repo.Write("openspec/changes/export-remittances/events.log", log);
+        JsonElement made = await Ok("board_note", new() { ["id"] = 107, ["title"] = "Ran the export", ["body"] = "It wrote 12 rows.", ["agent"] = "Codex" });
+        int noteId = made.GetProperty("noteId").GetInt32();
+
+        JsonElement concise = await Ok("board_get", new() { ["id"] = 107 });
+        JsonElement[] feed = [.. concise.GetProperty("worklog").EnumerateArray()];
+        Assert.Equal(25, concise.GetProperty("worklogTotal").GetInt32());
+        Assert.Equal(20, feed.Length);
+        Assert.Equal(("note", "Ran the export", "Codex", noteId), (feed[0].GetProperty("kind").GetString(), feed[0].GetProperty("text").GetString(), feed[0].GetProperty("by").GetString(), feed[0].GetProperty("noteId").GetInt32()));
+        Assert.False(feed[0].TryGetProperty("body", out JsonElement hidden) && hidden.ValueKind == JsonValueKind.String);
+        Assert.Equal(("status", "Step 24"), (feed[1].GetProperty("kind").GetString(), feed[1].GetProperty("text").GetString()));
+        Assert.Equal("Step 6", feed[^1].GetProperty("text").GetString());
+        string[] times = [.. feed.Select(f => f.GetProperty("at").GetString()!)];
+        Assert.Equal(times.OrderByDescending(t => t, StringComparer.Ordinal), times);
+        Assert.Equal(1, concise.GetProperty("notes").GetArrayLength());   // the notes field stays
+
+        JsonElement detailed = await Ok("board_get", new() { ["id"] = 107, ["format"] = "detailed" });
+        JsonElement all = detailed.GetProperty("worklog");
+        Assert.Equal(25, all.GetArrayLength());
+        Assert.Contains("12 rows", all[0].GetProperty("body").GetString());
+        Assert.Equal("Step 1", all[24].GetProperty("text").GetString());
+    }
+
+    [Fact(DisplayName = "board_update links documents, and board_note writes an entry whose title is its first line when none is given")]
+    public async Task DocsAndUntitledNotes()
+    {
+        repo.Write("docs/guide.md", "# Guide\n");
+
+        JsonElement r = await Ok("board_update", new() { ["id"] = 107, ["docs"] = new[] { "docs/guide.md", "docs/missing.md" }, ["agent"] = "Codex" });
+
+        Assert.Equal(["docs/guide.md", "docs/missing.md"], WorkItemsApi.Get(107)!.Docs);
+        string[] warnings = Strings(r.GetProperty("warnings"));
+        Assert.Single(warnings);
+        Assert.Contains("docs/missing.md", warnings[0]);
+        Assert.Contains(WorkItemsApi.GetEvents(107), e => e.Kind == "doc-linked" && e.Text == "docs/guide.md" && e.By == "Codex");
+        Assert.Equal(["docs/guide.md", "docs/missing.md"], Strings((await Ok("board_get", new() { ["id"] = 107 })).GetProperty("docs")));
+
+        (bool refused, _, string text) = await Call("board_update", new() { ["id"] = 107, ["docs"] = new[] { "../outside.md" } });
+        Assert.True(refused);
+        Assert.Contains("inside the repository", text);
+
+        JsonElement made = await Ok("board_note", new() { ["id"] = 107, ["body"] = "\n## Ran the migration on staging\n\n```\n12 rows\n```\n", ["agent"] = "Codex" });
+        Assert.Equal("Ran the migration on staging", Notes.NotesApi.Get(made.GetProperty("noteId").GetInt32())!.Title);
+
+        JsonElement longOne = await Ok("board_note", new() { ["id"] = 107, ["body"] = new string('x', 120) + "\nmore", ["agent"] = "Codex" });
+        Assert.Equal(80, Notes.NotesApi.Get(longOne.GetProperty("noteId").GetInt32())!.Title.Length);
+
+        // a plain first line becomes the title and is not said twice: the text under it is the rest
+        JsonElement plain = await Ok("board_note", new() { ["id"] = 107, ["body"] = "Ran the tests against dev\n\n```\n8 of 8\n```", ["agent"] = "Codex" });
+        Notes.PublicDTOs.Note written = Notes.NotesApi.Get(plain.GetProperty("noteId").GetInt32())!;
+        Assert.Equal("Ran the tests against dev", written.Title);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(written.Body, "Ran the tests against dev"));
+        Assert.Contains("8 of 8", written.Body);
+    }
+
+    [Fact(DisplayName = "board_note turns unticked checkboxes in its body into subtasks and reports their numbers")]
+    public async Task NoteBecomesSubtasks()
+    {
+        JsonElement made = await Ok("board_note", new()
+        {
+            ["id"] = 123, ["title"] = "Plan", ["agent"] = "Codex",
+            ["body"] = "What is left:\n\n- [ ] restrict permissions\n- [x] already done\n- [ ] write the docs",
+        });
+
+        Assert.Equal(["2.2", "2.3"], Strings(made.GetProperty("subtasksCreated")));
+        Assert.Equal(["restrict permissions", "write the docs"], WorkItemsApi.Get(123)!.Subtasks.TakeLast(2).Select(s => s.Text));
+        string body = Notes.NotesApi.Get(made.GetProperty("noteId").GetInt32())!.Body;
+        Assert.Contains("- [ ] restrict permissions (created subtask)", body);
+        Assert.Contains("- [x] already done", body);
+
+        JsonElement plain = await Ok("board_note", new() { ["id"] = 123, ["title"] = "Nothing to promote", ["body"] = "Just words.", ["agent"] = "Codex" });
+        Assert.Empty(Strings(plain.GetProperty("subtasksCreated")));
+    }
+
     [Fact(DisplayName = "A tool call reads what is on disk now, without waiting for the file watcher")]
     public async Task FreshReads()
     {
@@ -314,5 +414,55 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
         repo.Write(yaml, repo.Read(yaml).Replace("status: In Progress", "status: Blocked"));   // the app, in another process
 
         Assert.Equal("Blocked", (await Ok("board_get", new() { ["id"] = 123 })).GetProperty("status").GetString());
+    }
+
+    [Fact(DisplayName = "board_create and board_update with titles, features, plans, docs and test names full of YAML-significant characters write files that validate and read back identical")]
+    public async Task YamlSignificantInputs()
+    {
+        OpenSpecStoreApi.Open(repo.Root);
+        string[] agents = ["yes", "null", "123", "On", "1e5"];
+        int n = 0;
+        foreach (string v in YamlChecks.Nasty)
+        {
+            string because = $"(value: {v})", agent = agents[n++ % agents.Length];
+            string path = v.Replace('\\', '/').Trim();
+            bool pathy = !Path.IsPathRooted(path) && !path.StartsWith('/') && !path.Contains("..") && !(path.Length > 1 && path[1] == ':');
+
+            JsonElement made = await Ok("board_create", new() { ["title"] = v, ["why"] = Why, ["whatChanges"] = "- One thing.", ["feature"] = v, ["agent"] = agent });
+            int id = made.GetProperty("id").GetInt32();
+            Dictionary<string, object?> update = new()
+            {
+                ["id"] = id, ["agent"] = agent, ["title"] = v, ["contributors"] = new[] { v, agent },
+                ["tests"] = new[] { new { suite = v, test = v } }, ["commits"] = new[] { v },
+            };
+            if (pathy) { update["plan"] = v; update["docs"] = new[] { v, "docs/a.md" }; }
+            await Ok("board_update", update);
+            string url = "https://example.com/" + v.Replace('\n', ' ');
+            string[] attachments = Uri.TryCreate(url.Trim(), UriKind.Absolute, out _) ? [url] : [];
+            JsonElement note = await Ok("board_note", new() { ["id"] = id, ["body"] = "What happened.", ["title"] = v, ["links"] = new[] { v }, ["commits"] = new[] { v }, ["attachments"] = attachments, ["agent"] = agent });
+
+            WorkItem it = WorkItemsApi.Get(id)!;
+            YamlChecks.Valid(repo.Read(Path.GetRelativePath(repo.Root, Path.Combine(it.Path, ".openspec.yaml")).Replace('\\', '/')), YamlChecks.Nasty.Concat(agents), because);
+            string noteFile = note.GetProperty("path").GetString()!;
+            (string front, string _) = Notes.BusinessRules.NoteFile.Split(repo.Read(noteFile));
+            YamlChecks.Valid(front[4..^5], YamlChecks.Nasty.Concat(agents), because);
+
+            OpenSpecStoreApi.Open(repo.Root);   // from the files, not from the cache
+            it = WorkItemsApi.Get(id)!;
+            Assert.Equal(v.Trim(), it.Title);
+            Assert.Equal(v, Assert.Single(it.Features).Path);
+            Assert.Equal([v, agent], it.Assigned);
+            Assert.Equal([new TestLink(v, v, null)], it.Tests);
+            Assert.Equal([v], it.Commits);
+            Assert.Equal(agent, it.AgentBy);
+            if (pathy) { Assert.Equal(path, it.Plan); Assert.Equal([path, "docs/a.md"], it.Docs); }
+            Assert.Null(it.Warning);
+            Notes.PublicDTOs.Note written = Notes.NotesApi.Get(note.GetProperty("noteId").GetInt32())!;
+            Assert.Equal(string.Join(' ', v.Trim().Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)), written.Title);
+            Assert.Equal(agent, written.By);
+            Assert.Equal([v], written.Commits);
+            Assert.Equal(v.Trim(), written.ManualLinks[0]);
+            Assert.Equal(attachments.Select(a => a.Trim()), written.Attachments);
+        }
     }
 }

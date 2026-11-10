@@ -72,7 +72,7 @@ public sealed partial class BoardTools
         });
 
     [McpServerTool(Name = "board_get", ReadOnly = true, UseStructuredContent = true)]
-    [Description("One work item in full: header fields, description (proposal body), subtasks with numbers and done flags, notes, delta specs, linked tests with their outcome in the latest results (✓ passed, ✗ failed, ? not in the results), linked commits plus commits mentioning #wiN, dependencies and what it blocks, and `revision` (pass it to board_update or board_note). Detailed adds note bodies and delta spec text.")]
+    [Description("One work item in full: header fields, description (proposal body), subtasks with numbers and done flags, notes, the `worklog` (its history: notes and events together, newest first; concise gives the newest 20 of `worklogTotal`), delta specs, linked tests with their outcome in the latest results (✓ passed, ✗ failed, ? not in the results), linked commits plus commits mentioning #wiN, linked `docs`, dependencies and what it blocks, and `revision` (pass it to board_update or board_note). Detailed adds note bodies, the whole worklog and delta spec text.")]
     public Task<GetResult> BoardGet(
         [Description("The work item number (the N of #wiN).")] int id,
         [Description(FormatHelp)] string? format = null,
@@ -86,6 +86,7 @@ public sealed partial class BoardTools
             foreach (CommitInfo c in GitHistoryApi.Commits([.. item.Commits ?? []])) commits.Add(Commit(c, false));
             foreach (CommitInfo c in GitHistoryApi.Mentioning($"#wi{id}"))
                 if (!commits.Any(k => k.Hash.StartsWith(c.Hash, StringComparison.OrdinalIgnoreCase) || c.Hash.StartsWith(k.Hash, StringComparison.OrdinalIgnoreCase))) commits.Add(Commit(c, true));
+            (IReadOnlyList<WorklogRow> worklog, int worklogTotal) = Worklog(id, detailed);
             return new GetResult(
                 item.Id, item.Folder, item.Title, item.Status, item.Priority, item.Label, FeatureOf(item),
                 item.Contributors, item.Plan, item.Started?.ToString("yyyy-MM-dd"), item.Due?.ToString("yyyy-MM-dd"), item.Moved?.ToString("yyyy-MM-dd"), item.Created.ToString("yyyy-MM-dd"),
@@ -97,7 +98,8 @@ public sealed partial class BoardTools
                 run.File, [.. (item.Tests ?? []).Select(t => TestOutcome(run, t))],
                 commits,
                 [.. (item.DependsOn ?? []).Select(Dependency)],
-                [.. WorkItemsApi.GetBlocking(id).Select(b => new DependencyRow(b.Id, b.Title, b.Status, WorkItemsApi.IsResolved(b)))]);
+                [.. WorkItemsApi.GetBlocking(id).Select(b => new DependencyRow(b.Id, b.Title, b.Status, WorkItemsApi.IsResolved(b)))],
+                item.Docs ?? [], worklog, worklogTotal);
         });
 
     [McpServerTool(Name = "board_features", ReadOnly = true, UseStructuredContent = true)]
@@ -136,6 +138,7 @@ public sealed partial class BoardTools
         Run(repo, root =>
         {
             string who = AgentName(agent);
+            ActAs(who);
             if (string.IsNullOrWhiteSpace(title)) throw new McpException("Give the work item a title.");
             if (why is null || why.Trim().Length is < 50 or > 1000) throw new McpException($"`why` must be 50 to 1000 characters (it is {why?.Trim().Length ?? 0}): say why the work is needed in a few sentences. OpenSpec rejects anything else.");
             if (string.IsNullOrWhiteSpace(whatChanges)) throw new McpException("`whatChanges` is empty: list what changes, e.g. \"- Each API key gets 100 requests a minute.\"");
@@ -186,7 +189,7 @@ public sealed partial class BoardTools
         });
 
     [McpServerTool(Name = "board_update", Destructive = false, Idempotent = true, UseStructuredContent = true)]
-    [Description("Change a work item. Every field is optional; only what you pass changes. List fields (dependsOn, contributors, tests, commits) are replaced by what you pass, so read board_get first. Status In Progress adds you to contributors and stamps the start day; use In Review when the work is done (Completed is refused: the user archives from the app). Signs the item and your new subtasks as yours. Runs the OpenSpec validator when subtasks, description or specs changed. Pass `revision` from board_get to avoid overwriting someone else's edit.")]
+    [Description("Change a work item. Every field is optional; only what you pass changes. List fields (dependsOn, contributors, tests, commits, docs) are replaced by what you pass, so read board_get first. Status changes, links and ticked subtasks are logged in the worklog under your name. Status In Progress adds you to contributors and stamps the start day; use In Review when the work is done (Completed is refused: the user archives from the app). Signs the item and your new subtasks as yours. Runs the OpenSpec validator when subtasks, description or specs changed. Pass `revision` from board_get to avoid overwriting someone else's edit.")]
     public Task<UpdateResult> BoardUpdate(
         [Description("The work item number (the N of #wiN).")] int id,
         [Description(RevisionHelp)] string? revision = null,
@@ -203,14 +206,16 @@ public sealed partial class BoardTools
         [Description("The whole proposal body in markdown (## Why, ## What Changes); replaces the current one.")] string? description = null,
         [Description("Linked tests (replaces the list). Names not in the latest results are still written and come back as warnings.")] TestInput[]? tests = null,
         [Description("Hashes of commits that do not mention #wiN (replaces the list); commits mentioning #wiN link themselves.")] string[]? commits = null,
+        [Description("Linked documents: repo-relative paths like docs/guide.md (replaces the list). A path that does not exist yet is written and comes back as a warning.")] string[]? docs = null,
         [Description("true hides the item from the board (the folder stays), false shows it again.")] bool? hidden = null,
         [Description("Subtask edits: with `number`, tick/untick (`done`) or retext (`text`) that subtask; without, add a new signed subtask (appended to the last group).")] SubtaskInput[]? subtasks = null,
         [Description("Delta specs by capability: markdown writes or replaces it, null deletes it.")] Dictionary<string, string?>? specs = null,
         [Description(AgentHelp)] string? agent = null,
         [Description(RepoHelp)] string? repo = null) =>
-        Run(repo, _ =>
+        Run(repo, root =>
         {
             string who = AgentName(agent);
+            ActAs(who);
             WorkItem item = Item(id);
             if (WorkItemsApi.CheckRevision(id, revision) is (false, string stale)) throw new McpException(stale);
             if (status == "Completed") throw new McpException("Completed means archived, and the user archives from the app: set In Review when the work is done.");
@@ -256,6 +261,12 @@ public sealed partial class BoardTools
                 warnings.AddRange(TestWarnings(tests.Select(t => (t.Suite, t.Test))));
             }
             if (commits is not null) Step("commits", WorkItemsApi.SetLinkedCommits(id, commits));
+            if (docs is not null)
+            {
+                Step("docs", WorkItemsApi.SetLinkedDocs(id, docs));
+                foreach (string doc in docs.Select(d => d.Replace('\\', '/').Trim()).Where(d => d.Length > 0).Distinct())
+                    if (!File.Exists(Path.Combine(root, doc.Replace('/', Path.DirectorySeparatorChar))) && !Directory.Exists(Path.Combine(root, doc.Replace('/', Path.DirectorySeparatorChar)))) warnings.Add($"The document {doc} does not exist in the repository (yet); write it.");
+            }
             if (hidden is bool h) Step(h ? "hidden" : "shown", h ? WorkItemsApi.Hide(id) : WorkItemsApi.Unhide(id));
             foreach (SubtaskInput s in subtasks ?? [])
             {
@@ -286,11 +297,11 @@ public sealed partial class BoardTools
         });
 
     [McpServerTool(Name = "board_note", Destructive = false, UseStructuredContent = true)]
-    [Description("Add a note (a change log: what changed, in plain words) to a work item. Allocates the note id, writes it with you as author and the agent stamp, and signs the item too. Pass `revision` from board_get to avoid writing against a stale read.")]
+    [Description("Add an entry to a work item's worklog (its history). Status changes, links and ticked subtasks are logged for you; write a note yourself for what the tools cannot see: a command you ran against a server or environment and what came back (in a code block), a decision and why, a blocker, the result of a chunk of work. One short entry per event, as you go, not one summary at the end. Without a `title` the first line of the body is the title. Allocates the note id, writes it with you as author and the agent stamp, and signs the item too. Unticked `- [ ]` lines in the body become subtasks (numbers in `subtasksCreated`) and stay in the note marked '(created subtask)'. Pass `revision` from board_get to avoid writing against a stale read.")]
     public Task<NoteResult> BoardNote(
         [Description("The work item number (the N of #wiN).")] int id,
-        [Description("Note title, like \"9 Nov — what changed\".")] string title,
-        [Description("The note text in markdown. Write #wiN / #nN to link items and notes.")] string body,
+        [Description("The entry in markdown: what happened, in plain words; put command output in a code block. Write #wiN / #nN to link items and notes.")] string body,
+        [Description("Short title, like \"Ran the migration on staging\". Default: the first non-empty line of the body without leading # and spaces, cut to 80 characters.")] string? title = null,
         [Description("References to list in the note's links: wi12, n9 or a doc path.")] string[]? links = null,
         [Description("Hashes of commits the note is about.")] string[]? commits = null,
         [Description("http(s) URLs to attach.")] string[]? attachments = null,
@@ -300,10 +311,12 @@ public sealed partial class BoardTools
         Run(repo, _ =>
         {
             string who = AgentName(agent);
+            ActAs(who);
             WorkItem item = Item(id);
             if (WorkItemsApi.CheckRevision(id, revision) is (false, string stale)) throw new McpException(stale);
-            if (string.IsNullOrWhiteSpace(title)) throw new McpException("A note needs a title.");
-            if (string.IsNullOrWhiteSpace(body)) throw new McpException("A note needs a body: say what changed, in plain words.");
+            if (string.IsNullOrWhiteSpace(body)) throw new McpException("A note needs a body: say what happened, in plain words.");
+            bool titled = !string.IsNullOrWhiteSpace(title);
+            title = titled ? title!.Trim() : TitleFrom(body);
             foreach (string url in attachments ?? [])
                 if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out Uri? uri) || uri.Scheme is not ("http" or "https")) throw new McpException($"Attachment \"{url}\" is not a full link: use http:// or https:// URLs. Files go in the note body, not as attachments.");
 
@@ -311,8 +324,11 @@ public sealed partial class BoardTools
             if (!ok) throw new McpException($"Could not create the note: {message}");
             void Step(string name, (bool Success, string Message) r) { if (!r.Success) throw new McpException($"Note #n{noteId} was created but {name} failed: {r.Message}"); }
             string text = body.Replace("\r\n", "\n").Trim();
+            // the first line became the title: the text under the heading is the rest, so the entry does not say it twice
+            if (!titled && !text.StartsWith('#') && text.Split('\n')[0].Trim() == title) text = text[text.Split('\n')[0].Length..].TrimStart();
             Step("setting the title", NotesApi.SetTitle(noteId, title));
-            Step("writing the body", NotesApi.SaveBody(noteId, text.StartsWith("# ", StringComparison.Ordinal) ? text + "\n" : $"# {title.Trim()}\n\n{text}\n"));
+            bool heading = text.StartsWith("# ", StringComparison.Ordinal) || (!titled && text.StartsWith('#'));   // a body that opens with its own heading is not given a second one
+            Step("writing the body", NotesApi.SaveBody(noteId, heading ? text + "\n" : $"# {title}\n\n{text}\n"));
             foreach (string link in links ?? []) Step($"adding the link {link}", NotesApi.AddManualLink(noteId, link));
             List<string> warnings = [];
             if (commits is { Length: > 0 })
@@ -322,9 +338,11 @@ public sealed partial class BoardTools
                 foreach (string c in commits.Where(c => !known.Any(k => k.Hash.StartsWith(c, StringComparison.OrdinalIgnoreCase) || c.StartsWith(k.Hash, StringComparison.OrdinalIgnoreCase)))) warnings.Add($"Commit {c} is not in this repository's history (yet).");
             }
             foreach (string url in attachments ?? []) Step($"attaching {url}", NotesApi.AttachLink(noteId, url));
+            (bool promoted, string promoteMessage, IReadOnlyList<string> subtasks) = NotesApi.PromoteSubtasks(noteId);
+            if (!promoted) warnings.Add($"Could not turn the note's checkboxes into subtasks: {promoteMessage}");
             Step("signing the note", NotesApi.StampAgent(noteId, who));
             Step("signing the item", WorkItemsApi.StampAgent(id, who));
-            return new NoteResult(noteId, id, Path.GetRelativePath(OpenSpecStoreApi.RepoRoot!, NotesApi.Get(noteId)?.Path ?? item.Path).Replace('\\', '/'), warnings);
+            return new NoteResult(noteId, id, Path.GetRelativePath(OpenSpecStoreApi.RepoRoot!, NotesApi.Get(noteId)?.Path ?? item.Path).Replace('\\', '/'), warnings, subtasks);
         });
 
     [McpServerTool(Name = "board_validate", ReadOnly = true, UseStructuredContent = true)]
@@ -364,7 +382,9 @@ public sealed partial class BoardTools
             OpenSpecStoreApi.Refresh();   // ponytail: every call re-reads the repository (the watcher lags 300 ms and can drop events in a server that runs for hours); cache per call if it ever shows
             try { return body(root); }
             finally
-            {   // the host (a desktop app) may show another repository: give it back
+            {
+                WorkItemsApi.ConfigureActor(null);   // the agent's name was only for this call (the tools never run inside the desktop app, whose actor is the user)
+                // the host (a desktop app) may show another repository: give it back
                 if (previous is not null && !string.Equals(previous, root, StringComparison.OrdinalIgnoreCase) && OpenSpecStoreApi.Use(previous)) GitHistoryApi.Configure(previous);
             }
         }
@@ -386,6 +406,28 @@ public sealed partial class BoardTools
             if (Directory.Exists(Path.Combine(dir, "openspec"))) return dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         throw new McpException($"No repository found: neither {full} (from {source}) nor any folder above it has an openspec/ folder. Pass `repo` as a path inside a repository that uses OpenSpec.");
     }
+
+    /// <summary>The events the commands of this call write carry the agent's name. The actor is one static, which is safe: every tool runs under <see cref="Gate"/>, one at a time, and <see cref="Run{T}"/> hands it back.</summary>
+    private static void ActAs(string who) => WorkItemsApi.ConfigureActor(() => who);
+
+    /// <summary>The title of an untitled note: its first non-empty line without leading # and spaces, at most 80 characters.</summary>
+    private static string TitleFrom(string body)
+    {
+        string line = body.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? "";
+        line = line.TrimStart('#', ' ');
+        return line.Length == 0 ? "Note" : line.Length > 80 ? line[..80].TrimEnd() : line;
+    }
+
+    /// <summary>The item's notes and events as one feed, newest first (a note wins a tie); concise keeps the newest 20.</summary>
+    private static (IReadOnlyList<WorklogRow> Rows, int Total) Worklog(int id, bool detailed)
+    {
+        List<(DateTime At, WorklogRow Row)> feed = [.. WorkItemsApi.GetEvents(id).Select(e => (e.At, new WorklogRow(Stamp(e.At), e.By, e.Kind, e.Text)))];
+        feed.AddRange(NotesApi.GetForWorkItem(id).OrderBy(n => n.Id).Select(n => (n.Created, new WorklogRow(Stamp(n.Created), n.By, "note", n.Title, n.Id, detailed ? n.Body : null))));
+        List<WorklogRow> rows = [.. feed.Select((f, i) => (f.At, f.Row, Order: i)).OrderByDescending(f => f.At).ThenByDescending(f => f.Order).Select(f => f.Row)];
+        return (detailed ? rows : [.. rows.Take(20)], rows.Count);
+    }
+
+    private static string Stamp(DateTime at) => at.ToString("s", CultureInfo.InvariantCulture);
 
     private static string AgentName(string? agent)
     {

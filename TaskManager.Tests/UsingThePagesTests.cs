@@ -38,83 +38,206 @@ public sealed class UsingThePagesTests : IDisposable
 
     // ── Work item page ──
 
-    // The page is a bento of equal tiles (description, subtasks, blocks, commits, tests, change log). One is focused:
-    // large and fully editable. The others are compact previews; clicking one focuses it.
-    private static void Focus(IRenderedComponent<WorkItemPage> page, string tile) => page.Find($".tile[data-tile='{tile}'] .tile-h").Click();
+    // The page has three views under its header (Description, Worklog, Linked tasks), switched with a segmented control of radio inputs named item-view.
+    private static string CurrentView(IRenderedComponent<WorkItemPage> page) => page.Find(".item-views .seg-o.is-sel input").GetAttribute("value")!;
+
+    private static void View(IRenderedComponent<WorkItemPage> page, string view)
+    {
+        page.Find($".item-views input[value='{view}']").Change(view);
+        page.WaitForAssertion(() => Assert.Equal(view, CurrentView(page)));
+    }
 
     private static List<string> Tiles(IRenderedComponent<WorkItemPage> page) => page.FindAll(".tile").Select(t => t.GetAttribute("data-tile")!).ToList();
 
-    [Fact(DisplayName = "The work item page is a bento of tiles with the description focused; 'blocks' only shows when something waits on it")]
-    public async Task BentoTiles()
+    [Fact(DisplayName = "The item page opens on the description, with Description, Worklog and Linked tasks to switch between, the current one marked")]
+    public async Task ThreeViews()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        Assert.Equal(["description", "subtasks", "commits", "tests", "log"], Tiles(page));
-        Assert.Equal("description", page.Find(".tile.focus").GetAttribute("data-tile"));
-        Assert.Single(page.FindAll(".tile.focus .desc.edit"));
+        Assert.Equal(["Description", "Worklog", "Linked tasks"], page.FindAll(".item-views .seg-o").Select(l => l.TextContent.Trim()));
+        Assert.Equal("description", CurrentView(page));
+        Assert.Single(page.FindAll(".item-views .seg-o.is-sel"));
+        Assert.Single(page.FindAll(".desc.edit"));
+        Assert.Empty(page.FindAll(".sub"));          // the subtasks are one view away
+        Assert.Empty(page.FindAll(".bento"));        // the tile grid is gone
+        Assert.Empty(page.FindAll("button.tile-h")); // and so is tile focus
 
-        WorkItemsApi.AddDependency(107, 123);
-        IRenderedComponent<WorkItemPage> blocking = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Assert.Contains("blocks", Tiles(blocking));
-        Assert.Contains("#wi107", blocking.Find(".tile[data-tile='blocks']").TextContent);
-    }
-
-    [Fact(DisplayName = "Clicking a compact tile focuses it; the description becomes a compact preview")]
-    public async Task FocusTile()
-    {
-        await using BunitContext ctx = NewContext();
-        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Assert.Empty(page.FindAll(".sub"));   // compact: previews only
-
-        Focus(page, "subtasks");
-
-        Assert.Equal("subtasks", page.Find(".tile.focus").GetAttribute("data-tile"));
-        Assert.Equal(4, page.FindAll(".tile.focus .sub").Count);
+        View(page, "worklog");
+        Assert.Equal(3, page.FindAll(".item-views .seg-o").Count);   // all three stay, the marked one moves
+        Assert.Single(page.FindAll(".item-views .seg-o.is-sel"));
         Assert.Empty(page.FindAll(".desc.edit"));
-        Assert.Contains("Expose a lightweight /health endpoint", page.Find(".tile[data-tile='description'] .peek-desc").TextContent);
+        Assert.NotEmpty(page.FindAll(".worklog"));
+
+        View(page, "linked");
+        Assert.Equal(3, page.FindAll(".item-views .seg-o").Count);
+        Assert.NotEmpty(page.FindAll(".view-linked"));
+        Assert.Empty(page.FindAll(".worklog"));
+
+        View(page, "description");
+        Assert.Single(page.FindAll(".desc.edit"));
     }
 
-    [Fact(DisplayName = "In a narrow window the page opens with every tile minimised; tapping one expands it, tapping its header minimises it")]
-    public async Task NarrowStartsMinimised()
+    [Fact(DisplayName = "The description view lists what is attached to the item beside the description: the plan, documents and attachments of its notes, and images, each once")]
+    public async Task RelatedList()
     {
         await using BunitContext ctx = NewContext();
-        ctx.JSInterop.Setup<bool>("rtm.isNarrow").SetResult(true);
+        IRenderedComponent<WorkItemPage> empty = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
+        Assert.Contains("Nothing attached yet.", empty.Find(".related").TextContent);
+        Assert.Empty(empty.FindAll(".related .rel"));
+
+        repo.Write("DevResources/plans/health-2026-11-05.md", "# Health plan\n");
+        repo.Write("docs/guide.md", "# Guide\n");
+        repo.Write("docs/runbook.md", "# Runbook\n");
+        repo.Write("local/task-tracking/wi123/shot.png", "png");
+        repo.Write("local/task-tracking/n123/diagram.png", "png");
+        Assert.True(WorkItemsApi.SetPlan(123, "DevResources/plans/health-2026-11-05.md").Success);
+        Assert.True(WorkItemsApi.SetDescription(123, "Why\n\nSee [[guide]] (also [[nope]]) and the [runbook](docs/runbook.md).\n\n![shot](local/task-tracking/wi123/shot.png)\n\nThe [spec](https://example.com/spec).\n").Success);
+        Assert.True(NotesApi.SaveBody(123, "# Ping test\n\nAgain [[guide]] and ![same](local/task-tracking/wi123/shot.png) and ![other](local/task-tracking/n123/diagram.png)\n").Success);
+        Assert.True(NotesApi.AttachBytes(123, "report.pdf", [1, 2, 3]).Success);
+        Assert.True(NotesApi.AttachLink(123, "https://example.com/spec").Success);   // the same address the description links to
+
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        List<(string Kind, string Name)> rows = page.FindAll(".related .rel").Select(r => (r.QuerySelector(".k")!.TextContent.Trim(), r.QuerySelector(".rel-open")!.TextContent.Trim())).ToList();
 
-        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".tile.focus")));
-        Assert.Contains("Expose a lightweight /health endpoint", page.Find(".tile[data-tile='description'] .peek-desc").TextContent);
+        Assert.Equal(7, rows.Count);
+        Assert.Equivalent(new[]
+        {
+            ("plan", "health-2026-11-05.md"), ("doc", "guide.md"), ("doc", "runbook.md"), ("image", "shot.png"),
+            ("link", "https://example.com/spec"), ("image", "diagram.png"), ("file", "report.pdf"),
+        }, rows);
+        Assert.Equal(rows.Count, rows.Distinct().Count());
+        Assert.DoesNotContain("Nothing attached yet.", page.Find(".related").TextContent);
+        Assert.Equal(["Related"], page.FindAll(".tile-h h3").Select(h => h.TextContent.Trim()));   // the description on the left has no heading (the button above says it), Related beside it
 
-        Focus(page, "subtasks");
-        Assert.Equal("subtasks", page.Find(".tile.focus").GetAttribute("data-tile"));
-
-        page.Find(".tile.focus .tile-h").Click();
-        Assert.Empty(page.FindAll(".tile.focus"));
+        // plans and documents open the app's document page, a link opens as notes open theirs
+        Assert.Equal("doc/DevResources/plans/health-2026-11-05.md", page.FindAll(".related .rel-open").Single(a => a.TextContent.Trim() == "health-2026-11-05.md").GetAttribute("href"));
+        Assert.Equal("doc/docs/guide.md", page.FindAll(".related .rel-open").Single(a => a.TextContent.Trim() == "guide.md").GetAttribute("href"));
+        IElement link = page.FindAll(".related .rel-open").Single(a => a.TextContent.Trim() == "https://example.com/spec");
+        Assert.Equal("https://example.com/spec", link.GetAttribute("href"));
+        Assert.Equal("_blank", link.GetAttribute("target"));
     }
 
-    [Fact(DisplayName = "On the desktop, the focused tile's header does not minimise it: one tile is always open")]
-    public async Task DesktopKeepsOneOpen()
+    [Fact(DisplayName = "The linked tasks view shows subtasks, what the item waits on and what waits on it in three columns")]
+    public async Task LinkedTasksColumns()
+    {
+        await using BunitContext ctx = NewContext();
+        WorkItemsApi.AddDependency(123, 125);   // 123 waits on 125
+        WorkItemsApi.AddDependency(107, 123);   // and 107 waits on 123
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        View(page, "linked");
+
+        Assert.Equal(["subtasks", "waiting", "blocks"], Tiles(page));
+        Assert.Equal(4, page.FindAll(".tile[data-tile='subtasks'] .sub:not(.dep)").Count);
+        Assert.Contains("#wi125", page.Find(".tile[data-tile='waiting'] .sub.dep.waits").TextContent);
+        Assert.Contains(WorkItemsApi.Get(125)!.Status, page.Find(".tile[data-tile='waiting'] .sub.dep.waits").TextContent);
+        Assert.NotEmpty(page.FindAll(".tile[data-tile='waiting'] button[aria-label='Wait on another work item']"));
+        Assert.Contains("#wi107", page.Find(".tile[data-tile='blocks'] .sub.dep.blocks").TextContent);
+        Assert.Empty(page.FindAll(".tile[data-tile='subtasks'] .sub.dep"));   // the dependencies have their own columns
+
+        // empty columns say so
+        IRenderedComponent<WorkItemPage> alone = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 125));
+        View(alone, "linked");
+        Assert.Equal(["subtasks", "waiting", "blocks"], Tiles(alone));   // all three columns, also when something is empty
+        Assert.Contains("Not waiting on anything", alone.Find(".tile[data-tile='waiting']").TextContent);
+        IRenderedComponent<WorkItemPage> loner = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 124));
+        View(loner, "linked");
+        Assert.Contains("Nothing waits on this item", loner.Find(".tile[data-tile='blocks']").TextContent);
+    }
+
+    [Fact(DisplayName = "Subtasks are ticked, edited, added and selected in the linked tasks view as they were in the subtasks tile")]
+    public async Task SubtasksInTheLinkedView()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        View(page, "linked");
 
-        page.Find(".tile.focus .tile-h").Click();
+        page.Find("#sub-2-1").Change(true);   // tick
+        page.WaitForAssertion(() => Assert.Contains("- [x] 2.1", repo.Read("openspec/changes/add-health-check/tasks.md")));
 
-        Assert.Equal("description", page.Find(".tile.focus").GetAttribute("data-tile"));
+        await page.InvokeAsync(() => { });
+        page.FindAll(".sub .s-t")[3].Click();   // edit in place
+        page.WaitForAssertion(() => Assert.Equal("Hide internals from anonymous callers", page.Find(".sub input.sub-edit").GetAttribute("value")));
+        page.Find(".sub input.sub-edit").Input("Hide internals from everyone");
+        page.Find(".sub input.sub-edit").KeyDown("Enter");
+        page.WaitForAssertion(() => Assert.Contains("2.1 Hide internals from everyone", repo.Read("openspec/changes/add-health-check/tasks.md")));
+        Assert.Empty(page.FindAll(".sub input.sub-edit"));
+
+        await page.InvokeAsync(() => { });
+        page.Find("input[aria-label='New subtask']").Change("A fresh step");   // add
+        page.Find("form.add-line").Submit();
+        page.WaitForAssertion(() => Assert.Contains(WorkItemsApi.Get(123)!.Subtasks, s => s.Text == "A fresh step"));
+        page.WaitForAssertion(() => Assert.Equal(5, page.FindAll(".tile[data-tile='subtasks'] .sub").Count));
+
+        await page.InvokeAsync(() => { });
+        Assert.Empty(page.FindAll(".actionbar"));   // select: Shift-click
+        page.FindAll(".sub .s-t")[0].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        page.WaitForAssertion(() => Assert.Equal("Make it a work item", page.Find(".actionbar button.primary").TextContent.Trim()));
+        Assert.NotEmpty(page.FindAll(".actionbar button.dep"));   // "Make it a dependency"
+        await page.InvokeAsync(() => { });
+        page.FindAll(".sub .s-t")[1].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { CtrlKey = true });
+        page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".sub.selected").Count));
+        Assert.Equal("Move into a separate work item", page.Find(".actionbar button.primary").TextContent.Trim());
     }
 
-    [Fact(DisplayName = "A compact tile shows only its last few entries and a count; focused, it lists them all")]
-    public async Task CompactShowsFew()
+    [Fact(DisplayName = "The subtasks column lists every subtask and counts how many are done")]
+    public async Task SubtasksColumnListsAll()
     {
         await using BunitContext ctx = NewContext();
         for (int i = WorkItemsApi.Get(123)!.Subtasks.Count; i < 25; i++) Assert.True(WorkItemsApi.AddSubtask(123, $"Extra step {i}").Success);
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        Assert.Equal(3, page.FindAll(".tile[data-tile='subtasks'] .peek").Count);
-        Assert.Contains("/25", page.Find(".tile[data-tile='subtasks'] .tile-h").TextContent);
+        View(page, "linked");
 
-        Focus(page, "subtasks");
-        Assert.Equal(25, page.FindAll(".tile.focus .sub").Count);
+        Assert.Equal(25, page.FindAll(".tile[data-tile='subtasks'] .sub").Count);
+        Assert.Contains("/25", page.Find(".tile[data-tile='subtasks'] .tile-h").TextContent);
+    }
+
+    [Fact(DisplayName = "The worklog view shows the item's notes in the feed and tells the page when one is added")]
+    public async Task WorklogEntries()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool _, string _, int id) = NotesApi.Create(123, "Tom");
+        Assert.True(NotesApi.SaveBody(id, "# Second entry\n\nSome **bold** words\n").Success);
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        View(page, "worklog");
+        List<IElement> entries = page.FindAll(".worklog .wk-note").ToList();
+
+        Assert.Equal(2, entries.Count);   // newest first
+        Assert.Contains("Second entry", entries[0].TextContent);
+        Assert.Contains("Tom", entries[0].TextContent);
+        Assert.Equal("bold", entries[0].QuerySelector("strong")!.TextContent);   // the body is rendered markdown
+        Assert.Contains("Ping test", entries[1].TextContent);
+
+        // the component alone: Add note in a date's menu creates a note and tells its page
+        int told = 0;
+        IRenderedComponent<Worklog> log = ctx.Render<Worklog>(p => p
+            .Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Root, repo.Root)
+            .Add(c => c.OnChanged, Microsoft.AspNetCore.Components.EventCallback.Factory.Create(this, (Action)(() => told++))));
+        log.Find(".wk-day.today .wk-date").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".menu-pop")));
+        log.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Add note").Click();
+
+        log.WaitForAssertion(() => Assert.Equal(1, told));
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
+    }
+
+    [Fact(DisplayName = "In a narrow window the three linked-tasks columns stack and nothing is minimised")]
+    public async Task NarrowStacks()
+    {
+        await using BunitContext ctx = NewContext();
+        ctx.JSInterop.Setup<bool>("rtm.isNarrow").SetResult(true);
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        Assert.Single(page.FindAll(".desc.edit"));   // the description is open at once, as on the desktop
+        View(page, "linked");
+
+        page.WaitForAssertion(() => Assert.Single(page.FindAll(".view-linked.stack")));
+        Assert.Equal(["subtasks", "waiting", "blocks"], Tiles(page));
+        Assert.Equal(4, page.FindAll(".tile[data-tile='subtasks'] .sub").Count);   // the subtasks are listed, not folded away
+        Assert.Empty(page.FindAll(".tile-h [aria-expanded], button.tile-h"));
     }
 
     [Fact(DisplayName = "A work item has one feature, picked in one dropdown: another pick replaces it, \"no feature\" leaves it unassigned, and its spec stays")]
@@ -134,7 +257,6 @@ public sealed class UsingThePagesTests : IDisposable
     }
 
 
-
     [Fact(DisplayName = "One dates control on the work item page picks a range: the first day clicked is the start, the second the due date; Clear removes both")]
     public async Task StartAndDueDates()
     {
@@ -143,53 +265,114 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Empty(page.FindAll("input[type='date']"));   // no native pickers any more
         Assert.Contains("no dates", page.Find("button.dates-btn").TextContent);
 
-        page.Find("button.dates-btn").Click();
+        // A click returns before the handler has run when the dispatcher is busy, and a save reaches the disk before the page has rendered it:
+        // so each step waits for the render it needs, and lets the dispatcher drain before the next event.
+        async Task OpenPopup()
+        {
+            page.Find("button.dates-btn").Click();
+            page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".range-pop")));
+            await page.InvokeAsync(() => { });
+        }
+        async Task PickDay(DateOnly day)
+        {
+            page.WaitForAssertion(() => page.Find($".range-pop button.rd[data-day='{day:yyyy-MM-dd}']").Click());
+            await page.InvokeAsync(() => { });
+        }
+
+        await OpenPopup();
         DateOnly first = new(DateTime.Today.Year, DateTime.Today.Month, 1);
-        page.Find($".range-pop button.rd[data-day='{first:yyyy-MM-dd}']").Click();
+        await PickDay(first);
+        page.WaitForAssertion(() => Assert.Contains("pick the end", page.Find(".range-pop .range-f").TextContent));
         Assert.Null(WorkItemsApi.Get(123)!.Started);   // nothing saved until the range is complete
-        page.Find($".range-pop button.rd[data-day='{first.AddDays(6):yyyy-MM-dd}']").Click();
+        await PickDay(first.AddDays(6));
         page.WaitForAssertion(() => Assert.Equal((first, first.AddDays(6)), (WorkItemsApi.Get(123)!.Started, WorkItemsApi.Get(123)!.Due)));
         page.WaitForAssertion(() => Assert.Contains($"{first:d MMM} – {first.AddDays(6):d MMM}", page.Find("button.dates-btn").TextContent));
-        Assert.Empty(page.FindAll(".range-pop"));   // closed once the range is complete
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".range-pop")));   // closed once the range is complete
+        await page.InvokeAsync(() => { });
 
-        page.Find("button.dates-btn").Click();   // picking backwards swaps them
-        page.Find($".range-pop button.rd[data-day='{first.AddDays(9):yyyy-MM-dd}']").Click();
-        page.Find($".range-pop button.rd[data-day='{first.AddDays(2):yyyy-MM-dd}']").Click();
+        await OpenPopup();   // picking backwards swaps them
+        await PickDay(first.AddDays(9));
+        page.WaitForAssertion(() => Assert.Contains("pick the end", page.Find(".range-pop .range-f").TextContent));
+        await PickDay(first.AddDays(2));
         page.WaitForAssertion(() => Assert.Equal((first.AddDays(2), first.AddDays(9)), (WorkItemsApi.Get(123)!.Started, WorkItemsApi.Get(123)!.Due)));
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".range-pop")));
+        await page.InvokeAsync(() => { });
 
-        page.Find("button.dates-btn").Click();
+        await OpenPopup();
         page.Find(".range-pop button.range-clear").Click();
         page.WaitForAssertion(() => Assert.Null(WorkItemsApi.Get(123)!.Due));
         Assert.Null(WorkItemsApi.Get(123)!.Started);
     }
 
-    [Fact(DisplayName = "A work item's plan is picked from the plans folder: the chip opens it rendered in the app, its × unlinks it; there is no path box")]
+    [Fact(DisplayName = "A work item's plan lives in the Related list, not in the header: picked there from the plans folder, it opens rendered in the app and its × unlinks it")]
     public async Task PlanOnThePage()
     {
         await using BunitContext ctx = NewContext();
         repo.Write("DevResources/plans/health-2026-11-05.md", "# Health plan\n\nStep one.\n");
         repo.Write("DevResources/plans/other-2026-11-04.md", "# Other\n");
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Assert.Empty(page.FindAll("a.plan-link"));
+        Assert.Empty(page.FindAll(".plan-field, a.plan-link, button.plan-x"));   // the header has no plan: it would say it twice
         Assert.Empty(page.FindAll("input[aria-label='plan']"));
+        Assert.Empty(page.FindAll(".related li.rel[data-kind='plan']"));
 
-        page.Find("[aria-label='Link a plan'] button, button[aria-label='Link a plan']").Click();
+        page.Find(".related [aria-label='Link a plan'] button, .related button[aria-label='Link a plan']").Click();
         page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".menu-pop .pick-item").Count));
         page.FindAll(".menu-pop .pick-item").First(i => i.TextContent.Contains("health-2026-11-05")).Click();
         page.WaitForAssertion(() => Assert.Equal("DevResources/plans/health-2026-11-05.md", WorkItemsApi.Get(123)!.Plan));
-        AngleSharp.Dom.IElement link = page.Find("a.plan-link");
+        AngleSharp.Dom.IElement link = page.Find(".related li.rel[data-kind='plan'] a.rel-open");
         Assert.Equal("doc/DevResources/plans/health-2026-11-05.md", link.GetAttribute("href"));
         Assert.Equal("health-2026-11-05.md", link.TextContent.Trim());
+        Assert.Empty(page.FindAll(".related [aria-label='Link a plan']"));   // one plan per item
 
         IRenderedComponent<DocPage> doc = ctx.Render<DocPage>(p => p.Add(c => c.Path, WorkItemsApi.Get(123)!.Plan!));
         Assert.Equal("Health plan", doc.Find("h1").TextContent);
 
-        page.Find("button.plan-x").Click();
+        await page.InvokeAsync(() => { });
+        page.Find(".related li.rel[data-kind='plan'] button.rel-x").Click();
         page.WaitForAssertion(() => Assert.Null(WorkItemsApi.Get(123)!.Plan));
-        Assert.Empty(page.FindAll("a.plan-link"));
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".related li.rel[data-kind='plan']")));
     }
 
-    [Fact(DisplayName = "Opening a work item shows its header, description, subtasks, and its notes as the change log")]
+    [Fact(DisplayName = "Linked documents show in the Related list, where × unlinks one; what the description merely mentions has no ×")]
+    public async Task LinkedDocsInRelated()
+    {
+        await using BunitContext ctx = NewContext();
+        repo.Write("docs/guide.md", "# Guide\n");
+        repo.Write("docs/runbook.md", "# Runbook\n");
+        Assert.True(WorkItemsApi.SetLinkedDocs(123, ["docs/guide.md"]).Success);
+        Assert.True(WorkItemsApi.SetDescription(123, "## Why\n\nSee [the runbook](docs/runbook.md).\n").Success);
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        string[] Docs() => [.. page.FindAll(".related li.rel[data-kind='doc'] .rel-open").Select(a => a.TextContent.Trim())];
+        Assert.Equal(["guide.md", "runbook.md"], Docs()[..2]);   // the stored link first, then what the description names (a note of the fixture names one more)
+        Assert.Single(page.FindAll(".related li.rel button.rel-x"));   // only the stored link can be unlinked
+
+        page.Find(".related li.rel button.rel-x").Click();
+        page.WaitForAssertion(() => Assert.Empty(WorkItemsApi.Get(123)!.Docs ?? []));
+        page.WaitForAssertion(() => Assert.DoesNotContain("guide.md", Docs()));
+        Assert.Contains("runbook.md", Docs());
+    }
+
+    [Fact(DisplayName = "The item page's views have no frames: the description, the Related list, the linked-tasks columns and rows, and the worklog's notes sit straight on the page")]
+    public void ViewsHaveNoFrames()
+    {
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        string Rule(string selector) => System.Text.RegularExpressions.Regex.Matches(css, @"\n\s*" + System.Text.RegularExpressions.Regex.Escape(selector) + @"\s*\{([^}]*)\}").Last().Groups[1].Value;   // the last one wins the cascade
+
+        string tile = Rule(".view-grid .tile");
+        Assert.Matches(@"border:\s*0\b", tile);
+        Assert.Matches(@"background:\s*transparent", tile);
+        Assert.Matches(@"padding:\s*0\b", tile);
+        string heading = Rule(".view-grid .tile-h h3");
+        Assert.Matches(@"border:\s*0\b", heading);
+        Assert.Matches(@"background:\s*transparent", heading);
+        Assert.Matches(@"--stroke:\s*transparent", Rule(".view-grid .sub"));         // subtask and dependency rows: no box, a line between them
+        Assert.Matches(@"--stroke:\s*transparent", Rule(".view-grid .sub-group"));
+        Assert.Matches(@"--stroke:\s*transparent", Rule(".wk-note"));                // a note in the feed is not a card
+        Assert.Matches(@"box-shadow:\s*none", Rule(".wk-edit"));
+    }
+
+    [Fact(DisplayName = "Opening a work item shows its header and description, its subtasks under Linked tasks, and its notes in the Worklog")]
     public async Task WorkItemPage()
     {
         await using BunitContext ctx = NewContext();
@@ -198,11 +381,10 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("Health-check endpoint", page.Find("input.title-in").GetAttribute("value"));
         Assert.Contains("In Progress", page.Find(".status-field").TextContent);
         Assert.Contains("Expose a lightweight /health endpoint", page.Find(".desc").TextContent);
-        Assert.Contains("Ping test", page.Find(".tile[data-tile='log']").TextContent);
-        Focus(page, "subtasks");
+        View(page, "linked");
         Assert.Equal(4, page.FindAll(".sub").Count);
-        Focus(page, "log");
-        Assert.Contains("Ping test", page.Find(".change-log").TextContent);
+        View(page, "worklog");
+        Assert.Contains("Ping test", page.Find(".worklog").TextContent);
         Assert.DoesNotContain(page.FindAll("h3"), h => h.TextContent.Trim() == "Notes");   // no separate notes panel
     }
 
@@ -243,7 +425,7 @@ public sealed class UsingThePagesTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Focus(page, "subtasks");
+        View(page, "linked");
         page.Find("#sub-2-1").Change(true);
         Assert.Contains("- [x] 2.1", repo.Read("openspec/changes/add-health-check/tasks.md"));
     }
@@ -253,7 +435,7 @@ public sealed class UsingThePagesTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Focus(page, "subtasks");
+        View(page, "linked");
 
         page.FindAll(".sub .s-t")[3].Click();
         AngleSharp.Dom.IElement box = page.Find(".sub input.sub-edit");
@@ -271,7 +453,7 @@ public sealed class UsingThePagesTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Focus(page, "subtasks");
+        View(page, "linked");
         string before = repo.Read("openspec/changes/add-health-check/tasks.md");
 
         page.FindAll(".sub .s-t")[0].Click();
@@ -286,7 +468,7 @@ public sealed class UsingThePagesTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Focus(page, "subtasks");
+        View(page, "linked");
         page.FindAll(".sub .s-t")[2].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
         page.FindAll(".sub .s-t")[3].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
 
@@ -309,32 +491,37 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.False(WorkItemsApi.Get(107)!.Hidden);
     }
 
-    [Fact(DisplayName = "+ Add entry in the change log creates a note and opens it")]
+    [Fact(DisplayName = "Add note in the worklog's date menu creates a note and opens it in an editor in the feed")]
     public async Task AddNoteOpensIt()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
 
-        Focus(page, "log");
-        page.FindAll("button").Single(b => b.TextContent.Contains("Add entry")).Click();
+        View(page, "worklog");
+        page.Find(".worklog .wk-day.today .wk-date").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".menu-pop")));
+        page.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Add note").Click();
 
-        Assert.EndsWith("/note/124", ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri);
+        page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".worklog .wk-edit")));
+        Assert.Equal(124, NotesApi.GetForWorkItem(107).Single().Id);
+        Assert.EndsWith("/", new Uri(ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri).AbsolutePath);   // it did not navigate away
     }
 
-    [Fact(DisplayName = "The change log lists the newest note first, with its date and author")]
+    [Fact(DisplayName = "The worklog lists the newest day and note first, with its time and author")]
     public async Task ChangeLogNewestFirst()
     {
         await using BunitContext ctx = NewContext();
         (bool _, string _, int id) = NotesApi.Create(123, "Tom");
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        Focus(page, "log");
-        List<AngleSharp.Dom.IElement> entries = page.FindAll(".change-log .log-e").ToList();
+        View(page, "worklog");
+        List<AngleSharp.Dom.IElement> entries = page.FindAll(".worklog .wk-note").ToList();
 
         Assert.Equal(2, entries.Count);
-        Assert.Contains($"#n{id}", entries[0].TextContent);
         Assert.Contains("Tom", entries[0].TextContent);
-        Assert.Contains("#n123", entries[1].TextContent);
+        Assert.Equal(DateTime.Today.ToString("yyyy-MM-dd"), entries[0].Closest(".wk-day")!.GetAttribute("data-day"));
+        Assert.Contains("Ping test", entries[1].TextContent);
+        Assert.Equal("09:14", entries[1].QuerySelector(".wk-time")!.TextContent.Trim());
     }
 
     [Fact(DisplayName = "The description shows formatted text until you click to edit it")]
@@ -375,12 +562,13 @@ public sealed class UsingThePagesTests : IDisposable
         IElement chip = page.Find(".contributors .agent-contrib.unreviewed");
         Assert.Equal("Claude", chip.TextContent.Trim());
         Assert.Contains("Claude", chip.GetAttribute("title"));
-        Focus(page, "subtasks");
+        View(page, "linked");
         page.Find(".sub .agent-chip").Click();
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".sub .agent-chip")));
-        Focus(page, "log");
-        page.Find(".change-log .agent-chip").Click();
-        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".change-log .agent-chip")));
+        await page.InvokeAsync(() => { });
+        View(page, "worklog");
+        page.Find(".worklog .agent-chip").Click();
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".worklog .agent-chip")));
         page.Find(".contributors .agent-contrib").Click();
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".agent-contrib.unreviewed")));
         Assert.Empty(page.FindAll(".agent-chip"));
@@ -531,22 +719,13 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("Planned", WorkItemsApi.Get(107)!.Status);
     }
 
-    [Fact(DisplayName = "Without git, Linked commits says the folder is not a git repository")]
-    public async Task NoGitHistory()
-    {
-        await using BunitContext ctx = NewContext();
-        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Focus(page, "commits");
-        Assert.Contains("Not a git repository", page.Find(".linked-commits").TextContent);
-    }
-
     [Fact(DisplayName = "Selecting one subtask offers to make it a work item of its own")]
     public async Task SplitOneSubtask()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        Focus(page, "subtasks");
+        View(page, "linked");
         page.FindAll(".sub .s-t")[2].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
         Assert.Equal("Make it a work item", page.Find(".actionbar button.primary").TextContent.Trim());
         page.Find(".actionbar button.primary").Click();
@@ -561,7 +740,7 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        Focus(page, "subtasks");
+        View(page, "linked");
         page.FindAll(".sub .s-t")[2].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
         page.Find(".actionbar button.dep").Click();
 
@@ -570,7 +749,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains($"#wi{newId}", page.Find(".sub.dep.waits.blocking-me").TextContent);
 
         IRenderedComponent<WorkItemPage> dependency = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, newId));
-        Focus(dependency, "blocks");
+        View(dependency, "linked");
         Assert.Contains("#wi123", dependency.Find(".sub.dep.blocks").TextContent);
     }
 
@@ -583,7 +762,7 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
 
-        Focus(page, "subtasks");
+        View(page, "linked");
         page.Find("input[aria-label='New subtask']").Change(typed);
         page.Find("form.add-line").Submit();
 
@@ -592,12 +771,12 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("#wi123", page.Find(".sub.dep.waits.blocking-me").TextContent);
     }
 
-    [Fact(DisplayName = "The Subtasks tile has a picker of existing work items to wait on; choosing one makes it a dependency")]
+    [Fact(DisplayName = "The Waiting on column has a picker of existing work items to wait on; choosing one makes it a dependency")]
     public async Task PickDependency()
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
-        Focus(page, "subtasks");
+        View(page, "linked");
 
         page.Find("button[aria-label='Wait on another work item']").Click();
         page.Find(".menu-filter").Input("health");
@@ -614,7 +793,7 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         WorkItemsApi.AddDependency(107, 123);   // 107 waits on 123
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Focus(page, "subtasks");
+        View(page, "linked");
 
         page.Find("button[aria-label='Wait on another work item']").Click();
         string choices = string.Join(" | ", page.FindAll(".menu-item").Select(i => i.TextContent));
@@ -624,15 +803,15 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("#wi125", choices);
     }
 
-    [Fact(DisplayName = "Dependencies are listed under Subtasks: a done one struck through, and × removes it")]
+    [Fact(DisplayName = "Dependencies are listed in the Waiting on column: a done one struck through, and × removes it")]
     public async Task DependenciesUnderSubtasks()
     {
         await using BunitContext ctx = NewContext();
         WorkItemsApi.AddDependency(107, 124);   // archived, so done
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
 
-        Focus(page, "subtasks");
-        AngleSharp.Dom.IElement row = page.Find(".tile .sub.dep.waits");
+        View(page, "linked");
+        AngleSharp.Dom.IElement row = page.Find(".tile[data-tile='waiting'] .sub.dep.waits");
         Assert.Contains("#wi124", row.TextContent);
         Assert.Contains("done", row.ClassList);
 
@@ -642,59 +821,8 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Empty(page.FindAll(".sub.dep"));
     }
 
-    [Fact(DisplayName = "A merged item lists the commits that mention the numbers of the items it was merged from")]
-    public async Task MergedItemKeepsCommits()
-    {
-        GitInit("Speed up the export #wi107");
-        await using BunitContext ctx = NewContext();
-        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123]);
-        Assert.True(ok, message);
-        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, id));
-
-        Focus(page, "commits");
-
-        page.WaitForAssertion(() => Assert.Contains("Speed up the export #wi107", page.Find(".linked-commits").TextContent), TimeSpan.FromSeconds(5));   // a merged item's Load runs several git logs, so the click's render can lag on a busy machine
-    }
-
-    [Fact(DisplayName = "+ link commit lists recent commits; the picked one is linked and can be removed")]
-    public async Task LinkCommit()
-    {
-        GitInit();
-        await using BunitContext ctx = NewContext();
-        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-
-        Focus(page, "commits");
-        page.Find("button[aria-label='Link a commit']").Click();
-        page.FindAll(".menu-item").Single(i => i.TextContent.Contains("Fix uptime probe")).Click();
-
-        Assert.Single(WorkItemsApi.Get(123)!.Commits!);
-        AngleSharp.Dom.IElement linked = page.FindAll(".linked-commits .commit").Single(c => c.TextContent.Contains("Fix uptime probe"));
-        linked.QuerySelector("button[aria-label='Unlink commit']")!.Click();
-        Assert.Empty(WorkItemsApi.Get(123)!.Commits ?? []);
-    }
-
-    [Fact(DisplayName = "+ link test lists the tests in the newest results file; a linked test shows its result and can get a note")]
-    public async Task LinkTest()
-    {
-        repo.Write("results/run.trx", ReadingLinkedTestRunsTests.Trx);
-        await using BunitContext ctx = NewContext();
-        ReadingLinkedTestRunsTests.UseResults(repo, "results/*.trx");
-        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-
-        Focus(page, "tests");
-        page.Find("button[aria-label='Link a test']").Click();
-        Assert.Equal(2, page.FindAll(".menu-item").Count);
-        page.Find(".menu-filter").Input("ping");   // long lists: type to narrow
-        page.FindAll(".menu-item").Single().Click();
-
-        AngleSharp.Dom.IElement row = page.FindAll(".linked-tests .test").Single(t => t.TextContent.Contains("Ping test"));
-        Assert.Contains("passed", row.ClassName);
-        row.QuerySelector("button[aria-label='Add a note for this test']")!.Click();
-        Assert.NotNull(WorkItemsApi.Get(123)!.Tests!.Single().Note);
-        Assert.Matches("/note/[0-9]+$", ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri);
-    }
-
-    // Makes the temp repo a git repository with one commit, before the workspace opens it.
+    // Makes the temp repo a git repository with one commit, before the workspace opens it. (Unused on this page since the
+    // commits and tests lists left it for the Worklog; kept for the tests that bring them back there.)
     private void GitInit(string message = "Fix uptime probe")
     {
         foreach (string[] args in new[]
@@ -824,6 +952,28 @@ public sealed class UsingThePagesTests : IDisposable
     }
 
     // ── Doc page ──
+
+    [Fact(DisplayName = "A plan's tables render as tables and its long lines wrap inside the window, on the doc page and anywhere markdown is shown")]
+    public async Task DocPageRendersTables()
+    {
+        await using BunitContext ctx = NewContext();
+        repo.Write("DevResources/plans/table-plan-2026-11-10.md",
+            "# Plan\n\n## Chunks\n\n| # | Chunk | Owner |\n|---|-------|-------|\n| A | One thing | sonnet, worktree, CDP 9341 |\n| B | Another | main session |\n\nSee https://example.com/a-long-address for more.\n");
+        IRenderedComponent<DocPage> page = ctx.Render<DocPage>(p => p.Add(c => c.Path, "DevResources/plans/table-plan-2026-11-10.md"));
+
+        page.WaitForAssertion(() => Assert.Single(page.FindAll(".desc table")));
+        Assert.Equal(["#", "Chunk", "Owner"], page.FindAll(".desc table th").Select(h => h.TextContent.Trim()));
+        Assert.Equal(2, page.FindAll(".desc table tbody tr").Count);
+        Assert.DoesNotContain("|---", page.Find(".desc").TextContent);
+        Assert.Equal("https://example.com/a-long-address", page.Find(".desc a[href^='https://example.com']").GetAttribute("href"));   // a bare address is a link
+
+        // a table scrolls on its own and long words break, so nothing pushes the page wider than the window
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        string Rule(string selector) => System.Text.RegularExpressions.Regex.Matches(css, @"\n\s*" + System.Text.RegularExpressions.Regex.Escape(selector) + @"\s*\{([^}]*)\}").Last().Groups[1].Value;
+        Assert.Matches(@"overflow-wrap:\s*anywhere", Rule(".desc"));
+        Assert.Matches(@"min-width:\s*0", Rule(".desc"));
+        Assert.Matches(@"overflow-x:\s*auto", Rule(".desc table"));
+    }
 
     [Fact(DisplayName = "A markdown file under the repository opens on the doc page, rendered, with its path shown; a missing file or a path outside the repository shows not found")]
     public async Task DocPageRendersMarkdown()
@@ -959,18 +1109,16 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Matches(@"\.note-grid \.tile\[data-tile=""note""\][^{]*\{[^}]*min-height", css);   // the note tile is tall enough to fill, even beside short tiles
     }
 
-    [Fact(DisplayName = "The Subtasks tile shows each task group as a collapsible header with its progress, and the Change log groups merged notes by source item and merge date")]
-    public async Task MergedGroupsAndLog()
+    [Fact(DisplayName = "The Subtasks column shows each task group as a collapsible header with its progress")]
+    public async Task MergedGroups()
     {
         await using BunitContext ctx = NewContext();
         WorkItemsApi.SetSubtaskDone(107, "1.2", true);   // 107's only group is then done: it starts collapsed
-        (bool _, string _, int own) = NotesApi.Create(107, "Tom");
         (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123], 107);
         Assert.True(ok, message);
-        string day = DateTime.Now.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture);
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, id));
 
-        Focus(page, "subtasks");
+        View(page, "linked");
         List<IElement> groups = page.FindAll(".tile[data-tile='subtasks'] .sub-group").ToList();
         Assert.Equal(3, groups.Count);
         Assert.Contains("Monthly remittance export", groups[0].TextContent);
@@ -989,18 +1137,6 @@ public sealed class UsingThePagesTests : IDisposable
         page.Find("input[aria-label='New subtask']").Change("Last one");   // adding still works, into the last group
         page.Find(".tile[data-tile='subtasks'] form.add-line").Submit();
         Assert.Contains("Hardening", WorkItemsApi.Get(id)!.Subtasks.Single(s => s.Text == "Last one").Group);
-
-        Focus(page, "log");
-        IElement log = page.Find(".tile[data-tile='log'] .change-log");
-        Assert.Contains($"#n{own}", log.TextContent);   // the item's own note is listed as it is
-        IElement section = page.Find(".tile[data-tile='log'] .log-group");
-        Assert.Contains($"From #wi123 · merged {day}", section.TextContent);
-        Assert.Equal("false", section.GetAttribute("aria-expanded"));   // collapsed by default
-        Assert.DoesNotContain("#n123", log.TextContent);
-
-        section.Click();
-        Assert.Contains("#n123 · Ping test", page.Find(".tile[data-tile='log'] .change-log").TextContent);
-        Assert.Contains("Merged from #wi123", page.Find(".tile[data-tile='log'] .change-log").TextContent);
     }
 
     public void Dispose()
@@ -1196,5 +1332,61 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         Assert.Contains("sheet", ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123)).Find("div[data-sk=soft]").ClassList);
         Assert.Contains("sheet", ctx.Render<NotePage>(p => p.Add(c => c.Id, 123)).Find("div[data-sk=soft]").ClassList);
+    }
+
+    [Fact(DisplayName = "In a window too narrow for the split screen the list beside an open item is not rendered, and it comes back when the window widens")]
+    public async Task NarrowWindowSkipsTheList()
+    {
+        await using BunitContext ctx = NewContext();
+        ctx.JSInterop.Setup<bool>("rtm.watchNarrow", _ => true).SetResult(true);   // the window is under the split breakpoint
+        ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("item/123");
+        IRenderedComponent<MainLayout> layout = RenderItemLayout(ctx, 123);
+
+        layout.WaitForAssertion(() => Assert.Empty(layout.FindAll(".split-list")));
+        Assert.NotEmpty(layout.FindAll(".split-item .sheet"));   // the item is there; only the list the CSS would hide is not built
+
+        await layout.InvokeAsync(() => layout.Instance.NarrowChanged(false));   // the window widens
+        layout.WaitForAssertion(() => Assert.NotEmpty(layout.FindAll("main.split .split-list tr[data-id]")));
+        Assert.NotEmpty(layout.FindAll(".split-item .sheet"));
+    }
+
+    // ── Loading once ──
+
+    [Fact(DisplayName = "Opening a work item loads its data once, and a parent re-render does not make the worklog load again")]
+    public async Task OpeningLoadsOnce()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        Assert.Equal(1, page.Instance.Loads);
+
+        View(page, "worklog");
+        IRenderedComponent<Worklog> log = page.FindComponent<Worklog>();
+        Assert.Equal(1, page.Instance.Loads);
+        Assert.Equal(1, log.Instance.Loads);
+
+        // the page rendering again (its own state, or the parameters it already had) is not a reason to read again, here or in the worklog
+        page.Render();
+        page.Render(p => p.Add(c => c.Id, 123));
+        Assert.Equal(1, page.Instance.Loads);
+        Assert.Equal(1, log.Instance.Loads);
+
+        // another item is a new navigation: it loads again
+        page.Render(p => p.Add(c => c.Id, 107));
+        Assert.Equal(2, page.Instance.Loads);
+    }
+
+    [Fact(DisplayName = "Switching the item page's view does not re-read the repository")]
+    public async Task SwitchingViewsDoesNotReload()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        int before = page.Instance.Loads;
+
+        View(page, "linked");
+        View(page, "worklog");
+        View(page, "description");
+        View(page, "linked");
+
+        Assert.Equal(before, page.Instance.Loads);
     }
 }

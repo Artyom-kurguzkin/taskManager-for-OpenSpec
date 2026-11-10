@@ -290,3 +290,17 @@ Settings SHALL list every open project under its name with its location (the rep
 #### Scenario: Two projects, two attachments folders
 - **WHEN** demo and demo2 are open and the user sets demo2's attachments folder to `files/shots`
 - **THEN** demo2's agent guide names `files/shots`, demo keeps `local/task-tracking`, and a note attachment in each project goes to its own folder
+
+### Requirement: Images in the description
+Pasting an image into the description editor SHALL save it as `pasted-<yyyyMMdd-HHmmss>.<ext>` under the project's attachments folder in `wi<item>/` (a taken name gets `-2`, `-3`…; the folder is git-ignored) and SHALL insert `![](<path>)` with that repository-relative path at the caret. In view mode the description SHALL show the image, scaled to the tile's width.
+
+#### Scenario: Paste a screenshot
+- **WHEN** the user pastes a screenshot into #wi119's description and clicks outside
+- **THEN** the file is under local/task-tracking/wi119/, the description holds a link to it, and the image shows in the description
+
+### Requirement: New feature from the item page
+The work item page's feature list SHALL list every feature and end with "+ New feature…". Picking it SHALL ask for the new feature as the board does, create it and set it on the item; cancelling SHALL leave the item unchanged.
+
+#### Scenario: Create and set
+- **WHEN** the user picks "+ New feature…" on #wi115 and names it "Exports"
+- **THEN** the feature "Exports" exists and #wi115's feature is "Exports"

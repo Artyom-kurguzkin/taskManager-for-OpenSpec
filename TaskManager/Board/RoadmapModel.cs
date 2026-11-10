@@ -15,7 +15,7 @@ public sealed record RoadmapWindow(DateOnly Start, DateOnly End, string Zoom)
 public sealed record RoadmapBar(int Col, int Span, bool StartsBefore, bool EndsAfter);
 
 /// <summary>A project's board sections, the roadmap's source (its columns are the groups).</summary>
-public sealed record RoadmapSource(string Root, string Name, IReadOnlyList<BoardSection> Sections);
+public sealed record RoadmapSource(string Root, string Name, IReadOnlyList<BoardSection> Sections, IReadOnlyDictionary<string, string>? Colours = null);
 
 public sealed record RoadmapRow(string Root, WorkItem Item);
 

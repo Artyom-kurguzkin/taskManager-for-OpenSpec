@@ -1229,4 +1229,315 @@ public sealed class EditingWorkItemsTests
         Assert.True(WorkItemsApi.CheckRevision(123, null).Success);
         Assert.True(WorkItemsApi.CheckRevision(123, "").Success);
     }
+
+    private const string HealthEvents = "openspec/changes/add-health-check/events.log";
+
+    private static IEnumerable<(string Kind, string Text)> Events(int id) => WorkItemsApi.GetEvents(id).Select(e => (e.Kind, e.Text));
+
+    [Fact(DisplayName = "Reading the board while a merge or archive removes a change folder skips the folder that is gone instead of failing")]
+    public void ReadWhileAFolderVanishes()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string folder = repo.PathOf("openspec/changes/vanishing");
+        void Make()
+        {
+            Directory.CreateDirectory(Path.Combine(folder, "notes"));
+            File.WriteAllText(Path.Combine(folder, ".openspec.yaml"), "schema: spec-driven\ncreated: 2026-11-10\nx-rtm:\n  id: 900\n  title: Vanishing\n");
+            File.WriteAllText(Path.Combine(folder, "proposal.md"), "# Vanishing\n");
+            for (int i = 0; i < 40; i++) File.WriteAllText(Path.Combine(folder, "notes", $"n{9000 + i}.md"), "---\nid: 1\n---\n# x\n");
+        }
+
+        // another thread makes and removes the folder over and over, as a merge (or the user in Explorer) does, while the app reads
+        using CancellationTokenSource stop = new(TimeSpan.FromSeconds(3));
+        Task churn = Task.Run(() =>
+        {
+            while (!stop.IsCancellationRequested)
+                try { Make(); Directory.Delete(folder, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        });
+        List<Exception> failures = [];
+        while (!stop.IsCancellationRequested)
+            try { OpenSpecStoreApi.Refresh(); WorkItemsApi.GetAll(includeHidden: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { failures.Add(e); }
+        churn.Wait();
+
+        Assert.Empty(failures.Select(e => e.GetType().Name + " at " + string.Join(" < ", (e.StackTrace ?? "").Split('\n').Select(l => l.Trim()).Where(l => l.StartsWith("at WorkItems") || l.StartsWith("at OpenSpecStore")).Take(3))).Distinct());
+        Assert.Contains(WorkItemsApi.GetAll(), w => w.Id == 123);   // the rest of the board is read as usual
+    }
+
+    [Fact(DisplayName = "Changing an item's status is recorded as an event with the old and the new status, who did it and when")]
+    public void StatusIsRecorded()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        WorkItemsApi.ConfigureArchiver(folder => { Directory.Move(repo.PathOf($"openspec/changes/{folder}"), repo.PathOf($"openspec/changes/archive/2026-10-23-{folder}")); return (true, ""); });
+        try
+        {
+            DateTime from = DateTime.Now.AddSeconds(-2);
+            Assert.True(WorkItemsApi.SetStatus(123, "In Review").Success);
+
+            WorkItemEvent e = Assert.Single(WorkItemsApi.GetEvents(123));
+            Assert.Equal(("Tester", "status", "In Progress -> In Review"), (e.By, e.Kind, e.Text));
+            Assert.InRange(e.At, from, DateTime.Now.AddSeconds(2));
+            Assert.Matches(@"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d \| Tester \| status \| In Progress -> In Review\r?\n$", repo.Read(HealthEvents));
+
+            Assert.True(WorkItemsApi.SetStatus(123, "In Review").Success);   // nothing changed, nothing recorded
+            Assert.Single(WorkItemsApi.GetEvents(123));
+            Assert.Empty(WorkItemsApi.GetEvents(999));
+            Assert.Empty(WorkItemsApi.GetEvents(107));
+
+            Assert.True(WorkItemsApi.SetStatus(107, "Completed").Success);   // the event goes with the folder into the archive
+            Assert.Equal([("status", "Planned -> Completed")], Events(107));
+            Assert.True(File.Exists(repo.PathOf("openspec/changes/archive/2026-10-23-export-remittances/events.log")));
+        }
+        finally { WorkItemsApi.ConfigureActor(null); WorkItemsApi.ConfigureArchiver(null); }
+    }
+
+    [Fact(DisplayName = "Linking and unlinking a commit, a test or a document records one event each, and nothing when the list did not change")]
+    public void LinkingIsRecorded()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        try
+        {
+            Assert.True(WorkItemsApi.SetLinkedCommits(123, ["abc1234", "def5678", "abc1234"]).Success);
+            Assert.True(WorkItemsApi.SetLinkedCommits(123, ["abc1234", "def5678"]).Success);   // same list
+            Assert.True(WorkItemsApi.SetLinkedCommits(123, ["abc1234"]).Success);
+            Assert.Equal([("commit-linked", "abc1234"), ("commit-linked", "def5678"), ("commit-unlinked", "def5678")], Events(123));
+
+            Assert.True(WorkItemsApi.SetLinkedTests(123, [new TestLink("PingTests", "Pings", null)]).Success);
+            Assert.True(WorkItemsApi.SetLinkedTests(123, [new TestLink("PingTests", "Pings", 7)]).Success);   // only its note changed
+            Assert.True(WorkItemsApi.SetLinkedTests(123, []).Success);
+
+            Assert.True(WorkItemsApi.SetLinkedDocs(123, ["docs/guide.md"]).Success);
+            Assert.True(WorkItemsApi.SetLinkedDocs(123, ["docs/guide.md"]).Success);
+            Assert.True(WorkItemsApi.SetLinkedDocs(123, []).Success);
+
+            Assert.Equal(
+                [("commit-linked", "abc1234"), ("commit-linked", "def5678"), ("commit-unlinked", "def5678"),
+                 ("test-linked", "PingTests / Pings"), ("test-unlinked", "PingTests / Pings"),
+                 ("doc-linked", "docs/guide.md"), ("doc-unlinked", "docs/guide.md")],
+                Events(123));
+            Assert.All(WorkItemsApi.GetEvents(123), e => Assert.Equal("Tester", e.By));
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
+    [Fact(DisplayName = "Ticking, reopening and adding a subtask and adding or removing a dependency are recorded as events")]
+    public void SubtasksAndDependenciesAreRecorded()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        try
+        {
+            Assert.True(WorkItemsApi.SetSubtaskDone(123, "2.1", true).Success);
+            Assert.True(WorkItemsApi.SetSubtaskDone(123, "2.1", true).Success);   // already done
+            Assert.True(WorkItemsApi.SetSubtaskDone(123, "1.1", false).Success);
+            Assert.True(WorkItemsApi.AddSubtask(123, "Write the docs").Success);
+            Assert.Equal(
+                [("subtask-done", "2.1 Hide internals from anonymous callers"), ("subtask-reopened", "1.1 Add /health route"), ("subtask-added", "2.2 Write the docs")],
+                Events(123));
+
+            Assert.True(WorkItemsApi.AddDependency(123, 107).Success);   // 107 is not resolved: 123 becomes Blocked
+            Assert.True(WorkItemsApi.RemoveDependency(123, 107).Success);
+            Assert.True(WorkItemsApi.SetDependencies(123, [107, 125]).Success);
+            Assert.True(WorkItemsApi.SetDependencies(123, [125]).Success);
+            Assert.Equal(
+                [("dependency-added", "#wi107"), ("status", "In Progress -> Blocked"), ("dependency-removed", "#wi107"),
+                 ("dependency-added", "#wi107"), ("dependency-added", "#wi125"), ("dependency-removed", "#wi107")],
+                Events(123).Skip(3));
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
+    [Fact(DisplayName = "A new work item starts its event log with created, and a merged item keeps the events of the items it was made from")]
+    public void CreatedAndMergedEvents()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        try
+        {
+            (bool ok, string message, int fresh) = WorkItemsApi.Create("Brand new", "Backlog", null, null);
+            Assert.True(ok, message);
+            Assert.Equal([("created", "Brand new")], Events(fresh));
+            Assert.Equal("Tester", WorkItemsApi.GetEvents(fresh)[0].By);
+
+            repo.Write("openspec/changes/export-remittances/events.log", "2026-02-01T10:00:00 | Bob | status | Backlog -> Planned\n");
+            repo.Write(HealthEvents, "2026-01-01T10:00:00 | Ann | created | Health-check endpoint\n");
+            (ok, message, int merged) = WorkItemsApi.Merge([107, 123]);
+            Assert.True(ok, message);
+
+            IReadOnlyList<WorkItemEvent> events = WorkItemsApi.GetEvents(merged);
+            Assert.Equal([("Ann", "created"), ("Bob", "status"), ("Tester", "created")], events.Select(e => (e.By, e.Kind)));   // sorted by time, then its own created
+            Assert.Equal(WorkItemsApi.Get(merged)!.Title, events[^1].Text);
+            Assert.False(Directory.Exists(Path.Combine(WorkItemsApi.Get(merged)!.Path, "from-wi107")));   // the log is carried over, not copied as a stray file
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
+    [Fact(DisplayName = "Linked documents are stored as repo-relative paths in x-rtm.docs; a path outside the repository is refused")]
+    public void LinkedDocuments()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.True(WorkItemsApi.SetLinkedDocs(123, [@"docs\guide.md ", "docs/guide.md", "DevResources/plans/p.md", " "]).Success);
+
+        Assert.Equal(["docs/guide.md", "DevResources/plans/p.md"], Item(123).Docs);
+        Assert.Contains("  docs: [docs/guide.md, DevResources/plans/p.md]", repo.Read(HealthYaml));
+        foreach (string bad in new[] { "/etc/passwd", @"C:\x.md", "../x.md", "a/../b.md" })
+            Assert.False(WorkItemsApi.SetLinkedDocs(123, [bad]).Success, bad);
+        Assert.Equal(["docs/guide.md", "DevResources/plans/p.md"], Item(123).Docs);
+        Assert.False(WorkItemsApi.SetLinkedDocs(999, ["a.md"]).Success);
+        Assert.True(WorkItemsApi.SetLinkedDocs(123, []).Success);
+        Assert.Empty(Item(123).Docs!);
+        Assert.DoesNotContain("docs:", repo.Read(HealthYaml));
+    }
+
+    [Fact(DisplayName = "An events.log line that cannot be read is skipped and kept in the file when the next event is appended")]
+    public void UnreadableLineIsKept()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        try
+        {
+            repo.Write(HealthEvents, "this is not an event\n2026-10-01T10:00:00 | Ann | commit-linked | a | b\r\nnot-a-date | Ann | created | x\n2026-10-01T11:00:00 | Ann | created | Last line without a newline");
+
+            Assert.Equal([("commit-linked", "a | b"), ("created", "Last line without a newline")], Events(123));   // the text may hold the separator
+
+            Assert.True(WorkItemsApi.SetStatus(123, "In Review").Success);
+
+            string[] lines = repo.Read(HealthEvents).Replace("\r", "").TrimEnd('\n').Split('\n');
+            Assert.Equal(["this is not an event", "2026-10-01T10:00:00 | Ann | commit-linked | a | b", "not-a-date | Ann | created | x", "2026-10-01T11:00:00 | Ann | created | Last line without a newline"], lines[..4]);
+            Assert.EndsWith(" | Tester | status | In Progress -> In Review", lines[4]);
+            Assert.Equal(5, lines.Length);
+            Assert.Equal(3, WorkItemsApi.GetEvents(123).Count);
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
+    [Fact(DisplayName = "Without a configured actor an event is recorded as someone's, and a failing event write never fails the command")]
+    public void ActorAndFailingWrite()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        try
+        {
+            WorkItemsApi.ConfigureActor(null);
+            Assert.True(WorkItemsApi.SetStatus(123, "In Review").Success);
+            WorkItemsApi.ConfigureActor(() => "  ");
+            Assert.True(WorkItemsApi.SetStatus(123, "In Progress").Success);
+            WorkItemsApi.ConfigureActor(() => " Claude ");
+            Assert.True(WorkItemsApi.LogEvent(123, "custom", "two\nlines").Success);
+            Assert.False(WorkItemsApi.LogEvent(123, " ", "x").Success);
+            Assert.False(WorkItemsApi.LogEvent(999, "custom", "x").Success);
+            Assert.Equal(["someone", "someone", "Claude"], WorkItemsApi.GetEvents(123).Select(e => e.By));
+            Assert.Equal(("custom", "two lines"), (WorkItemsApi.GetEvents(123)[2].Kind, WorkItemsApi.GetEvents(123)[2].Text));
+
+            File.Delete(repo.PathOf(HealthEvents));
+            Directory.CreateDirectory(repo.PathOf(HealthEvents));   // a folder where the log should be: no event can be written
+            (bool ok, string message) = WorkItemsApi.SetStatus(123, "In Review");
+            Assert.True(ok, message);
+            Assert.Equal("In Review", Item(123).Status);
+            Assert.Empty(WorkItemsApi.GetEvents(123));
+            Assert.False(WorkItemsApi.LogEvent(123, "custom", "x").Success);
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
+    [Fact(DisplayName = "A metadata write to an item whose yaml does not parse is refused with the warning, and the file is left as it is")]
+    public void WriteToUnparsableYamlIsRefused()
+    {
+        using TestRepo repo = new();
+        const string broken = "schema: spec-driven\r\nx-rtm:\r\n  id: 130\r\n  features: [unclosed\r\n  title: Broken one\r\n";
+        repo.Write("openspec/changes/broken-one/.openspec.yaml", broken);
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItem it = WorkItemsApi.GetAll(includeHidden: true).Single(w => w.Folder == "broken-one");
+
+        (bool ok, string message) = WorkItemsApi.SetPriority(it.Id, "high");
+
+        Assert.False(ok);
+        Assert.Equal(it.Warning, message);
+        Assert.Equal(broken, repo.Read("openspec/changes/broken-one/.openspec.yaml"));
+        Assert.False(WorkItemsApi.SetStatus(it.Id, "In Progress").Success);
+        Assert.Equal(broken, repo.Read("openspec/changes/broken-one/.openspec.yaml"));
+        Assert.Empty(WorkItemsApi.ResolveDuplicateIds());   // the startup scan never writes it either
+        Assert.Equal(broken, repo.Read("openspec/changes/broken-one/.openspec.yaml"));
+    }
+
+    [Fact(DisplayName = "Every value the app writes into the x-rtm block reads back identical, also with colons, quotes, hashes, brackets and words YAML would take for booleans or numbers")]
+    public void EveryWrittenValueReadsBackIdentical()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        foreach (string v in YamlChecks.Nasty)
+        {
+            string t = v.Trim(), because = $"(value: {v})";
+            Assert.True(WorkItemsApi.SetTitle(123, v).Success, because);
+            Assert.True(WorkItemsApi.SetPriority(123, v).Success, because);
+            Assert.True(WorkItemsApi.SetLabel(123, v).Success, because);
+            Assert.True(WorkItemsApi.SetContributors(123, [v, "Tom"]).Success, because);
+            Assert.True(WorkItemsApi.MoveFeature(123, v).Success, because);
+            Assert.True(WorkItemsApi.SetLinkedCommits(123, [v]).Success, because);
+            Assert.True(WorkItemsApi.SetLinkedTests(123, [new TestLink(v, v, null)]).Success, because);
+            Assert.True(WorkItemsApi.StampAgent(123, v).Success, because);
+            string path = v.Replace('\\', '/').Trim();
+            bool pathy = !Path.IsPathRooted(path) && !path.StartsWith('/') && !path.Contains("..") && !(path.Length > 1 && path[1] == ':');
+            if (pathy)
+            {
+                Assert.True(WorkItemsApi.SetPlan(123, v).Success, because);
+                Assert.True(WorkItemsApi.SetLinkedDocs(123, [v, "docs/a.md"]).Success, because);
+            }
+            Assert.True(WorkItemsApi.SetLane(123, "In Progress", v).Success, because);
+
+            YamlChecks.Valid(repo.Read(HealthYaml), YamlChecks.Nasty, because);
+            OpenSpecStoreApi.Open(repo.Root);   // from the files, not from the cache
+            WorkItem it = Item(123);
+            Assert.Equal(t, it.Title);
+            Assert.Equal(v, it.Priority);
+            Assert.Equal(v, it.Label);
+            Assert.Equal([v, "Tom"], it.Assigned);
+            Assert.Equal(v, Assert.Single(it.Features).Path);
+            Assert.Equal([v], it.Commits);
+            Assert.Equal([new TestLink(v, v, null)], it.Tests);
+            Assert.Equal(v, it.AgentBy);
+            if (pathy) { Assert.Equal(path, it.Plan); Assert.Equal([path, "docs/a.md"], it.Docs); }
+            Assert.Equal(t, it.Lanes["In Progress"]);
+            Assert.Contains(t, WorkItemsApi.GetLanes()["In Progress"]);
+            Assert.Null(it.Warning);
+        }
+        YamlChecks.Valid(repo.Read("openspec/config.yaml"), YamlChecks.Nasty);
+
+        // words a slug can leave a feature's name as: the config.yaml list of declared features must not turn them into booleans or numbers
+        string[] slugs = ["yes", "null", "123", "on", "1e5"];
+        foreach (string name in new[] { "yes", "null", "123", "On", "1e5" })
+        {
+            (bool ok, string message, Features.PublicDTOs.Feature? _) = Features.FeaturesApi.CreateFeature(Features.FeaturesApi.Ungrouped, name);
+            Assert.True(ok, message);
+        }
+        YamlChecks.Valid(repo.Read("openspec/config.yaml"), slugs);
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.All(slugs, p => Assert.Contains(Features.FeaturesApi.GetAll(), f => f.Path == p));
+    }
+
+    [Fact(DisplayName = "An empty string, a blank and a multi-line text in the x-rtm block survive a write and a read")]
+    public void EmptyAndMultiLineValuesSurvive()
+    {
+        using TestRepo repo = new();
+        string yaml = repo.PathOf("openspec/changes/add-health-check/.openspec.yaml");
+        WorkItems.Infrastructure.Rtm before = new() { Id = 123, Title = "Line one\nLine two: with a colon", Plan = "", Label = "   ", Contributors = ["", "Tom", " lead "], Commits = ["abc1234"] };
+
+        Assert.True(WorkItems.Infrastructure.Metadata.Write(yaml, before).Success);
+
+        WorkItems.Infrastructure.Rtm after = WorkItems.Infrastructure.Metadata.Read<WorkItems.Infrastructure.Rtm>(yaml);
+        Assert.Equal((before.Title, before.Label), (after.Title, after.Label));
+        Assert.Null(after.Plan);   // an empty text is left out, as null is: no plan
+        Assert.Equal(before.Contributors, after.Contributors);
+        YamlChecks.Valid(File.ReadAllText(yaml), ["", "abc1234"]);
+    }
 }

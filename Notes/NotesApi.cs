@@ -15,8 +15,17 @@ public static class NotesApi
     /// <summary>Finds [[doc]], #wiN and #nN references in the text, in order, each once.</summary>
     public static IReadOnlyList<NoteLink> ResolveLinks(string text) => Queries.ResolveLinks(text);
 
-    public static (bool Success, string Message, int Id) Create(int workItemId, string by) => Commands.Create(workItemId, by);
+    public static (bool Success, string Message, int Id) Create(int workItemId, string by) => Commands.Create(workItemId, by, DateTime.Now);
+
+    /// <summary>Like the two-argument form, but the note's created time (frontmatter <c>created</c>) is <paramref name="created"/>.</summary>
+    public static (bool Success, string Message, int Id) Create(int workItemId, string by, DateTime created) => Commands.Create(workItemId, by, created);
     public static (bool Success, string Message) SaveBody(int id, string body) => Commands.SaveBody(id, body);
+    /// <summary>
+    /// Turns the note's unticked checkboxes (<c>- [ ] text</c>, outside code blocks) into subtasks of its work item, each once: the line stays in the
+    /// note with " (created subtask)" appended. Created lists the new subtask numbers; nothing is written when nothing qualified.
+    /// </summary>
+    public static (bool Success, string Message, IReadOnlyList<string> Created) PromoteSubtasks(int noteId) => Commands.PromoteSubtasks(noteId);
+
     public static (bool Success, string Message) AddManualLink(int id, string link) => Commands.AddManualLink(id, link);
     public static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes) => Commands.SetLinkedCommits(id, hashes);
 

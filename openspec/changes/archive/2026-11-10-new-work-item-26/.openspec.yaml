@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-09
+x-rtm:
+  id: 118
+  title: remove the outer border for calendar, work item, note
+  status: In Review
+  contributors: [Artyom-kurguzkin, Claude]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-09
+  moved: 2026-11-10
+  plan: DevResources/plans/in-progress-items-2026-11-09b.md
+  tests: [{suite: UsingThePagesTests, test: 'The calendar, the work item page and the note page have no outer frame, like the list'}]
+  agentBy: Claude
+  agentAt: 2026-11-09T08:52:58

@@ -15,6 +15,7 @@ public sealed class Workspace : IDisposable
     private readonly SettingsStore settings;
     private readonly UiService ui;
     private bool resolving;
+    private readonly Dictionary<string, string> scanned = new(StringComparer.OrdinalIgnoreCase);   // per project: the WorkItemsApi.FolderStamp the last duplicate-number scan saw
     private string? guideNotice;
 
     /// <summary>What to tell the user about agent guides the app just created or refreshed (once), or null.</summary>
@@ -86,8 +87,10 @@ public sealed class Workspace : IDisposable
         (bool ok, string message) = OpenSpecStoreApi.Open(root, keepOthers: true);
         if (!ok) return (ok, message);
         if (message.Length > 0) guideNotice = message;   // openspec/ was just set up here: said together with the guide notice
+        scanned.Remove(Path.GetFullPath(root));   // a project being opened is scanned for duplicate numbers once
         GitHistoryApi.Configure(root, reset: fresh);
         WorkItemsApi.ConfigureContributors(() => GitHistoryApi.IsRepository() ? (GitHistoryApi.HeadToken(), GitHistoryApi.AuthorsOfChange) : null);
+        WorkItemsApi.ConfigureActor(() => Me);   // the worklog's events say the user did it
         settings.Update(s => s with { LastRepo = OpenSpecStoreApi.RepoRoot });
         ConfigureProject(root);
         OpenTabs(root);
@@ -194,15 +197,30 @@ public sealed class Workspace : IDisposable
             try
             {
                 foreach (string project in OpenSpecStoreApi.OpenRoots)
-                    In(project, () =>
+                    try { In(project, () =>
                     {
+                        // Numbers can only collide when a change folder appeared, came from outside or moved: an ordinary edit of one item's files never does.
+                        string stamp = WorkItemsApi.FolderStamp();
+                        if (scanned.TryGetValue(project, out string? seen) && seen == stamp) return;
                         foreach ((int oldId, int newId, string folder) in WorkItemsApi.ResolveDuplicateIds())
                         {
                             (bool ok, string _, int noteId) = NotesApi.Create(newId, "App");
                             if (ok && NotesApi.SetTitle(noteId, $"Renumbered from #wi{oldId}").Success) NotesApi.SaveBody(noteId, $"Two changes carried the number #wi{oldId}. This one ({folder}) was created later, so it is now #wi{newId}. Anything that refers to #wi{oldId} means the other change.\n");
                             ui.Toast($"#wi{oldId} was used twice: {folder} is now #wi{newId}", ToastKind.Warning);
                         }
-                    });
+                        scanned[project] = WorkItemsApi.FolderStamp();   // after the renumbering, which moved numbers
+                    }); }
+                    // Notify runs on the file watcher's timer: an error here would be thrown on a background thread and end the app.
+                    // Files moving under the read (a merge, an archive, Explorer) are the usual cause, and the next change refreshes again.
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                        ui.Toast($"Couldn't read {Path.GetFileName(project)} just now ({e.Message}); it refreshes on the next change.", ToastKind.Warning);
+                    }
+                    // A file the readers did not foresee must never end the app (this also runs inside Open at startup): the board shows what it can.
+                    catch (Exception e)
+                    {
+                        ui.Toast($"Couldn't check {Path.GetFileName(project)} for duplicate numbers ({e.Message}).", ToastKind.Warning);
+                    }
             }
             finally { resolving = false; }
         }

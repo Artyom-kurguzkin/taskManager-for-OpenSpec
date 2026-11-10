@@ -13,51 +13,118 @@ internal static partial class Queries
     /// <summary>All notes, parsed once per OpenSpecStore content version. Reading also settles id collisions (see <see cref="Load"/>).</summary>
     internal static IReadOnlyList<Note> GetAll() => Cached().Notes;
 
+    /// <summary>
+    /// The notes, assembled once per OpenSpecStore content version. Each change folder's notes/ is read only when its files changed
+    /// (name, size, modified time) or the app wrote there itself; the other folders keep their parsed notes and objects.
+    /// </summary>
     private static (long Version, IReadOnlyList<Note> Notes, int MaxId) Cached()
     {
-        long version = OpenSpecStoreApi.Version;
-        string root = OpenSpecStoreApi.RepoRoot ?? "";
-        if (NotesModule.Cache.TryGetValue(root, out var c) && c.Version == version) return c;
-        (IReadOnlyList<Note> notes, int maxId, bool wrote) = Load();
-        if (wrote) version = OpenSpecStoreApi.Version;   // our own renames and rewrites are not a reason to read again
-        NotesModule.Cache[root] = (version, notes, maxId);
-        NotesModule.Loads++;
-        return NotesModule.Cache[root];
+        lock (NotesModule.Gate)
+        {
+            long version = OpenSpecStoreApi.Version;
+            string root = OpenSpecStoreApi.RepoRoot ?? "";
+            long generation = OpenSpecStoreApi.RepoGeneration;
+            if (!NotesModule.Cache.TryGetValue(root, out NotesCache? c) || c.Generation != generation)
+                NotesModule.Cache[root] = c = new NotesCache { Generation = generation };
+            if (c.Version == version) return (c.Version, c.Notes, c.MaxId);
+            (IReadOnlyList<string> touched, long cursor) = OpenSpecStoreApi.ChangesSince(c.Cursor);   // asked before reading: a write that lands meanwhile shows next time
+            bool wrote = Load(c, touched);
+            if (wrote) version = OpenSpecStoreApi.Version;   // our own renames and rewrites are not a reason to read again
+            (c.Version, c.Cursor) = (version, cursor);
+            NotesModule.Loads++;
+            return (c.Version, c.Notes, c.MaxId);
+        }
     }
 
-    private sealed class Raw(string file, int workItemId, int fileNumber, NoteMeta meta, string body, DateTime created)
+    internal sealed class Raw(string file, int workItemId, int fileNumber, NoteMeta meta, string body, DateTime created, DateTime modified)
     {
         internal string File = file;
         internal int WorkItemId = workItemId, FileNumber = fileNumber;
         internal NoteMeta Meta = meta;
         internal string Body = body;
-        internal DateTime Created = created;
+        internal DateTime Created = created, Modified = modified;
         internal int Id => FileNumber > 0 ? FileNumber : Meta.Id;
     }
 
+    /// <summary>One change's notes/ folder as last read: what its files looked like, the notes in them and the notes parsed from those.</summary>
+    internal sealed class NotesFolder(string fingerprint, List<Raw> raws)
+    {
+        internal readonly string Fingerprint = fingerprint;
+        internal readonly List<Raw> Raws = raws;
+        internal List<Note> Notes = [];
+    }
+
+    internal sealed class NotesCache
+    {
+        internal long Generation;
+        internal long Version = -1;
+        internal long Cursor;
+        internal Dictionary<string, NotesFolder> Folders = new(StringComparer.OrdinalIgnoreCase);
+        internal IReadOnlyList<Note> Notes = [];
+        internal int MaxId;
+    }
+
+    /// <summary>A note whose frontmatter did not parse shows its title (from the body) followed by why, so the warning is where the user looks first.</summary>
+    private static string WithProblem(string title, string? problem) => problem is null ? title : $"{title} - {problem}";
+
+    private static List<Note> BuildNotes(List<Raw> raws) =>
+        [.. raws.Select(r => new Note(r.Id, r.WorkItemId, r.File, WithProblem(NoteFile.Title(r.Meta.Title, r.Body, r.Id), r.Meta.Problem), r.Meta.By ?? "", r.Created, r.Modified, r.Body, r.Meta.Links ?? [], r.Meta.Commits ?? [], r.Meta.Attachments ?? [],
+            r.Meta.AgentBy, Time(r.Meta.AgentAt), Time(r.Meta.ReviewedAt), r.Meta.MergedFrom, Time(r.Meta.MergedAt)))];
+
+    /// <summary>True when the app itself wrote, deleted or moved this folder or something in it (the store keeps that record).</summary>
+    private static bool Written(string dir, IReadOnlyList<string> touched) =>
+        touched.Any(p => p.StartsWith(dir, StringComparison.OrdinalIgnoreCase) && (p.Length == dir.Length || p[dir.Length] is '\\' or '/'));
+
+    private static NotesFolder ReadFolder(string fingerprint, int workItemId, List<FileInfo> files)
+    {
+        NotesModule.FolderReads++;
+        List<Raw> raws = [];
+        foreach (FileInfo file in files)
+        {
+            (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(file.FullName));
+            NoteMeta meta = NoteFile.Meta(front);
+            int.TryParse(Path.GetFileNameWithoutExtension(file.Name)[1..], out int number);
+            DateTime created = DateTime.TryParse(meta.Created, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime c) ? c : file.CreationTime;
+            raws.Add(new Raw(file.FullName, workItemId, number, meta, body, created, file.LastWriteTime));
+        }
+        return new NotesFolder(fingerprint, raws) { Notes = BuildNotes(raws) };
+    }
+
     /// <summary>
-    /// Reads every notes/n*.md of every change, archived ones included. Two collisions are settled here, so no page ever sees them:
+    /// Brings the cache up to date with every notes/n*.md of every change, archived ones included, reading only the folders that changed.
+    /// Two collisions are settled here, so no page ever sees them:
     /// a frontmatter id that disagrees with the file name is set to the file name's number; and when two files carry one id (an agent
     /// wrote one with a stale number) the one created later, then the one in the later folder, takes the next free id: its file is
     /// renamed and its frontmatter rewritten. #nN links to the old number in other notes are left as they are.
-    /// MaxId is the highest number seen anywhere, file names and frontmatter alike, before any of that.
+    /// MaxId is the highest number seen anywhere, file names and frontmatter alike, before any of that. Returns whether it wrote.
     /// </summary>
-    private static (IReadOnlyList<Note> Notes, int MaxId, bool Wrote) Load()
+    private static bool Load(NotesCache cache, IReadOnlyList<string> touched)
     {
-        List<Raw> raws = [];
+        Dictionary<string, NotesFolder> now = new(StringComparer.OrdinalIgnoreCase);
+        List<NotesFolder> folders = [];
         foreach (WorkItem wi in WorkItemsApi.GetAll(includeHidden: true))
         {
             string dir = Path.Combine(wi.Path, "notes");
-            if (!Directory.Exists(dir)) continue;
-            foreach (string file in Directory.GetFiles(dir, "n*.md").Order())
+            DirectoryInfo info = new(dir);
+            if (!info.Exists) continue;
+            List<FileInfo> files = [.. info.GetFiles("n*.md").OrderBy(f => f.FullName, StringComparer.CurrentCulture)];
+            string fingerprint = string.Join('\n', files.Select(f => $"{f.Name}|{f.Length}|{f.LastWriteTimeUtc.Ticks}"));   // taken before reading, so a write during the read shows as a change next time
+            NotesFolder folder;
+            if (cache.Folders.TryGetValue(dir, out NotesFolder? old) && old.Fingerprint == fingerprint && !Written(dir, touched))
             {
-                (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(file));
-                NoteMeta meta = NoteFile.Meta(front);
-                int.TryParse(Path.GetFileNameWithoutExtension(file)[1..], out int number);
-                DateTime created = DateTime.TryParse(meta.Created, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime c) ? c : File.GetCreationTime(file);
-                raws.Add(new Raw(file, wi.Id, number, meta, body, created));
+                folder = old;
+                if (old.Raws.Any(r => r.WorkItemId != wi.Id))   // a provisional number moved: no file to read again, only the owner of the notes changes
+                {
+                    foreach (Raw r in old.Raws) r.WorkItemId = wi.Id;
+                    old.Notes = BuildNotes(old.Raws);
+                }
             }
+            else folder = ReadFolder(fingerprint, wi.Id, files);
+            now[dir] = folder;
+            folders.Add(folder);
         }
+        cache.Folders = now;
+        List<Raw> raws = [.. folders.SelectMany(f => f.Raws)];
         int maxId = raws.Select(r => Math.Max(r.FileNumber, r.Meta.Id)).DefaultIfEmpty(0).Max();
         bool wrote = false;
 
@@ -67,7 +134,7 @@ internal static partial class Queries
             wrote |= OpenSpecStoreApi.WriteText(r.File, NoteFile.Compose(r.Meta, r.Body)).Success;
         }
         foreach (IGrouping<int, Raw> twins in raws.Where(r => r.Id > 0).GroupBy(r => r.Id).Where(g => g.Count() > 1).ToList())
-            foreach (Raw r in twins.OrderBy(r => r.Created).ThenBy(r => r.FileNumber).ThenBy(r => r.File, StringComparer.Ordinal).Skip(1))
+            foreach (Raw r in twins.OrderBy(r => r.Created).ThenBy(r => r.FileNumber).ThenBy(r => r.File, StringComparer.Ordinal).Skip(1).Where(r => r.Meta.Problem is null))   // a file whose frontmatter does not parse is never rewritten
             {
                 int id = ++maxId;
                 string target = Path.Combine(Path.GetDirectoryName(r.File)!, $"n{id}.md");
@@ -81,11 +148,15 @@ internal static partial class Queries
                 wrote = true;
             }
 
-        List<Note> notes = [];
-        foreach (Raw r in raws)
-            notes.Add(new Note(r.Id, r.WorkItemId, r.File, NoteFile.Title(r.Meta.Title, r.Body, r.Id), r.Meta.By ?? "", r.Created, File.GetLastWriteTime(r.File), r.Body, r.Meta.Links ?? [], r.Meta.Commits ?? [], r.Meta.Attachments ?? [],
-                r.Meta.AgentBy, Time(r.Meta.AgentAt), Time(r.Meta.ReviewedAt), r.Meta.MergedFrom, Time(r.Meta.MergedAt)));
-        return (notes, maxId, wrote);
+        if (wrote)   // the files under the cached notes just changed: build them again from what was written
+            foreach (NotesFolder f in folders)
+            {
+                foreach (Raw r in f.Raws) r.Modified = File.GetLastWriteTime(r.File);
+                f.Notes = BuildNotes(f.Raws);
+            }
+        cache.Notes = [.. folders.SelectMany(f => f.Notes)];
+        cache.MaxId = maxId;
+        return wrote;
     }
 
     private static DateTime? Time(string? text) => DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime d) ? d : null;

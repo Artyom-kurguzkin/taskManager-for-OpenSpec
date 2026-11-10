@@ -34,12 +34,38 @@ internal static class OpenSpecStoreModule
     private static readonly ConcurrentDictionary<string, DateTime> OwnWrites = new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeSpan OwnWriteWindow = TimeSpan.FromMilliseconds(1500);
 
-    internal static void MarkOwn(string path)
+    /// <summary>Tells the watcher that this path is about to change by the app's own hand, so it does not raise <see cref="Changed"/> for it. Does not bump the version: see <see cref="Touch"/>.</summary>
+    internal static void Own(string path)
     {
-        Bump();
         string full = Path.GetFullPath(path);
         OwnWrites[full] = DateTime.UtcNow;
         if (Path.GetDirectoryName(full) is string dir) OwnWrites[dir] = DateTime.UtcNow;
+    }
+
+    /// <summary>Own plus Touch, for a change the app is about to cause outside its own file writes (a CLI run).</summary>
+    internal static void MarkOwn(string path)
+    {
+        Own(path);
+        Touch(path);
+    }
+
+    private static readonly List<string> Touches = [];
+
+    /// <summary>
+    /// Records that these paths changed by the app's own hand, then bumps the version once. Readers that cache per folder ask
+    /// <see cref="TouchesSince"/> which folders to read again, because a timestamp and a size can miss two quick edits.
+    /// Call it after the change is on disk.
+    /// </summary>
+    internal static void Touch(params string[] paths)
+    {
+        lock (Touches) Touches.AddRange(paths.Select(Path.GetFullPath));
+        Bump();
+    }
+
+    /// <summary>The paths touched after position <paramref name="cursor"/>, and the position to ask from next time.</summary>
+    internal static (IReadOnlyList<string> Paths, long Cursor) TouchesSince(long cursor)
+    {
+        lock (Touches) return (Touches.Skip((int)Math.Min(cursor, Touches.Count)).ToList(), Touches.Count);
     }
 
     internal static void StartWatching(Repo repo)
@@ -73,6 +99,11 @@ internal static class OpenSpecStoreModule
         if (e.ChangeType == WatcherChangeTypes.Changed && Directory.Exists(e.FullPath)) return;
         if (OwnWrites.TryGetValue(Path.GetFullPath(e.FullPath), out DateTime at) && DateTime.UtcNow - at < OwnWriteWindow) return;
         repo.Debounce?.Dispose();
-        repo.Debounce = new Timer(_ => { Interlocked.Increment(ref repo.Version); Changed?.Invoke(); }, null, 300, Timeout.Infinite);
+        repo.Debounce = new Timer(_ =>
+        {
+            Interlocked.Increment(ref repo.Version);
+            // a timer callback that throws ends the process; files still moving are the usual cause, and the next event fires again
+            try { Changed?.Invoke(); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }, null, 300, Timeout.Infinite);
     }
 }

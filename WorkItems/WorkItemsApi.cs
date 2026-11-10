@@ -18,7 +18,7 @@ public static class WorkItemsApi
     public static void ConfigureContributors(Func<(string Token, Func<string, IReadOnlyList<string>> AuthorsOf)?>? git)
     {
         WorkItemsModule.Git = git;
-        WorkItemsModule.Cache.Clear();
+        WorkItemsModule.GitEpoch++;   // items take their authors again; no folder is parsed again for it
     }
 
     /// <summary>
@@ -55,6 +55,12 @@ public static class WorkItemsApi
     /// <summary>Gives every change that shares its number with an earlier one the next free number; returns what changed.</summary>
     public static IReadOnlyList<(int OldId, int NewId, string Folder)> ResolveDuplicateIds() => Commands.ResolveDuplicateIds();
     public static string GetDescription(int id) => Queries.GetDescription(id);
+
+    /// <summary>
+    /// A short text that changes when a change folder appears, goes, is renamed or archived, or an item's number moves, and not when an item is merely edited.
+    /// The app runs <see cref="ResolveDuplicateIds"/> only when it changed. Built from the cached items, so it costs no disk read of its own.
+    /// </summary>
+    public static string FolderStamp() => Queries.FolderStamp();
     /// <summary>Sub-categories per board column, from openspec/config.yaml x-rtm.lanes.</summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> GetLanes() => Queries.GetLanes();
 
@@ -83,11 +89,28 @@ public static class WorkItemsApi
     /// <summary>Deletes a feature (see FeaturesApi.DeleteFeature) and its delta spec folders in open changes, and unlinks it from active work items, which become unassigned.</summary>
     public static (bool Success, string Message) DeleteFeature(string path) => Commands.DeleteFeature(path);
     public static (bool Success, string Message, string? NewPath) RenameFeature(string path, string name) => Commands.RenameFeature(path, name);
-    public static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes) =>
-        Commands.Update(id, m => m.Commits = hashes.Distinct().ToList());
+    public static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes) => Commands.SetLinkedCommits(id, hashes);
 
-    public static (bool Success, string Message) SetLinkedTests(int id, IEnumerable<TestLink> tests) =>
-        Commands.Update(id, m => m.Tests = tests.Distinct().Select(t => new Infrastructure.RtmTest { Suite = t.Suite, Test = t.Test, Note = t.Note }).ToList());
+    public static (bool Success, string Message) SetLinkedTests(int id, IEnumerable<TestLink> tests) => Commands.SetLinkedTests(id, tests);
+
+    /// <summary>Replaces the item's linked documents (x-rtm.docs): repo-relative paths, slashes normalised, trimmed, distinct. A path outside the repository is refused.</summary>
+    public static (bool Success, string Message) SetLinkedDocs(int id, IEnumerable<string> paths) => Commands.SetLinkedDocs(id, paths);
+
+    // ── Events ──
+    /// <summary>Who an event is recorded as: the actor's name, trimmed ("someone" when it is null or blank). Null restores the default (nobody configured).</summary>
+    public static void ConfigureActor(Func<string?>? actor) => WorkItemsModule.Actor = actor;
+
+    /// <summary>
+    /// What happened to the item, oldest first, from events.log in its change folder (empty for an unknown item or no log). The app records, with
+    /// these kinds and texts: <c>created</c> (the title), <c>status</c> ("Old -> New"), <c>commit-linked</c> / <c>commit-unlinked</c> (the hash),
+    /// <c>test-linked</c> / <c>test-unlinked</c> ("Suite / Test"), <c>doc-linked</c> / <c>doc-unlinked</c> (the repo-relative path),
+    /// <c>subtask-done</c> / <c>subtask-reopened</c> / <c>subtask-added</c> ("number text"), <c>dependency-added</c> / <c>dependency-removed</c> ("#wiN").
+    /// Other kinds can be added with <see cref="LogEvent"/>.
+    /// </summary>
+    public static IReadOnlyList<WorkItemEvent> GetEvents(int id) => Queries.Get(id) is { } item ? Infrastructure.EventLog.Read(item.Path) : [];
+
+    /// <summary>Appends one event (now, by the configured actor) to the item's events.log. A blank kind is refused.</summary>
+    public static (bool Success, string Message) LogEvent(int id, string kind, string text) => Commands.LogEvent(id, kind, text);
 
     public static (bool Success, string Message) SetDescription(int id, string body) => Commands.SetDescription(id, body);
 

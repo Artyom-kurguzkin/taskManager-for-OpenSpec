@@ -1,4 +1,9 @@
+using Bunit;
+using Microsoft.Extensions.DependencyInjection;
 using OpenSpecStore;
+using Radzen;
+using TaskManager.Components.Pages;
+using TaskManager.Services;
 using WorkItems;
 
 namespace TaskManager.Tests;
@@ -63,5 +68,31 @@ public sealed class OpeningARepositoryTests
             Assert.Equal(empty, OpenSpecStoreApi.RepoRoot);
         }
         finally { OpenSpecStoreApi.Open(repo.Root); Directory.Delete(empty, true); }
+    }
+
+    [Fact(DisplayName = "Opening a repository with one broken .openspec.yaml opens, and the board shows the broken item with its warning")]
+    public async Task BrokenYamlOpensAndShows()
+    {
+        using TestRepo repo = new();
+        repo.Write("openspec/changes/broken-one/.openspec.yaml", "schema: spec-driven\nx-rtm:\n  id: 130\n  features: [unclosed\n  status: In Progress\n");
+        string settingsFile = Path.Combine(Path.GetTempPath(), "rtm-ui-" + Guid.NewGuid().ToString("N") + ".json");
+        await using BunitContext ctx = new();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddSingleton<UiService>();
+        ctx.Services.AddRadzenComponents();
+        ctx.Services.AddSingleton(new SettingsStore(settingsFile));
+        ctx.Services.AddSingleton<Workspace>();
+
+        (bool ok, string message) = ctx.Services.GetRequiredService<Workspace>().Open(repo.Root);   // used to throw out of the startup scan
+
+        Assert.True(ok, message);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() =>
+        {
+            Assert.Contains("Broken one", board.Find("article.card[data-id='130']").TextContent);
+            Assert.Contains("line 4", board.Find("article.card[data-id='130'] .tag.hot").GetAttribute("title"));
+            Assert.Contains(board.FindAll("p.warning"), p => p.TextContent.Contains("could not be read"));
+        });
+        try { File.Delete(settingsFile); } catch (IOException) { }
     }
 }

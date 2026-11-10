@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-10
+x-rtm:
+  id: 139
+  title: "A broken yaml file never takes the app down, and the app never writes one"
+  status: In Review
+  priority: high
+  contributors: [Artyom-kurguzkin, Claude]
+  features: [track-work-items]
+  label: bug
+  started: 2026-11-10
+  agentBy: Claude
+  agentAt: 2026-11-10T14:59:24
+  tests: [{suite: BrowsingFeaturesTests, test: "A config.yaml whose x-rtm lists are not valid YAML still opens, and adding a feature is refused rather than overwriting the list"}, {suite: EditingWorkItemsTests, test: "A metadata write to an item whose yaml does not parse is refused with the warning, and the file is left as it is"}, {suite: EditingWorkItemsTests, test: "An empty string, a blank and a multi-line text in the x-rtm block survive a write and a read"}, {suite: EditingWorkItemsTests, test: "Every value the app writes into the x-rtm block reads back identical, also with colons, quotes, hashes, brackets and words YAML would take for booleans or numbers"}, {suite: GuidingAgentsTests, test: "The agent guide tells agents to quote values with colons, hashes or leading special characters"}, {suite: KeepingNotesTests, test: "A note frontmatter title with an unquoted colon is repaired on read"}, {suite: KeepingNotesTests, test: "A note whose frontmatter does not parse still shows with its body and a warning"}, {suite: KeepingNotesTests, test: "A note's title, author, links and attachments read back identical whatever characters they contain"}, {suite: OpeningARepositoryTests, test: "Opening a repository with one broken .openspec.yaml opens, and the board shows the broken item with its warning"}, {suite: ReadingWorkItemsTests, test: "A .openspec.yaml with mixed line endings is read"}, {suite: ReadingWorkItemsTests, test: "A change whose .openspec.yaml does not parse still shows, with a warning naming the file and the line, and the other items are unaffected"}, {suite: ReadingWorkItemsTests, test: "A valid value with a trailing comment is not touched by the repair of another line"}, {suite: ReadingWorkItemsTests, test: "An x-rtm value with an unquoted colon is repaired on read: the item shows its real title with a warning, and the next save writes it quoted"}, {suite: UsingTheBoardOverMcpTests, test: "board_create and board_update with titles, features, plans, docs and test names full of YAML-significant characters write files that validate and read back identical"}, {suite: KeepingTheRepoValidForOpenSpecTests, test: Values full of YAML-significant characters, written by the app, validate with the OpenSpec CLI}]

@@ -105,7 +105,7 @@
         foreach (RoadmapRow r in rows)
         {
             RoadmapRow row = r;
-            <button type="button" class="rm-lrow rm-row @(deep ? "deep" : "")" data-id="@r.Item.Id" title="@Describe(r.Item)" style="--band:var(@Colour(r.Item))" @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))">
+            <button type="button" class="rm-lrow rm-row @(deep ? "deep" : "")" data-id="@r.Item.Id" title="@Describe(r.Item)" style="--band:var(@Colour(r))" @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))">
                 <span class="rm-n">@(++rowNo)</span>
                 <span class="rm-dot"></span>
                 <span class="rm-t">@r.Item.Title</span>
@@ -134,7 +134,7 @@
                 @if (RoadmapModel.Bar(r.Item, Window) is { } b)
                 {
                     <button type="button" class="rm-bar @(b.StartsBefore ? "from" : "") @(b.EndsAfter ? "to" : "") @(b.Span * Cw < 150 ? "short" : "")"
-                            data-id="@r.Item.Id" style="--col:@b.Col; --span:@b.Span; --band:var(@Colour(r.Item))" title="@Describe(r.Item)"
+                            data-id="@r.Item.Id" style="--col:@b.Col; --span:@b.Span; --band:var(@Colour(r))" title="@Describe(r.Item)"
                             @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))"><span class="rm-bt">@r.Item.Title</span></button>
                 }
             </div>

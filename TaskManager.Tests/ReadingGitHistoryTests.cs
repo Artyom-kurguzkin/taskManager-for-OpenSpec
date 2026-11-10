@@ -172,6 +172,107 @@ public sealed class ReadingGitHistoryTests : IDisposable
         Assert.Empty(GitHistoryApi.Commits(["deadbee"]));   // unknown hash: nothing, no error
     }
 
+    [Fact(DisplayName = "Commit questions run git once per HEAD: Recent, Mentioning and Commits answer from one log until a new commit lands")]
+    public void OneLogPerHead()
+    {
+        InitRepo();
+        Commit("a.txt", "1", "First #wi1");
+        Commit("b.txt", "2", "Second #wi2");
+        string first = GitHistoryApi.Recent(10).Single(c => c.Subject.StartsWith("First")).Hash;   // warms the repo check and the log
+
+        int before = GitHistoryModule.Processes;
+        Assert.Equal(2, GitHistoryApi.Recent(50).Count);
+        Assert.Equal(["Second #wi2"], GitHistoryApi.Mentioning("#wi2").Select(c => c.Subject));
+        Assert.Empty(GitHistoryApi.Mentioning("#wi22"));
+        Assert.Equal(["First #wi1"], GitHistoryApi.Commits([first]).Select(c => c.Subject));
+        Assert.Equal(first, GitHistoryApi.Commits([first])[0].Hash);
+        Assert.Equal(before, GitHistoryModule.Processes);
+
+        Commit("c.txt", "3", "Third #wi2");
+        before = GitHistoryModule.Processes;
+        Assert.Equal(3, GitHistoryApi.Recent(50).Count);
+        Assert.Equal(2, GitHistoryApi.Mentioning("#wi2").Count);
+        Assert.Equal(before + 1, GitHistoryModule.Processes);
+    }
+
+    [Fact(DisplayName = "A new commit is seen on the next question without restarting the app")]
+    public void NewCommitSeen()
+    {
+        InitRepo();
+        Commit("a.txt", "1", "First");
+        Assert.Equal(["First"], GitHistoryApi.Recent(10).Select(c => c.Subject));
+
+        Commit("b.txt", "2", "Second #wi9");
+
+        Assert.Equal(["Second #wi9", "First"], GitHistoryApi.Recent(10).Select(c => c.Subject));
+        Assert.Single(GitHistoryApi.Mentioning("#wi9"));
+        Git("reset", "-q", "--hard", "HEAD~1");   // a reset moves the tip too
+        Assert.Equal(["First"], GitHistoryApi.Recent(10).Select(c => c.Subject));
+        Assert.Empty(GitHistoryApi.Mentioning("#wi9"));
+    }
+
+    [Fact(DisplayName = "A HEAD recorded in packed-refs is read as a HEAD token")]
+    public void PackedRefsHead()
+    {
+        InitRepo();
+        Commit("a.txt", "1", "First");
+        string loose = GitHistoryApi.HeadToken();
+        Git("pack-refs", "--all", "--prune");
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(root, ".git", "refs", "heads")));   // only packed-refs holds the branch now
+
+        string packed = GitHistoryApi.HeadToken();
+
+        Assert.Equal(Git("rev-parse", "HEAD").Trim(), packed);
+        Assert.Equal(loose, packed);   // packing refs does not look like a new commit
+        Commit("b.txt", "2", "Second");
+        Assert.NotEqual(packed, GitHistoryApi.HeadToken());
+    }
+
+    [Fact(DisplayName = "A hash older than the cached log is still found")]
+    public void OlderThanLog()
+    {
+        InitRepo();
+        Commit("a.txt", "1", "Oldest");
+        Commit("b.txt", "2", "Middle");
+        Commit("c.txt", "3", "Newest");
+        string oldest = Git("rev-parse", "--short", "HEAD~2").Trim();
+        int limit = GitHistoryModule.LogLimit;
+        GitHistoryModule.LogLimit = 2;
+        try
+        {
+            Assert.Equal(["Newest", "Middle"], GitHistoryApi.Recent(10).Select(c => c.Subject));   // the log stops at 2 commits
+
+            Assert.Equal(["Oldest"], GitHistoryApi.Commits([oldest]).Select(c => c.Subject));
+            int before = GitHistoryModule.Processes;
+            Assert.Equal(["Oldest"], GitHistoryApi.Commits([oldest]).Select(c => c.Subject));   // and it is remembered
+            Assert.Equal(before, GitHistoryModule.Processes);
+        }
+        finally { GitHistoryModule.LogLimit = limit; }
+    }
+
+    [Fact(DisplayName = "A linked work tree reads its HEAD token without starting git")]
+    public void WorktreeHeadToken()
+    {
+        InitRepo();
+        Commit("a.txt", "1", "First");
+        string wt = Path.Combine(Path.GetTempPath(), "rtm-wt-" + Guid.NewGuid().ToString("N")[..8]);
+        Git("worktree", "add", "-q", "-b", "side", wt);
+        try
+        {
+            GitHistoryApi.Configure(wt);
+            string head = Git("-C", wt, "rev-parse", "HEAD").Trim();
+            int before = GitHistoryModule.Processes;
+
+            Assert.Equal(head, GitHistoryApi.HeadToken());
+            Assert.Equal(before, GitHistoryModule.Processes);
+        }
+        finally
+        {
+            Git("worktree", "remove", "--force", wt);
+            GitHistoryApi.Configure(root);
+        }
+    }
+
     public void Dispose()
     {
         foreach (string f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal); // git marks objects read-only

@@ -15,7 +15,7 @@ public static class AgentGuide
 {
     public const string FileName = "REPO-TASKS.md";
     private const string Marker = "<!-- repo-tasks-guide v";
-    private const int Version = 12;
+    private const int Version = 14;
 
     /// <summary>
     /// The .mcp.json entry for the stdio shim (<c>TaskManager.exe --mcp</c>) with the path of the running app, in forward slashes
@@ -101,6 +101,8 @@ public static class AgentGuide
         - Update every open item your work touches, not only the one you were given (section 2 says which), and write `#wi<id>` / `#n<id>` links in the text.
         - An error message says what to fix; fix that and call again.
 
+        **The worklog.** An item's page shows its worklog: its notes and a log of events, newest first. Status changes, links (commits, tests, `docs`, dependencies) and ticked subtasks are logged for you, under your name, whenever you use these tools, so do not write a note to say them. Write a `board_note` yourself for what the tools cannot see: a command you ran against a server or environment and what came back (put the output in a code block), a decision and why, a blocker, the result of a chunk of work. One short entry per event, as you go, not one summary at the end. `title` is optional (the first line of the body is used); link documents with `board_update`'s `docs` (repo-relative paths).
+
         **When no tools can be loaded** (no app on this machine, a client without MCP, the server will not start), the rest of this file is the fallback: the same changes by hand, in the same files, following sections 0a to 5.
 
         ## 0a. How to take on a task that is more than a quick fix
@@ -166,6 +168,28 @@ public static class AgentGuide
         - **Subtasks**: tick what you finished (`- [x]`), add what you found out is still needed (signed, see 1).
         - **Spec and tasks text** of those items, where you changed the behaviour they describe.
         - **Status** and **dates**: set `status` to where the work is; `x-rtm.started: yyyy-MM-dd` is the day work began (the app stamps it on the first move to In Progress), `x-rtm.due: yyyy-MM-dd` the due day, `x-rtm.moved: yyyy-MM-dd` the day it last moved to its status (the app stamps it on creation and on every status change; set it yourself only when you change `status` in the file).
+
+        ### Keep the worklog current by hand
+
+        The `board_*` tools do this for you; when you edit files, you do it yourself. The worklog of an item is its notes plus `events.log` in the change folder (`openspec/changes/<folder>/events.log`, beside `.openspec.yaml`): one line per thing that happened, appended in time order.
+
+        ```
+        yyyy-MM-ddTHH:mm:ss | <who> | <kind> | <text>
+        2026-11-09T10:15:00 | Claude | status | Planned -> In Progress
+        2026-11-09T10:40:00 | Claude | subtask-done | 1.1 Count requests per API key
+        ```
+
+        - **Append, never rewrite**: add your lines at the end, keep every line that is there, and keep the order by time. `<who>` is your agent name (section 1), never the user's. Local time, to the second; one line each, no ` | ` in the text.
+        - Log what you change, with these kinds and texts:
+          - `created`: the title (when you create the item).
+          - `status`: `Old -> New`, e.g. `Planned -> In Progress`.
+          - `commit-linked` / `commit-unlinked`: the commit hash, when you add or remove it in `x-rtm.commits`.
+          - `test-linked` / `test-unlinked`: `Suite / Test`, when you add or remove it in `x-rtm.tests`.
+          - `doc-linked` / `doc-unlinked`: the repo-relative path, when you add or remove it in `x-rtm.docs`.
+          - `subtask-done` / `subtask-reopened` / `subtask-added`: `<number> <text>`, e.g. `1.2 Refuse the 101st`.
+          - `dependency-added` / `dependency-removed`: `#wi<id>` of the item it waits for.
+        - Linked documents are `x-rtm.docs: [<path>, …]` in the `x-rtm:` block: repo-relative paths, on one line.
+        - What the log cannot say, a command you ran and what came back, a decision, a blocker, the result of a chunk of work, goes in a note (section 2), one short note per event, as you go.
 
         ## 3. Create a work item
 
@@ -254,6 +278,7 @@ public static class AgentGuide
         - A wrong heading (section 3) or a MODIFIED block that lacks a scenario the main spec has since gained makes the item invalid. The app repairs both when the user completes the item, but until then every reader of the item sees it wrong: get it right when you write it.
         - Statuses: {{string.Join(", ", WorkItemsApi.Statuses)}}. `Completed` means archived: archive with the OpenSpec CLI (`openspec archive <change-name> --yes`), never set it by hand.
         - Keep `x-rtm` keys, comments and formatting you did not change. Lists stay on one line: `features: [a, b]`. A work item has one feature.
+        - Quote a value that contains `:` or `#`, or that starts with a special character (`-`, `*`, `&`, `!`, `[`, `{`, `"`, `'`, `%`, `@`), or that is `yes`, `no`, `null` or a number: `title: "Fix: the thing"`. An unquoted one is not valid YAML; the app reads the common cases as text and quotes them on its next save, but the OpenSpec CLI does not.
         - Subtasks keep their `1.1`, `1.2`… numbers; add new ones at the end of their group.
 
         ## 5. Numbers

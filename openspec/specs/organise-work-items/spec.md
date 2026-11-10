@@ -614,11 +614,15 @@ Every card band, list row stripe and roadmap bar SHALL take its colour from the 
 - **THEN** bug cards are peach, feature cards sky and enhancement cards sage, and the legend lists them
 
 ### Requirement: The same organisation in every view
-The list SHALL group its rows by the row field, then by the column field, and the roadmap SHALL group its items the same way (a row header with column subgroups), both coloured by the colour field. With rows none they group by the columns alone.
+The list SHALL group its rows by the column field, then by the row field inside each column (a row group only where the column has items), and the roadmap SHALL group its items by the row field, then by the column field (a row header with column subgroups); both SHALL be coloured by the colour field. With rows none they group by the columns alone.
 
 #### Scenario: List and roadmap by feature and status
 - **WHEN** rows are by feature and columns by status, and the user opens the list and then the calendar
-- **THEN** both show a group per feature holding a group per status
+- **THEN** the list shows a group per status holding a group per feature, and the calendar a group per feature holding a group per status
+
+#### Scenario: Drop into a row group of the list
+- **WHEN** rows are by feature and columns by status, and the user drags an item onto the "Notes" group inside "In Review"
+- **THEN** the item's status is In Review and its feature is Notes
 
 ### Requirement: Merged content by source and date
 A merge SHALL head each source's task group "#wi<N> <title> · merged <date>" and SHALL stamp every note it moves in with `mergedFrom` and `mergedAt`. The Subtasks tile SHALL show each task group as a collapsible header with its done and total counts (a fully done group starts collapsed; a single group shows no header). The Change log SHALL list the item's own notes first, then one collapsible section per merged source, newest merge first, headed "From #wi<N> · merged <date>".
@@ -626,3 +630,49 @@ A merge SHALL head each source's task group "#wi<N> <title> · merged <date>" an
 #### Scenario: Three items merged
 - **WHEN** #wi64 and #wi92 are merged into #wi85 on 9 Nov
 - **THEN** #wi85's subtasks show the groups "#wi64 Notes editor · merged 2026-11-09" and "#wi92 Changelog UI issues · merged 2026-11-09", and its change log ends with "From #wi92 · merged 9 Nov" and "From #wi64 · merged 9 Nov"
+
+### Requirement: Distinct colours per value
+When colour is by feature or by contributor, each value SHALL take a colour from a palette of twelve in the order the board lists the values, so the first twelve values never share a colour; the legend and the cards SHALL show the same colour for a value, and filtering SHALL NOT change a value's colour.
+
+#### Scenario: Seven features
+- **WHEN** colour is by feature and seven features have items
+- **THEN** the legend shows seven different colours and each card has its feature's colour
+
+### Requirement: Pages without an outer frame
+The calendar, the work item page and the note page SHALL have no outer frame (border, rounded corners or shadow) around their content, like the list view; the tiles inside keep their own borders.
+
+#### Scenario: Open an item
+- **WHEN** the user opens a work item
+- **THEN** its header and tiles sit directly on the page background with no frame around them
+
+### Requirement: Side menu sections
+The expanded side menu's view options SHALL be split by dashed separators into the organise block (columns, rows, colour and its legend), the sort and filters, and the display switches.
+
+#### Scenario: Three sections
+- **WHEN** the user expands the side menu on the board
+- **THEN** a dashed line follows the colour legend and another follows the Work items / Subtasks switch
+
+### Requirement: Every list column can be hidden
+Every column of the list SHALL have a working control in its header that hides it, however narrow the column; a label wider than its column SHALL be shortened instead of covering or pushing out the control.
+
+#### Scenario: A narrow column
+- **WHEN** the Updated column is narrower than its label and the user clicks the × in its header
+- **THEN** the Updated column is hidden and listed under Hidden in the side menu
+
+### Requirement: The list header says where the rows are
+While the list is scrolled, its sticky header SHALL show the project (when several are open), the column and the row value of the group the topmost visible row belongs to, in the look of their group headers.
+
+#### Scenario: Scrolled into a group
+- **WHEN** columns are by status, rows by feature, and the user scrolls until the "Completed" and "Maintainability" headers are out of view
+- **THEN** the sticky header shows "Completed › Maintainability"
+
+### Requirement: Rows drag from anywhere
+A list row SHALL have no drag handle. Pressing anywhere on a row (not on a control in it), holding for a quarter of a second and then moving SHALL drag the row (with the other selected rows) as cards drag; releasing without moving SHALL act as a click; pressing and moving at once SHALL select cells. Titles SHALL line up under the Title header whether or not their row has subtasks.
+
+#### Scenario: Hold and drag
+- **WHEN** the user presses on a Backlog row's label cell, holds, and drags it onto the Planned group
+- **THEN** the item's status becomes Planned
+
+#### Scenario: Click
+- **WHEN** the user clicks a row's title
+- **THEN** the item opens

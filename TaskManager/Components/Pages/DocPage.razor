@@ -22,6 +22,8 @@
 
     private string? text;
 
+    protected override object? LoadKey => Path;
+
     protected override void Load()
     {
         text = null;

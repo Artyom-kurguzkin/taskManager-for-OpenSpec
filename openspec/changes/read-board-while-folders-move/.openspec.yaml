@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-10
+x-rtm:
+  id: 126
+  title: Merging archived items crashed with a missing folder
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [organise-work-items]
+  label: bug
+  started: 2026-11-10
+  tests: [{suite: EditingWorkItemsTests, test: 'Reading the board while a merge or archive removes a change folder skips the folder that is gone instead of failing'}, {suite: SwitchingProjectsTests, test: 'A refresh from the file watcher never throws while folders are moved or removed under it: the app shows a warning and carries on'}]
+  agentBy: Claude
+  agentAt: 2026-11-10T10:15:34

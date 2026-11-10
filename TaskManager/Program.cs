@@ -49,12 +49,20 @@ internal static class Program
         app = builder.Build();
         if (detached) app.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(false).SetSize(960, 1000);   // a normal window beside the main one
         else app.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(true).SetMaximized(true);   // icons: WindowFrame
-        AppDomain.CurrentDomain.UnhandledException += (_, e) => app.MainWindow.ShowMessage("Error", e.ExceptionObject.ToString());
+        // The exception goes to a log first: before the window exists a message box cannot be shown (it threw and hid the cause), and a crash is then silent.
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            string text = e.ExceptionObject.ToString() ?? "";
+            LogCrash(text);
+            if (WindowIsUp(app)) try { app.MainWindow.ShowMessage("Error", text); } catch (Exception) { }
+        };
 
         // Reopen the last repository; otherwise try the folder the app was started from.
         Workspace workspace = app.Services.GetRequiredService<Workspace>();
         string? start = detached ? detachedRepo : args.FirstOrDefault(Directory.Exists) ?? settings.Current.LastRepo ?? Environment.CurrentDirectory;
-        if (start is not null && Directory.Exists(start)) workspace.Open(start);
+        // A repository that cannot be read cleanly (a file mid-write, a bad yaml the readers did not foresee) never stops the app from starting: it opens with what could be read.
+        try { if (start is not null && Directory.Exists(start)) workspace.Open(start); }
+        catch (Exception e) { LogCrash("Opening " + start + " failed at startup; the app starts anyway.\n" + e); }
         if (detached)
         {
             string? title = WorkItemsApi.Get(detachedItem!.Value)?.Title;
@@ -63,6 +71,24 @@ internal static class Program
 
         app.Run();
         OpenSpecStoreApi.Close();
+    }
+
+    /// <summary>True once the native window exists (it is created when the app runs, not when it is built).</summary>
+    private static bool WindowIsUp(PhotinoBlazorApp? app)
+    {
+        try { return app is not null && app.MainWindow.WindowHandle != IntPtr.Zero; }
+        catch (Exception) { return false; }
+    }
+
+    /// <summary>Appends to %LOCALAPPDATA%/RepoTaskManager/logs/crash-yyyy-MM-dd.log; a log that cannot be written changes nothing.</summary>
+    private static void LogCrash(string text)
+    {
+        try
+        {
+            Directory.CreateDirectory(Hosting.Paths.Logs);
+            File.AppendAllText(Path.Combine(Hosting.Paths.Logs, $"crash-{DateTime.Now:yyyy-MM-dd}.log"), $"[{DateTime.Now:HH:mm:ss}] {text}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch (Exception) { }
     }
 
     private static string? Option(string[] args, string name) => args.SkipWhile(a => a != name).Skip(1).FirstOrDefault();

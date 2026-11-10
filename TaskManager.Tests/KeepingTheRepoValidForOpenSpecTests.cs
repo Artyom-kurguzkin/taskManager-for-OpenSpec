@@ -56,6 +56,30 @@ public sealed class KeepingTheRepoValidForOpenSpecTests
         if (exit != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
     }
 
+    [Fact(DisplayName = "Values full of YAML-significant characters, written by the app, validate with the OpenSpec CLI")]
+    public void NastyValuesStayValid()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string msg, int id) = WorkItemsApi.Create("Fix: the thing #1", "Planned", ["yes"], ["null", "Dr. No: x"]);
+        Assert.True(ok, msg);
+        Ok(WorkItemsApi.SetTitle(123, "[WIP] - \"quoted\" & 'single': 100% #done"));
+        Ok(WorkItemsApi.SetPlan(123, "DevResources/plans/a: b #c [v2].md"));
+        Ok(WorkItemsApi.SetLinkedDocs(123, ["docs/yes.md", "123"]));
+        Ok(WorkItemsApi.SetLinkedTests(123, [new("Suite: one", "Does \"x\" # [y]", null)]));
+        Ok(WorkItemsApi.SetLinkedCommits(123, ["1234567", "1e34567"]));
+        Ok(WorkItemsApi.SetLane(123, "In Progress", "Needs: review #2"));
+        Ok(WorkItemsApi.StampAgent(id, "yes"));
+        (bool nk, string nm, int note) = NotesApi.Create(123, "Dr. No: x");
+        Assert.True(nk, nm);
+        Ok(NotesApi.SetTitle(note, "Ping: pong #1"));
+
+        (int exit, string output) = OpenSpec(repo.Root, "validate --all --strict");
+
+        if (exit != 0) Assert.Fail("openspec validate failed:" + Environment.NewLine + output);
+    }
+
     [Fact(DisplayName = "A folder the app set up from nothing is valid for the OpenSpec CLI, and a work item created in it validates too")]
     public void ScaffoldedRepoIsValid()
     {

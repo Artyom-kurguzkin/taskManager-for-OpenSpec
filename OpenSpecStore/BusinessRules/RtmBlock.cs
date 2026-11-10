@@ -54,8 +54,9 @@ internal static class RtmBlock
 
     private static string[] Split(string text, out string newline)
     {
-        newline = text.Contains("\r\n") ? "\r\n" : "\n";
-        string body = text.EndsWith(newline) ? text[..^newline.Length] : text;
-        return body.Length == 0 ? [] : body.Split(newline);
+        newline = text.Contains("\r\n") ? "\r\n" : "\n";   // a file written to with both endings keeps CRLF from here on
+        text = text.Replace("\r\n", "\n").Replace('\r', '\n');   // lines are found whichever way each one ends
+        string body = text.EndsWith('\n') ? text[..^1] : text;
+        return body.Length == 0 ? [] : body.Split('\n');
     }
 }

@@ -170,7 +170,7 @@ public sealed class UsingTheBoardTests : IDisposable
     private static List<string> RowsIn(IRenderedComponent<BoardPage> board, string group) =>
         GroupRows(board, group).Select(r => r.QuerySelector(".row-title")!.TextContent).ToList();
 
-    [Fact(DisplayName = "List rows drag like cards: by their grip, in front of another row to reorder, onto a group to change status")]
+    [Fact(DisplayName = "List rows drag like cards from anywhere in the row after a short hold: in front of another row to reorder, onto a group to change status")]
     public async Task ListRowDrag()
     {
         await using BunitContext ctx = NewContext();
@@ -181,18 +181,104 @@ public sealed class UsingTheBoardTests : IDisposable
         ShowList();
         board.WaitForAssertion(() => Assert.Equal(3, RowsIn(board, "Planned").Count));
         List<string> before = RowsIn(board, "Planned");
-        Assert.All(board.FindAll("tr[data-id]"), r => Assert.NotNull(r.QuerySelector(".grip")));   // the handle the drag script grabs
+        Assert.Empty(board.FindAll(".grip"));   // no handle: the script grabs the row itself
+        string js = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
+        Assert.DoesNotContain(".grip", js);
+        Assert.Contains("const HOLD = 250", js);                 // a press held this long (ms) lifts the row...
+        Assert.Contains("kind: \"row\"", js);                     // ...a press anywhere on a row (tr[data-id]) is one
+        Assert.Contains("_press.hold = setTimeout", js);         // the lift happens when the time passes, not on the next move
+        Assert.Contains("_liftRow", js);
+        Assert.Contains("HOLD_SLOP", js);                        // moving before that cancels the hold: the press selects cells instead
 
-        GroupRows(board, "Planned")[2].DragStart();
+        // A render between finding a row and sending it the event drops the event's handler: find the row again until the event lands.
+        board.WaitForAssertion(() => GroupRows(board, "Planned")[2].DragStart());
         await board.InvokeAsync(() => { });   // let the dispatcher drain, so the drop targets the current render tree
-        GroupRows(board, "Planned")[0].Drop();
+        board.WaitForAssertion(() => GroupRows(board, "Planned")[0].Drop());
         board.WaitForAssertion(() => Assert.Equal([before[2], before[0], before[1]], RowsIn(board, "Planned")), TimeSpan.FromSeconds(5));   // the grid reloads after a drop; slow under a full-suite load
 
-        GroupRows(board, "Planned")[0].DragStart();
+        board.WaitForAssertion(() => GroupRows(board, "Planned")[0].DragStart());
         await board.InvokeAsync(() => { });
-        Group(board, "In Progress").Drop();   // the group row stands for the group's end
+        board.WaitForAssertion(() => Group(board, "In Progress").Drop());   // the group row stands for the group's end
         board.WaitForAssertion(() => Assert.Equal([before[0], before[1]], RowsIn(board, "Planned")), TimeSpan.FromSeconds(5));
         Assert.Equal("In Progress", WorkItemsApi.GetAll().Single(i => i.Title == before[2]).Status);
+    }
+
+    [Fact(DisplayName = "The list has no grip column, and a title lines up under the Title header whether or not its row has subtasks")]
+    public async Task ListTitlesLineUp()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        int bare = workspace.CreateItem("Planned").Id;   // no subtasks; the fixture's 107 and 123 have some
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll($"tr[data-id='{bare}']")));
+
+        Assert.Empty(board.FindAll(".grip, td.rowctl, th.rowctl"));   // no gutter column with a drag handle
+        Assert.Empty(board.FindAll(".chev-slot"));                    // no reserved slot: it pushed every title to the right
+        AngleSharp.Dom.IElement bareCell = board.Find($"tr[data-id='{bare}'] .tcell");
+        Assert.Empty(bareCell.QuerySelectorAll(".chev"));
+        Assert.Equal("row-title", bareCell.FirstElementChild!.ClassName);   // the title is the cell's first child: nothing before it pushes it right
+        AngleSharp.Dom.IElement withSubtasks = board.Find("tr[data-id='123'] .tcell");
+        Assert.Equal("tcell", withSubtasks.QuerySelector(".chev")!.ParentElement!.ClassName);   // the chevron hangs off the cell, not out of a slot
+
+        // the header and the cell share one left padding, and the chevron sits in it (css is not evaluated here: read the rule)
+        Assert.Contains(board.FindAll("thead th"), th => th.ClassList.Contains("title"));
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css"));
+        Assert.Contains(".tbl-wrap th.title, .tbl-wrap td.title { padding-left:", css);
+        Assert.Contains(".tbl-wrap .tcell .chev { position: absolute;", css);
+        Assert.DoesNotContain(".grip", css);
+    }
+
+    [Fact(DisplayName = "The list's group rows carry their column and row labels, and the sticky header has a place that shows the path of the rows scrolled under it")]
+    public async Task ListHeaderShowsPath()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.SetLabel(123, "bug").Success);
+        TwoProjects(ctx);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        PickSwimlanes("label");
+        ShowList();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-group='swim:bug']")));
+
+        Assert.Equal([NameOf(repo), NameOf(repo2)], board.FindAll("tr[data-group^='proj:']").Select(r => r.GetAttribute("data-path-proj")));   // the project, when several
+        string status = WorkItemsApi.Get(123)!.Status;
+        AngleSharp.Dom.IElement column = board.FindAll("tr[data-group]").First(r => r.GetAttribute("data-group") == status);
+        Assert.Equal(status, column.GetAttribute("data-path-col"));
+        Assert.StartsWith("var(--", column.GetAttribute("data-path-fill"));   // a status column's pill colour
+        Assert.Contains("bug", board.FindAll("tr[data-group='swim:bug']").Select(r => r.GetAttribute("data-path-swim")));
+        Assert.All(board.FindAll("tr[data-group^='swim:']").Where(r => r.GetAttribute("data-group") != "swim:"), r => Assert.NotNull(r.GetAttribute("data-path-swim")));
+
+        Assert.Single(board.FindAll(".tbl-wrap .hdr-path"));   // the sticky header's place for the path; app.js fills it as the list scrolls
+        string js = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
+        Assert.Contains("_updatePath", js);
+        Assert.Contains("pathCol", js);
+        Assert.Contains("pathSwim", js);
+        Assert.Contains("pathProj", js);
+        Assert.Contains("passive: true", js);   // the scroll listener never blocks scrolling
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css"));
+        Assert.Contains(".tbl-wrap .hdr-path { position: sticky; top: 0;", css);
+    }
+
+    [Fact(DisplayName = "Every list column's header can hide it: a long label in a narrow column is shortened so its × stays inside the header and clickable")]
+    public async Task EveryListColumnHides()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("thead th .th-hide")));
+        foreach (AngleSharp.Dom.IElement th in board.FindAll("thead th").Where(t => t.QuerySelector(".th-l") is not null))
+            Assert.NotNull(th.QuerySelector(".th-hide"));   // every labelled header has its ×
+
+        // in the real app the label sits in Radzen's title box, which clips what overflows it: a label wider than a narrow column
+        // pushed the × past the clip, where clicks reached the reorder layer under it. The label shrinks instead, the × never does.
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        string label = System.Text.RegularExpressions.Regex.Matches(css, @"\n\s*\.tbl-wrap \.th-l\s*\{([^}]*)\}").Last().Groups[1].Value;
+        Assert.Matches(@"min-width:\s*0", label);
+        Assert.Matches(@"overflow:\s*hidden", label);
+        Assert.Matches(@"text-overflow:\s*ellipsis", label);
+
+        // and the × is the last thing in the header, never inside the clipped label
+        Assert.All(board.FindAll("thead th .th-hide"), b => Assert.Null(b.Closest(".th-l")));
     }
 
     [Fact(DisplayName = "In the list, arrow keys move the selected rows, and Ctrl+C copies the selected cells (the script's part)")]
@@ -213,7 +299,6 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Equal("0", board.Find(".tbl-wrap").GetAttribute("tabindex"));   // focusable, so keys and Ctrl+C reach it
         string js = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
         Assert.Contains("addEventListener(\"copy\"", js);
-        Assert.Contains("tr[data-id] .grip", js);
         Assert.Contains(".tbl-wrap thead .rz-column-drag", js);   // the whole header reorders, and a click on it still sorts
         Assert.Contains("_cells.moved", js);
         Assert.Contains("is-resizing", js);   // a column resize shows a guide line down the table, not a header highlight   // a drag from any cell selects cells; only a still click works the cell's control
@@ -1291,8 +1376,20 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Empty(board.FindAll(".lane-h, .swim-h, .swim"));
     }
 
-    [Fact(DisplayName = "With swimlanes by label the list groups rows by label above the column")]
-    public async Task SwimlanesByLabelInTheList()
+    // The list's rows in order: group rows by their data-group, item rows as "#<id>" (the hidden placeholder group of an empty column is left out).
+    private static List<string> ListOrder(IRenderedComponent<BoardPage> board) =>
+        [.. board.FindAll(".rz-data-grid tbody tr").Select(tr => tr.GetAttribute("data-group") ?? (tr.GetAttribute("data-id") is string id ? "#" + id : "")).Where(k => k.Length > 0)];
+
+    // The row-value group (swim:<value>) of a column's group: the first one after the column's own group row.
+    private static AngleSharp.Dom.IElement SwimIn(IRenderedComponent<BoardPage> board, string column, string swim)
+    {
+        List<AngleSharp.Dom.IElement> trs = [.. board.FindAll(".rz-data-grid tbody tr")];
+        int at = trs.FindIndex(tr => tr.GetAttribute("data-group") == column);
+        return trs.Skip(at + 1).TakeWhile(tr => tr.GetAttribute("data-group") is null or "" || tr.GetAttribute("data-group")!.StartsWith("swim:")).Single(tr => tr.GetAttribute("data-group") == "swim:" + swim);
+    }
+
+    [Fact(DisplayName = "With rows by label the list groups by column first, then by label inside each column")]
+    public async Task RowsByLabelInTheList()
     {
         await using BunitContext ctx = NewContext();
         Assert.True(WorkItemsApi.SetLabel(123, "bug").Success);
@@ -1300,22 +1397,76 @@ public sealed class UsingTheBoardTests : IDisposable
         PickSwimlanes("label");
         ShowList();
 
-        board.WaitForAssertion(() => Assert.Equal(["~", "bug", "feature", "enhancement"], board.FindAll("tr[data-group^='swim:']").Select(g => g.GetAttribute("data-group")![5..])));   // the same values and order as label columns: unlabeled first
-        Assert.Equal(["Unlabeled", "bug", "feature", "enhancement"], board.FindAll("tr[data-group^='swim:'] .swim-name").Select(n => n.TextContent.Trim()));
-        Assert.Contains("1", board.Find("tr[data-group='swim:bug']").TextContent);   // its count
+        string status = WorkItemsApi.Get(123)!.Status;
+        board.WaitForAssertion(() => Assert.Contains("swim:bug", ListOrder(board)));
+        List<string> order = ListOrder(board);
+        Assert.Equal(1, order.Count(g => g == "swim:bug"));   // only one column holds a bug
+        Assert.Equal(["Unlabeled", "bug"], board.FindAll("tr[data-group^='swim:'] .swim-name").Select(n => n.TextContent.Trim()).Distinct());   // row values with no items are left out
+        Assert.DoesNotContain("swim:feature", order);
         Assert.DoesNotContain("Label", board.FindAll("thead th .th-l").Select(h => h.TextContent.Trim()));   // the grouping says it
 
-        // under the bug swimlane, the column group holds the bug's row; the swimlane's name sits above the column's
-        List<string> order = [];
-        foreach (AngleSharp.Dom.IElement tr in board.FindAll(".rz-data-grid tbody tr"))
-        {
-            if (tr.GetAttribute("data-group") is string g) order.Add(g);
-            else if (tr.GetAttribute("data-id") is string id) order.Add("#" + id);
-        }
-        int bug = order.IndexOf("swim:bug"), feature = order.IndexOf("swim:feature");
-        Assert.True(bug >= 0 && feature > bug);
-        Assert.Contains("#123", order.Skip(bug).Take(feature - bug));
-        Assert.Contains(order.Skip(bug).Take(feature - bug), g => g == WorkItemsApi.Get(123)!.Status);   // the column group follows the swimlane's header
+        // the column group comes first, its label groups follow, then the rows of each label: Planned (unlabeled) before In Progress (bug)
+        int planned = order.IndexOf("Planned"), progress = order.IndexOf(status), bug = order.IndexOf("swim:bug");
+        Assert.True(planned >= 0 && progress > planned);
+        Assert.Equal(["Planned", "swim:~", "#107"], order.Skip(planned).Take(3));
+        Assert.Equal([status, "swim:bug", "#123"], order.Skip(progress).Take(3));
+        Assert.Equal(progress + 1, bug);
+        Assert.Contains("1", board.Find("tr[data-group='swim:bug']").TextContent);   // its count
+    }
+
+    [Fact(DisplayName = "In the list with rows set, a column's header counts all its items, and dropping on a row-value group inside a column moves the item to that column and that row value")]
+    public async Task ListColumnCountsAndRowGroupDrop()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        int bugInPlanned = workspace.CreateItem("Planned").Id, featureInPlanned = workspace.CreateItem("Planned").Id;
+        Assert.True(WorkItemsApi.SetLabel(bugInPlanned, "bug").Success);
+        Assert.True(WorkItemsApi.SetLabel(featureInPlanned, "feature").Success);
+        Assert.True(WorkItemsApi.SetLabel(123, "bug").Success);   // In Progress
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        PickSwimlanes("label");
+        ShowList();
+
+        // Planned holds the fixture's unlabeled item and the two new ones: three in the header, one in each row-value group
+        board.WaitForAssertion(() => Assert.Equal("3", Group(board, "Planned").QuerySelector(".count")!.TextContent.Trim()));
+        Assert.All(new[] { "~", "bug", "feature" }, v => Assert.Equal("1", SwimIn(board, "Planned", v).QuerySelector(".count")!.TextContent.Trim()));
+
+        // the bug from In Progress, dropped on Planned's feature group: it takes both the column and the row value
+        board.Find("tr[data-id='123']").DragStart();
+        await board.InvokeAsync(() => { });   // let the dispatcher drain, so the drop targets the current render tree
+        SwimIn(board, "Planned", "feature").Drop();
+
+        board.WaitForAssertion(() => Assert.Equal("Planned", WorkItemsApi.Get(123)!.Status), TimeSpan.FromSeconds(5));
+        board.WaitForAssertion(() => Assert.Equal("feature", WorkItemsApi.Get(123)!.Label));
+        board.WaitForAssertion(() => Assert.Equal("4", Group(board, "Planned").QuerySelector(".count")!.TextContent.Trim()));
+        Assert.Equal("2", SwimIn(board, "Planned", "feature").QuerySelector(".count")!.TextContent.Trim());
+    }
+
+    [Fact(DisplayName = "In the list with rows set, collapsing a row-value group inside one column leaves the same row value open in another column")]
+    public async Task ListRowGroupCollapsesPerColumn()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        int bugInPlanned = workspace.CreateItem("Planned").Id;
+        Assert.True(WorkItemsApi.SetLabel(bugInPlanned, "bug").Success);
+        Assert.True(WorkItemsApi.SetLabel(123, "bug").Success);   // In Progress
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        PickSwimlanes("label");
+        ShowList();
+        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-group='swim:bug']").Count));
+
+        SwimIn(board, "Planned", "bug").QuerySelector("button[aria-label='Expand group']")!.Click();
+
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll($"tr[data-id='{bugInPlanned}']")));
+        Assert.Single(board.FindAll("tr[data-id='123']"));   // the same label in In Progress stays open
+        Assert.Equal(2, board.FindAll("tr[data-group='swim:bug']").Count);
+
+        WorkItemsApi.SetPriority(123, "low");   // a write reloads the rows: the group stays shut
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll($"tr[data-id='{bugInPlanned}']")));
+        Assert.Single(board.FindAll("tr[data-id='123']"));
+
+        SwimIn(board, "Planned", "bug").QuerySelector("button[aria-label='Expand group']")!.Click();
+        board.WaitForAssertion(() => Assert.Single(board.FindAll($"tr[data-id='{bugInPlanned}']")));
     }
 
     [Fact(DisplayName = "The calendar view is a roadmap: items listed by group on the left, bars from start to due on the right, a group bar spanning the group's dates, a today line, and Today / previous / next / zoom controls")]
@@ -1457,7 +1608,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Null(WorkItemsApi.Get(pay)!.Due);
     }
 
-    [Fact(DisplayName = "The list and the roadmap group by rows then columns and colour their rows and bars by the colour field")]
+    [Fact(DisplayName = "The list groups by columns then rows, the roadmap by rows then columns, and both colour their rows and bars by the colour field")]
     public async Task ListAndRoadmapFollowRowsColumnsAndColour()
     {
         await using BunitContext ctx = NewContext();
@@ -1469,11 +1620,11 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Swimlane = "label", ColorBy = "label", View = "list" });
 
-        // the list: a group per row, the status groups inside it, a colour stripe per row
+        // the list: a group per column, the row-value groups inside it, a colour stripe per row
         board.WaitForAssertion(() => Assert.Contains("swim:bug", board.FindAll("tr[data-group]").Select(g => g.GetAttribute("data-group"))));
         List<string> order = board.FindAll(".rz-data-grid tbody tr").Select(tr => tr.GetAttribute("data-group") ?? "#" + tr.GetAttribute("data-id")).ToList();
         string status = WorkItemsApi.Get(123)!.Status;
-        Assert.True(order.IndexOf("swim:bug") < order.IndexOf("#123") && order.IndexOf("#123") > order.IndexOf(status), string.Join(",", order));
+        Assert.True(order.IndexOf(status) < order.IndexOf("swim:bug") && order.IndexOf("swim:bug") < order.IndexOf("#123"), string.Join(",", order));
         Assert.Contains("var(--peach)", board.Find("tr[data-id='123']").GetAttribute("style"));   // bug
         Assert.Contains("var(--stone)", board.Find("tr[data-id='107']").GetAttribute("style"));   // no label
 

@@ -48,7 +48,7 @@ public sealed record SwimRow(string Key, string Label, IReadOnlyList<BoardColumn
 /// </summary>
 public sealed record GridRow(int Group, BoardColumn Column, string? Category, WorkItem? Item, int Position, string Feature, string Root = "", string Project = "", string Swim = "", string SwimLabel = "")
 {
-    public string Key => $"{Group}:{Item?.Id ?? 0}";
+    public string Key => $"{Group}:{Swim}:{Item?.Id ?? 0}";   // an item in two row values of one column (features, people) is two rows
     public int Id => Item?.Id ?? 0;
     public string Title => Item?.Title ?? "";
     public string Status => Item?.Status ?? "";
@@ -144,26 +144,26 @@ public static class BoardModel
     public static IReadOnlyList<SwimRow> Swimlanes(BoardSection section) => section.Rows ?? [new("", "", section.Columns)];
 
     /// <summary>
-    /// The list view's rows, in board order: row by row, column by column, each column's items in their sorted order.
-    /// With rows set, a cell without items is left out (a row with no items at all keeps one empty group, so it still shows).
+    /// The list view's rows, in board order: column by column, and with rows set the row values inside each column (in the board's row
+    /// order, leaving out the ones with no items there), each cell's items in their sorted order. A group is a column
+    /// (<see cref="GridRow.Group"/>) and carries the whole column; an empty column keeps one row with no item, so it still shows.
     /// </summary>
     public static IReadOnlyList<GridRow> Rows(IReadOnlyList<BoardSection> sections, IReadOnlyDictionary<string, string> featureNames,
         string root = "", string project = "", int firstGroup = 0)
     {
         List<GridRow> rows = [];
         int group = firstGroup, position = 0;
+        string FeatureOf(WorkItem it) => it.Features.FirstOrDefault() is { } f ? featureNames.GetValueOrDefault(f.Path, f.Path) : "";
         foreach (BoardSection s in sections)
-        foreach (SwimRow swim in Swimlanes(s))
+        for (int ci = 0; ci < s.Columns.Count; ci++)
         {
-            IEnumerable<BoardColumn> cells = swim.Columns;
-            if (s.Rows is not null) cells = swim.Columns.Where(c => c.Items.Count > 0).DefaultIfEmpty(swim.Columns.FirstOrDefault()!).Where(c => c is not null);
-            foreach (BoardColumn c in cells)
-            {
-                if (c.Items.Count == 0) rows.Add(new(group, c, s.Category, null, position++, "", root, project, swim.Key, swim.Label));
-                foreach (WorkItem it in c.Items)
-                    rows.Add(new(group, c, s.Category, it, position++, it.Features.FirstOrDefault() is { } f ? featureNames.GetValueOrDefault(f.Path, f.Path) : "", root, project, swim.Key, swim.Label));
-                group++;
-            }
+            BoardColumn c = s.Columns[ci];
+            int first = rows.Count;
+            foreach (SwimRow swim in Swimlanes(s))
+                foreach (WorkItem it in swim.Columns[ci].Items)
+                    rows.Add(new(group, c, s.Category, it, position++, FeatureOf(it), root, project, swim.Key, swim.Label));
+            if (rows.Count == first) rows.Add(new(group, c, s.Category, null, position++, "", root, project));
+            group++;
         }
         return rows;
     }
@@ -185,14 +185,15 @@ public static class BoardModel
     public static string? GroupedColumn(BoardOptions o) => FieldColumn(o.GroupBy);
 
     // ── Colour: a CSS variable for each item, from any field ──
-    private static readonly string[] Palette = ["--sky", "--lilac", "--sun", "--peach", "--mint", "--sage"];
+    /// <summary>The twelve categorical colour tokens (CSS variables in app.css) features and contributors take in turn; --stone is the neutral "none".</summary>
+    public static readonly IReadOnlyList<string> Palette = ["--sky", "--lilac", "--sun", "--peach", "--mint", "--sage", "--rose", "--teal", "--sand", "--green", "--indigo", "--orchid"];
 
     /// <summary>
     /// The colour token (a CSS variable name from the palette) an item shows for a field: status → its band colour, label → the label pill's,
-    /// priority → high peach / lower neutral, due and started → by period, feature and contributor → a stable pick from the palette
-    /// by the first value's name, none (or anything else) → neutral.
+    /// priority → high peach / lower neutral, due and started → by period, feature and contributor → the palette entry at the first value's place in <paramref name="map"/> (see <see cref="ColourMap"/>; a value
+    /// missing from it gets a stable pick by name), none (or anything else) → neutral.
     /// </summary>
-    public static string ColourOf(WorkItem item, string field, DateOnly? today = null)
+    public static string ColourOf(WorkItem item, string field, DateOnly? today = null, IReadOnlyDictionary<string, string>? map = null)
     {
         DateOnly now = today ?? DateOnly.FromDateTime(DateTime.Today);
         return field switch
@@ -202,18 +203,31 @@ public static class BoardModel
             "priority" => Ui.PriorityColor(item.Priority),
             "due" => Period(item.Due, now) switch { "overdue" => "--peach", "today" => "--sun", "week" => "--sky", "next" => "--mint", "later" => "--sage", _ => "--stone" },
             "started" => StartPeriod(item.Started, now) switch { "earlier" => "--sage", "week" => "--sun", "next" => "--sky", "later" => "--lilac", _ => "--stone" },
-            "feature" => item.Features.Count > 0 ? Pick(item.Features[0].Path) : "--stone",
-            "contributor" => item.Contributors.Count > 0 ? Pick(item.Contributors[0]) : "--stone",
+            "feature" => item.Features.Count > 0 ? Pick(item.Features[0].Path, map) : "--stone",
+            "contributor" => item.Contributors.Count > 0 ? Pick(item.Contributors[0], map) : "--stone",
             _ => "--stone",
         };
     }
 
-    /// <summary>A palette token chosen by a name; the same name always gets the same one (string.GetHashCode changes per process).</summary>
-    private static string Pick(string name)
+    /// <summary>
+    /// The colour of each value of a feature or contributor colour field: the palette entry at the value's place in the field's value list
+    /// (the board's feature list, the people list), cycling after twelve. Built from every item, so a filter never repaints a value.
+    /// Other fields have none.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ColourMap(string field, IReadOnlyList<WorkItem> all, IReadOnlyList<Feature> features)
     {
+        if (field is not ("feature" or "contributor")) return new Dictionary<string, string>();
+        string[] keys = [.. Values(field, all, all, features, DateOnly.FromDateTime(DateTime.Today)).Where(v => v.Key != Unassigned).Select(v => v.Key)];
+        return keys.Select((k, n) => (k, n)).ToDictionary(x => x.k, x => Palette[x.n % Palette.Count]);
+    }
+
+    /// <summary>The value's colour from the map, else a stable pick from the palette by its name (string.GetHashCode changes per process).</summary>
+    private static string Pick(string name, IReadOnlyDictionary<string, string>? map)
+    {
+        if (map is not null && map.TryGetValue(name, out string? token)) return token;
         uint h = 2166136261;
         foreach (char c in name) h = (h ^ c) * 16777619;
-        return Palette[h % (uint)Palette.Length];
+        return Palette[(int)(h % (uint)Palette.Count)];
     }
 
     /// <summary>What the colours mean: each value of the colour field that some shown item has, with its colour (the side menu's legend).</summary>
@@ -225,9 +239,10 @@ public static class BoardModel
         // an item's colour comes from its first feature or contributor, so only those count for the legend
         string? Primary(WorkItem i) => o.ColorBy switch { "feature" => i.Features.FirstOrDefault()?.Path, "contributor" => i.Contributors.FirstOrDefault(), _ => null };
         bool Has(FieldValue v, WorkItem i) => o.ColorBy is "feature" or "contributor" ? (Primary(i) ?? Unassigned) == v.Key : v.Match(i);
+        IReadOnlyDictionary<string, string> map = ColourMap(o.ColorBy, items, features);
         List<(string Label, string Colour)> legend = [];
         foreach (FieldValue v in Values(o.ColorBy, items, visible, features, now))
-            if (visible.FirstOrDefault(i => Has(v, i)) is { } first) legend.Add((v.Label, ColourOf(first, o.ColorBy, now)));
+            if (visible.FirstOrDefault(i => Has(v, i)) is { } first) legend.Add((v.Label, ColourOf(first, o.ColorBy, now, map)));
         return legend;
     }
 

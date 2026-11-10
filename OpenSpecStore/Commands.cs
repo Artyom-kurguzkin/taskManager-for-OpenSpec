@@ -74,13 +74,13 @@ internal static class Commands
         // whose name a new change reuses) is not a conflict: writing there overwrites nothing.
         if (OpenSpecStoreModule.LastSeen.TryGetValue(full, out string? seen) && onDisk is not null && seen != onDisk) return (false, StaleMessage);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
-        OpenSpecStoreModule.MarkOwn(full);
+        OpenSpecStoreModule.Own(full);
         string tmp = full + ".tmp";   // write beside, then swap in: a reader or a crash never sees half a file
-        OpenSpecStoreModule.MarkOwn(tmp);   // the watcher would report the temp file otherwise
+        OpenSpecStoreModule.Own(tmp);   // the watcher would report the temp file otherwise
         File.WriteAllText(tmp, content);
         File.Move(tmp, full, overwrite: true);
         OpenSpecStoreModule.LastSeen[full] = content;
-        OpenSpecStoreModule.Bump();   // after the write, so a cache rebuilt meanwhile still counts as stale
+        OpenSpecStoreModule.Touch(full);   // this write's one version bump, after it, so a cache rebuilt meanwhile still counts as stale
         return (true, "");
     }
 
@@ -103,10 +103,10 @@ internal static class Commands
     {
         string full = Path.GetFullPath(path);
         if (!Directory.Exists(full)) return (true, "");
-        OpenSpecStoreModule.MarkOwn(full);
-        foreach (string entry in Directory.EnumerateFileSystemEntries(full, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.MarkOwn(entry);   // the watcher reports each file inside
+        OpenSpecStoreModule.Own(full);
+        foreach (string entry in Directory.EnumerateFileSystemEntries(full, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.Own(entry);   // the watcher reports each file inside
         Directory.Delete(full, recursive: true);
-        OpenSpecStoreModule.Bump();
+        OpenSpecStoreModule.Touch(full);
         return (true, "");
     }
 
@@ -115,13 +115,13 @@ internal static class Commands
         string src = Path.GetFullPath(from), dst = Path.GetFullPath(to);
         if (!Directory.Exists(src)) return (false, "That folder no longer exists");
         if (Directory.Exists(dst)) return (false, $"{Path.GetFileName(dst)} already exists");
-        OpenSpecStoreModule.MarkOwn(src);
-        foreach (string entry in Directory.EnumerateFileSystemEntries(src, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.MarkOwn(entry);
+        OpenSpecStoreModule.Own(src);
+        foreach (string entry in Directory.EnumerateFileSystemEntries(src, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.Own(entry);
         Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
         Directory.Move(src, dst);
-        OpenSpecStoreModule.MarkOwn(dst);
-        foreach (string entry in Directory.EnumerateFileSystemEntries(dst, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.MarkOwn(entry);
-        OpenSpecStoreModule.Bump();
+        OpenSpecStoreModule.Own(dst);
+        foreach (string entry in Directory.EnumerateFileSystemEntries(dst, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.Own(entry);
+        OpenSpecStoreModule.Touch(src, dst);
         return (true, "");
     }
 }

@@ -1,11 +1,58 @@
-<!-- repo-tasks-guide v11 plans=DevResources/plans attachments=local/task-tracking -->
+<!-- repo-tasks-guide v14 plans=DevResources/plans attachments=local/task-tracking -->
 # Repo Tasks: conventions for agents
 
 This repository's `openspec/` folder is shown and edited by the **Repo Tasks** app, a board of work items.
 Every folder under `openspec/changes/` is a work item; a feature is a capability under `openspec/specs/`.
 The app writes this file and refreshes it when it ships a newer version or the user moves the plans or attachments folder, so keep your own notes elsewhere.
 
-## 0. How to take on a task that is more than a quick fix
+## 0. Use the `repo-tasks` tools when you have them
+
+The Repo Tasks app serves this board to agents over MCP (Model Context Protocol). The tools allocate ids under a lock, sign what they write, check test names and run the validator, so none of the hand rules below can be got wrong. Use them instead of editing files whenever you can.
+
+**Are they loaded?** Look for the seven `board_*` tools in your tool list (a client may prefix them with the server name, `mcp__repo-tasks__board_list`), or call `board_list`. In a terminal, `claude mcp list` shows `repo-tasks` and whether it is connected. If they answer, go to "Use them" below.
+
+**Turn them on** when they are not loaded. Add this entry to `.mcp.json` at the repository root (or merge it into the `mcpServers` you already have), then restart the session or approve the server when the client asks:
+
+```json
+{
+  "mcpServers": {
+    "repo-tasks": {
+      "type": "stdio",
+      "command": "C:/Users/artyo/Documents/5-mine/repo-task-manager/dist/TaskManager-small.exe",
+      "args": ["--mcp"],
+      "env": { "RTM_AGENT": "Claude" }
+    }
+  }
+}
+```
+
+- That path is the Repo Tasks exe **on the machine that wrote this file**; it is not the same on another machine. A `.mcp.json` that is committed can name an override: `"command": "${RTM_APP:-C:/Users/artyo/Documents/5-mine/repo-task-manager/dist/TaskManager-small.exe}"` runs the exe that the `RTM_APP` environment variable names, and this one otherwise.
+- The same in one command: `claude mcp add repo-tasks -- C:/Users/artyo/Documents/5-mine/repo-task-manager/dist/TaskManager-small.exe --mcp` (add `--scope project` to write `.mcp.json`, and `--env RTM_AGENT=<your name>` before the name to sign as yourself).
+- `RTM_AGENT` is the name the tools sign with (section 1); a tool's `agent` argument overrides it.
+- The stdio entry starts the app's server for you when none is running. A client that only speaks HTTP: run `TaskManager.exe --serve` (it keeps running, headless, and exits after three idle hours) and point the client at `http://127.0.0.1:7431/mcp` with the header `Authorization: Bearer <token>`, where the token is the content of the file `%LOCALAPPDATA%/RepoTaskManager/token` (created on first use, yours alone: never commit or paste it).
+
+**Use them.** Every tool takes an optional `repo` (any path inside the repository; the default is the directory you work in).
+
+- `board_list`: the work items, filtered by status, feature, label, contributor, text, or `ready` (not blocked, not started); concise rows with id, title, status and `revision`.
+- `board_get`: one item in full: description, subtasks with their numbers, notes, delta specs, linked tests (passing or failing in the latest results) and commits, what it depends on and blocks, and its `revision`.
+- `board_features`: the features (capabilities under `openspec/specs/` plus the ones named in `config.yaml`) with their open items; read it before you pick the feature of a new item.
+- `board_create`: a new work item (section 3 done for you): title, why, what changes, feature, status, plan, `dependsOn`, grouped subtasks, delta specs. It takes the next id under the lock, signs it, validates it and returns the id.
+- `board_update`: change status, priority, label, feature, dates, plan, dependencies, contributors, description, tests, commits, subtasks (tick, add) and specs of an item.
+- `board_note`: add a change-log note to an item (title, body, links, commits, attachments); it takes the next note id and signs it.
+- `board_validate`: the OpenSpec validator (`--strict`) plus the app's own warnings (duplicate ids, wrong statuses, test names not in the results), for one item or every open one.
+
+The order is `board_create` (or `board_get` for an item that exists) → `board_update` while you work → `board_note` when a piece of work lands → `board_validate` before you stop. Rules for the calls:
+
+- Pass the `revision` that `board_get` returned into `board_update` and `board_note`; if the item changed since, the call is refused with the current revision, so read again and retry. Without one the write goes through unchecked.
+- Set `In Progress` when you start and `In Review` when you are done. **Never set `Completed`**: the tools refuse it, because the user archives from the app.
+- Update every open item your work touches, not only the one you were given (section 2 says which), and write `#wi<id>` / `#n<id>` links in the text.
+- An error message says what to fix; fix that and call again.
+
+**The worklog.** An item's page shows its worklog: its notes and a log of events, newest first. Status changes, links (commits, tests, `docs`, dependencies) and ticked subtasks are logged for you, under your name, whenever you use these tools, so do not write a note to say them. Write a `board_note` yourself for what the tools cannot see: a command you ran against a server or environment and what came back (put the output in a code block), a decision and why, a blocker, the result of a chunk of work. One short entry per event, as you go, not one summary at the end. `title` is optional (the first line of the body is used); link documents with `board_update`'s `docs` (repo-relative paths).
+
+**When no tools can be loaded** (no app on this machine, a client without MCP, the server will not start), the rest of this file is the fallback: the same changes by hand, in the same files, following sections 0a to 5.
+
+## 0a. How to take on a task that is more than a quick fix
 
 1. **Research** how similar problems are solved in the industry before designing; note the sources.
 2. **Write a plan** in `DevResources/plans/<title-slug>-<yyyy-MM-dd>.md`: why, what others do, decisions, the chunks below, how it will be verified. Link it from the work item with `x-rtm.plan: DevResources/plans/<file>.md`; the app opens it from the item page.
@@ -63,11 +110,33 @@ When work lands, update **every** open work item it touches: the one you worked 
 
 - **Linked tests**: `x-rtm.tests: [{suite: <test class short name>, test: "<test display name>"}]` on one line. Names must match the latest results file the app reads (`x-rtm.testResults` in `openspec/config.yaml`); rerun the tests so the file is fresh.
 - **Linked commits**: `x-rtm.commits: [<7-char hash>, …]` for commits that do not mention `#wi<id>` in their message (those are linked by themselves).
-- **Plan**: `x-rtm.plan: <path>` when there is one (section 0); keep its status line current.
+- **Plan**: `x-rtm.plan: <path>` when there is one (section 0a); keep its status line current.
 - **Attachments** on a note: `attachments: [<path or URL>, …]` in its frontmatter. Files go under `local/task-tracking/wi<item>/n<note>/`; that folder is gitignored (the app adds it), so put nothing there that others need. Links are plain `https://` URLs.
 - **Subtasks**: tick what you finished (`- [x]`), add what you found out is still needed (signed, see 1).
 - **Spec and tasks text** of those items, where you changed the behaviour they describe.
 - **Status** and **dates**: set `status` to where the work is; `x-rtm.started: yyyy-MM-dd` is the day work began (the app stamps it on the first move to In Progress), `x-rtm.due: yyyy-MM-dd` the due day, `x-rtm.moved: yyyy-MM-dd` the day it last moved to its status (the app stamps it on creation and on every status change; set it yourself only when you change `status` in the file).
+
+### Keep the worklog current by hand
+
+The `board_*` tools do this for you; when you edit files, you do it yourself. The worklog of an item is its notes plus `events.log` in the change folder (`openspec/changes/<folder>/events.log`, beside `.openspec.yaml`): one line per thing that happened, appended in time order.
+
+```
+yyyy-MM-ddTHH:mm:ss | <who> | <kind> | <text>
+2026-11-09T10:15:00 | Claude | status | Planned -> In Progress
+2026-11-09T10:40:00 | Claude | subtask-done | 1.1 Count requests per API key
+```
+
+- **Append, never rewrite**: add your lines at the end, keep every line that is there, and keep the order by time. `<who>` is your agent name (section 1), never the user's. Local time, to the second; one line each, no ` | ` in the text.
+- Log what you change, with these kinds and texts:
+  - `created`: the title (when you create the item).
+  - `status`: `Old -> New`, e.g. `Planned -> In Progress`.
+  - `commit-linked` / `commit-unlinked`: the commit hash, when you add or remove it in `x-rtm.commits`.
+  - `test-linked` / `test-unlinked`: `Suite / Test`, when you add or remove it in `x-rtm.tests`.
+  - `doc-linked` / `doc-unlinked`: the repo-relative path, when you add or remove it in `x-rtm.docs`.
+  - `subtask-done` / `subtask-reopened` / `subtask-added`: `<number> <text>`, e.g. `1.2 Refuse the 101st`.
+  - `dependency-added` / `dependency-removed`: `#wi<id>` of the item it waits for.
+- Linked documents are `x-rtm.docs: [<path>, …]` in the `x-rtm:` block: repo-relative paths, on one line.
+- What the log cannot say, a command you ran and what came back, a decision, a blocker, the result of a chunk of work, goes in a note (section 2), one short note per event, as you go.
 
 ## 3. Create a work item
 
@@ -81,7 +150,7 @@ A work item is one folder, `openspec/changes/<folder>/`, holding the files of th
 4. **Status**: `Backlog` or `Planned` for work not started; `In Progress` with `started: <today>` when you are doing it now. `label` is `bug`, `feature`, `enhancement`, or left out.
 5. **Specs or not**: when the work changes what the product does, write a delta spec (below). When it does not (a refactoring, a chore), write no `specs/` folder and put `skip_specs: true` on the line after `schema:`; without one of the two the item is invalid.
 6. **Links**: what the item points to is a key in its `x-rtm:` block, each on one line. Leave out what you do not have.
-   - `plan: DevResources/plans/<title-slug>-<yyyy-MM-dd>.md`: the plan you wrote for the item (section 0), as a path from the repository root. Write the file first; the item page opens it.
+   - `plan: DevResources/plans/<title-slug>-<yyyy-MM-dd>.md`: the plan you wrote for the item (section 0a), as a path from the repository root. Write the file first; the item page opens it.
    - `dependsOn: [<id>, …]`: the items this one waits for.
    - `tests: [{suite: <test class>, test: "<test display name>"}]`: the tests that prove the work, and `commits: [<7-char hash>, …]`: the commits that made it (section 2 has the rules for both).
    - `started: yyyy-MM-dd` and `due: yyyy-MM-dd`.
@@ -156,6 +225,7 @@ The API SHALL refuse a key's requests beyond 100 in one minute with status 429.
 - A wrong heading (section 3) or a MODIFIED block that lacks a scenario the main spec has since gained makes the item invalid. The app repairs both when the user completes the item, but until then every reader of the item sees it wrong: get it right when you write it.
 - Statuses: Backlog, Planned, Confirmed, In Progress, Blocked, In Review, Completed. `Completed` means archived: archive with the OpenSpec CLI (`openspec archive <change-name> --yes`), never set it by hand.
 - Keep `x-rtm` keys, comments and formatting you did not change. Lists stay on one line: `features: [a, b]`. A work item has one feature.
+- Quote a value that contains `:` or `#`, or that starts with a special character (`-`, `*`, `&`, `!`, `[`, `{`, `"`, `'`, `%`, `@`), or that is `yes`, `no`, `null` or a number: `title: "Fix: the thing"`. An unquoted one is not valid YAML; the app reads the common cases as text and quotes them on its next save, but the OpenSpec CLI does not.
 - Subtasks keep their `1.1`, `1.2`… numbers; add new ones at the end of their group.
 
 ## 5. Numbers

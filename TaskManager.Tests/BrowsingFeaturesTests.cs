@@ -173,4 +173,17 @@ public sealed class BrowsingFeaturesTests
         Assert.Contains("other features", message);
         Assert.True(File.Exists(repo.PathOf("openspec/specs/functional/banking/spec.md")));
     }
+
+    [Fact(DisplayName = "A config.yaml whose x-rtm lists are not valid YAML still opens, and adding a feature is refused rather than overwriting the list")]
+    public void UnreadableConfigListsDoNotCrash()
+    {
+        using TestRepo repo = new();
+        repo.Write("openspec/config.yaml", "schema: spec-driven\nx-rtm:\n  features:\n    - billing: [unclosed\n  testResults: [unclosed\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.NotEmpty(FeaturesApi.GetAll());   // the spec folders
+        Assert.False(FeaturesApi.CreateFeature("Group", "Payments").Success);
+        Assert.Contains("billing: [unclosed", repo.Read("openspec/config.yaml"));
+        Assert.Empty(LinkedTestRuns.LinkedTestRunsApi.Latest().Globs);
+    }
 }

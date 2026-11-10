@@ -125,6 +125,8 @@
     // Outside edits reload the note, but never while there is typing not yet on disk (that would wipe it).
     protected override void OnChanged() { if (!saving) base.OnChanged(); }
 
+    protected override object? LoadKey => Id;
+
     protected override void Load()
     {
         note = NotesApi.Get(Id);
@@ -177,6 +179,17 @@
         previewBody = body;
         links = NotesApi.ResolveLinks(previewBody);
         Save();
+        PromoteCheckboxes();
+    }
+
+    /// <summary>The editor was left: each unticked checkbox in the note becomes a subtask of its work item (the line stays, marked). Not on autosave: a half-typed line must not become one.</summary>
+    private void PromoteCheckboxes()
+    {
+        (bool ok, string message, IReadOnlyList<string> made) = NotesApi.PromoteSubtasks(Id);
+        if (!ok) Popups.Toast(message, ToastKind.Warning);
+        if (made.Count == 0) return;
+        Popups.Toast($"Created {made.Count} subtask{(made.Count == 1 ? "" : "s")} from the note", ToastKind.Info);
+        Run((true, ""));   // the pages (this one too) read the note and the item again
     }
 
     private void Edit() => editing = focusEditor = true;

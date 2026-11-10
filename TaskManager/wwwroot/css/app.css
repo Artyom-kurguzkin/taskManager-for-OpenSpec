@@ -13,7 +13,7 @@
      nav         the side menu (icon rail; header bar on narrow windows)
      board       columns, lanes, cards, select mode
      list        the list view: a Radzen DataGrid dressed in the app's clothes (Radzen's stylesheet is not loaded)
-     page        work item page (bento tiles), note page, settings
+     page        work item page (views of tiles), note page, settings
      overlays    menus, Radzen popups, dialogs, toasts, action bar, hint badges, drag states
    Media queries sit next to the rules they change. Radzen moves its popups under <body>, so their rules are global.
    ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
@@ -44,6 +44,7 @@
     --accent: var(--ink);
     /* pastel fills (always carry --on-fill text) */
     --peach: #f4a98a; --sun: #f3da6c; --sage: #d3e39c; --sky: #bcd5f1; --lilac: #d8cbf1; --stone: #e7e2dc; --mint: #a8dcd1;
+    --rose: #f2a3bb; --teal: #8fd5e0; --sand: #e3c9a0; --green: #94d6a0; --indigo: #a9aef0; --orchid: #e4a8dc;
     --on-fill: #24211f;
     --ok: #2f7d32;
     /* type */
@@ -58,11 +59,13 @@
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
     --paper: #161514; --card: #221f1d; --ink: #ece7e1; --ink-2: #a9a29b; --line: #5e5751; --line-soft: #3a3532; --shadow: #000000;
     --peach: #d89479; --sun: #d4bd5f; --sage: #b2c483; --sky: #9db7d4; --lilac: #b5a8d3; --stone: #aea69e; --mint: #89b8ae;
+    --rose: #d58fa5; --teal: #7ebbc5; --sand: #c8b18d; --green: #82bc8d; --indigo: #9599d3; --orchid: #c994c2;
     --on-fill: #1c1917; --ok: #9fd393;
     color-scheme: dark; } }
   :root[data-theme="dark"] {
     --paper: #161514; --card: #221f1d; --ink: #ece7e1; --ink-2: #a9a29b; --line: #5e5751; --line-soft: #3a3532; --shadow: #000000;
     --peach: #d89479; --sun: #d4bd5f; --sage: #b2c483; --sky: #9db7d4; --lilac: #b5a8d3; --stone: #aea69e; --mint: #89b8ae;
+    --rose: #d58fa5; --teal: #7ebbc5; --sand: #c8b18d; --green: #82bc8d; --indigo: #9599d3; --orchid: #c994c2;
     --on-fill: #1c1917; --ok: #9fd393;
     color-scheme: dark; }
 }
@@ -349,7 +352,7 @@
 /* ───────────────────────────────────────────── list ───────────────────────────────────────────── */
 @layer list {
   /* The list is a Radzen DataGrid laid out like the lists in Asana, Linear and ClickUp: no frame, 40px one-line rows on the
-     page, a quiet sticky header whose controls appear on hover, a grip that appears on hover, compact group headers and a
+     page, a quiet sticky header whose controls appear on hover, rows that drag from anywhere, compact group headers and a
      faint "+ Add item" row under each group. These rules dress Radzen's markup (rz-* classes) in the app's tokens. */
   /* icons: Radzen marks them by class; the Material Symbols font draws them from ligature names */
   .rzi, .rz-sortable-column-icon, .rz-row-toggler { font-family: "Material Symbols"; font-style: normal; font-size: 18px; line-height: 1;
@@ -378,10 +381,16 @@
   .tbl-wrap .rz-col-icon { width: 24px; padding: 0; }   /* Radzen's first column: holds a group's chevron, empty on item rows */
   /* header: sentence-case labels, muted until hovered; the sort mark only on the sorted column (faint on hover), the funnel
      and the hide × only on hover or while a filter is on */
-  .tbl-wrap thead th { position: sticky; top: 0; z-index: 2; height: 36px; font: 600 12px var(--f-body); color: var(--ink-2); background: var(--paper); border-bottom: 1px solid var(--line); white-space: nowrap; }
+  /* the path strip above the titles, sticky too: app.js writes into it the column / row value the rows under the header belong to,
+     in the look of their group headers (the status pill's colour, the row value's name); it keeps its height when empty, so the
+     rows never jump as it fills */
+  .tbl-wrap .hdr-path { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; overflow: hidden; white-space: nowrap; background: var(--paper); font-size: 13.5px; pointer-events: none; }
+  .tbl-wrap .hdr-path b { font-weight: 600; }
+  .tbl-wrap .hdr-path .gname[style] { display: inline-block; padding: 1px 10px; border-radius: 6px; background: var(--fill); color: var(--on-fill); }
+  .tbl-wrap .hdr-path .sep { color: var(--ink-2); }
+  .tbl-wrap thead th { position: sticky; top: 28px; z-index: 2; height: 36px; font: 600 12px var(--f-body); color: var(--ink-2); background: var(--paper); border-bottom: 1px solid var(--line); white-space: nowrap; }
   .tbl-wrap thead th:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, var(--paper)); }
-  .tbl-wrap thead th > div { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; height: 36px; }
-  .tbl-wrap .rz-column-title { display: inline-flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
+  .tbl-wrap thead th > div { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; height: 36px; }  .tbl-wrap .rz-column-title { display: inline-flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
   .tbl-wrap .rz-column-title-content { display: inline-flex; align-items: center; min-width: 0; }
   .tbl-wrap .rz-sortable-column { cursor: default; }
   .tbl-wrap .rz-sortable-column-icon { font-size: 16px; opacity: 0; }
@@ -390,6 +399,7 @@
   .tbl-wrap .rz-grid-filter-icon { padding: 0; border: 0; background: none; color: var(--ink-2); cursor: pointer; font-size: 15px; opacity: 0; }
   .tbl-wrap thead th:hover .rz-grid-filter-icon, .tbl-wrap .rz-grid-filter-icon.rz-grid-filter-active, .tbl-wrap .rz-grid-filter-icon:focus-visible { opacity: 1; }
   .tbl-wrap .rz-grid-filter-icon:hover, .tbl-wrap .rz-grid-filter-icon.rz-grid-filter-active { color: var(--ink); }
+  .tbl-wrap .th-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* a long label in a narrow column shortens, so the × after it stays inside the title box (Radzen clips what overflows it) and takes clicks */
   .tbl-wrap .th-hide { flex: none; width: 0; height: 18px; padding: 0; border: 0; border-radius: 5px; overflow: hidden; background: none; color: var(--ink-2); font: 700 14px/1 var(--f-body); cursor: pointer; opacity: 0; }
   .tbl-wrap thead th:hover .th-hide, .tbl-wrap .th-hide:focus-visible { width: 18px; margin-left: 2px; opacity: 1; }
   .tbl-wrap .th-hide:hover { background: var(--stone); color: var(--on-fill); }
@@ -417,15 +427,15 @@
   .tbl-wrap tr[data-hidden] .row-title::after { content: " (hidden)"; font-weight: 400; color: var(--ink-2); }
   body.shift-held .tbl-wrap tr[data-id] td { cursor: cell; }
   body.shift-held .tbl-wrap tr[data-id]:hover td { background: color-mix(in srgb, var(--sun) 30%, transparent); }
-  /* left gutter: the drag grip appears on hover; selection is Shift-click, shown by the row's tint */
-  .tbl-wrap td.rowctl { padding-inline: 4px 0; }
-  .tbl-wrap td.rowctl .rz-cell-data { display: inline-flex; align-items: center; overflow: visible; }
-  .tbl-wrap .grip { display: inline-grid; place-items: center; width: 14px; height: 24px; color: var(--ink-2); opacity: 0; }
-  .tbl-wrap .grip svg { width: 14px; height: 14px; }
-  .tbl-wrap tr[data-id]:hover .grip { opacity: 1; }
-  /* title: a fixed chevron slot keeps every title aligned; the title is one line, cut with an ellipsis (the tooltip has it whole) */
-  .tbl-wrap .tcell { display: flex; align-items: center; gap: 2px; min-width: 0; }
-  .tbl-wrap .chev-slot { flex: none; width: 20px; display: inline-flex; align-items: center; }
+  /* a row is dragged by pressing and holding anywhere on it (app.js); selection is Shift-click, shown by the row's tint. While held
+     the row is lifted: its cells go opaque with a ring round the row, and the cursor is a grabbing hand */
+  .tbl-wrap tr.lifted td { box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+  .tbl-wrap tbody tr.lifted > td:first-child { box-shadow: inset 4px 0 0 var(--band, transparent), inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+  /* title: the header and the cells share one left padding, wide enough for the chevron of a row with subtasks to hang in, so every
+     title starts exactly under the "Title" header; the title is one line, cut with an ellipsis (the tooltip has it whole) */
+  .tbl-wrap th.title, .tbl-wrap td.title { padding-left: 24px; }
+  .tbl-wrap .tcell { position: relative; display: flex; align-items: center; min-width: 0; }
+  .tbl-wrap .tcell .chev { position: absolute; left: -22px; top: 50%; margin-top: -9px; }
   .chev { display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; background: none; color: var(--ink-2); cursor: pointer; transition: transform .12s; }
   .chev:hover { color: var(--ink); }
   .chev.open { transform: rotate(90deg); }
@@ -437,7 +447,7 @@
   /* every cell clips its content to its own column (the table is fixed-layout, so a resized column stays the width it was set to):
      the cell hides what overflows, plain text gets an ellipsis (its tooltip has the whole), pills and chips shrink to fit */
   .tbl-wrap tr[data-id] td { overflow: hidden; }
-  .tbl-wrap tr[data-id] td:not(.rowctl):not(.title) .rz-cell-data { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tbl-wrap tr[data-id] td:not(.title) .rz-cell-data { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tbl-wrap .clip { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tbl-wrap td .dd.cell { max-width: 100%; min-width: 0; }
   .tbl-wrap td .dd.cell .rz-dropdown-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -468,7 +478,7 @@
      ponytail: the indent assumes the gutter, ID and title columns in their default order and widths */
   .tbl-wrap .rz-expanded-row-content > td { height: auto; padding: 0; }
   .tbl-wrap .subtasks { display: flex; flex-direction: column; }
-  .tbl-wrap .subrow { display: flex; align-items: center; gap: 8px; height: 32px; padding-left: 156px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+  .tbl-wrap .subrow { display: flex; align-items: center; gap: 8px; height: 32px; padding-left: 116px; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
   .tbl-wrap .subrow:last-child { border-bottom: 0; }
   .tbl-wrap .subrow:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
   .tbl-wrap .subrow .num { width: 26px; font-size: 12px; }
@@ -478,43 +488,48 @@
 
 /* ───────────────────────────────────────────── page ───────────────────────────────────────────── */
 @layer page {
-  /* bento (work item page, and the note page's three panels): tiles of equal rank, each with a coloured heading pill.
-     On the item page the focused tile fills the wide left column and the compact ones stack beside it. */
-  .bento { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-auto-flow: row dense; gap: var(--s4); align-items: stretch; }
+  /* tiles (work item page views, and the note page's three panels): panels of equal rank, each with a coloured heading pill. */
   .tile { --tile: var(--stone); display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px 16px 16px;
     border: 2px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); }
   .tile[data-tile="description"], .tile[data-tile="note"] { --tile: var(--sun); }
   .tile[data-tile="subtasks"] { --tile: var(--sage); }
+  .tile[data-tile="waiting"] { --tile: var(--sky); }
   .tile[data-tile="blocks"] { --tile: var(--peach); }
-  .tile[data-tile="commits"] { --tile: var(--sky); }
-  .tile[data-tile="tests"] { --tile: var(--mint); }
+  .tile[data-tile="related"] { --tile: var(--mint); }
   .tile[data-tile="log"], .tile[data-tile="links"] { --tile: var(--lilac); }
-  .tile.focus { grid-column: 1; grid-row: 1 / span var(--rows, 4); box-shadow: 4px 4px 0 var(--shadow); }   /* --rows: the number of compact tiles */
-  .bento .tile:not(.focus) { grid-column: 2; cursor: pointer; overflow: hidden; transition: box-shadow .12s, translate .12s; }
-  .bento .tile:not(.focus):hover { box-shadow: 3px 3px 0 var(--shadow); translate: -1px -1px; }
-  .bento:not(:has(.tile.focus)) .tile { grid-column: auto; }   /* all minimised (opened narrow, then widened): tiles flow in both columns */
-  .tile-h { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0; border: 0; background: none; color: inherit; text-align: left; cursor: inherit; }
+  .tile-h { display: flex; align-items: center; gap: 8px; width: 100%; }
   .tile-h h3 { font-size: var(--t-lg); padding: 2px 10px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--tile); color: var(--on-fill); }
-  .tile.focus .tile-h h3 { font-size: 1.35rem; }
   .tile-h .count { font-size: var(--t-sm); }
-  .tile-h .open { margin-left: auto; color: var(--ink-2); display: inline-flex; }
-  .tile:not(.focus):hover .tile-h .open { color: var(--ink); }
-  .tile-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
-  /* compact previews: one line per entry */
-  .peek { display: flex; gap: 8px; align-items: baseline; min-width: 0; font-size: 14px; padding: 5px 0; border-top: 1.5px solid var(--line-soft); }
-  .peek:first-of-type { border-top: 0; }
-  .peek .mono { flex: none; color: var(--ink-2); font-size: 12px; }
-  .peek .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .peek.done .t { text-decoration: line-through; color: var(--ink-2); }
-  .peek .dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--stone); align-self: center; }
-  .peek.test-passed .dot { background: var(--sage); }
-  .peek.test-failed .dot { background: var(--peach); }
-  .peek-desc { font-size: 14px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
-  .peek-desc h1, .peek-desc h2, .peek-desc h3 { font-size: 14px; margin: 0; color: var(--ink); }
-  .peek-desc p, .peek-desc ul { margin: 0 0 .3em; }
+  /* work item page: Description / Worklog / Linked tasks under the header, then the view */
+  .item-views .seg-o { padding: 4px 18px; font-size: var(--t-md); }
+  .view-grid { display: grid; gap: var(--s4); align-items: start; }
+  .view-desc { grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr); }
+  .view-linked { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); }   /* the subtasks have the long lines */
+  /* the views have no frames (the user's wireframe): what they hold sits straight on the page, with a soft line between rows */
+  .view-grid { gap: var(--s4) var(--s5); }
+  .view-grid .tile { padding: 0; border: 0; border-radius: 0; background: transparent; }
+  .view-grid .tile-h h3 { padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--ink-2); font-size: var(--t-sm); text-transform: uppercase; letter-spacing: .04em; }
+  .view-grid .sub { --stroke: transparent; --fill: transparent; margin-bottom: 0; padding: 7px 4px; border-width: 0 0 1.5px; border-bottom-color: var(--line-soft); border-radius: 0; box-shadow: none; }
+  .view-grid .sub-group { --stroke: transparent; margin: 12px 0 2px; padding: 4px; border: 0; border-radius: 0; background: transparent; }
+  .view-grid .sub-group:hover, .view-grid .sub-group:focus-visible { box-shadow: none; transform: none; text-decoration: underline; text-underline-offset: 3px; }
+  .view-grid .tile:has(> textarea.desc-in):focus-within { box-shadow: none; }
+  .view-grid textarea.desc-in { padding: var(--s2); border-left: 2px solid var(--accent); }   /* editing shows as a line beside the text, not a box */
+  /* the related list: one row per document, plan, link or image, its kind first */
+  .rel-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+  .rel { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 6px 0; border-top: 1.5px solid var(--line-soft); }
+  .rel:first-child { border-top: 0; }
+  .rel .k { flex: none; min-width: 3.4rem; color: var(--ink-2); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .04em; }
+  .rel-open { min-width: 0; padding: 0; border: 0; background: none; font: inherit; font-weight: 500; color: var(--ink); text-align: left; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; cursor: pointer; }
+  .rel-open:hover { color: var(--ink-2); }
+  .rel-x { margin-left: auto; padding: 0 6px; font-size: 16px; color: var(--ink-2); cursor: pointer; }   /* unlink the plan or a linked document (the file stays) */
+  .rel-x:hover { color: var(--ink); }
+  .related .menu-wrap { margin-top: 6px; }
   /* description: rendered markdown, click to edit */
-  .desc { padding: var(--s2); min-height: 4em; }
-  .desc img, .peek-desc img { display: block; max-width: 100%; height: auto; margin: .4em 0; border-radius: 6px; }   /* a pasted screenshot scales to the tile */
+  .desc { padding: var(--s2); min-height: 4em; min-width: 0; overflow-wrap: anywhere; }   /* a long word or address breaks instead of widening the page */
+  .desc table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: .4em 0 .8em; font-size: var(--t-sm); overflow-wrap: normal; }   /* a wide table scrolls on its own */
+  .desc th, .desc td { padding: 5px 10px; border-bottom: 1.5px solid var(--line-soft); text-align: left; vertical-align: top; }
+  .desc th { color: var(--ink-2); font-weight: 600; border-bottom-color: var(--line); white-space: nowrap; }
+  .desc img { display: block; max-width: 100%; height: auto; margin: .4em 0; border-radius: 6px; }   /* a pasted screenshot scales to the tile */
   .desc h1, .desc h2, .desc h3 { font-size: 1rem; margin: .4em 0 .2em; }
   .desc p, .desc ul { margin: .2em 0 .6em; }
   .edit { cursor: pointer; border-radius: 8px; }
@@ -526,41 +541,23 @@
   .sub input { accent-color: var(--accent); margin-top: 3px; }
   .sub .mono { color: var(--ink-2); font-size: var(--t-xs); margin-top: 2px; }
   .sub.done span { text-decoration: line-through; color: var(--ink-2); }
-  .sub .s-t { cursor: text; flex: 1; }
+  .sub .s-t { cursor: text; flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .sub input.sub-edit { flex: 1; min-width: 0; margin: -2px 0; padding: 1px 4px; font: inherit; color: var(--ink); background: var(--card); border: 0; border-bottom: 2px solid var(--accent); border-radius: 4px; outline: none; }   /* edited in place */
-  .sub.dep { align-items: center; }
-  .sub.dep .dep-k, .sub.dep .dep-s { font-size: var(--t-xs); color: var(--ink-2); white-space: nowrap; }
-  .sub.dep .dep-k { text-transform: uppercase; letter-spacing: .04em; }
-  .sub.dep.done .dep-k, .sub.dep.done .dep-s { text-decoration: none; }
+  .sub.dep { align-items: center; flex-wrap: wrap; }
+  .sub.dep .s-t { cursor: pointer; flex: 1 1 9rem; }
+  .sub.dep .dep-s { font-size: var(--t-xs); color: var(--ink-2); white-space: nowrap; }
+  .sub.dep.done .dep-s { text-decoration: none; }
   .sub.dep.blocking-me { background: var(--peach); color: var(--on-fill); }
-  .sub.dep.blocking-me .dep-k, .sub.dep.blocking-me .dep-s { color: var(--on-fill); }
+  .sub.dep.blocking-me .dep-s { color: var(--on-fill); }
   .sub.dep .ic { color: inherit; }
-  /* linked commits and tests */
-  .linked-commits, .linked-tests { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); margin-top: calc(-1 * var(--s2)); }
-  .linked-commits > *, .linked-tests > * { align-self: stretch; }
-  .linked-commits > .menu-wrap, .linked-tests > .menu-wrap { align-self: flex-start; }
-  .linked-commits p, .linked-tests p { margin: 0; }
-  .commit { display: flex; gap: 8px; align-items: baseline; padding: 6px 12px; margin-left: -12px; font-size: var(--t-sm); }
-  .commit .ic, .linked-tests .ic { margin-left: auto; }
-  .suite-h { margin-top: 6px; }
-  .test { display: flex; align-items: center; gap: 8px; padding: 2px 0; text-align: left; }
-  .test > :first-child { flex: 1; min-width: 0; }
-  .test.failed > :first-child { color: var(--peach); font-weight: 700; }
-  .test.passed .muted { color: var(--ok); }
-  .test .muted, .test .add { white-space: nowrap; }
-  /* change log */
-  .change-log { display: flex; flex-direction: column; gap: var(--s2); }
-  .log-e { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 6px 12px; margin-left: -12px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
-  .log-e .muted { font-size: 15px; }
+  .tile p.muted { margin: 0; }
   @media (max-width: 860px) {
-    .bento { grid-template-columns: minmax(0, 1fr); }
-    .bento .tile.focus, .bento .tile:not(.focus) { grid-column: auto; grid-row: auto; }
-    .bento .tile.focus { order: -1; }
+    .view-desc, .view-linked { grid-template-columns: minmax(0, 1fr); }
   }
   @media (max-width: 760px) {
-    .bento { gap: var(--s3); }
+    .view-grid { gap: var(--s3); }
     .tile { padding: 10px 12px 12px; gap: 8px; border-radius: 12px; }
-    .tile-h h3, .tile.focus .tile-h h3 { font-size: var(--t-md); padding: 1px 8px; }
+    .tile-h h3 { font-size: var(--t-md); padding: 1px 8px; }
   }
   /* note page: the note (like a description), links and attachments side by side */
   .note-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(220px, .7fr); gap: var(--s4); align-items: start; }
@@ -724,10 +721,6 @@
   @media (max-width: 860px) { .rm-grid { --lw: 220px; } }
 
   .date-in { padding: 2px 8px; font: 500 13px var(--f-body); color: var(--ink); background: var(--card); }
-  .plan-field { gap: 6px; }
-  .plan-link { text-decoration: none; }
-  .plan-x { padding: 0 6px; font-size: 16px; color: var(--ink-2); cursor: pointer; }
-  .plan-x:hover { color: var(--ink); }
   /* the range picker: a month of day buttons; the start and end are filled, the days between tinted */
   .range-pop { padding: 8px; min-width: 260px; }
   .range-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
@@ -773,16 +766,82 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
 
 @layer page {
   /* merged items: a task group / a merged source's notes as a collapsible header with its count */
-  .sub-group, .log-group { display: flex; align-items: center; gap: 8px; margin: 14px 0 8px; padding: 6px 12px; cursor: pointer; font-weight: 700; color: var(--ink); background: var(--card); border: 2px solid var(--line); border-radius: 8px; }
-  .sub-group:first-child, .log-section:first-child .log-group { margin-top: 0; }
-  .sub-group:hover, .log-group:hover, .sub-group:focus-visible, .log-group:focus-visible { box-shadow: 3px 3px 0 var(--shadow); transform: translate(-1px, -1px); outline: none; }
-  .sub-group .chev, .log-group .chev { width: 1em; color: var(--ink-2); }
-  .sub-group .g-name, .log-group .g-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  .sub-group .g-prog, .log-group .g-prog { margin-left: auto; font-size: var(--t-xs); font-weight: 400; color: var(--ink-2); white-space: nowrap; }
-  .log-section { display: flex; flex-direction: column; gap: var(--s2); }
+  .sub-group { display: flex; align-items: center; gap: 8px; margin: 14px 0 8px; padding: 6px 12px; cursor: pointer; font-weight: 700; color: var(--ink); background: var(--card); border: 2px solid var(--line); border-radius: 8px; }
+  .sub-group:first-child { margin-top: 0; }
+  .sub-group:hover, .sub-group:focus-visible { box-shadow: 3px 3px 0 var(--shadow); transform: translate(-1px, -1px); outline: none; }
+  .sub-group .chev { width: 1em; color: var(--ink-2); }
+  .sub-group .g-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .sub-group .g-prog { margin-left: auto; font-size: var(--t-xs); font-weight: 400; color: var(--ink-2); white-space: nowrap; }
 }
 /* the split button is a menu (WorkItemPage); in a narrow window the list is not shown, so only "Item only" and "Separate window" remain */
 @media (max-width: 1399px) {
   .split-btn { display: inline-grid; }
   .menu-item.wide-only { display: none; }
+}
+
+/* ── Worklog feed ── */
+/* The worklog view of a work item (Worklog.razor): days newest first, each a header that folds it and a rail of entries.
+   Notes and events are plain entries with a small coloured marker on the rail and a soft line between them; the time sits in a column on the right. */
+@layer page {
+  .worklog { display: flex; flex-direction: column; gap: var(--s5); max-width: 64rem; }
+  .wk-day { display: flex; flex-direction: column; gap: var(--s2); }
+  .wk-day-menu { display: block; }
+  .wk-day-menu > .menu-activator { display: inline-block; }
+  .wk-menu, .wk-menu > .menu-activator { display: block; }
+  .wk-date { display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px 3px 4px; border-radius: 10px; font-weight: 700; user-select: none; }   /* plain at rest, outlined on hover: .hov */
+  .wk-date .chev { display: inline-grid; place-items: center; width: 1.1em; color: var(--ink-2); }
+  .wk-date:hover .chev, .wk-date:focus-visible .chev { color: inherit; }
+  .wk-day.today .wk-date-t { padding: 0 8px; border-radius: 6px; background: var(--sun); color: var(--on-fill); }
+  .wk-earlier-h { padding: 2px 4px; font-size: var(--t-md); color: var(--ink-2); }
+  .wk-list { display: flex; flex-direction: column; gap: 2px; margin-left: 11px; padding-left: 22px; border-left: 2px solid var(--line-soft); }
+  .wk-empty { margin: 0; padding: 4px 8px; }
+  /* every entry has the same 2px edge (transparent unless it is a card or hovered, see .hov) so times and markers line up */
+  .wk-e { --stroke: transparent; --fill: transparent; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 16px; padding: 5px 12px; border: 2px solid var(--stroke); border-radius: 10px; background: var(--fill); }
+  .wk-e.hov:hover, .wk-e.hov:focus-visible { --stroke: var(--line); --fill: var(--stone); color: var(--on-fill); outline: none; }   /* an entry with a menu: outlined when pointed at */
+  .wk-e:focus-visible { outline-offset: 2px; }
+  .wk-mark { position: absolute; left: -29px; top: 11px; width: 12px; height: 12px; border-radius: 50%; background: var(--stone); border: 2px solid var(--paper); box-shadow: 0 0 0 1.5px var(--line-soft); }
+  .wk-e[data-kind="note"] .wk-mark { top: 14px; background: var(--sun); box-shadow: 0 0 0 1.5px var(--line); }
+  .wk-e[data-kind^="status"] .wk-mark { background: var(--sky); }
+  .wk-e[data-kind^="commit"] .wk-mark, .wk-e[data-kind="mention"] .wk-mark { background: var(--lilac); }
+  .wk-e[data-kind^="test"] .wk-mark { background: var(--mint); }
+  .wk-e[data-kind^="doc"] .wk-mark { background: var(--sage); }
+  .wk-e[data-kind^="subtask"] .wk-mark, .wk-e[data-kind^="dependency"] .wk-mark { background: var(--peach); }
+  .wk-e[data-kind="created"] .wk-mark { background: var(--sun); }
+  .wk-main { min-width: 0; }
+  .wk-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; overflow-wrap: anywhere; }
+  .wk-title { font-weight: 700; }
+  .wk-from { font-size: var(--t-xs); }
+  .wk-meta { display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; white-space: nowrap; }
+  .wk-by { font-size: var(--t-xs); }
+  .wk-time { min-width: 3.2em; text-align: right; font-size: var(--t-xs); color: var(--ink-2); }
+  .wk-note { --stroke: transparent; --fill: transparent; padding: 8px 12px; }   /* a note is not a card: it sits on the page like the events */
+  .wk-list > * + * { margin-top: 2px; padding-top: 2px; border-top: 1.5px solid var(--line-soft); }   /* a line between entries, as on the wireframe (an entry with a menu sits in a wrapper, so the line is on the list's children) */
+  .wk-note .wk-body { padding: 4px 0 0; min-height: 0; }
+  .wk-note .wk-body > :last-child { margin-bottom: 0; }
+  .wk-atts { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--s2); margin-top: 6px; }
+  .wk-atts .att-img { max-height: 160px; }
+  .wk-file { padding: 0; border: 0; background: none; color: var(--ink); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; overflow-wrap: anywhere; }
+  .wk-file:hover { color: var(--ink-2); }
+  .wk-dot { display: inline-block; flex: none; width: 10px; height: 10px; margin-left: 4px; border: 1.5px solid var(--line); border-radius: 50%; background: transparent; }
+  .wk-dot.passed { background: var(--ok); }
+  .wk-dot.failed { background: var(--peach); }
+  .wk-dot.skipped { background: var(--sun); }
+  /* the note being edited in place: its title and text, in the card the note had */
+  .wk-edit { box-shadow: none; }
+  .wk-edit .wk-main { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; }
+  .wk-title-in { width: 100%; padding: 2px 4px; border: 0; border-bottom: 2px solid var(--line-soft); border-radius: 0; background: transparent; color: var(--ink); font: 700 var(--t-md) var(--f-body); outline: none; }
+  .wk-title-in:focus { border-bottom-color: var(--accent); }
+  .wk-edit textarea.desc-in { width: 100%; min-height: 8rem; padding: 6px 4px; resize: vertical; }
+  .wk-pick { padding: 4px 0 4px 8px; }
+  .wk-add-subtask { padding: 4px 0 4px 8px; }
+  .wk-add-subtask input { width: 100%; padding: 6px 8px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--panel, transparent); color: var(--ink); font: var(--t-sm) var(--f-body); outline: none; }
+  .wk-add-subtask input:focus { border-color: var(--accent); }
+  @media (max-width: 640px) {
+    .wk-e { grid-template-columns: minmax(0, 1fr); }
+    .wk-meta { justify-content: flex-start; }
+  }
+}
+@layer overlays {
+  .menu-item:disabled { opacity: .5; cursor: not-allowed; }
+  .menu-item:disabled:hover { background: none; }
 }

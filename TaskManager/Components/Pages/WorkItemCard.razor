@@ -7,7 +7,7 @@
 <article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @(Item.Hidden ? "hidden-item" : "")" data-sk data-id="@Item.Id"
          @ondragstart="() => OnDragStart.InvokeAsync(Item)" @onclick="OnClick"
          @ondrop="() => OnDrop.InvokeAsync(Item)" @ondrop:stopPropagation="true">
-    <span class="band" style="--band:var(@BoardModel.ColourOf(Item, Options.ColorBy))">@Item.Title</span>
+    <span class="band" style="--band:var(@BoardModel.ColourOf(Item, Options.ColorBy, null, Colours))">@Item.Title</span>
     @if (!Options.Compact)
     {
         @* features as chips (the column already is the feature when grouped by feature, so the status goes there) *@
@@ -45,6 +45,8 @@
     [Parameter] public EventCallback<WorkItem> OnReview { get; set; } // the agent chip was clicked
     /// <summary>Feature path → name of the card's own project; the active project's names when not given.</summary>
     [Parameter] public IReadOnlyDictionary<string, string>? Names { get; set; }
+    /// <summary>The colour of each feature or contributor in the card's own project (<see cref="BoardModel.ColourMap"/>); a value missing from it gets a stable pick.</summary>
+    [Parameter] public IReadOnlyDictionary<string, string>? Colours { get; set; }
 
     private IEnumerable<string> FeatureNames => Item.Features.Select(f => (Names ?? Workspace.FeatureNames).GetValueOrDefault(f.Path, f.Path));
 }

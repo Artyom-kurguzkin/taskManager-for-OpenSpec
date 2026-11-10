@@ -13,10 +13,14 @@ else
 <SideNav />
 @if (OpenItemId is int open && Settings.Current.Split)
 {
-    @* An open work item sits beside the list (the CSS hides the list again in a narrow window). The list is the same tree position
-       from one item to the next, so it keeps its scroll, filters and grouping while the right pane changes. *@
+    @* An open work item sits beside the list. The list is the same tree position from one item to the next, so it keeps its scroll,
+       filters and grouping while the right pane changes. In a narrow window the CSS hides it, so it is not rendered at all: a hidden
+       list would still be built (and rebuilt on every change) for nothing. *@
     <main class="split">
-        <div class="split-list"><BoardPage Embedded="true" Current="open" /></div>
+        @if (!narrowWindow)
+        {
+            <div class="split-list"><BoardPage Embedded="true" Current="open" /></div>
+        }
         <div class="split-item">@Body</div>
     </main>
 }
@@ -67,8 +71,15 @@ else
         if (Workspace.TakeGuideNotice() is string notice) Popups.Toast(notice, ToastKind.Info);   // an agent guide written while the app started
         self = DotNetObjectReference.Create(this);
         systemDark = await Js.InvokeAsync<bool>("rtm.watchDark", self);   // current OS setting + notify on change
+        bool narrow = await Js.InvokeAsync<bool>("rtm.watchNarrow", self);
+        if (narrow != narrowWindow) { narrowWindow = narrow; StateHasChanged(); }
         await ApplyTheme();
     }
+
+    private bool narrowWindow;   // too narrow for the split screen: the list beside an open item is hidden, so not rendered
+
+    [JSInvokable]
+    public Task NarrowChanged(bool narrow) => InvokeAsync(() => { narrowWindow = narrow; StateHasChanged(); });
 
     [JSInvokable]
     public Task SystemDarkChanged(bool isDark)
