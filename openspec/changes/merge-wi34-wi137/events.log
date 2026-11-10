@@ -1,0 +1,61 @@
+2026-11-10T10:49:14 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-10T11:07:46 | Artyom-kurguzkin | status | Planned -> In Review
+2026-11-10T11:08:01 | Artyom-kurguzkin | created | work item details rework
+2026-11-10T15:10:10 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-10T15:38:41 | Claude | test-linked | ArrangingTheBoardTests / An item counts as changed in a period when an event, a note, its creation or a file write falls in it
+2026-11-10T15:38:41 | Claude | test-linked | ArrangingTheBoardTests / With a changed period set, items outside it are neutral on board, list and roadmap and items inside keep their colour; without it nothing changes
+2026-11-10T15:38:41 | Claude | test-linked | UsingTheBoardTests / The side menu's changed picker sets the period, the legend names it, and × clears it; the choice is remembered per board
+2026-11-10T16:01:10 | Claude | status | In Progress -> In Review
+2026-11-10T16:01:10 | Claude | test-unlinked | UsingThePagesTests / In a narrow window the three linked-tasks columns stack and nothing is minimised
+2026-11-10T16:01:10 | Claude | test-unlinked | UsingThePagesTests / The description view lists what is attached to the item beside the description: the plan, documents and attachments of its notes, and images, each once
+2026-11-10T16:01:10 | Claude | test-unlinked | UsingThePagesTests / The item page opens on the description, with Description, Worklog and Linked tasks to switch between, the current one marked
+2026-11-10T16:01:10 | Claude | test-unlinked | UsingThePagesTests / The linked tasks view shows subtasks, what the item waits on and what waits on it in three columns
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / In a narrow window the four linked-tasks columns stack and nothing is minimised
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The linked tasks view lists what is attached to the item in a Related column: the plan, documents and attachments of its notes, and images, each once
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The item page opens on the worklog, with Worklog and Linked tasks to switch between, the current one marked, and the description is the worklog's first entry
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The linked tasks view shows subtasks, what the item waits on, what waits on it and what is related to it in four columns
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The description is the first entry of the worklog, above today, and Shift-click Edit changes it in place
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The description shows formatted text in the worklog until you Shift-click it and choose Edit
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The note editor fills its tile and the worklog's description editor sits in the feed, both with no border of their own while editing
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / Pasting an image into the worklog's description editor inserts a link to the saved file at the caret, and the description entry renders the image
+2026-11-10T16:01:10 | Claude | test-linked | UsingTheWorklogTests / The worklog filters hide notes, events, links or subtask events, and who narrows the feed to one person
+2026-11-10T16:01:10 | Claude | test-linked | UsingTheBoardTests / While a worklog is open the side menu shows a Worklog block with its filters and actions first, and the block goes when the worklog closes
+2026-11-10T16:01:10 | Claude | test-linked | UsingTheBoardTests / In split view the Worklog block comes before the list's organise, sort and display blocks
+2026-11-10T16:01:36 | Claude | test-unlinked | UsingThePagesTests / The description is the first entry of the worklog, above today, and Shift-click Edit changes it in place
+2026-11-10T16:01:36 | Claude | test-linked | UsingTheWorklogTests / The description is the first entry of the worklog, above today, and Shift-click Edit changes it in place
+2026-11-10T17:24:51 | Claude | test-unlinked | UsingThePagesTests / The item page opens on the worklog, with Worklog and Linked tasks to switch between, the current one marked, and the description is the worklog's first entry
+2026-11-10T17:24:51 | Claude | test-unlinked | UsingTheWorklogTests / The description is the first entry of the worklog, above today, and Shift-click Edit changes it in place
+2026-11-10T17:24:51 | Claude | test-linked | UsingThePagesTests / The item page opens on the worklog, with Worklog and Linked tasks to switch between, the current one marked, and the description is the worklog's last entry
+2026-11-10T17:24:51 | Claude | test-linked | UsingTheWorklogTests / The description is the last entry of the worklog, at the bottom as the item's first post, has no hover effect, and Shift-click Edit changes it in place
+2026-11-10T17:24:51 | Claude | test-linked | UsingTheBoardTests / The Worklog block lists the feed's days newest first with their entry counts, and clicking a day jumps the feed to it
+2026-11-10T17:24:51 | Claude | test-linked | UsingTheWorklogTests / The worklog publishes its days to the side menu and updates them when the filters change
+2026-11-10T17:24:51 | Claude | test-linked | UsingTheWorklogTests / An Unlink menu stays on the entry it was opened on when the feed changes under it: a new entry above does not move the menu to another test, and Unlink removes the test that was clicked
+2026-11-10T17:24:51 | Claude | subtask-added | 6.5 6.5 The description is the worklog's last entry (the item's first post) with no hover effect; Shift-click → Edit stays
+2026-11-10T17:24:51 | Claude | subtask-added | 6.6 6.6 Shift-click Unlink on a test: the menu is keyed to its row, so a feed change under an open menu no longer unlinks another test; Linked earlier rows de-duplicated
+2026-11-10T17:24:51 | Claude | subtask-added | 6.7 6.7 Days list in the WORKLOG block (newest first, entry counts, Linked earlier); a click unfolds the day and scrolls it into view
+2026-11-10T18:49:00 | Claude | plan-unlinked | DevResources/plans/in-progress-items-2026-11-10.md
+2026-11-10T18:49:00 | Claude | plan-linked | DevResources/plans/in-progress-items-2-2026-11-10.md
+2026-11-10T19:24:27 | Claude | test-linked | UsingTheBoardTests / A changed period that covers nearly every item still shows the picker working: the legend counts how many of the shown items changed in it
+2026-11-10T19:24:27 | Claude | test-linked | SwitchingProjectsTests / Opening the list with two projects open still groups by project when the saved list settings were made with one project, so the page stays alive and the side menu's pickers keep working
+2026-11-10T19:55:15 | Claude chunk A | log | chunk A started: hide items outside changed period, Show all in picker, remove agent filter.
+2026-11-10T20:05:42 | Claude chunk A | log | chunk A: code and tests done, suite Passed! 544 (baseline 543: -1 AgentOnly test, +NoAgentFilter, +DateRangeClearLabel). Next: real-app check on hidden desktop.
+2026-11-10T20:07:16 | Claude | log | Chunk A applied to the main tree (12 files, all clean); its run: 544 passed. Main-tree build and suite wait for chunk B, which shares BoardPage.
+2026-11-10T20:13:15 | Claude | test-unlinked | ArrangingTheBoardTests / With a changed period set, items outside it are neutral on board, list and roadmap and items inside keep their colour; without it nothing changes
+2026-11-10T20:13:15 | Claude | test-unlinked | UsingTheBoardTests / The side menu's changed picker sets the period, the legend names it, and × clears it; the choice is remembered per board
+2026-11-10T20:13:15 | Claude | test-unlinked | UsingTheBoardTests / A changed period that covers nearly every item still shows the picker working: the legend counts how many of the shown items changed in it
+2026-11-10T20:13:15 | Claude | test-linked | ArrangingTheBoardTests / With a changed period set, items outside it are hidden on board, list and roadmap and items inside stay; without it nothing changes
+2026-11-10T20:13:15 | Claude | test-linked | UsingTheBoardTests / The side menu's changed picker sets the period, the legend names it and counts what is shown, and Show all in the picker clears it; the choice is remembered per board
+2026-11-10T20:13:15 | Claude | test-linked | UsingTheBoardTests / A changed period that covers nearly every item still shows the picker working: the legend counts how many items are shown of those the other filters leave
+2026-11-10T20:13:15 | Claude | test-linked | UsingThePagesTests / The date range picker offers its clear button only when a ClearLabel is given and a range is set; without a ClearLabel it keeps the plain Clear
+2026-11-10T20:29:11 | Artyom-kurguzkin | feature | integration-with-agents -> work-item-details
+2026-11-10T20:29:27 | Artyom-kurguzkin | status | In Review -> Planned
+2026-11-10T20:30:25 | Artyom-kurguzkin | status | In Progress -> Planned
+2026-11-10T20:30:34 | Artyom-kurguzkin | created | work item details rework
+2026-11-10T20:30:34 | Artyom-kurguzkin | merged-from | #wi34 see work item deltas
+2026-11-10T20:30:48 | Artyom-kurguzkin | feature | integration-with-agents -> work-item-details
+2026-11-10T20:46:15 | Artyom-kurguzkin | subtask-added | 7.8 Still need to rework the Linked tasks
+2026-11-10T20:47:15 | Artyom-kurguzkin | subtask-added | 7.9 I want to be able to convert logs btw note - Decision - Subtask by selecting log entry (extra option on top of edit)
+2026-11-10T20:51:25 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-10T20:51:25 | Artyom-kurguzkin | priority | low -> high
+2026-11-10T20:52:08 | Artyom-kurguzkin | subtask-added | 7.10 Still need to rework the Linked tasks (created subtask) - layout should be nicer
+2026-11-10T20:52:51 | Artyom-kurguzkin | subtask-added | 7.11 editing already created subtask within a feed created yet another subtask -bug

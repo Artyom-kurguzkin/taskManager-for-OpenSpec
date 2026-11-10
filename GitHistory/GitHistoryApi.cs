@@ -27,6 +27,9 @@ public static class GitHistoryApi
     public static bool IsRepository() => Queries.IsRepository();
     public static string? UserName() => Queries.UserName();
 
+    /// <summary>Whether git would ignore this repo-relative path, by any rule source (.gitignore files, info/exclude, global excludes); false when not a repository.</summary>
+    public static bool IsIgnored(string relativePath) => Queries.IsIgnored(relativePath);
+
     /// <summary>Commits whose message contains the token as a whole word (#wi123 does not match #wi1234).</summary>
     public static IReadOnlyList<CommitInfo> Mentioning(string token) => Queries.Mentioning(token);
 

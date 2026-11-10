@@ -1,4 +1,4 @@
-<!-- repo-tasks-guide v16 plans=DevResources/plans attachments=local/task-tracking -->
+<!-- repo-tasks-guide v17 plans=DevResources/plans attachments=local/task-tracking -->
 # Repo Tasks: conventions for agents
 
 This repository's `openspec/` folder is shown and edited by the **Repo Tasks** app, a board of work items.
@@ -138,7 +138,7 @@ When work lands, update **every** open work item it touches: the one you worked 
 
 ### Keep the worklog current by hand
 
-The `board_*` tools do this for you; when you edit files, you do it yourself. The worklog of an item is its notes plus `events.log` in the change folder (`openspec/changes/<folder>/events.log`, beside `.openspec.yaml`): one line per thing that happened, appended in time order.
+The `board_*` tools do this for you; when you edit files, you do it yourself. The worklog of an item is its notes plus `events.log` in the change folder (`openspec/changes/<folder>/events.log`, beside `.openspec.yaml`): one line per thing that happened, appended in time order. `events.log` must be tracked by git (commit it with the change): the app adds `!openspec/**/events.log` to `.gitignore` when a rule such as `*.log` would ignore it.
 
 ```
 yyyy-MM-ddTHH:mm:ss | <who> | <kind> | <text>

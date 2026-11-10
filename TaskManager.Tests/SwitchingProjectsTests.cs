@@ -562,4 +562,98 @@ public sealed class SwitchingProjectsTests : IDisposable
             board.WaitForAssertion(() => Assert.Equal(repo2.Root, workspace.Root));
         }
     }
+
+    // ── events.log is not ignored ──
+
+    private static string Git(string dir, params string[] args)
+    {
+        System.Diagnostics.ProcessStartInfo psi = new("git") { WorkingDirectory = dir, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string a in args) psi.ArgumentList.Add(a);
+        using System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi)!;
+        string output = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        return output;
+    }
+
+    private static int Occurrences(string text, string line) => text.Replace("\r", "").Split('\n').Count(l => l.Trim() == line);
+
+    [Fact(DisplayName = "Opening a repository whose .gitignore ignores *.log adds an exception for events.log once, and git then sees the events file")]
+    public async Task EventsLogIsUnignored()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            Git(repo2.Root, "init", "-q");
+            repo2.Write(".gitignore", "bin/\r\n*.log");   // CRLF, and no newline at the end
+            repo2.Write("openspec/changes/some-change/events.log", "2026-11-10T10:00:00 | me | created | x\n");
+            workspace.TakeGuideNotice();
+
+            Assert.True(workspace.OpenTab(repo2.Root).Success);
+
+            string ignore = repo2.Read(".gitignore");
+            Assert.Equal(1, Occurrences(ignore, "!openspec/**/events.log"));
+            Assert.StartsWith("bin/\r\n*.log\r\n", ignore);   // the file's own line endings, the old text kept
+            Assert.DoesNotContain("\n", ignore.Replace("\r\n", ""));
+            Assert.EndsWith("\r\n", ignore);
+            Assert.Contains("openspec/changes/some-change/events.log", Git(repo2.Root, "status", "--porcelain", "--untracked-files=all"));
+            string? notice = workspace.TakeGuideNotice();
+            Assert.Contains("events.log", notice);
+            Assert.Contains("git add openspec", notice);
+
+            workspace.Open(repo1.Root);
+            workspace.OpenTab(repo2.Root);   // opened again: nothing more to add or say
+            Assert.Equal(ignore, repo2.Read(".gitignore"));
+            Assert.DoesNotContain("git add openspec", workspace.TakeGuideNotice() ?? "");
+        }
+    }
+
+    [Fact(DisplayName = "A repository that does not ignore events.log, or is not a git repository, is left untouched")]
+    public async Task EventsLogLeftAlone()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            repo1.Write(".gitignore", "*.log\n");   // ignores them, but this is not a git repository
+            workspace.Open(repo1.Root);
+            Assert.Equal("*.log\n", repo1.Read(".gitignore"));
+
+            Git(repo2.Root, "init", "-q");
+            repo2.Write(".gitignore", "bin/\n");   // a repository that ignores nothing of ours
+            workspace.OpenTab(repo2.Root);
+            Assert.Equal("bin/\n", repo2.Read(".gitignore"));
+
+            string bare = Directory.CreateTempSubdirectory("rtm-nogitignore").FullName;   // no .gitignore at all: none is created
+            try
+            {
+                Git(bare, "init", "-q");
+                Directory.CreateDirectory(Path.Combine(bare, "openspec", "changes"));
+                workspace.OpenTab(bare);
+                Assert.False(File.Exists(Path.Combine(bare, ".gitignore")));
+            }
+            finally { workspace.Open(repo1.Root); try { Directory.Delete(bare, true); } catch (IOException) { } }
+        }
+    }
+
+    [Fact(DisplayName = "When events.log stays ignored after the exception the app says so and does not add the line again")]
+    public async Task EventsLogStaysIgnored()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            Git(repo2.Root, "init", "-q");
+            repo2.Write(".gitignore", "/openspec/changes/\n");   // git cannot re-include a file under an ignored directory
+            workspace.TakeGuideNotice();
+
+            workspace.OpenTab(repo2.Root);
+
+            Assert.Contains("still ignored", workspace.TakeGuideNotice());
+            Assert.Equal(1, Occurrences(repo2.Read(".gitignore"), "!openspec/**/events.log"));
+
+            workspace.Open(repo1.Root);
+            workspace.OpenTab(repo2.Root);   // a later open: the line is the "already tried" marker
+
+            Assert.Equal(1, Occurrences(repo2.Read(".gitignore"), "!openspec/**/events.log"));
+            Assert.Contains("still ignored", workspace.TakeGuideNotice());
+        }
+    }
 }

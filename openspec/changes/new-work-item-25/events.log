@@ -1,0 +1,5 @@
+2026-11-10T16:48:57 | Artyom-kurguzkin | test-linked | ArchivingNeverStopsTests / When the CLI refuses a completed item, the app archives it again without validation and shows nothing
+2026-11-10T16:48:59 | Artyom-kurguzkin | test-linked | ArchivingNeverStopsTests / When every try is refused, the first message is shown and the item stays where it was
+2026-11-10T16:49:01 | Artyom-kurguzkin | test-linked | ArchivingNeverStopsTests / A spec for a feature the main specs don't have yet is still tidied before archiving
+2026-11-10T16:49:33 | Artyom-kurguzkin | test-unlinked | ArchivingNeverStopsTests / A spec for a feature the main specs don't have yet is still tidied before archiving
+2026-11-10T16:49:58 | Artyom-kurguzkin | test-unlinked | ArchivingNeverStopsTests / When every try is refused, the first message is shown and the item stays where it was

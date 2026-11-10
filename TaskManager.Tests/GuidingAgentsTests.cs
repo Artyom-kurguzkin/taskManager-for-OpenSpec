@@ -136,7 +136,7 @@ public sealed partial class GuidingAgentsTests
 
         Assert.Equal(GuideChange.Updated, change);
         string text = repo.Read("openspec/REPO-TASKS.md");
-        Assert.StartsWith("<!-- repo-tasks-guide v16 ", text);
+        Assert.StartsWith("<!-- repo-tasks-guide v17 ", text);
         Assert.Contains("C:/apps/TaskManager.exe", text);
     }
 
@@ -154,7 +154,7 @@ public sealed partial class GuidingAgentsTests
     public void GuideSaysToolsAreTheOnlyWay()
     {
         string text = Guide;
-        Assert.StartsWith("<!-- repo-tasks-guide v16 ", text);
+        Assert.StartsWith("<!-- repo-tasks-guide v17 ", text);
         Assert.Contains("`board_log`", text);
 
         string tools = text[..text.IndexOf("## 0a.", StringComparison.Ordinal)];

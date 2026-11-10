@@ -492,3 +492,6 @@ tests/out/
 local/
 
 .claude/worktrees/
+
+# Repo Tasks: the worklog of each work item is data, not a log file to ignore
+!openspec/**/events.log

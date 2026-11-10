@@ -1,0 +1,12 @@
+2026-11-10T17:41:37 | Artyom-kurguzkin | status | Backlog -> In Progress
+2026-11-10T18:49:02 | Claude | plan-linked | DevResources/plans/in-progress-items-2-2026-11-10.md
+2026-11-10T19:24:25 | Claude | status | In Progress -> In Review
+2026-11-10T19:24:25 | Claude | description-edited | proposal.md
+2026-11-10T19:24:25 | Claude | test-linked | ChartingTheBoardTests / A chart by status counts the work items in each status in the board's order, and grouped by label it has one series per label
+2026-11-10T19:24:25 | Claude | test-linked | ChartingTheBoardTests / A chart of subtasks counts subtasks instead of items
+2026-11-10T19:24:25 | Claude | test-linked | ChartingTheBoardTests / A chart over time shows, week by week for twelve weeks, how many items were in each status, replayed from their worklog
+2026-11-10T19:24:25 | Claude | test-linked | ChartingTheBoardTests / Items without the field fall under none, which comes last
+2026-11-10T19:24:25 | Claude | test-linked | UsingTheBoardTests / The Analytics view shows the two default charts, each an SVG with its title and legend
+2026-11-10T19:24:25 | Claude | test-linked | UsingTheBoardTests / Editing a chart's layout, axis or grouping redraws it and the choice is remembered per board; Add chart adds one and Delete removes it
+2026-11-10T20:20:01 | Artyom-kurguzkin | status | In Review -> Planned
+2026-11-10T20:43:06 | Artyom-kurguzkin | status | Planned -> Backlog

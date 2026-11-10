@@ -1,0 +1,32 @@
+2026-11-10T17:38:33 | Claude | created | Worklog as the record of work: events for every write, decisions emphasised, incremental entries, MCP-first guide
+2026-11-10T17:38:33 | Claude | status | Planned -> In Progress
+2026-11-10T17:43:54 | Claude | subtask-done | 1.1 Seam: Note.Kind (decision) in the Notes module frontmatter and NotesApi.Create
+2026-11-10T18:13:17 | Claude | test-linked | KeepingNotesTests / A note can be a decision: created with kind decision it reads back as one, SetKind turns a note into a decision or back, and an ordinary note has no kind
+2026-11-10T18:13:17 | Claude | test-linked | EditingWorkItemsTests / Changing the title, priority, label, dates or feature records one event each with the old and the new value, and nothing when the value did not change
+2026-11-10T18:13:17 | Claude | test-linked | EditingWorkItemsTests / Adding or removing a contributor and linking or unlinking the plan are recorded as events
+2026-11-10T18:13:17 | Claude | test-linked | EditingWorkItemsTests / Editing the description records one event, and saving it unchanged records none
+2026-11-10T18:13:17 | Claude | test-linked | EditingWorkItemsTests / Merging work items records a merged-from event per source on the surviving item, and renaming records a title event
+2026-11-10T18:13:17 | Claude | test-linked | KeepingNotesTests / Attaching a file or a URL to a note records an attachment-added event on its work item naming the note and the file
+2026-11-10T18:13:17 | Claude | test-linked | UsingTheBoardOverMcpTests / board_create records a subtask-added event for every subtask it writes, and a board_update field change is recorded like the app's
+2026-11-10T18:13:17 | Claude | test-linked | UsingTheWorklogTests / A decision note is emphasised in the feed with a DECISION label and the accent mark, and Add decision from the day menu creates one and opens it in place
+2026-11-10T18:13:17 | Claude | test-linked | UsingTheWorklogTests / The Decisions and Edits filters hide decision notes and housekeeping events (title, priority, label, dates, feature, contributors, description, attachments) on their own, and Notes no longer hides decisions
+2026-11-10T18:13:17 | Claude | test-linked | UsingTheBoardTests / The Worklog block shows Decisions and Edits filters and an Add decision action
+2026-11-10T18:13:17 | Claude | test-linked | GuidingAgentsTests / The agent guide says the repo-tasks tools are the only way to touch the board when they are present, and the hand rules are for when they are absent
+2026-11-10T18:13:17 | Claude | test-linked | GuidingAgentsTests / The agent guide tells supervisor and subagents to log as they go, one short entry per event, and to record decisions as decision notes, clear and brief
+2026-11-10T18:13:17 | Claude | test-linked | GuidingAgentsTests / The agent guide says a review of items reads their worklog, not only the description
+2026-11-10T18:13:17 | Claude | test-linked | UsingTheBoardOverMcpTests / board_note with kind decision writes a decision note titled Decision that board_get returns with its kind, and an unknown kind is refused
+2026-11-10T18:13:17 | Claude | test-linked | UsingTheBoardOverMcpTests / board_list always returns nextAfter, null on the last page, so a client that enforces the output schema accepts it
+2026-11-10T18:13:17 | Claude | test-linked | UsingTheBoardOverMcpTests / The server instructions say tools only, log as you go, and decisions as decision notes
+2026-11-10T18:13:17 | Claude | subtask-done | 1.2 A: an event for every write (fields, contributors, plan, description, attachments, board_create subtasks)
+2026-11-10T18:13:17 | Claude | subtask-done | 1.3 B: decisions emphasised in the worklog; Decisions and Edits filters in the Worklog block; decision toggle in Add note
+2026-11-10T18:13:17 | Claude | subtask-done | 1.4 C: guide v15 and server instructions (MCP-first, incremental entries, decisions), board_note kind, board_list schema fix
+2026-11-10T18:13:17 | Claude | subtask-done | 1.5 Integrate, full suite, hidden-desktop check light and dark, spec deltas
+2026-11-10T18:13:17 | Claude | subtask-added | 1.6 D: every MCP result emits its nullable fields (board_get failed on `due` the way board_list failed on `nextAfter`); the output schema and the JSON agree for every tool
+2026-11-10T18:23:28 | Claude | status | In Progress -> In Review
+2026-11-10T18:23:28 | Claude | test-linked | UsingTheBoardOverMcpTests / Every tool's result matches its output schema: nullable fields such as due, plan and nextAfter are present as null, so a strict client accepts board_get and board_list
+2026-11-10T18:23:28 | Claude | subtask-done | 1.6 D: every MCP result emits its nullable fields (board_get failed on `due` the way board_list failed on `nextAfter`); the output schema and the JSON agree for every tool
+2026-11-10T20:20:58 | Artyom-kurguzkin | title | Worklog as the record of work: events for every write, decisions emphasised, incremental entries, MCP-first guide -> Worklog instead of notes
+2026-11-10T20:21:13 | Artyom-kurguzkin | label | enhancement -> feature
+2026-11-10T20:21:29 | Artyom-kurguzkin | feature | integration-with-agents -> work-feed
+2026-11-10T20:21:42 | Artyom-kurguzkin | contributor-added | Artyom-kurguzkin
+2026-11-10T20:21:52 | Artyom-kurguzkin | status | In Review -> Completed

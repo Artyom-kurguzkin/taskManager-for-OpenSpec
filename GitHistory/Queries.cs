@@ -21,6 +21,8 @@ internal static class Queries
         return isRepo;
     }
 
+    internal static bool IsIgnored(string relativePath) => IsRepository() && GitCli.Run("check-ignore", "-q", "--", relativePath).Exit == 0;
+
     internal static string? UserName()
     {
         if (GitHistoryModule.State.UserName.Known) return GitHistoryModule.State.UserName.Name;

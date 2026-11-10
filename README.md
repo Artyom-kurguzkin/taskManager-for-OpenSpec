@@ -167,7 +167,7 @@ When something goes wrong, the server's log is `%LOCALAPPDATA%\RepoTaskManager\l
 | Item metadata (number, title, status, priority, contributors, lanes, hidden, linked commits, tests and documents) | `x-rtm:` block in each change's `.openspec.yaml` | yes |
 | Board sub-categories, new feature sub-groups | `x-rtm:` block in `openspec/config.yaml` | yes |
 | Notes | `openspec/changes/<change>/notes/n<id>.md` (they move with the change when it's archived) | yes |
-| Events of a work item (created, status changes, links, ticked subtasks, dependencies: who and when) | `openspec/changes/<change>/events.log`, one line each; the item page's Worklog shows them with the notes | yes |
+| Events of a work item (created, status changes, links, ticked subtasks, dependencies: who and when) | `openspec/changes/<change>/events.log`, one line each; the item page's Worklog shows them with the notes; when a rule such as `*.log` would make git ignore them, opening the repository adds `!openspec/**/events.log` to its `.gitignore` | yes |
 | Your settings (theme, last repo, name, board view per repo) | `%APPDATA%\RepoTaskManager\settings.json` | no |
 | The last work-item and note numbers handed out, and their lock files | `.git/rtm/` in the repository (shared by its worktrees); `%TEMP%\rtm\` for a folder without git | no |
 | The MCP server's token, `server.json` (pid, port, version) and logs | `%LOCALAPPDATA%\RepoTaskManager\` | no |

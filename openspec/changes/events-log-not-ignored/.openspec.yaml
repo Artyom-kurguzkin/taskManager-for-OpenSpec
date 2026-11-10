@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-10
+x-rtm:
+  id: 150
+  title: The worklog's events.log is never ignored by git
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [track-work-items]
+  label: bug
+  started: 2026-11-10
+  moved: 2026-11-10
+  tests: [{suite: SwitchingProjectsTests, test: 'Opening a repository whose .gitignore ignores *.log adds an exception for events.log once, and git then sees the events file'}, {suite: SwitchingProjectsTests, test: 'A repository that does not ignore events.log, or is not a git repository, is left untouched'}, {suite: SwitchingProjectsTests, test: When events.log stays ignored after the exception the app says so and does not add the line again}]
+  agentBy: Claude
+  agentAt: 2026-11-10T21:13:35

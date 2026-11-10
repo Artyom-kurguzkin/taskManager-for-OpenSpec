@@ -1,0 +1,35 @@
+2026-11-10T10:35:49 | Artyom-kurguzkin | created | minor UI patches
+2026-11-10T10:40:43 | Artyom-kurguzkin | status | In Review -> Completed
+2026-11-10T10:40:52 | Artyom-kurguzkin | created | minor UI patches
+2026-11-10T10:41:57 | Artyom-kurguzkin | status | In Review -> Completed
+2026-11-10T10:42:26 | Artyom-kurguzkin | created | minor UI patches
+2026-11-10T10:43:44 | Artyom-kurguzkin | status | In Review -> Completed
+2026-11-10T10:44:47 | Artyom-kurguzkin | status | In Review -> Completed
+2026-11-10T10:45:05 | Artyom-kurguzkin | status | In Review -> Completed
+2026-11-10T10:45:32 | Artyom-kurguzkin | created | minor UI patches
+2026-11-10T19:54:14 | Claude | created | Board tidy-up: no agent-review filter, project name opens its options
+2026-11-10T19:54:15 | Claude | status | Planned -> In Progress
+2026-11-10T19:54:15 | Claude | description-edited | proposal.md
+2026-11-10T19:54:15 | Claude | label | none -> enhancement
+2026-11-10T19:54:15 | Claude | subtask-added | 1.1 Remove the agent-only filter and its checkbox
+2026-11-10T19:54:15 | Claude | subtask-added | 1.2 Project name opens Collapse / Hide; active label and icon removed
+2026-11-10T19:54:15 | Claude | subtask-added | 1.3 Integrate, full suite, hidden-desktop check light and dark
+2026-11-10T19:55:11 | Claude | log | Two chunks delegated: A (changed hides + Show all + agent filter removed, with #wi34), B (project name menu). Polling every 5 minutes.
+2026-11-10T19:55:17 | Claude chunk B | log | chunk B started: project name menu (worktree set up, base patch applied)
+2026-11-10T19:58:48 | Claude chunk B | log | tests red: 3 (2 new in SwitchingProjectsTests, CollapseAndHideProject updated); baseline was 543 passed
+2026-11-10T19:59:47 | Claude chunk B | log | implemented (Menu.IgnoreModifiedClick, BoardPage ProjectName fragment for board header and list project row, CSS); the 3 targeted tests green. Next: real app on hidden desktop.
+2026-11-10T20:05:42 | Claude chunk A | log | Agent filter removed: #f-agent checkbox, BoardOptions.AgentOnly and BoardModel.AgentFlag deleted; old settings with AgentOnly still load (test NoAgentFilter).
+2026-11-10T20:07:16 | Claude chunk B | log | chunk B done: suite Passed! 546/546 (543 + 3 new). Hidden-desktop check of board and list headers in light/dark done; nothing committed.
+2026-11-10T20:13:13 | Claude | status | In Progress -> In Review
+2026-11-10T20:13:13 | Claude | test-linked | UsingTheBoardTests / The side menu has no agent work to review checkbox, and a settings file that still has AgentOnly loads
+2026-11-10T20:13:13 | Claude | test-linked | SwitchingProjectsTests / Clicking a project's name opens a menu to collapse or expand it and to hide it, and the header shows no active label or options icon
+2026-11-10T20:13:13 | Claude | test-linked | SwitchingProjectsTests / Shift-clicking a project header still selects the project without opening the menu, and a project that is not the active one can be made active from its name's menu
+2026-11-10T20:13:13 | Claude | test-linked | SwitchingProjectsTests / In the list, a project row's name opens the same menu: Collapse closes its rows, Expand opens them again, and a Shift-click on the name only selects the row
+2026-11-10T20:13:13 | Claude | subtask-done | 1.1 Remove the agent-only filter and its checkbox
+2026-11-10T20:13:13 | Claude | subtask-done | 1.2 Project name opens Collapse / Hide; active label and icon removed
+2026-11-10T20:13:13 | Claude | subtask-done | 1.3 Integrate, full suite, hidden-desktop check light and dark
+2026-11-10T20:34:24 | Artyom-kurguzkin | feature | organise-work-items -> general-ux
+2026-11-10T20:35:08 | Artyom-kurguzkin | feature | organise-work-items -> general-ux
+2026-11-10T20:35:19 | Artyom-kurguzkin | status | In Review -> Completed
+2026-11-10T20:35:27 | Artyom-kurguzkin | created | minor UI patches
+2026-11-10T20:35:27 | Artyom-kurguzkin | merged-from | #wi144 Board tidy-up: no agent-review filter, project name opens its options

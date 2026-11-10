@@ -1,0 +1,18 @@
+2026-11-10T20:59:07 | Claude | created | The worklog's events.log is never ignored by git
+2026-11-10T20:59:07 | Claude | status | Planned -> In Progress
+2026-11-10T20:59:07 | Claude | description-edited | proposal.md
+2026-11-10T20:59:08 | Claude | priority | low -> high
+2026-11-10T20:59:08 | Claude | label | none -> bug
+2026-11-10T20:59:08 | Claude | subtask-added | 1.1 Add the exception to this repository's .gitignore
+2026-11-10T20:59:08 | Claude | subtask-added | 1.2 App checks on open and appends the exception when events.log would be ignored
+2026-11-10T20:59:08 | Claude | subtask-added | 1.3 Integrate, full suite, real check on a demo repo with *.log ignored
+2026-11-10T20:59:45 | Claude chunk A | log | Chunk A started: events.log gitignore check on open (worktree reset to 423a6ac).
+2026-11-10T21:04:09 | Claude chunk A | log | Baseline 547 passed. 3 tests written in SwitchingProjectsTests; red: 2 fail (the leave-alone test passes before the feature, as expected). Implementing in host service + GitHistoryApi.IsIgnored.
+2026-11-10T21:08:55 | Claude chunk A | log | Implemented (WorklogTracking + GitHistoryApi.IsIgnored + guide v17 + README). Fast suite: Passed! 550 (547 + 3). Running OpenSpecCli category, then the real check.
+2026-11-10T21:10:29 | Claude chunk A | log | Chunk A done: fast suite Passed 550/550, OpenSpecCli Passed 15/15. Real check on hidden desktop: .gitignore got the exception, 3 events.log files went from invisible to untracked-visible in git status.
+2026-11-10T21:13:32 | Claude | status | In Progress -> In Review
+2026-11-10T21:13:32 | Claude | test-linked | SwitchingProjectsTests / Opening a repository whose .gitignore ignores *.log adds an exception for events.log once, and git then sees the events file
+2026-11-10T21:13:32 | Claude | test-linked | SwitchingProjectsTests / A repository that does not ignore events.log, or is not a git repository, is left untouched
+2026-11-10T21:13:32 | Claude | test-linked | SwitchingProjectsTests / When events.log stays ignored after the exception the app says so and does not add the line again
+2026-11-10T21:13:32 | Claude | subtask-done | 1.2 App checks on open and appends the exception when events.log would be ignored
+2026-11-10T21:13:32 | Claude | subtask-done | 1.3 Integrate, full suite, real check on a demo repo with *.log ignored

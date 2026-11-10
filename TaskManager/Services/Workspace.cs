@@ -56,7 +56,13 @@ public sealed class Workspace : IDisposable
         NoteGuide(root, AgentGuide.Ensure(root, settings.PlansDir(root), settings.AttachmentsDir(root)));
     }
 
-    /// <summary>The guide carries the plans folder, so moving it rewrites the guide in every open project (and says so at once). Other settings changes are ignored.</summary>
+    /// <summary>Makes sure git does not ignore the project's events.log files (GitHistory is pointed at <paramref name="root"/>); says so once when it had to add an exception.</summary>
+    private void TrackWorklog(string root)
+    {
+        if (WorklogTracking.Ensure(root) is string line) guideNotice = guideNotice is null ? line : guideNotice + " " + line;
+    }
+
+    /// <summary>The guide carries the plans folder,so moving it rewrites the guide in every open project (and says so at once). Other settings changes are ignored.</summary>
     private void RefreshGuides()
     {
         if (PlansState == plansSeen) return;
@@ -93,6 +99,7 @@ public sealed class Workspace : IDisposable
         WorkItemsApi.ConfigureActor(() => Me);   // the worklog's events say the user did it
         settings.Update(s => s with { LastRepo = OpenSpecStoreApi.RepoRoot });
         ConfigureProject(root);
+        TrackWorklog(root);
         OpenTabs(root);
         KeepTabs();
         Notify();
@@ -103,7 +110,7 @@ public sealed class Workspace : IDisposable
     private void OpenTabs(string active)
     {
         foreach (string tab in OpenRepos.Where(t => !OpenSpecStoreApi.OpenRoots.Any(o => SettingsStore.Key(o) == SettingsStore.Key(t))))
-            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) { GitHistoryApi.Configure(tab); ConfigureProject(tab); }
+            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) { GitHistoryApi.Configure(tab); ConfigureProject(tab); TrackWorklog(tab); }
         OpenSpecStoreApi.Use(active);
         GitHistoryApi.Configure(active);
     }
