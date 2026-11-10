@@ -66,19 +66,21 @@ public static class WorkItemsApi
 
     // ── Header fields ──
     public static (bool Success, string Message) SetStatus(int id, string status) => Commands.SetStatus(id, status);
-    public static (bool Success, string Message) SetPriority(int id, string priority) => Commands.Update(id, m => m.Priority = priority);
-    public static (bool Success, string Message) SetTitle(int id, string title) => Commands.Update(id, m => m.Title = title.Trim());
-    public static (bool Success, string Message) SetContributors(int id, IEnumerable<string> people) => Commands.Update(id, m => m.Contributors = people.Distinct().ToList());
-    public static (bool Success, string Message) SetLabel(int id, string? label) => Commands.Update(id, m => m.Label = string.IsNullOrEmpty(label) ? null : label);
-    public static (bool Success, string Message) SetStarted(int id, DateOnly? day) => Commands.Update(id, m => m.Started = day?.ToString("yyyy-MM-dd"));
-    public static (bool Success, string Message) SetDue(int id, DateOnly? day) => Commands.Update(id, m => m.Due = day?.ToString("yyyy-MM-dd"));
+    public static (bool Success, string Message) SetPriority(int id, string priority) => Commands.SetPriority(id, priority);
+    public static (bool Success, string Message) SetTitle(int id, string title) => Commands.SetTitle(id, title);
+    public static (bool Success, string Message) SetContributors(int id, IEnumerable<string> people) => Commands.SetContributors(id, people);
+    public static (bool Success, string Message) SetLabel(int id, string? label) => Commands.SetLabel(id, label);
+    public static (bool Success, string Message) SetStarted(int id, DateOnly? day) => Commands.SetDate(id, start: true, day);
+    /// <summary>Sets the start and the due day together (null = none); one event records the change.</summary>
+    public static (bool Success, string Message) SetDates(int id, DateOnly? started, DateOnly? due) => Commands.SetDates(id, started, due);
+    public static (bool Success, string Message) SetDue(int id, DateOnly? day) => Commands.SetDate(id, start: false, day);
     /// <summary>Links a plan file by repo-relative path (slashes normalised); null or blank removes the link. Paths outside the repository are refused.</summary>
     public static (bool Success, string Message) SetPlan(int id, string? path)
     {
         path = path?.Replace('\\', '/').Trim();
-        if (string.IsNullOrEmpty(path)) return Commands.Update(id, m => m.Plan = null);
+        if (string.IsNullOrEmpty(path)) return Commands.SetPlan(id, null);
         if (Path.IsPathRooted(path) || path.StartsWith('/') || path.Split('/').Contains("..")) return (false, "A plan is a path inside the repository, like DevResources/plans/name.md");
-        return Commands.Update(id, m => m.Plan = path);
+        return Commands.SetPlan(id, path);
     }
     /// <summary>Puts the item in one feature (null = none); a work item has one feature at most.</summary>
     public static (bool Success, string Message) MoveFeature(int id, string? to) => Commands.MoveFeature(id, to);
@@ -155,8 +157,10 @@ public static class WorkItemsApi
         Get(id) is { } item ? Commands.SetDependencies(id, (item.DependsOn ?? []).Where(d => d != dependencyId)) : (false, "That work item no longer exists");
 
     // ── Whole items ──
-    public static (bool Success, string Message, int Id) Create(string title, string status = "Backlog", IEnumerable<string>? features = null, IEnumerable<string>? contributors = null)
-        => Commands.Create(title, status, features, contributors);
+    public static (bool Success, string Message, int Id) Create(string title, string status = "Backlog", IEnumerable<string>? features = null, IEnumerable<string>? contributors = null, string? folder = null)
+        => Commands.Create(title, status, features, contributors, folder);
+    /// <summary>Whether a change folder of that name exists, under changes/ or (any date) under changes/archive/.</summary>
+    public static bool FolderExists(string name) => Commands.FolderExists(name);
     public static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids) => Commands.Merge(ids);
     /// <summary>Merges the items into one that keeps the title and description of <paramref name="into"/> (one of <paramref name="ids"/>); the others' descriptions become notes on it.</summary>
     public static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids, int into) => Commands.Merge(ids, into);

@@ -11,11 +11,12 @@ internal static class Commands
 {
     private const string NotFound = "That note no longer exists";
 
-    internal static (bool Success, string Message, int Id) Create(int workItemId, string by, DateTime created)
+    internal static (bool Success, string Message, int Id) Create(int workItemId, string by, DateTime created, string? kind = null)
     {
         if (WorkItemsApi.Get(workItemId) is not WorkItem wi) return (false, "That work item no longer exists", 0);
+        if (kind is not null && !NoteKinds.All.Contains(kind)) return (false, $"Unknown note kind '{kind}'; use {string.Join(", ", NoteKinds.All)} or none", 0);
         int id = OpenSpecStoreApi.Allocate("note", roots => roots.Max(r => Queries.MaxNoteIdUnder(r)));
-        NoteMeta meta = new() { Id = id, By = by, Created = created.ToString("s", CultureInfo.InvariantCulture), Title = "New note" };
+        NoteMeta meta = new() { Id = id, By = by, Created = created.ToString("s", CultureInfo.InvariantCulture), Title = kind == NoteKinds.Decision ? "Decision" : "New note", Kind = kind };
         string file = Path.Combine(wi.Path, "notes", $"n{id}.md");
         (bool ok, string message) = OpenSpecStoreApi.WriteText(file, NoteFile.Compose(meta, ""));
         return ok ? (true, "", id) : (false, message, 0);
@@ -119,6 +120,19 @@ internal static class Commands
     internal static (bool Success, string Message) AttachBytes(int id, string fileName, byte[] bytes) =>
         Store(id, Path.GetFileName(fileName ?? ""), target => File.WriteAllBytes(target, bytes));
 
+    /// <summary>Makes the note a decision (<see cref="NoteKinds.Decision"/>) or an ordinary note again (null): the frontmatter <c>kind:</c> only.</summary>
+    internal static (bool Success, string Message) SetKind(int id, string? kind)
+    {
+        if (kind is not null && !NoteKinds.All.Contains(kind)) return (false, $"Unknown note kind '{kind}'; use {string.Join(", ", NoteKinds.All)} or none");
+        if (NotesApi.Get(id) is not Note note) return (false, NotFound);
+        (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
+        NoteMeta meta = NoteFile.Meta(front);
+        if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");
+        meta.Id = id;
+        meta.Kind = kind;
+        return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+    }
+
     /// <summary>Titles the note: writes the frontmatter <c>title:</c> only, the body (and any heading in it) is left alone.</summary>
     internal static (bool Success, string Message) SetTitle(int id, string title)
     {
@@ -196,7 +210,9 @@ internal static class Commands
         if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");   // never written over
         meta.Id = note.Id;
         (meta.Attachments ??= []).Add(entry);
-        return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+        (bool ok, string message) = OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+        if (ok) WorkItemsApi.LogEvent(note.WorkItemId, "attachment-added", $"n{note.Id}: {(Uri.TryCreate(entry, UriKind.Absolute, out Uri? uri) && uri.Scheme is "http" or "https" ? entry : Path.GetFileName(entry))}");
+        return (ok, message);
     }
 
     /// <summary>Appends "local/" to the repository's .gitignore unless a line already says so.</summary>

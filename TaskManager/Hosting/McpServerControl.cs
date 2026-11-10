@@ -10,7 +10,7 @@ public sealed record McpServerState(bool Running, int Port, int Pid);
 /// </summary>
 public sealed record McpServerControl(Func<Task<McpServerState>> Status, Func<Task> Start, Func<Task> Stop)
 {
-    public static McpServerControl Default { get; } = new(Probe, () => McpShim.EnsureServerAsync(), async () =>
+    public static McpServerControl Default { get; } = new(Probe, () => McpShim.EnsureServerAsync(Environment.ProcessId), async () =>
     {
         if (Paths.ReadServerJson() is not { } info) return;
         await McpShim.ShutdownAsync(info.Port);

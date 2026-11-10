@@ -47,6 +47,7 @@
     [Parameter] public IReadOnlyDictionary<string, string>? Names { get; set; }
     /// <summary>The colour of each feature or contributor in the card's own project (<see cref="BoardModel.ColourMap"/>); a value missing from it gets a stable pick.</summary>
     [Parameter] public IReadOnlyDictionary<string, string>? Colours { get; set; }
+    /// <summary>The ids that changed in the board's changed period; the others show neutral. Null = no period set.</summary>
 
     private IEnumerable<string> FeatureNames => Item.Features.Select(f => (Names ?? Workspace.FeatureNames).GetValueOrDefault(f.Path, f.Path));
 }

@@ -10,6 +10,6 @@ x-rtm:
   started: 2026-11-09
   moved: 2026-11-09
   plan: DevResources/plans/in-progress-items-2026-11-09b.md
+  tests: [{suite: ArrangingTheBoardTests, test: "Rows follow the board's saved order and leave out hidden rows, keyed by the row field and value"}, {suite: UsingTheBoardTests, test: 'Shift-clicking a swimlane header selects it, the arrow keys move it past its neighbour, and its × hides it until the side menu brings it back'}, {suite: ArchivingNeverStopsTests, test: 'When the CLI refuses a completed item, the app archives it again without validation and shows nothing'}]
   agentBy: Claude
   agentAt: 2026-11-09T09:01:36
-  tests: [{suite: ArrangingTheBoardTests, test: "Rows follow the board's saved order and leave out hidden rows, keyed by the row field and value"}, {suite: UsingTheBoardTests, test: 'Shift-clicking a swimlane header selects it, the arrow keys move it past its neighbour, and its × hides it until the side menu brings it back'}]

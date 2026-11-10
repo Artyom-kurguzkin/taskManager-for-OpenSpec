@@ -91,66 +91,18 @@ public sealed class ServingTheBoardTests : IDisposable
 
     // ---------- the shim ----------
 
-    [Fact(DisplayName = "The stdio shim starts a headless server when none is running, forwards tools/list to it, and reuses it on the next start")]
-    public async Task ShimStartsAndReuses()
+    [Fact(DisplayName = "The stdio shim never starts a server: it relays to the one that is running")]
+    public async Task ShimRelaysToTheRunningServer()
     {
-        Assert.Null(ReadServerJson());
-        Process shim1 = StartShim(7454);
-        Assert.Contains("board_list", await Exchange(shim1, ToolsList));
-        ServerInfo first = ReadServerJson() ?? throw new Xunit.Sdk.XunitException("the shim did not start a server");
-        Assert.Equal(7454, first.Port);
+        Process server = StartServer(7454);
         await WaitForHealth(7454);
-        shim1.StandardInput.Close();
-        Assert.True(shim1.WaitForExit(10000), "the shim did not exit when stdin closed");
-        // the server it started must not hold the shim's stdout open, or an agent never sees the shim end
-        Assert.True(shim1.StandardOutput.ReadToEndAsync().Wait(5000), "stdout never reached EOF: the server inherited the shim's pipe");
-
-        Process shim2 = StartShim(7454);
-        Assert.Contains("board_list", await Exchange(shim2, ToolsList));
-        Assert.Equal(first.Pid, ReadServerJson()?.Pid);   // same server, not a new one
-        shim2.StandardInput.Close();
-        Assert.True(shim2.WaitForExit(10000));
-    }
-
-    [Fact(DisplayName = "The stdio shim replaces a running server whose version differs")]
-    public async Task ShimReplacesAnOlderServer()
-    {
-        // a stub "old server": /health reports another version, /shutdown is recorded and ends it
-        using HttpListener stub = new();
-        stub.Prefixes.Add("http://127.0.0.1:7455/");
-        stub.Start();
-        bool shutdownCalled = false;
-        string? shutdownAuth = null;
-        Task stubLoop = Task.Run(async () =>
-        {
-            while (stub.IsListening)
-            {
-                HttpListenerContext c;
-                try { c = await stub.GetContextAsync(); } catch { return; }
-                string path = c.Request.Url!.AbsolutePath;
-                byte[] body = Encoding.UTF8.GetBytes(path == "/health" ? """{"ok":true,"pid":1,"version":"0.0.0.1"}""" : "{}");
-                if (path == "/shutdown") { shutdownCalled = true; shutdownAuth = c.Request.Headers["Authorization"]; }
-                c.Response.ContentType = "application/json";
-                await c.Response.OutputStream.WriteAsync(body);
-                c.Response.Close();
-                if (path == "/shutdown") { stub.Stop(); return; }
-            }
-        });
-        File.WriteAllText(Path.Combine(_home, "server.json"),
-            """{"pid":1,"port":7455,"version":"0.0.0.1","started":"2020-01-01T00:00:00Z"}""");
-
-        Process shim = StartShim(7456);
+        Process shim = StartShim(7454);
         Assert.Contains("board_list", await Exchange(shim, ToolsList));
-
-        Assert.True(shutdownCalled, "the old server was not asked to shut down");
-        Assert.StartsWith("Bearer ", shutdownAuth);
-        await WaitForHealth(7456);
-        ServerInfo now = ReadServerJson() ?? throw new Xunit.Sdk.XunitException("server.json is gone");
-        Assert.Equal(7456, now.Port);
-        Assert.NotEqual("0.0.0.1", now.Version);
+        Assert.Equal(server.Id, ReadServerJson()?.Pid);   // the shim used the running server and started none
+        Assert.Single(Process.GetProcessesByName("TaskManager"), p => p.Id == server.Id);
         shim.StandardInput.Close();
-        shim.WaitForExit(10000);
-        await stubLoop;
+        Assert.True(shim.WaitForExit(10000), "the shim did not exit when stdin closed");
+        Assert.True(shim.StandardOutput.ReadToEndAsync().Wait(5000), "stdout never reached EOF");
     }
 
     // ---------- the tools behind them ----------
@@ -161,6 +113,8 @@ public sealed class ServingTheBoardTests : IDisposable
     public async Task EachShimWritesToItsOwnRepository()
     {
         string first = CopySampleRepo(), second = CopySampleRepo();
+        StartServer(7457);
+        await WaitForHealth(7457);
         Process shim1 = StartShim(7457, first, "Tester"), shim2 = StartShim(7457, second, "Codex");
 
         string answer1 = await Exchange(shim1, NoteCall), answer2 = await Exchange(shim2, NoteCall);
@@ -284,5 +238,71 @@ public sealed class ServingTheBoardTests : IDisposable
     private static void KillPid(int pid)
     {
         try { Kill(Process.GetProcessById(pid)); } catch { /* not running */ }
+    }
+
+    // ── server tied to the app ──
+
+    private const string NoApp = "The Repo Tasks app is not running. Ask the user to open it; the board tools start with it.";
+
+    [Fact(DisplayName = "A server started with --parent exits when its parent process ends")]
+    public async Task ServerExitsWithItsParent()
+    {
+        Process parent = Process.Start(new ProcessStartInfo("ping", "-n 60 127.0.0.1") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+        _started.Add(parent);
+        Process server = Launch($"--serve --port 7459 --parent {parent.Id}", 7459, redirect: false);
+        await WaitForHealth(7459);
+        Assert.False(server.HasExited);
+
+        Kill(parent);
+
+        Assert.True(server.WaitForExit(15000), "the server is still running 15 s after its parent ended");
+        Assert.Null(ReadServerJson());
+    }
+
+    [Fact(DisplayName = "With no server running the stdio shim answers a tool call with an error asking to open the app, and relays once a server is up")]
+    public async Task ShimAsksForTheAppThenRelays()
+    {
+        string repo = CopySampleRepo();
+        Process shim = StartShim(7456, repo, "Tester");
+
+        string refused = await Exchange(shim, NoteCall);
+        Assert.Contains("\"error\"", refused);
+        Assert.Contains(NoApp, refused);
+        Assert.Contains("\"id\":2", refused);
+        Assert.Null(ReadServerJson());   // the shim started nothing
+        Assert.Empty(NotesNamed(repo, "From the shim"));
+
+        // the app opens: the same shim, no restart
+        Launch($"--serve --port 7456 --parent {Environment.ProcessId} --idle 0", 7456, redirect: false);
+        await WaitForHealth(7456);
+        string answer = await Exchange(shim, NoteCall);
+        Assert.DoesNotContain("\"error\"", answer);
+        Assert.DoesNotContain("\"isError\":true", answer);
+        Assert.Contains("by: Tester", File.ReadAllText(Assert.Single(NotesNamed(repo, "From the shim"))));
+        shim.StandardInput.Close();
+        Assert.True(shim.WaitForExit(10000));
+    }
+
+    [Fact(DisplayName = "With no server running the stdio shim still answers initialize and tools/list itself, so the client connects")]
+    public async Task ShimConnectsWithoutAServer()
+    {
+        Process shim = StartShim(7456);
+
+        string init = await Exchange(shim, """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}""");
+        Assert.Contains("\"result\"", init);
+        Assert.Contains("repo-tasks", init);
+        string tools = await Exchange(shim, ToolsList);
+        Assert.Contains("\"result\"", tools);
+        Assert.Contains("board_note", tools);
+        Assert.Null(ReadServerJson());
+        shim.StandardInput.Close();
+        Assert.True(shim.WaitForExit(10000));
+    }
+
+    [Fact(DisplayName = "The app's server start passes its own pid as --parent and turns the idle exit off")]
+    public void AppServerStartPassesItsPid()
+    {
+        Assert.EndsWith("--serve --parent 4242 --idle 0", TaskManager.Hosting.McpShim.ServeArgs(parentPid: 4242));
+        Assert.EndsWith("--serve", TaskManager.Hosting.McpShim.ServeArgs(parentPid: null));
     }
 }

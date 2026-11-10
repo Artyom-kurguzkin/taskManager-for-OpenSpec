@@ -69,6 +69,14 @@ internal static class Program
             app.MainWindow.SetTitle($"#wi{detachedItem} {title} — Repo tasks");
         }
 
+        // The headless MCP server lives with the app: started here in the background (never blocks or fails the window), it ends when this process does.
+        if (!detached)
+            _ = Task.Run(async () =>
+            {
+                try { if (await Hosting.McpShim.EnsureServerAsync(Environment.ProcessId) is null) LogCrash("The MCP server did not start; the board tools will ask for the app until it does."); }
+                catch (Exception e) { LogCrash("Starting the MCP server failed; the app goes on.\n" + e); }
+            });
+
         app.Run();
         OpenSpecStoreApi.Close();
     }

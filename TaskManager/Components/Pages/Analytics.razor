@@ -1,0 +1,47 @@
+@using Features.PublicDTOs
+@using TaskManager.Board
+@using TaskManager.Components.Shared
+@* The Analytics view, as GitHub Projects' insights: charts of the board's work items, each set up by its layout, what its X axis
+   counts along, what it is grouped by and what it counts. The pencil opens a chart's inline editor; every change is saved at once
+   in the board's options. Charts sit in a grid, two to a row when the window is wide. *@
+<div class="an">
+    @if (Project.Length > 0) { <p class="muted an-project">@Project</p> }
+    <div class="an-grid">
+        @foreach (ChartSpec c in Charts)
+        {
+            ChartData data = DataOf(c);
+            <section class="an-chart" data-id="@c.Id">
+                <header class="an-h">
+                    <h3>@c.Title</h3>
+                    <button type="button" class="ic" aria-label="Edit chart" title="Edit chart" aria-expanded="@(editing == c.Id ? "true" : "false")"
+                            @onclick="() => editing = editing == c.Id ? null : c.Id">@Ui.Icon("sliders")</button>
+                </header>
+                @if (editing == c.Id)
+                {
+                    <div class="an-edit" role="group" aria-label="Edit chart">
+                        <div class="field"><label>Title</label><input class="an-title-in" value="@c.Title" aria-label="Chart title" @onchange="e => Retitle(c, e)" /></div>
+                        <div class="field"><label>Layout</label><Dropdown Label="Layout" Options="AnalyticsModel.Layouts" Value="@c.Layout" ValueChanged="v => Change(c with { Layout = v })" /></div>
+                        <div class="field"><label>X-axis</label><Dropdown Label="X-axis" Options="AnalyticsModel.Xs" Value="@c.X" ValueChanged="v => Change(c with { X = v })" /></div>
+                        <div class="field"><label>Group by</label><Dropdown Label="Group by" Options="AnalyticsModel.Groups" Value="@c.Group" ValueChanged="v => Change(c with { Group = v })" /></div>
+                        <div class="field"><label>Y-axis</label><Dropdown Label="Y-axis" Options="AnalyticsModel.Ys" Value="@c.Y" ValueChanged="v => Change(c with { Y = v })" /></div>
+                        <div class="an-acts">
+                            <button type="button" class="btn ghost an-del" @onclick="() => Delete(c)">Delete</button>
+                            <button type="button" class="btn ghost" @onclick="() => editing = null">Done</button>
+                        </div>
+                    </div>
+                }
+                <Chart Spec="c" Data="data" />
+                @if (data.Series.Count > 0 && (c.Group != "none" || c.X == "time"))
+                {
+                    <ul class="an-legend" aria-label="Legend">
+                        @foreach (Series s in data.Series)
+                        {
+                            <li><i style="--sw:var(@s.ColourKey)"></i>@s.Name</li>
+                        }
+                    </ul>
+                }
+            </section>
+        }
+    </div>
+    <button type="button" class="add an-add" @onclick="Add">+ Add chart</button>
+</div>

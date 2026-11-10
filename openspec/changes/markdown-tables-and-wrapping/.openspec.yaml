@@ -2,13 +2,14 @@ schema: spec-driven
 created: 2026-11-10
 x-rtm:
   id: 133
-  title: Plans do not render tables and run off the window
-  status: In Review
-  priority: high
+  title: markdown tables editor and in view mode
+  status: In Progress
+  priority: low
   contributors: [Claude]
   features: [work-item-details]
   label: bug
   started: 2026-11-10
+  moved: 2026-11-10
   tests: [{suite: UsingThePagesTests, test: "A plan's tables render as tables and its long lines wrap inside the window, on the doc page and anywhere markdown is shown"}]
   agentBy: Claude
   agentAt: 2026-11-10T10:46:44

@@ -43,8 +43,18 @@ internal static partial class Proposal
     [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}-")]
     internal static partial Regex ArchivePrefix();
 
-    internal static string Slug(string title) =>
-        string.Join('-', SlugParts().Matches(title.ToLowerInvariant()).Select(m => m.Value)) is { Length: > 0 } s ? s[..Math.Min(s.Length, 50)].Trim('-') : "work-item";
+    /// <summary>The folder name for a title: its first words, at most 6 and 48 characters, cut at a word boundary.</summary>
+    internal static string Slug(string title)
+    {
+        string slug = "";
+        foreach (string word in SlugParts().Matches(title.ToLowerInvariant()).Select(m => m.Value).Take(6))
+        {
+            string next = slug.Length == 0 ? word : $"{slug}-{word}";
+            if (next.Length > 48) return slug.Length == 0 ? word[..48] : slug;
+            slug = next;
+        }
+        return slug.Length > 0 ? slug : "work-item";
+    }
 
     [GeneratedRegex("[a-z0-9]+")]
     private static partial Regex SlugParts();

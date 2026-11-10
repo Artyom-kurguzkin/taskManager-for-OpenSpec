@@ -165,7 +165,7 @@ public sealed class UsingTheWorklogTests : IDisposable
         Assert.NotEmpty(DayOf(log, day).QuerySelectorAll(".wk-e"));
     }
 
-    [Fact(DisplayName = "Shift-clicking a day opens a menu to add a note, link a document, link a test, link a commit or add a subtask")]
+    [Fact(DisplayName = "Shift-clicking a day opens a menu to add a note or a decision, link a document, link a test, link a commit or add a subtask")]
     public async Task DateMenu()
     {
         await using BunitContext ctx = NewContext();
@@ -174,7 +174,7 @@ public sealed class UsingTheWorklogTests : IDisposable
 
         OpenMenu(log, Header(log, day));
 
-        Assert.Equal(["Add note", "Link document", "Link test", "Link commit", "Add subtask"], MenuItems(log));
+        Assert.Equal(["Add note", "Add decision", "Link document", "Link test", "Link commit", "Add subtask"], MenuItems(log));
         Assert.Equal("true", Header(log, day).GetAttribute("aria-expanded"));   // the Shift-click did not fold it
         // no results file and no git here: the two are switched off and say why
         Assert.Equal("No test results file configured", log.FindAll(".menu-pop .menu-item").Single(i => Text(i) == "Link test").GetAttribute("title"));
@@ -186,7 +186,7 @@ public sealed class UsingTheWorklogTests : IDisposable
         log.Find(".menu-backdrop").Click();
         log.WaitForAssertion(() => Assert.Empty(log.FindAll(".menu-pop")));
         Header(log, day).KeyDown(new KeyboardEventArgs { Key = "Enter", ShiftKey = true });
-        log.WaitForAssertion(() => Assert.Equal(5, MenuItems(log).Count));
+        log.WaitForAssertion(() => Assert.Equal(6, MenuItems(log).Count));
     }
 
     [Fact(DisplayName = "Add note opens an editor in the feed; leaving it saves the title and the text, and a note added under an older day is dated that day")]
@@ -604,5 +604,268 @@ public sealed class UsingTheWorklogTests : IDisposable
         await Task.Delay(400);
 
         Assert.InRange(page.Instance.Loads - before, 1, 2);   // the first at once, one more for what came after it
+    }
+
+    [Fact(DisplayName = "The description is the last entry of the worklog, at the bottom as the item's first post, has no hover effect, and Shift-click Edit changes it in place")]
+    public async Task DescriptionIsTheLastEntry()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.SetDescription(123, "The **first** words").Success);
+        IRenderedComponent<Worklog> log = Log(ctx);
+
+        IElement first = log.Find(".worklog").Children[^1];   // after every day, "Linked earlier" included
+        Assert.Contains("wk-first", first.ClassName);
+        Assert.All(log.FindAll(".wk-day"), day => Assert.True(day.CompareDocumentPosition(first).HasFlag(AngleSharp.Dom.DocumentPositions.Following)));
+        Assert.DoesNotContain("hov", log.Find(".wk-first article").ClassList);   // no hover fill or outline
+        Assert.Contains("Description", Text(first.QuerySelector(".wk-label")!));
+        Assert.Equal("first", Text(first.QuerySelector(".wk-body strong")!));
+        Assert.Equal(Iso(DateTime.Today), log.Find(".worklog").Children[0].GetAttribute("data-day"));
+
+        IElement entry() => log.Find(".wk-first .wk-e");
+        entry().Click();   // a plain click does nothing
+        Assert.Empty(log.FindAll(".menu-pop"));
+        OpenMenu(log, entry());
+        Assert.Equal(["Edit"], MenuItems(log));
+        Pick(log, "Edit");
+
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
+        Assert.Equal("The **first** words", log.Find(".wk-edit textarea").GetAttribute("value")?.Trim());
+        log.Find(".wk-edit textarea").Input("Second words");
+        log.Find(".wk-edit textarea").FocusOut();
+
+        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+        Assert.Equal("Second words", WorkItemsApi.GetDescription(123).Trim());
+        Assert.Contains("Second words", Text(log.Find(".wk-first .wk-body")));
+
+        // nothing written yet: the way to add it is said, muted
+        Assert.True(WorkItemsApi.SetDescription(123, "").Success);
+        IRenderedComponent<Worklog> bare = Log(ctx);
+        Assert.Equal("Shift-click to add a description", Text(bare.Find(".wk-first .muted")));
+    }
+
+    [Fact(DisplayName = "The worklog filters hide notes, events, links or subtask events, and who narrows the feed to one person")]
+    public async Task FiltersAndWho()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        Assert.True(NotesApi.Create(123, "Zed", DateTime.Now).Item1);
+        Assert.True(WorkItemsApi.SetStatus(123, "Planned").Success);
+        Assert.True(WorkItemsApi.AddSubtask(123, "Write docs").Success);
+        Assert.True(WorkItemsApi.SetLinkedDocs(123, ["docs/runbook/uptime.md"]).Success);
+        IRenderedComponent<Worklog> log = Log(ctx);
+        List<string> kinds() => DayOf(log, DateTime.Today).QuerySelectorAll(".wk-e").Select(e => e.GetAttribute("data-kind")!).ToList();
+
+        Assert.NotNull(ui.WorklogOpen);   // the side menu is told a worklog is open
+        Assert.Contains("Zed", ui.WorklogPeople);
+        Assert.Contains("Tester", ui.WorklogPeople);
+        Assert.Equal(["doc-linked", "note", "status", "subtask-added"], kinds().Order());
+
+        ui.FilterWorklog(new WorklogFilters(Events: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("status", kinds()));
+        Assert.Contains("note", kinds());
+        Assert.Contains("doc-linked", kinds());
+
+        ui.FilterWorklog(new WorklogFilters(Notes: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("note", kinds()));
+        Assert.Contains("status", kinds());
+
+        ui.FilterWorklog(new WorklogFilters(Links: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("doc-linked", kinds()));
+        Assert.Contains("subtask-added", kinds());
+
+        ui.FilterWorklog(new WorklogFilters(Subtasks: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("subtask-added", kinds()));
+        Assert.Contains("doc-linked", kinds());
+
+        ui.FilterWorklog(new WorklogFilters(Who: "Zed"));
+        log.WaitForAssertion(() => Assert.Equal(["note"], kinds()));
+        Assert.All(log.FindAll(".wk-day .wk-by"), by => Assert.Equal("Zed", Text(by)));
+        Assert.Empty(log.FindAll(".wk-day[data-day='2026-10-02']"));   // a day with nothing left is left out (today stays)
+
+        ui.FilterWorklog(new WorklogFilters());
+        log.WaitForAssertion(() => Assert.Contains("status", kinds()));
+        Assert.NotEmpty(log.FindAll(".wk-day[data-day='2026-10-02']"));
+    }
+
+    // ── days published ──
+
+    [Fact(DisplayName = "The worklog publishes its days to the side menu and updates them when the filters change")]
+    public async Task PublishesItsDays()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        DateTime today = DateTime.Today, oct2 = new(2026, 10, 2);
+        Assert.True(NotesApi.Create(123, "Zed", today.AddMinutes(1)).Item1);
+        IRenderedComponent<Worklog> log = Log(ctx);
+
+        // newest first, today always, labelled as the feed labels them, with the entries each shows
+        Assert.Equal([today, oct2], ui.WorklogDays.Select(d => d.Date));
+        Assert.Equal($"Today · {today.ToString("d MMM", CultureInfo.InvariantCulture)}", ui.WorklogDays[0].Label);
+        Assert.Equal("2 Oct 2026", ui.WorklogDays[1].Label);
+        Assert.Equal(DayOf(log, today).QuerySelectorAll(".wk-e").Length, ui.WorklogDays[0].Count);
+        Assert.Equal(DayOf(log, oct2).QuerySelectorAll(".wk-e").Length, ui.WorklogDays[1].Count);
+
+        // a filter that leaves a day nothing to show takes it off the list (today stays), and counts follow
+        ui.FilterWorklog(new WorklogFilters(Who: "Zed"));
+        log.WaitForAssertion(() => Assert.Equal([today], ui.WorklogDays.Select(d => d.Date)));
+        Assert.Equal(1, ui.WorklogDays[0].Count);
+
+        ui.FilterWorklog(new WorklogFilters());
+        log.WaitForAssertion(() => Assert.Equal([today, oct2], ui.WorklogDays.Select(d => d.Date)));
+
+        // the jump action unfolds a folded day
+        Header(log, oct2).Click();
+        log.WaitForAssertion(() => Assert.Empty(DayOf(log, oct2).QuerySelectorAll(".wk-e")));
+        ui.WorklogOpen!.JumpTo!(oct2);
+        log.WaitForAssertion(() => Assert.NotEmpty(DayOf(log, oct2).QuerySelectorAll(".wk-e")));
+
+        ((IDisposable)log.Instance).Dispose();
+        Assert.Empty(ui.WorklogDays);   // the worklog closes: the list goes
+    }
+
+    // ── unlink a test ──
+
+    [Fact(DisplayName = "An Unlink menu stays on the entry it was opened on when the feed changes under it: a new entry above does not move the menu to another test, and Unlink removes the test that was clicked")]
+    public async Task UnlinkMenuStaysOnItsEntry()
+    {
+        await using BunitContext ctx = NewContext();
+        UseResults();
+        Assert.True(WorkItemsApi.SetLinkedTests(123, [Ping]).Success);
+        Assert.True(WorkItemsApi.SetLinkedTests(123, [Ping, PageLoad]).Success);   // the newer link sits above the older one
+        IRenderedComponent<Worklog> log = Log(ctx);
+        DateTime today = DateTime.Today;
+        IElement Linked(string test) => DayOf(log, today).QuerySelectorAll(".wk-e[data-kind='test-linked']").Single(e => Text(e).Contains(test));
+
+        OpenMenu(log, Linked("Ping test"));
+        Assert.Equal(["Unlink"], MenuItems(log));
+
+        // something else writes to the item (another agent, a status change): its entry lands above the two, and the feed draws again
+        Assert.True(WorkItemsApi.SetStatus(123, "Planned").Success);
+        ctx.Services.GetRequiredService<Workspace>().Notify();
+        log.WaitForAssertion(() => Assert.NotNull(DayOf(log, today).QuerySelector(".wk-e[data-kind='status']")));
+
+        // the menu is still open, and it still belongs to the Ping entry: it sits in the Ping entry's own wrapper, not the Page load one
+        IElement open = log.Find(".menu-pop").Closest(".menu-wrap")!;
+        Assert.Contains("Ping test", Text(open));
+        Assert.DoesNotContain("Page load test", Text(open));
+
+        Pick(log, "Unlink");
+        log.WaitForAssertion(() => Assert.NotNull(DayOf(log, today).QuerySelector(".wk-e[data-kind='test-unlinked']")));
+        Assert.Equal(["UptimeTests / Page load test"], WorkItemsApi.Get(123)!.Tests!.Select(t => $"{t.Suite} / {t.Test}"));
+        Assert.Contains("unlinked a test: UptimeTests / Ping test", Text(DayOf(log, today).QuerySelector(".wk-e[data-kind='test-unlinked']")!));
+    }
+
+    // ── decisions and edits ──
+
+    [Fact(DisplayName = "A decision note is emphasised in the feed with a DECISION label and the accent mark, and Add decision from the day menu creates one and opens it in place")]
+    public async Task DecisionNotesAreEmphasised()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool _, string _, int made) = NotesApi.Create(123, "Zed", DateTime.Now, NoteKinds.Decision);
+        Assert.True(NotesApi.SetTitle(made, "Use note kinds").Success);
+        Assert.True(NotesApi.SaveBody(made, "One place, filterable.").Success);
+        Assert.True(NotesApi.Create(123, "Zed", DateTime.Now.AddMinutes(-1)).Item1);
+        (bool _, string _, int untitled) = NotesApi.Create(123, "Zed", DateTime.Now.AddMinutes(-2), NoteKinds.Decision);
+        Assert.True(NotesApi.SaveBody(untitled, "Default title stays unseen.").Success);
+        IRenderedComponent<Worklog> log = Log(ctx);
+        DateTime today = DateTime.Today;
+
+        // a decision that keeps the default title shows the tag and the text, not "DECISION Decision"
+        IElement bare = DayOf(log, today).QuerySelectorAll(".wk-decision").Single(e => Text(e).Contains("Default title stays unseen."));
+        Assert.Equal("Decision", Text(bare.QuerySelector(".wk-tag")!));
+        Assert.Empty(bare.QuerySelectorAll(".wk-title"));
+        string bareText = Text(bare.QuerySelector(".wk-main")!);
+        Assert.Equal(bareText.IndexOf("Decision", StringComparison.Ordinal), bareText.LastIndexOf("Decision", StringComparison.Ordinal));   // the word once: the tag
+
+        IElement decision = DayOf(log, today).QuerySelectorAll(".wk-note").Single(e => Text(e).Contains("Use note kinds"));
+        Assert.Contains("wk-decision", decision.ClassList);
+        Assert.Equal("Decision", Text(decision.QuerySelector(".wk-tag")!));
+        Assert.NotNull(decision.QuerySelector(".wk-mark"));
+        Assert.Contains("One place, filterable.", Text(decision));
+        IElement plain = DayOf(log, today).QuerySelectorAll(".wk-note").Single(e => Text(e).Contains("New note"));
+        Assert.DoesNotContain("wk-decision", plain.ClassList);
+        Assert.Empty(plain.QuerySelectorAll(".wk-tag"));
+
+        // Add decision, from the day menu, right after Add note
+        DateTime day = new(2026, 10, 2);
+        OpenMenu(log, Header(log, day));
+        Assert.Equal(["Add note", "Add decision"], MenuItems(log).Take(2));
+        Pick(log, "Add decision");
+
+        log.WaitForAssertion(() => Assert.NotNull(DayOf(log, day).QuerySelector(".wk-edit")));
+        Note created = NotesApi.GetForWorkItem(123).Single(n => n.Title == "Decision" && n.Id != untitled);
+        Assert.True(created.IsDecision);
+        Assert.Equal(day, created.Created.Date);
+        Assert.Equal("Tester", created.By);
+        Assert.Contains("wk-decision", log.Find(".wk-edit").ClassList);
+        Assert.Equal("What was decided, and why. Two lines.", log.Find(".wk-edit textarea").GetAttribute("placeholder"));
+
+        log.Find(".wk-edit input.wk-title-in").Input("Keep kinds in frontmatter");
+        log.Find(".wk-edit textarea").Input("One place. Why: filterable.");
+        log.Find(".wk-edit").FocusOut();
+        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+        Assert.True(NotesApi.Get(created.Id)!.IsDecision);   // saving keeps the kind
+        log.WaitForAssertion(() => Assert.Contains("wk-decision", DayOf(log, day).QuerySelectorAll(".wk-note").Single(e => Text(e).Contains("Keep kinds in frontmatter")).ClassList));
+    }
+
+    [Fact(DisplayName = "The Decisions and Edits filters hide decision notes and housekeeping events (title, priority, label, dates, feature, contributors, description, attachments) on their own, and Notes no longer hides decisions")]
+    public async Task DecisionAndEditFilters()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        Assert.True(NotesApi.Create(123, "Zed", DateTime.Now, NoteKinds.Decision).Item1);
+        Assert.True(NotesApi.Create(123, "Zed", DateTime.Now).Item1);
+        Assert.True(WorkItemsApi.SetStatus(123, "Planned").Success);
+        Assert.True(WorkItemsApi.SetLinkedDocs(123, ["docs/runbook/uptime.md"]).Success);
+        string at = DateTime.Now.AddMinutes(-5).ToString("s", CultureInfo.InvariantCulture);
+        string[] edits = ["title | Old -> New", "priority | Medium -> High", "label | bug added", "dates | 2026-10-01 -> 2026-10-09", "feature | none -> Uptime",
+            "contributor-added | Zed", "contributor-removed | Zed", "description-edited | description.md", "attachment-added | n7: shot.png", "custom | something else"];
+        string events = Path.Combine(repo.OpenSpec, "changes", "add-health-check", "events.log");
+        File.AppendAllText(events, string.Concat(edits.Select(e => $"{at} | Tester | {e}\n")) + $"{at} | Tester | plan-linked | DevResources/plans/p.md\n{at} | Tester | merged-from | #wi5 Old probe\n");
+        IRenderedComponent<Worklog> log = Log(ctx);
+        List<string> kinds() => DayOf(log, DateTime.Today).QuerySelectorAll(".wk-e").Select(e => e.GetAttribute("data-kind")!).ToList();
+        string[] housekeeping = [.. edits.Select(e => e.Split(" | ")[0])];
+
+        Assert.Contains("decision", kinds());
+        Assert.All(housekeeping, k => Assert.Contains(k, kinds()));
+        Assert.Contains("attached shot.png to #n7", Text(log.Find(".wk-e[data-kind='attachment-added'] .wk-line")));
+        Assert.Contains("edited the description", Text(log.Find(".wk-e[data-kind='description-edited'] .wk-line")));
+        Assert.Contains("title: Old → New", Text(log.Find(".wk-e[data-kind='title'] .wk-line")));
+        Assert.Contains("merged #wi5 Old probe into this item", Text(log.Find(".wk-e[data-kind='merged-from'] .wk-line")));
+
+        ui.FilterWorklog(new WorklogFilters(Decisions: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("decision", kinds()));
+        Assert.Contains("note", kinds());   // the other notes stay
+        Assert.Contains("status", kinds());
+        Assert.All(housekeeping, k => Assert.Contains(k, kinds()));
+
+        ui.FilterWorklog(new WorklogFilters(Notes: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("note", kinds()));
+        Assert.Contains("decision", kinds());   // Notes does not hide decisions
+
+        ui.FilterWorklog(new WorklogFilters(Edits: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("title", kinds()));
+        Assert.All(housekeeping, k => Assert.DoesNotContain(k, kinds()));   // an unknown kind counts as an edit too
+        Assert.Contains("decision", kinds());
+        Assert.Contains("note", kinds());
+        Assert.Contains("status", kinds());
+        Assert.Contains("doc-linked", kinds());
+        Assert.Contains("plan-linked", kinds());   // a plan link is a link, not an edit
+        Assert.Contains("merged-from", kinds());   // a merge is an event, with created and status
+
+        ui.FilterWorklog(new WorklogFilters(Events: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("merged-from", kinds()));
+        Assert.DoesNotContain("status", kinds());
+        Assert.Contains("title", kinds());
+
+        ui.FilterWorklog(new WorklogFilters(Links: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("plan-linked", kinds()));
+        Assert.DoesNotContain("doc-linked", kinds());
+        Assert.Contains("title", kinds());
+
+        // the days in the side menu follow the filters
+        ui.FilterWorklog(new WorklogFilters(Notes: false, Decisions: false, Events: false, Links: false, Subtasks: false, Edits: false));
+        log.WaitForAssertion(() => Assert.Empty(kinds()));
+        Assert.Equal(0, ui.WorklogDays[0].Count);
     }
 }

@@ -18,6 +18,8 @@
     [Parameter] public string Label { get; set; } = "";
     /// <summary>Opens on a Shift-click of the activator only (a plain click stays the activator's own); <see cref="Open"/> opens it from the keyboard.</summary>
     [Parameter] public bool ShiftClick { get; set; }
+    /// <summary>A Shift / Ctrl / ⌘-click of the activator does not open the list (it is the surrounding row's select click).</summary>
+    [Parameter] public bool IgnoreModifiedClick { get; set; }
     /// <summary>Shows the list from the first render, next to the activator (a picker that a menu item asked for).</summary>
     [Parameter] public bool OpenAtOnce { get; set; }
     /// <summary>Fired when the list closes: an item picked, a click outside, Esc.</summary>
@@ -32,6 +34,7 @@
     private void Toggle(MouseEventArgs e)
     {
         if (ShiftClick && !e.ShiftKey) return;
+        if (IgnoreModifiedClick && (e.ShiftKey || e.CtrlKey || e.MetaKey)) return;
         open = !open;
         place = open;
     }

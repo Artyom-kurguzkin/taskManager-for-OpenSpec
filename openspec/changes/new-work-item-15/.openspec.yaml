@@ -1,0 +1,14 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-10
+x-rtm:
+  id: 149
+  title: Work item Description editor is clunky
+  status: In Progress
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [work-feed]
+  label: enhancement
+  started: 2026-11-10
+  due: 2026-11-17
+  moved: 2026-11-10

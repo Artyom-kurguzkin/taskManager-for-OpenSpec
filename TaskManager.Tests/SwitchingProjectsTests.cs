@@ -1,4 +1,5 @@
 using Bunit;
+using Microsoft.AspNetCore.Components.Web;
 using OpenSpecStore;
 using Radzen;
 using TaskManager.Components.Pages;
@@ -443,6 +444,122 @@ public sealed class SwitchingProjectsTests : IDisposable
             page.Find("button.open-repo").Click();
             page.WaitForAssertion(() => Assert.Equal([repo1.Root, repo2.Root, repo3.Root], workspace.OpenRepos));
             Assert.Equal(repo3.Root, workspace.Root);
+        }
+    }
+
+    // ── changed picker: the reported case ──
+
+    [Fact(DisplayName = "Opening the list with two projects open still groups by project when the saved list settings were made with one project, so the page stays alive and the side menu's pickers keep working")]
+    public async Task ListWithSettingsFromOneProjectGroupsByProjectOnceThereAreTwo()
+    {
+        (BunitContext ctx, Workspace workspace, IRenderedComponent<SideNav> nav) = NewContext();
+        await using (ctx)
+        {
+            workspace.OpenTab(repo2.Root);
+            workspace.Open(repo1.Root);
+            SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+            // what the grid saved while one project was open: grouped by column only
+            string oneProject = """{"Columns":[],"Groups":[{"Property":"Group","SortOrder":null,"Title":"Column","FormatString":"","ShowFooter":null}],"CurrentPage":0,"PageSize":10}""";
+            settings.SaveBoard(repo1.Root, settings.Board(repo1.Root) with { View = "list", ListSettings = oneProject });
+
+            IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();   // throws while it draws a project row from a column group
+
+            board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-group^='proj:']").Count));
+            Assert.NotEmpty(board.FindAll("tr[data-id]"));
+        }
+    }
+
+    // ── project name menu ──
+
+    [Fact(DisplayName = "Clicking a project's name opens a menu to collapse or expand it and to hide it, and the header shows no active label or options icon")]
+    public async Task ProjectNameOpensMenu()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            workspace.OpenTab(repo2.Root);
+            workspace.Open(repo1.Root);
+            IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+            board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj-h").Count));
+
+            Assert.DoesNotContain("active", board.FindAll(".proj-h")[0].TextContent);
+            Assert.Empty(board.FindAll(".proj-h button[aria-label='Project options'], .proj-h .muted"));
+            Assert.Equal(["button", "h2"], board.FindAll(".proj-h")[0].Children.Select(c => c.LocalName));   // the chevron and the name; no options icon
+            IReadOnlyList<AngleSharp.Dom.IElement> names = board.FindAll(".proj-h h2 button");
+            Assert.Equal(2, names.Count);   // the name is a real button, the menu's activator
+            Assert.Equal("menu", names[1].GetAttribute("aria-haspopup"));
+
+            IEnumerable<string> Items() => board.FindAll(".menu-pop .menu-item").Select(i => i.TextContent.Trim());
+            names[1].Click();
+            Assert.Equal(["Collapse", "Make it the active project", "Hide project"], Items());
+            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Collapse").Click();
+            board.WaitForAssertion(() => Assert.Empty(board.FindAll(".proj")[1].QuerySelectorAll("section.col")));
+            Assert.NotEmpty(board.FindAll(".proj")[0].QuerySelectorAll("section.col"));
+
+            board.FindAll(".proj-h h2 button")[1].Click();
+            Assert.Equal(["Expand", "Make it the active project", "Hide project"], Items());
+            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Expand").Click();
+            board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".proj")[1].QuerySelectorAll("section.col")));
+
+            board.FindAll(".proj-h h2 button")[0].Click();
+            Assert.Equal(["Collapse", "Hide project"], Items());   // the active project has nothing to switch to
+            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Hide project").Click();
+            board.WaitForAssertion(() => Assert.Single(board.FindAll(".proj")));
+        }
+    }
+
+    [Fact(DisplayName = "In the list, a project row's name opens the same menu: Collapse closes its rows, Expand opens them again, and a Shift-click on the name only selects the row")]
+    public async Task ListProjectRowNameOpensMenu()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            workspace.OpenTab(repo2.Root);
+            workspace.Open(repo1.Root);
+            SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+            settings.SaveBoard(repo1.Root, settings.Board(repo1.Root) with { View = "list" });
+            IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+            board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-group^='proj:'] button.proj-name-btn").Count));
+            int open = board.FindAll("tr[data-id]").Count;
+            Assert.True(open > 0);
+
+            board.FindAll("tr[data-group^='proj:'] button.proj-name-btn")[1].Click(new MouseEventArgs { ShiftKey = true });
+            board.WaitForAssertion(() => Assert.Single(board.FindAll("tr[data-selected]")));
+            Assert.Empty(board.FindAll(".menu-pop"));
+
+            board.FindAll("tr[data-group^='proj:'] button.proj-name-btn")[1].Click();
+            Assert.Equal(["Collapse", "Make it the active project", "Hide project"], board.FindAll(".menu-pop .menu-item").Select(i => i.TextContent.Trim()));
+            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Collapse").Click();
+            board.WaitForAssertion(() => Assert.True(board.FindAll("tr[data-id]").Count < open));
+
+            board.FindAll("tr[data-group^='proj:'] button.proj-name-btn")[1].Click();
+            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Expand").Click();
+            board.WaitForAssertion(() => Assert.Equal(open, board.FindAll("tr[data-id]").Count));
+        }
+    }
+
+    [Fact(DisplayName = "Shift-clicking a project header still selects the project without opening the menu, and a project that is not the active one can be made active from its name's menu")]
+    public async Task ShiftClickSelectsAndMenuMakesActive()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            workspace.OpenTab(repo2.Root);
+            workspace.Open(repo1.Root);
+            IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+            board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj-h").Count));
+
+            board.FindAll(".proj-h h2 button")[1].Click(new MouseEventArgs { ShiftKey = true });   // on the name itself
+            board.WaitForAssertion(() => Assert.Contains("selected", board.FindAll(".proj-h")[1].ClassName));
+            Assert.Empty(board.FindAll(".menu-pop"));
+
+            board.FindAll(".proj-h h2 button")[1].Click();   // a plain click opens the menu and leaves the selection as it was
+            Assert.Single(board.FindAll(".menu-pop"));
+            Assert.Contains("selected", board.FindAll(".proj-h")[1].ClassName);
+            Assert.Equal(repo1.Root, workspace.Root);
+
+            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Make it the active project").Click();
+            board.WaitForAssertion(() => Assert.Equal(repo2.Root, workspace.Root));
         }
     }
 }

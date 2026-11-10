@@ -3,10 +3,10 @@ skip_specs: true
 created: 2026-11-05
 x-rtm:
   id: 90
-  title: Opening a folder without openspec/ sets it up
+  title: openspec integration
   status: In Review
   contributors: [Artyom-kurguzkin]
-  features: [maintainability]
+  features: [integration-with-agents]
   label: feature
   started: 2026-11-05
   moved: 2026-11-09

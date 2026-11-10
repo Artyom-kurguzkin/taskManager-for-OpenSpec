@@ -98,7 +98,7 @@ public partial class BoardPage
     private (Project From, IReadOnlyList<(WorkItem Item, string Column, string? Row)> Cards)? dragging;   // the dragged card, or every selected card of its project, with the column and row each is dragged from
     private (IReadOnlyList<string> Siblings, string Key)? draggingColumn;   // a column header or group name being dragged
 
-    internal static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List"), ("calendar", "Calendar")];
+    internal static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List"), ("calendar", "Calendar"), ("analytics", "Analytics")];
     internal static readonly IReadOnlyList<(string, string)> Units = [("tasks", "Work items"), ("subtasks", "Subtasks")];
     // One field list for the three Organise options: columns take any of them, rows and colour also "none".
     internal static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("feature", "feature"), ("label", "label"), ("priority", "priority"), ("contributor", "contributor"), ("due", "due date"), ("started", "start date")];
@@ -166,6 +166,7 @@ public partial class BoardPage
         if (gridSettings is null && O.ListSettings is string json)
             try { gridSettings = System.Text.Json.JsonSerializer.Deserialize<DataGridSettings>(json); } catch (System.Text.Json.JsonException) { }
         if (grid is null) FillGroups();   // before the grid's first render: grouped from the start, not flat first and regrouped after it (a second pass over every row)
+        if (grid is null && gridSettings is not null) gridSettings.Groups = [.. groupDescriptors];   // the grouping saved with the settings was made for the projects open then; the grid would apply it over this one (a column group where a project group is expected stops the page)
     }
 
     private readonly System.Collections.ObjectModel.ObservableCollection<GroupDescriptor> groupDescriptors = [];
@@ -193,6 +194,11 @@ public partial class BoardPage
     // ── Calendar view: the Roadmap component draws the board's columns as groups, or the rows with the columns inside them ──
     private IReadOnlyList<RoadmapSource> RoadmapProjects => projects.Select(p => new RoadmapSource(p.Root, p.Name, p.Sections, p.Colours)).ToList();
     private void OpenFrom((string Root, int Id) at) => OpenItem(ProjectOf(at.Root), at.Id);
+
+    // ── Analytics view: the Analytics component charts the active project's items (after the contributor, agent and period filters) ──
+    private IReadOnlyList<WorkItem> AnalyticsItems => Active is { } p ? BoardModel.Filtered(p.Items, O) : [];
+    private IReadOnlyList<WorkItemEvent> AnalyticsEvents(int id) => Active is { } p ? Workspace.In(p.Root, () => WorkItemsApi.GetEvents(id)) : [];
+    private void SetCharts(IReadOnlyList<ChartSpec> charts) => Set(O with { Charts = charts });
 
     // ── List view: a Radzen DataGrid over the projects' columns ──
     private RadzenDataGrid<GridRow>? grid;
@@ -269,7 +275,8 @@ public partial class BoardPage
             {
                 if (selectedProjects.Contains(gp.Root)) args.Attributes["data-selected"] = "";
                 args.Attributes["onclick"] = EventCallback.Factory.Create<MouseEventArgs>(this, e => ProjectClick(gp.Root, e));   // Shift-click anywhere in the row selects the project
-                if (Collapsed(gp)) args.Expanded = false;
+                if (reopenProjects.Contains(gp.Root)) args.Expanded = true;   // "Expand" from the name's menu: Radzen keeps its own state, so open it once
+                else if (Collapsed(gp)) args.Expanded = false;
             }
             return;
         }
@@ -300,6 +307,15 @@ public partial class BoardPage
         if (shutGroups.Contains(ShutKey(args.Group!))) args.Expanded = false;
     }
 
+    private readonly HashSet<string> reopenProjects = [];   // projects the name's menu just expanded: the list's group row is told to open once
+
+    /// <summary>The name menu's Collapse / Expand: the board's chevron setting, and the list's group row follows it.</summary>
+    private void ToggleProjectCollapsed(Project p)
+    {
+        if (Collapsed(p)) reopenProjects.Add(p.Root);
+        Settings.ToggleProjectCollapsed(p.Root);
+    }
+
     /// <summary>The list's project chevron keeps the same setting as the board's.</summary>
     private void SetProjectCollapsed(Group g, bool collapsed)
     {
@@ -321,6 +337,7 @@ public partial class BoardPage
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        reopenProjects.Clear();   // the list has drawn them open once; from here Radzen's own state keeps them so
         if (grid is null) return;
         if (grid.Groups.Count == 0 || groupedMulti != Multi || groupedSwim != O.Swimlane)   // grouped by project (when several), column, then row value (when set); the group panel stays hidden
         {

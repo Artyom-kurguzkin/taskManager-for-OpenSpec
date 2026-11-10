@@ -1,5 +1,4 @@
 schema: spec-driven
-skip_specs: true
 created: 2026-10-18
 x-rtm:
   id: 15
@@ -9,3 +8,9 @@ x-rtm:
   contributors: [Artyom-kurguzkin]
   features: [track-work-items]
   label: feature
+  started: 2026-11-10
+  moved: 2026-11-10
+  plan: DevResources/plans/in-progress-items-2-2026-11-10.md
+  tests: [{suite: ChartingTheBoardTests, test: "A chart by status counts the work items in each status in the board's order, and grouped by label it has one series per label"}, {suite: ChartingTheBoardTests, test: A chart of subtasks counts subtasks instead of items}, {suite: ChartingTheBoardTests, test: 'A chart over time shows, week by week for twelve weeks, how many items were in each status, replayed from their worklog'}, {suite: ChartingTheBoardTests, test: 'Items without the field fall under none, which comes last'}, {suite: UsingTheBoardTests, test: 'The Analytics view shows the two default charts, each an SVG with its title and legend'}, {suite: UsingTheBoardTests, test: "Editing a chart's layout, axis or grouping redraws it and the choice is remembered per board; Add chart adds one and Delete removes it"}]
+  agentBy: Claude
+  agentAt: 2026-11-10T19:24:39

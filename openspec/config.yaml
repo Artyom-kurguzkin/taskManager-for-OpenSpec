@@ -22,6 +22,7 @@ x-rtm:
     - maintainability
     - integration-with-agents
     - general-ux
+    - security-&-stability
   lanes:
     board: [test, test-2]
   testResults:

@@ -1,0 +1,13 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-10
+x-rtm:
+  id: 148
+  title: patch menu
+  status: Planned
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  started: 2026-11-10
+  due: 2026-11-16
+  moved: 2026-11-10

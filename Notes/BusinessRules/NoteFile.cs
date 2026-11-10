@@ -20,6 +20,7 @@ internal sealed class NoteMeta
     public string? ReviewedAt { get; set; }
     public int? MergedFrom { get; set; }       // a merge moved this note in from that work item
     public string? MergedAt { get; set; }      // yyyy-MM-dd of that merge
+    public string? Kind { get; set; }          // "decision": what was decided and why, shown emphasised; null for an ordinary note
     /// <summary>Set (never written) when the frontmatter did not parse: why. Such a note shows with its body and is not written to.</summary>
     [YamlIgnore] public string? Problem { get; set; }
 }

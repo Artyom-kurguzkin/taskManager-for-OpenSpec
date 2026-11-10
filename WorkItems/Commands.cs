@@ -69,6 +69,65 @@ internal static partial class Commands
     private static (string Kind, string Text)[] Diff(string noun, IEnumerable<string> before, IEnumerable<string> after, string addedKind = "linked", string removedKind = "unlinked") =>
         [.. before.Except(after).Select(t => ($"{noun}-{removedKind}", t)), .. after.Except(before).Select(t => ($"{noun}-{addedKind}", t))];
 
+    /// <summary>A header field's value as an event writes it: the text, or "none".</summary>
+    private static string Shown(string? value) => string.IsNullOrWhiteSpace(value) ? "none" : value.Trim();
+
+    /// <summary>Changes a header field and records <c>old -&gt; new</c> as one event of <paramref name="kind"/>, or nothing when the value is the same.</summary>
+    private static (bool Success, string Message) UpdateLogged(int id, string kind, string? before, string? after, Action<Rtm> change)
+    {
+        (bool ok, string message) = Update(id, change);
+        if (ok && Shown(before) != Shown(after)) Log(id, (kind, $"{Shown(before)} -> {Shown(after)}"));
+        return (ok, message);
+    }
+
+    internal static (bool Success, string Message) SetTitle(int id, string title) =>
+        UpdateLogged(id, "title", Queries.Get(id)?.Title, title, m => m.Title = title.Trim());
+
+    internal static (bool Success, string Message) SetPriority(int id, string priority) =>
+        UpdateLogged(id, "priority", Queries.Get(id)?.Priority, priority, m => m.Priority = priority);
+
+    internal static (bool Success, string Message) SetLabel(int id, string? label) =>
+        UpdateLogged(id, "label", Queries.Get(id)?.Label, label, m => m.Label = string.IsNullOrEmpty(label) ? null : label);
+
+    /// <summary>Sets one end of the item's dates; the event shows the whole range before and after.</summary>
+    internal static (bool Success, string Message) SetDate(int id, bool start, DateOnly? day)
+    {
+        WorkItem? item = Queries.Get(id);
+        string? text = day?.ToString("yyyy-MM-dd");
+        return UpdateLogged(id, "dates", Range(item?.Started, item?.Due), start ? Range(day, item?.Due) : Range(item?.Started, day),
+            m => { if (start) m.Started = text; else m.Due = text; });
+    }
+
+    /// <summary>Sets both ends at once and records one event for the whole change.</summary>
+    internal static (bool Success, string Message) SetDates(int id, DateOnly? start, DateOnly? due)
+    {
+        WorkItem? item = Queries.Get(id);
+        return UpdateLogged(id, "dates", Range(item?.Started, item?.Due), Range(start, due),
+            m => { m.Started = start?.ToString("yyyy-MM-dd"); m.Due = due?.ToString("yyyy-MM-dd"); });
+    }
+
+    private static string Range(DateOnly? start, DateOnly? due)
+    {
+        string Day(DateOnly? d) => d?.ToString("d MMM", System.Globalization.CultureInfo.InvariantCulture) ?? "none";
+        return start is null && due is null ? "none" : $"{Day(start)} – {Day(due)}";
+    }
+
+    internal static (bool Success, string Message) SetContributors(int id, IEnumerable<string> people)
+    {
+        List<string> now = people.Distinct().ToList(), before = [.. Queries.Get(id)?.Contributors ?? []];   // with none saved, the commit authors count as the contributors
+        (bool ok, string message) = Update(id, m => m.Contributors = now);
+        if (ok) Log(id, Diff("contributor", before, now, "added", "removed"));
+        return (ok, message);
+    }
+
+    internal static (bool Success, string Message) SetPlan(int id, string? path)
+    {
+        string? before = null;
+        (bool ok, string message) = Update(id, m => { before = m.Plan; m.Plan = string.IsNullOrEmpty(path) ? null : path; });
+        if (ok) Log(id, Diff("plan", before is { Length: > 0 } ? [before] : [], string.IsNullOrEmpty(path) ? [] : [path]));
+        return (ok, message);
+    }
+
     internal static (bool Success, string Message) LogEvent(int id, string kind, string text)
     {
         if (string.IsNullOrWhiteSpace(kind)) return (false, "An event needs a kind");
@@ -191,11 +250,14 @@ internal static partial class Commands
     {
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
         List<string> specced = Queries.DeltaCapabilities(item.Path).ToList();   // all of them: only the first shows as the item's feature
-        return Update(id, m =>
+        (bool ok, string message) = Update(id, m =>
         {
             m.UnlinkedFeatures = specced.Where(p => p != to).Distinct().ToList();
             m.Features = to is null || specced.Contains(to) ? [] : [to];
         });
+        string? before = item.Features.FirstOrDefault()?.Path;   // an item has one feature at most
+        if (ok && Shown(before) != Shown(to)) Log(id, ("feature", $"{Shown(before)} -> {Shown(to)}"));
+        return (ok, message);
     }
 
     /// <summary>Open (not archived) work items whose change has a delta spec folder for the feature.</summary>
@@ -255,7 +317,10 @@ internal static partial class Commands
     {
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
         string path = Path.Combine(item.Path, "proposal.md");
-        return OpenSpecStoreApi.WriteText(path, Proposal.WithBody(OpenSpecStoreApi.ReadText(path), body));
+        string was = OpenSpecStoreApi.ReadText(path), text = Proposal.WithBody(was, body);
+        (bool ok, string message) = OpenSpecStoreApi.WriteText(path, text);
+        if (ok && text.Replace("\r", "") != was.Replace("\r", "")) Log(id, ("description-edited", "proposal.md"));
+        return (ok, message);
     }
 
     internal static (bool Success, string Message) SetSubtaskDone(int id, string number, bool done)
@@ -300,8 +365,8 @@ internal static partial class Commands
         return OpenSpecStoreApi.WriteText(path, edit(OpenSpecStoreApi.ReadText(path)));
     }
 
-    internal static (bool Success, string Message, int Id) Create(string title, string status, IEnumerable<string>? features, IEnumerable<string>? contributors) =>
-        CreateFolder(title, status, features, contributors, priority: null, proposalBody: "## Why\n\n\n\n## What Changes\n\n- \n", tasks: "# Tasks\n\n## 1. Tasks\n\n", deltas: new Dictionary<string, string>(), more: m => m.Moved = Today());
+    internal static (bool Success, string Message, int Id) Create(string title, string status, IEnumerable<string>? features, IEnumerable<string>? contributors, string? folder = null) =>
+        CreateFolder(title, status, features, contributors, priority: null, proposalBody: "## Why\n\n\n\n## What Changes\n\n- \n", tasks: "# Tasks\n\n## 1. Tasks\n\n", deltas: new Dictionary<string, string>(), folder: folder, more: m => m.Moved = Today());
 
     /// <summary>
     /// A folder name no change has ever had: not under changes/ and not under changes/archive/ either (there with its
@@ -309,13 +374,21 @@ internal static partial class Commands
     /// </summary>
     private static string FreeFolderName(string baseName)
     {
+        HashSet<string> used = UsedFolderNames();
+        string name = baseName;
+        for (int n = 2; used.Contains(name); n++) name = $"{baseName}-{n}";
+        return name;
+    }
+
+    internal static bool FolderExists(string name) => UsedFolderNames().Contains(name);
+
+    private static HashSet<string> UsedFolderNames()
+    {
         string changes = Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, "changes"), archive = Path.Combine(changes, "archive");
         HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
         if (Directory.Exists(changes)) used.UnionWith(Directory.EnumerateDirectories(changes).Select(d => Path.GetFileName(d)));
         if (Directory.Exists(archive)) used.UnionWith(Directory.EnumerateDirectories(archive).Select(d => DatePrefix().Replace(Path.GetFileName(d), "")));
-        string name = baseName;
-        for (int n = 2; used.Contains(name); n++) name = $"{baseName}-{n}";
-        return name;
+        return used;
     }
 
     [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}-")]
@@ -507,6 +580,7 @@ internal static partial class Commands
         // Nothing but the folders is dropped: notes and any other files move over, and items that waited on a source now wait on this one.
         string merged = Queries.Get(id)!.Path;
         EventLog.Prepend(merged, EventLog.SortedLines(items.Select(i => i.Path)));   // every source's events, oldest first, then the merged item's own created
+        EventLog.Append(merged, Actor(), [.. items.Where(i => i.Id != main.Id).Select(i => ("merged-from", $"#wi{i.Id} {i.Title}"))]);   // one per item merged into the main one
         foreach (WorkItem it in items) CopyExtras(it.Path, merged, it.Id, keepSpecs: it.Archived && !allArchived, stampNotes: it.Id == main.Id ? null : mergedOn);
         // Note numbers are repository-wide and WorkItems can't reference Notes (Notes references WorkItems), so the files are written here in the notes format.
         int noteId = NextNoteId();

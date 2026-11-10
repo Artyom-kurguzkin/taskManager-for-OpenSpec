@@ -237,6 +237,16 @@
   .nav-view { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 4px 0; padding: 8px 6px; border-block: 2px dashed var(--line-soft); }
   .nav-view .field { gap: 6px; }
   .nav-sep { align-self: stretch; margin-block: 2px; border-top: 2px dashed var(--line-soft); }   /* between the organise block, the sort and filters, and the display switches */
+  /* Worklog: the open feed's filters (check rows in two columns), who, and the day menu's actions for today; no frames, like the rest of the menu */
+  .nav-worklog { align-self: stretch; }
+  .nav-worklog .nav-h { padding: 0; }
+  .nav-checks { display: grid; grid-template-columns: repeat(2, auto); justify-content: start; gap: 6px 16px; }
+  .nav-acts { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; align-self: stretch; }
+  .nav-act { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 0 6px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: 500 14px var(--f-body); text-align: left; white-space: nowrap; cursor: pointer; }
+  .nav-act svg { width: 14px; height: 14px; flex: none; color: var(--ink-2); }
+  .nav-act:hover:not(:disabled), .nav-act:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
+  .nav-act:hover:not(:disabled) svg, .nav-act:focus-visible svg { color: inherit; }
+  .nav-act:disabled { color: var(--ink-2); cursor: not-allowed; opacity: .6; }
   .menu-pop .proj-eye { margin-left: auto; padding: 2px 4px; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
   .menu-pop .proj-eye:hover { color: var(--ink); background: var(--stone); }
   .menu-pop .proj-eye.off { color: var(--ink); }   /* hidden: the crossed eye stands out */
@@ -247,6 +257,7 @@
   .legend .lg { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
   .legend .lg i { flex: none; width: 10px; height: 10px; border: 1.5px solid var(--line); border-radius: 3px; background: var(--sw, var(--stone)); }
   .legend .more { font-style: italic; }
+  .legend .head { flex: 0 0 100%; font-weight: 600; color: var(--ink); }   /* "changed 2 Nov – 8 Nov": the first line, while the changed period is set */
   .nav-view .seg { flex-wrap: nowrap; }
   .nav-view .seg-o { white-space: nowrap; padding: 2px 9px; }
   /* hidden columns, with the number of items each holds and an eye to bring it back */
@@ -292,7 +303,6 @@
   body.shift-held .proj-h, body.shift-held .tbl-wrap tr[data-group^="proj:"] td { cursor: cell; }
   body.shift-held .proj-h:hover, body.shift-held .tbl-wrap tr[data-group^="proj:"]:hover td { background: color-mix(in srgb, var(--sun) 25%, transparent); }
   .proj-h .chev { width: 22px; height: 22px; }
-  .proj-h .muted { font-size: 12px; }
   .board-wrap.multi .col { min-height: 120px; }
   .board-wrap.multi .head-row .col { min-height: 0; gap: 0; }
   /* column headers stay at the top while the board scrolls: the shared row, or each column's own header */
@@ -500,11 +510,10 @@
   .tile-h { display: flex; align-items: center; gap: 8px; width: 100%; }
   .tile-h h3 { font-size: var(--t-lg); padding: 2px 10px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--tile); color: var(--on-fill); }
   .tile-h .count { font-size: var(--t-sm); }
-  /* work item page: Description / Worklog / Linked tasks under the header, then the view */
+  /* work item page: Worklog / Linked tasks under the header, then the view */
   .item-views .seg-o { padding: 4px 18px; font-size: var(--t-md); }
   .view-grid { display: grid; gap: var(--s4); align-items: start; }
-  .view-desc { grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr); }
-  .view-linked { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); }   /* the subtasks have the long lines */
+  .view-linked { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }   /* the subtasks have the long lines */
   /* the views have no frames (the user's wireframe): what they hold sits straight on the page, with a soft line between rows */
   .view-grid { gap: var(--s4) var(--s5); }
   .view-grid .tile { padding: 0; border: 0; border-radius: 0; background: transparent; }
@@ -551,8 +560,11 @@
   .sub.dep.blocking-me .dep-s { color: var(--on-fill); }
   .sub.dep .ic { color: inherit; }
   .tile p.muted { margin: 0; }
+  @media (max-width: 1180px) {
+    .view-linked { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   @media (max-width: 860px) {
-    .view-desc, .view-linked { grid-template-columns: minmax(0, 1fr); }
+    .view-linked { grid-template-columns: minmax(0, 1fr); }
   }
   @media (max-width: 760px) {
     .view-grid { gap: var(--s3); }
@@ -795,6 +807,15 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
   .wk-earlier-h { padding: 2px 4px; font-size: var(--t-md); color: var(--ink-2); }
   .wk-list { display: flex; flex-direction: column; gap: 2px; margin-left: 11px; padding-left: 22px; border-left: 2px solid var(--line-soft); }
   .wk-empty { margin: 0; padding: 4px 8px; }
+  /* the description, the item's first post and so the feed's last entry: a small label over the text, no frame, no marker and no hover effect */
+  .wk-first { margin-top: var(--s2); }
+  .wk-first .wk-e { grid-template-columns: minmax(0, 1fr); padding: 5px 12px 8px 4px; --stroke: transparent; --fill: transparent; cursor: default; }
+  .wk-first .wk-label { font-size: var(--t-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
+  .wk-first .wk-body { padding: 2px 0 0; min-height: 0; }
+  .wk-first .wk-body > :last-child { margin-bottom: 0; }
+  .wk-first .wk-empty { padding: 2px 0 0; }
+  .wk-first .wk-edit { padding: 5px 0 8px 4px; }
+  .wk-first .wk-edit textarea.desc-in { min-height: 12rem; }
   /* every entry has the same 2px edge (transparent unless it is a card or hovered, see .hov) so times and markers line up */
   .wk-e { --stroke: transparent; --fill: transparent; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 16px; padding: 5px 12px; border: 2px solid var(--stroke); border-radius: 10px; background: var(--fill); }
   .wk-e.hov:hover, .wk-e.hov:focus-visible { --stroke: var(--line); --fill: var(--stone); color: var(--on-fill); outline: none; }   /* an entry with a menu: outlined when pointed at */
@@ -816,6 +837,12 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
   .wk-time { min-width: 3.2em; text-align: right; font-size: var(--t-xs); color: var(--ink-2); }
   .wk-note { --stroke: transparent; --fill: transparent; padding: 8px 12px; }   /* a note is not a card: it sits on the page like the events */
   .wk-list > * + * { margin-top: 2px; padding-top: 2px; border-top: 1.5px solid var(--line-soft); }   /* a line between entries, as on the wireframe (an entry with a menu sits in a wrapper, so the line is on the list's children) */
+  /* a decision is a note that stands out without a frame: a small DECISION label, the mark and the title in the accent colour, a larger body */
+  .wk-decision { --decision: color-mix(in srgb, var(--peach) 55%, var(--ink)); }
+  .wk-decision .wk-tag { font-size: var(--t-xs); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--decision); }
+  .wk-decision .wk-title { color: var(--decision); }
+  .wk-e.wk-decision .wk-mark { top: 14px; width: 14px; height: 14px; margin-left: -1px; background: var(--decision); box-shadow: 0 0 0 1.5px var(--decision); }
+  .wk-decision .wk-body { font-size: var(--t-md); }
   .wk-note .wk-body { padding: 4px 0 0; min-height: 0; }
   .wk-note .wk-body > :last-child { margin-bottom: 0; }
   .wk-atts { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--s2); margin-top: 6px; }
@@ -844,4 +871,56 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
 @layer overlays {
   .menu-item:disabled { opacity: .5; cursor: not-allowed; }
   .menu-item:disabled:hover { background: none; }
+}
+
+/* worklog days in the side menu */
+@layer nav {
+  .nav-day { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; width: 100%; min-height: 26px; padding: 0 6px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: 500 13px var(--f-body); text-align: left; white-space: nowrap; cursor: pointer; }
+  .nav-day .count { margin-left: 0; }
+  .nav-day:hover, .nav-day:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
+  .nav-day:hover .count, .nav-day:focus-visible .count { color: inherit; }
+}
+
+/* analytics: the charts view. No frames: each chart is a title row, the drawing and a legend straight on the page. */
+@layer page {
+  .an { display: flex; flex-direction: column; gap: var(--s4); padding: 8px 0 var(--s5); }
+  .an-project { margin: 0; font-size: var(--t-sm); }
+  .an-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: var(--s5) var(--s5); align-items: start; }
+  .an-chart { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; max-width: 640px; }
+  .an-h { display: flex; align-items: center; gap: var(--s2); }
+  .an-h h3 { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-md); }
+  .an-h .ic { opacity: .6; }
+  .an-chart:hover .an-h .ic, .an-h .ic[aria-expanded="true"], .an-h .ic:focus-visible { opacity: 1; }
+  .an-empty { margin: 0; padding: var(--s5) 0; }
+  .an-add { align-self: flex-start; }
+  /* the inline editor: a row of fields that wraps, then Delete and Done */
+  .an-edit { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); padding: var(--s1) 0 var(--s2); }
+  .an-edit .field { gap: 6px; font-size: var(--t-sm); }
+  .an-edit .field label { color: var(--ink-2); }
+  .an-title-in { width: 180px; padding: 2px 4px; border: 0; border-bottom: 2px solid var(--line-soft); border-radius: 0; background: transparent; color: var(--ink); font: 600 var(--t-sm) var(--f-body); outline: none; }
+  .an-title-in:focus { border-bottom-color: var(--accent); }
+  .an-acts { display: flex; gap: var(--s3); margin-left: auto; }
+  .an-acts .btn { min-height: 28px; padding-left: 0; font-size: var(--t-sm); }
+  .an-del { color: var(--ink-2); }
+  .an-del:hover { color: var(--ink); text-decoration: underline; }
+  /* the drawing: every colour is a token, so it follows the theme */
+  .chart { display: block; width: 100%; max-width: 640px; height: auto; overflow: visible; }   /* a one-column grid must not blow the text up with the window */
+  .chart text { fill: var(--ink-2); font: 11px var(--f-body); }
+  .chart .val { fill: var(--ink); font-weight: 600; }
+  .chart .grid { stroke: var(--line-soft); stroke-width: 1; }
+  .chart .axis { stroke: var(--line); stroke-width: 1.5; }
+  .chart .m { stroke: var(--card); stroke-width: 1; }
+  .chart .m:hover { stroke: var(--ink); }
+  .chart .ln { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+  .chart .dot { stroke: var(--card); stroke-width: 1.5; }
+  .an-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font-size: 12px; color: var(--ink-2); }
+  .an-legend li { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+  .an-legend i { flex: none; width: 10px; height: 10px; border-radius: 3px; background: var(--sw, var(--stone)); }
+}
+
+/* project name menu */
+@layer board {
+  /* a project's name is a button that opens its menu: heading text at rest, outlined on hover (.hov) */
+  .proj-name-btn { font: inherit; color: inherit; padding: 0 8px; border: 2px solid var(--stroke); border-radius: 8px; background: var(--fill); }
+  .proj-h h2 .menu-wrap, .proj-h h2 .menu-activator { display: inline-flex; }
 }

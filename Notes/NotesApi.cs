@@ -19,6 +19,10 @@ public static class NotesApi
 
     /// <summary>Like the two-argument form, but the note's created time (frontmatter <c>created</c>) is <paramref name="created"/>.</summary>
     public static (bool Success, string Message, int Id) Create(int workItemId, string by, DateTime created) => Commands.Create(workItemId, by, created);
+    /// <summary>Like the three-argument form, with a kind: <see cref="NoteKinds.Decision"/> for a decision (titled "Decision"), null for an ordinary note.</summary>
+    public static (bool Success, string Message, int Id) Create(int workItemId, string by, DateTime created, string? kind) => Commands.Create(workItemId, by, created, kind);
+    /// <summary>Makes the note a decision (<see cref="NoteKinds.Decision"/>) or an ordinary note again (null); only the frontmatter <c>kind</c> changes.</summary>
+    public static (bool Success, string Message) SetKind(int id, string? kind) => Commands.SetKind(id, kind);
     public static (bool Success, string Message) SaveBody(int id, string body) => Commands.SaveBody(id, body);
     /// <summary>
     /// Turns the note's unticked checkboxes (<c>- [ ] text</c>, outside code blocks) into subtasks of its work item, each once: the line stays in the

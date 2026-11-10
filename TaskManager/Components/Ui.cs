@@ -55,6 +55,7 @@ public static class Ui
         ["collapse"] = "<path d=\"M13.5 2.5L9 7M9 3.5V7h3.5M2.5 13.5L7 9M7 12.5V9H3.5\"/>",   // minimise the open tile (narrow windows)
         ["up"] = "<path d=\"M4 10l4-4 4 4\"/>",
         ["down"] = "<path d=\"M4 6l4 4 4-4\"/>",
+        ["chart"] = "<path d=\"M2 13.5h12\"/><rect x=\"3.2\" y=\"8\" width=\"2.6\" height=\"5.5\" rx=\".7\"/><rect x=\"6.7\" y=\"3\" width=\"2.6\" height=\"10.5\" rx=\".7\"/><rect x=\"10.2\" y=\"6\" width=\"2.6\" height=\"7.5\" rx=\".7\"/>",
         ["trash"] = "<path d=\"M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4\"/>",
     };
 

@@ -1,0 +1,16 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-10
+x-rtm:
+  id: 140
+  title: work item description editor
+  status: Backlog
+  contributors: [Artyom-kurguzkin, Claude]
+  features: [work-item-details]
+  label: enhancement
+  started: 2026-11-10
+  moved: 2026-11-10
+  plan: DevResources/plans/in-progress-items-2026-11-10.md
+  hidden: true
+  agentBy: Claude
+  agentAt: 2026-11-10T15:30:38

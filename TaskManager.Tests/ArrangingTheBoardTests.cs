@@ -484,4 +484,73 @@ public sealed class ArrangingTheBoardTests
         Assert.Equal(["~", "bug", "enhancement", "feature"], Keys(BoardModel.StepKeys(byLabel, all, [Row("label", "feature")], +1)));
         Assert.Same(byLabel, BoardModel.StepKeys(byLabel, all, [Row("label", "~")], -1));   // already first: nothing changes
     }
+
+    [Fact(DisplayName = "An item counts as changed in a period when an event, a note, its creation or a file write falls in it")]
+    public void ChangedInAPeriod()
+    {
+        DateOnly from = new(2026, 11, 2), to = new(2026, 11, 8);
+        WorkItem Plain(int id) => W(id, "Backlog", [], []);   // created in September, files last written in October: outside the period
+        WorkItem[] items =
+        [
+            Plain(1),
+            Plain(2),
+            Plain(3),
+            Plain(4) with { Created = new DateTime(2026, 11, 5, 13, 0, 0) },
+            Plain(5) with { Modified = new DateTime(2026, 11, 2, 0, 0, 0) },
+            Plain(6),
+            Plain(7),
+            Plain(8),
+        ];
+        Dictionary<int, DateTime[]> logged = new()
+        {
+            [2] = [new DateTime(2026, 11, 8, 23, 59, 59)],                                    // an event or note on the last day, any time of it: in
+            [3] = [new DateTime(2026, 11, 2, 0, 0, 0)],                                       // on the first day, at midnight: in
+            [6] = [new DateTime(2026, 11, 1, 23, 59, 59), new DateTime(2026, 11, 9, 0, 0, 0)],   // the day before and the day after: out
+            [7] = [new DateTime(2026, 11, 4, 9, 0, 0)],
+        };
+        IReadOnlySet<int> changed = BoardModel.ChangedIn(items, i => logged.GetValueOrDefault(i.Id) ?? [], from, to);
+        Assert.Equal([2, 3, 4, 5, 7], changed.Order());   // 1, 6 and 8 did nothing in it
+
+        Assert.Empty(BoardModel.ChangedIn(items, _ => [], new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 7)));
+        Assert.Equal([4], BoardModel.ChangedIn(items, _ => [], new DateOnly(2026, 11, 5), new DateOnly(2026, 11, 5)));   // one day: from == to
+    }
+
+    [Fact(DisplayName = "With a changed period set, items outside it are hidden on board, list and roadmap and items inside stay; without it nothing changes")]
+    public void ChangedPeriodHidesTheRest()
+    {
+        DateOnly today = new(2026, 11, 4);
+        // the items were created in September and last written on the "day" of October each has: 2 on the 5th, 3 on the 9th, 1 on the 3rd, 4 on the 1st
+        BoardOptions all = new(), period = new(ChangedFrom: new DateOnly(2026, 10, 5), ChangedTo: new DateOnly(2026, 10, 9));
+        int[] Ids(IEnumerable<WorkItem> items) => [.. items.Select(i => i.Id).Order()];
+
+        // board columns, with their counts, and the shared filter the Analytics view charts
+        Assert.Equal([1, 2, 3, 4], Ids(BoardModel.Build(Items, Features, Lanes, all, today).SelectMany(s => s.Columns).SelectMany(c => c.Items)));
+        BoardSection board = Assert.Single(BoardModel.Build(Items, Features, Lanes, period, today));
+        Assert.Equal(["In Progress"], board.Columns.Where(c => c.Items.Count > 0).Select(c => c.Label));   // the columns stay, only In Progress holds items
+        Assert.Equal([2, 3], Ids(board.Columns.Single(c => c.Label == "In Progress").Items));
+        Assert.Equal([2, 3], Ids(BoardModel.Filtered(Items, period, today)));
+        Assert.Equal([1, 2, 3, 4], Ids(BoardModel.Filtered(Items, all, today)));
+
+        // list rows and the calendar's groups come from the same sections
+        Assert.Equal([2, 3], Ids(BoardModel.Rows([board], new Dictionary<string, string>()).Where(r => r.Item is not null).Select(r => r.Item!)));
+        Assert.Equal([2, 3], Ids(RoadmapModel.Groups([new RoadmapSource("/repo", "repo", [board])], false).SelectMany(g => g.Rows).Select(r => r.Item)));
+
+        // hidden-column counts follow the filter, and the colours still in use are the shown items'
+        Assert.Equal(2, BoardModel.HiddenCounts(Items, Features, Lanes, period with { Hidden = ["status:In Progress"] })["status:In Progress"]);
+        Assert.Equal(0, BoardModel.HiddenCounts(Items, Features, Lanes, period with { Hidden = ["status:Completed"] })["status:Completed"]);   // 4 did not change in it
+        Assert.Equal([("In Progress", "--sun")], BoardModel.Legend(Items, Features, period, today));
+        Assert.Equal([("Backlog", "--stone"), ("In Progress", "--sun"), ("Completed", "--sage")], BoardModel.Legend(Items, Features, all, today));
+
+        // the other filters still apply with it, and the count says how many the period leaves of those they leave
+        Assert.Equal([2], Ids(BoardModel.Filtered(Items, period with { Who = "Tom" }, today)));   // Tom has 1 and 2; only 2 changed
+        Assert.Equal(((int, int)?)(2, 4), BoardModel.ShownCount(Items, period, today));
+        Assert.Equal(((int, int)?)(1, 2), BoardModel.ShownCount(Items, period with { Who = "Artyom", ChangedTo = new DateOnly(2026, 10, 5) }, today));   // Artyom has 2 and 3; only 2 changed on the 5th
+        Assert.Null(BoardModel.ShownCount(Items, all, today));
+
+        // options: both days or neither
+        Assert.Null(BoardModel.Changed(Items, new BoardOptions()));
+        Assert.Null(BoardModel.Changed(Items, new BoardOptions(ChangedFrom: new DateOnly(2026, 11, 2))));
+        Assert.False(new BoardOptions().ChangedOn);
+        Assert.True(new BoardOptions(ChangedFrom: new DateOnly(2026, 11, 2), ChangedTo: new DateOnly(2026, 11, 8)).ChangedOn);
+    }
 }

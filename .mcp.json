@@ -1,1 +1,1 @@
-{"mcpServers":{"repo-tasks":{"type":"stdio","command":"${RTM_APP:-C:/Users/artyo/Documents/5-mine/repo-task-manager/dist/TaskManager.exe}","args":["--mcp"],"env":{"RTM_AGENT":"Claude"}}}}
+{"mcpServers":{"repo-tasks":{"type":"stdio","command":"${RTM_APP:-C:/Users/artyo/Documents/5-mine/repo-task-manager/dist/TaskManager-small.exe}","args":["--mcp"],"env":{"RTM_AGENT":"Claude"}}}}

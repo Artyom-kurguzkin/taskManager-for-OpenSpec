@@ -45,6 +45,7 @@
                 <MenuItem Class="@(O.View == "board" ? "cur" : "")" OnClick='() => Show("board")'>@Ui.Icon("board") Board</MenuItem>
                 <MenuItem Class="@(O.View == "list" ? "cur" : "")" OnClick='() => Show("list")'>@Ui.Icon("list") List</MenuItem>
                 <MenuItem Class="@(O.View == "calendar" ? "cur" : "")" OnClick='() => Show("calendar")'>@Ui.Icon("cal") Calendar</MenuItem>
+                <MenuItem Class="@(O.View == "analytics" ? "cur" : "")" OnClick='() => Show("analytics")'>@Ui.Icon("chart") Analytics</MenuItem>
             </Items>
         </Menu>
         <button class="nav-btn" aria-label="New work item" title="New work item" @onclick="NewItem">@Ui.Icon("plus")<span class="nav-l">New work item</span></button>
@@ -58,18 +59,57 @@
                     disabled="@(!OnBoard)" @onclick="() => Set(listView ? O with { ShowSubtasks = !on } : O with { Compact = !on })">@Ui.Icon("compact")</button>
         }
         <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="() => expanded = !expanded">@Ui.Icon("sliders")</button>
-        @if (expanded && OnBoard)
+        @if (expanded && Popups.WorklogOpen is { } worklog)
+        {
+            @* An open worklog has its own filters and actions here, first: they come before the list's options when the split view shows both. *@
+            WorklogFilters wf = Popups.WorklogFilter;
+            <div class="nav-view nav-worklog" role="group" aria-label="Worklog">
+                <div class="nav-h">Worklog</div>
+                <div class="nav-checks">
+                    <label class="check"><input type="checkbox" checked="@wf.Notes" @onchange="e => Popups.FilterWorklog(wf with { Notes = (bool)e.Value! })" /> Notes</label>
+                    <label class="check"><input type="checkbox" checked="@wf.Decisions" @onchange="e => Popups.FilterWorklog(wf with { Decisions = (bool)e.Value! })" /> Decisions</label>
+                    <label class="check"><input type="checkbox" checked="@wf.Events" @onchange="e => Popups.FilterWorklog(wf with { Events = (bool)e.Value! })" /> Events</label>
+                    <label class="check"><input type="checkbox" checked="@wf.Links" @onchange="e => Popups.FilterWorklog(wf with { Links = (bool)e.Value! })" /> Links</label>
+                    <label class="check"><input type="checkbox" checked="@wf.Subtasks" @onchange="e => Popups.FilterWorklog(wf with { Subtasks = (bool)e.Value! })" /> Subtasks</label>
+                    <label class="check"><input type="checkbox" checked="@wf.Edits" @onchange="e => Popups.FilterWorklog(wf with { Edits = (bool)e.Value! })" /> Edits</label>
+                </div>
+                <div class="field"><label>who</label><Dropdown Label="who" Options="WorklogPeople" Value="@wf.Who" ValueChanged="v => Popups.FilterWorklog(wf with { Who = v })" /></div>
+                <div class="nav-acts">
+                    <button type="button" class="nav-act" @onclick="worklog.AddNote">@Ui.Icon("plus") Add note</button>
+                    <button type="button" class="nav-act" @onclick="worklog.AddDecision">@Ui.Icon("plus") Add decision</button>
+                    <button type="button" class="nav-act" @onclick="worklog.LinkDocument">@Ui.Icon("plus") Link document</button>
+                    <button type="button" class="nav-act" disabled="@(!(worklog.CanLinkTest?.Invoke() ?? true))" title="@((worklog.CanLinkTest?.Invoke() ?? true) ? null : "No test results file configured")" @onclick="worklog.LinkTest">@Ui.Icon("plus") Link test</button>
+                    <button type="button" class="nav-act" disabled="@(!(worklog.CanLinkCommit?.Invoke() ?? true))" title="@((worklog.CanLinkCommit?.Invoke() ?? true) ? null : "Not a git repository")" @onclick="worklog.LinkCommit">@Ui.Icon("plus") Link commit</button>
+                    <button type="button" class="nav-act" @onclick="worklog.AddSubtask">@Ui.Icon("plus") Add subtask</button>
+                </div>
+                @if (Popups.WorklogDays.Count > 0)
+                {
+                    <div class="nav-h">Days</div>
+                    <div class="nav-acts">
+                        @foreach (WorklogDay day in Popups.WorklogDays)
+                        {
+                            <button type="button" class="nav-day" @onclick="() => worklog.JumpTo?.Invoke(day.Date)">@day.Label<span class="count">@day.Count</span></button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        @if (expanded && ListBlocks)
         {
             <div class="nav-view">
                 @* three independent options over one field list, the same in the board, the list and the calendar *@
+                @if (!Analytics)
+                {
                 <div class="organise" role="group" aria-label="Organise">
                     <div class="nav-h">Organise</div>
                     <div class="field"><label>columns</label><Dropdown Label="columns" Class="is-group" Options="BoardPage.GroupBys" Value="@O.GroupBy" ValueChanged="v => Set(O with { GroupBy = v })" /></div>
                     <div class="field"><label>rows</label><Dropdown Label="rows" Options="BoardPage.Swimlanes" Value="@O.Swimlane" ValueChanged="v => Set(O with { Swimlane = v })" /></div>
                     <div class="field"><label>colour</label><Dropdown Label="colour" Options="BoardPage.ColorBys" Value="@O.ColorBy" ValueChanged="v => Set(O with { ColorBy = v })" /></div>
-                    @if (Legend is { Count: > 0 } legend)
+                    @if (Legend is var legend && (O.ChangedOn || legend.Count > 0))
                     {
                         <div class="legend" aria-label="Colour legend">
+                            @if (O is { ChangedFrom: DateOnly cf, ChangedTo: DateOnly ct }) { <span class="lg head">changed @cf.ToString("d MMM") – @ct.ToString("d MMM")</span> }
+                            @if (ShownCount is var (inPeriod, others)) { <span class="lg head count">@inPeriod of @others shown</span> }
                             @foreach ((string label, string colour) in legend.Take(BoardModel.Palette.Count))
                             {
                                 <span class="lg"><i style="--sw:var(@colour)"></i>@label</span>
@@ -80,16 +120,20 @@
                 </div>
                 <div class="nav-sep" role="separator"></div>
                 <div class="field"><label>sort by</label><Dropdown Label="sort by" Options="BoardPage.SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
+                }
                 <div class="field"><label>contributor</label><Dropdown Label="contributor" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
                 <div class="field"><label>period</label><Dropdown Label="period" Options="BoardPage.Periods" Value="@O.Period" ValueChanged="v => Set(O with { Period = v })" /></div>
-                @if (O.View == "board")
+                @* the filter: only work that changed between two days is shown *@
+                <div class="field changed"><label>changed</label>
+                    <DateRange Label="changed" Empty="any time" ClearLabel="Show all" Start="@O.ChangedFrom" End="@O.ChangedTo" Changed="r => Set(O with { ChangedFrom = r.Start, ChangedTo = r.End })" />
+                </div>
+                @if (ListView == "board")
                 {
                     <Seg Name="unit" Options="BoardPage.Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />
                     <div class="nav-sep" role="separator"></div>
                 }
-                @if (O.View == "list") { <label class="check"><input type="checkbox" checked="@O.ShowSubtasks" @onchange="e => Set(O with { ShowSubtasks = (bool)e.Value! })" /> show subtasks</label> }
-                else { <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> compact cards</label> }
-                <label class="check"><input type="checkbox" id="f-agent" checked="@O.AgentOnly" @onchange="e => Set(O with { AgentOnly = (bool)e.Value! })" /> agent work to review</label>
+                @if (ListView == "list") { <label class="check"><input type="checkbox" checked="@O.ShowSubtasks" @onchange="e => Set(O with { ShowSubtasks = (bool)e.Value! })" /> show subtasks</label> }
+                else if (!Analytics) { <label class="check"><input type="checkbox" checked="@O.Compact" @onchange="e => Set(O with { Compact = (bool)e.Value! })" /> compact cards</label> }
                 <label class="check"><input type="checkbox" id="f-hidden" checked="@O.ShowHidden" @onchange="e => Set(O with { ShowHidden = (bool)e.Value! })" /> show hidden</label>
             </div>
             @if (HiddenHere.Count > 0 || HiddenProjects.Count > 0 || HiddenRows.Count > 0)
@@ -136,7 +180,13 @@
 
     private string Path => Nav.ToBaseRelativePath(Nav.Uri);
     private bool OnBoard => Path.Length == 0;
-    private string ViewIcon => O.View switch { "list" => "list", "calendar" => "cal", _ => "board" };
+    /// <summary>The split view: a work item open beside the list. The list's options are then in the menu on the item's page too, as a list whatever the board's view is.</summary>
+    private bool SplitItem => Settings.Current.Split && !Popups.NarrowWindow && Path.Split('?', '#')[0].Split('/') is ["item", var n] && int.TryParse(n, out _);
+    private bool ListBlocks => OnBoard || SplitItem;
+    private string ListView => OnBoard ? O.View : "list";
+    private IReadOnlyList<(string, string)> WorklogPeople => [("all", "everyone"), .. Popups.WorklogPeople.Select(p => (p, p))];
+    private string ViewIcon => O.View switch { "list" => "list", "calendar" => "cal", "analytics" => "chart", _ => "board" };
+    private bool Analytics => ListView == "analytics";   // the charts have their own options in the view; the board's Organise, sort and card options do not apply
     private bool OnSettings => Path.StartsWith("settings", StringComparison.OrdinalIgnoreCase);
     private string RepoName => Workspace.Root is string r ? System.IO.Path.GetFileName(r) + "/openspec" : "no repository";
     private BoardOptions O => Workspace.Root is string r ? Settings.Board(r) : new();
@@ -145,7 +195,17 @@
         [("all", "everyone"), .. WorkItemsApi.GetAll(includeHidden: O.ShowHidden).SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
 
     // What the colours mean, for the active project's items under the current filters.
-    private IReadOnlyList<(string Label, string Colour)> Legend => BoardModel.Legend(WorkItemsApi.GetAll(includeHidden: O.ShowHidden), FeaturesApi.GetAll(), O);
+    private IReadOnlyList<(string Label, string Colour)> Legend
+    {
+        get
+        {
+            IReadOnlyList<WorkItems.PublicDTOs.WorkItem> items = WorkItemsApi.GetAll(includeHidden: O.ShowHidden);
+            return BoardModel.Legend(items, FeaturesApi.GetAll(), O);
+        }
+    }
+
+    // While a changed period is set: how many of this project's items the board shows with it, of those the other filters leave.
+    private (int InPeriod, int Others)? ShownCount => BoardModel.ShownCount(WorkItemsApi.GetAll(includeHidden: O.ShowHidden), O);
 
     // Hidden columns of the current grouping, and in the list view the grid's hidden columns too.
     private List<string> HiddenHere => (O.Hidden ?? []).Where(k => k.StartsWith(BoardModel.ColumnKey(O, "")) || (O.View == "list" && k.StartsWith(BoardModel.ListColumnKey("")))).ToList();
@@ -160,6 +220,8 @@
     {
         Settings.Changed += Redraw;
         Workspace.Changed += Redraw;
+        Popups.WorklogChanged += Redraw;
+        Popups.LayoutChanged += Redraw;
         Nav.LocationChanged += OnNavigated;
     }
 
@@ -215,6 +277,8 @@
     {
         Settings.Changed -= Redraw;
         Workspace.Changed -= Redraw;
+        Popups.WorklogChanged -= Redraw;
+        Popups.LayoutChanged -= Redraw;
         Nav.LocationChanged -= OnNavigated;
     }
 }

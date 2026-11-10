@@ -1,0 +1,17 @@
+schema: spec-driven
+created: 2026-11-10
+x-rtm:
+  id: 142
+  title: Worklog instead of notes
+  status: In Review
+  priority: high
+  contributors: [Claude, Artyom-kurguzkin]
+  features: [work-feed]
+  label: feature
+  started: 2026-11-10
+  moved: 2026-11-10
+  plan: DevResources/plans/worklog-record-2026-11-10.md
+  tests: [{suite: KeepingNotesTests, test: 'A note can be a decision: created with kind decision it reads back as one, SetKind turns a note into a decision or back, and an ordinary note has no kind'}, {suite: EditingWorkItemsTests, test: 'Changing the title, priority, label, dates or feature records one event each with the old and the new value, and nothing when the value did not change'}, {suite: EditingWorkItemsTests, test: Adding or removing a contributor and linking or unlinking the plan are recorded as events}, {suite: EditingWorkItemsTests, test: 'Editing the description records one event, and saving it unchanged records none'}, {suite: EditingWorkItemsTests, test: 'Merging work items records a merged-from event per source on the surviving item, and renaming records a title event'}, {suite: KeepingNotesTests, test: Attaching a file or a URL to a note records an attachment-added event on its work item naming the note and the file}, {suite: UsingTheBoardOverMcpTests, test: "board_create records a subtask-added event for every subtask it writes, and a board_update field change is recorded like the app's"}, {suite: UsingTheWorklogTests, test: 'A decision note is emphasised in the feed with a DECISION label and the accent mark, and Add decision from the day menu creates one and opens it in place'}, {suite: UsingTheWorklogTests, test: 'The Decisions and Edits filters hide decision notes and housekeeping events (title, priority, label, dates, feature, contributors, description, attachments) on their own, and Notes no longer hides decisions'}, {suite: UsingTheBoardTests, test: The Worklog block shows Decisions and Edits filters and an Add decision action}, {suite: GuidingAgentsTests, test: 'The agent guide says the repo-tasks tools are the only way to touch the board when they are present, and the hand rules are for when they are absent'}, {suite: GuidingAgentsTests, test: 'The agent guide tells supervisor and subagents to log as they go, one short entry per event, and to record decisions as decision notes, clear and brief'}, {suite: GuidingAgentsTests, test: 'The agent guide says a review of items reads their worklog, not only the description'}, {suite: UsingTheBoardOverMcpTests, test: 'board_note with kind decision writes a decision note titled Decision that board_get returns with its kind, and an unknown kind is refused'}, {suite: UsingTheBoardOverMcpTests, test: 'board_list always returns nextAfter, null on the last page, so a client that enforces the output schema accepts it'}, {suite: UsingTheBoardOverMcpTests, test: 'The server instructions say tools only, log as you go, and decisions as decision notes'}, {suite: UsingTheBoardOverMcpTests, test: "Every tool's result matches its output schema: nullable fields such as due, plan and nextAfter are present as null, so a strict client accepts board_get and board_list"}]
+  unlinkedFeatures: [integration-with-agents, work-item-details]
+  agentBy: Claude
+  agentAt: 2026-11-10T18:23:29

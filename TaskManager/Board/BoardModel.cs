@@ -21,10 +21,17 @@ public sealed record BoardOptions(
     bool Compact = false,          // the board: cards show only their title band
     bool ShowSubtasks = false,     // the list: every row shows its subtasks (otherwise only rows opened by their chevron)
     bool ShowHidden = false,       // include work items "deleted" (hidden) in the app
-    bool AgentOnly = false,        // only work with unreviewed agent changes
     IReadOnlyList<string>? Hidden = null,   // ColumnKey of columns taken off the board
     IReadOnlyList<string>? Order = null,    // column and card (item:<id>) keys in the user's order; anything not listed keeps its usual place after them
-    string? ListSettings = null);           // the list view's grid settings (column widths, order, sort, filters) as JSON
+    string? ListSettings = null,            // the list view's grid settings (column widths, order, sort, filters) as JSON
+    DateOnly? ChangedFrom = null,           // the filter: only work that changed from this day ...
+    DateOnly? ChangedTo = null,             // ... to this one (both set, or both null = off)
+    IReadOnlyList<ChartSpec>? Charts = null)   // the Analytics view's charts; null = the two defaults (AnalyticsModel.DefaultCharts)
+{
+    /// <summary>A changed period is set: items that did not change in it are left out.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ChangedOn => ChangedFrom is not null && ChangedTo is not null;
+}
 
 public sealed record BoardColumn(string Key, string Label, IReadOnlyList<WorkItem> Items, IReadOnlyList<string> Lanes);
 
@@ -96,9 +103,15 @@ public static class BoardModel
         return [new(null, columns, rows)];
     }
 
-    /// <summary>The items the options let through (contributor, agent and period filters), in the sort order.</summary>
-    private static List<WorkItem> Visible(IReadOnlyList<WorkItem> items, BoardOptions o, DateOnly now) =>
-        Sort(items.Where(i => (o.Who == "all" || i.Contributors.Contains(o.Who)) && (!o.AgentOnly || AgentFlag(i)) && InPeriod(i.Due, o.Period, now)), o).ToList();
+    /// <summary>The items the options let through (contributor, due period and changed period), in the sort order.</summary>
+    private static List<WorkItem> Visible(IReadOnlyList<WorkItem> items, BoardOptions o, DateOnly now)
+    {
+        IReadOnlySet<int>? changed = Changed(items, o);   // null: no changed period, nothing is left out for it
+        return Sort(items.Where(i => (o.Who == "all" || i.Contributors.Contains(o.Who)) && InPeriod(i.Due, o.Period, now) && (changed is null || changed.Contains(i.Id))), o).ToList();
+    }
+
+    /// <summary>The items the options' contributor, due period and changed period let through (the Analytics view charts these).</summary>
+    public static IReadOnlyList<WorkItem> Filtered(IReadOnlyList<WorkItem> items, BoardOptions o, DateOnly? today = null) => Visible(items, o, today ?? DateOnly.FromDateTime(DateTime.Today));
 
     /// <summary>
     /// The values of a field, as columns and rows both show them: the items without a value first (only when some visible item has none),
@@ -246,6 +259,36 @@ public static class BoardModel
         return legend;
     }
 
+    // ── The changed period: the side menu's filter to what changed between two days ──
+    /// <summary>
+    /// The ids of the items that changed from <paramref name="from"/> to <paramref name="to"/>, both days included, by local day: some of the
+    /// times <paramref name="logged"/> gives for it (its events and notes), its creation, or its files' last write falls in it.
+    /// </summary>
+    public static IReadOnlySet<int> ChangedIn(IReadOnlyList<WorkItem> items, Func<WorkItem, IEnumerable<DateTime>> logged, DateOnly from, DateOnly to)
+    {
+        bool In(DateTime t) => DateOnly.FromDateTime(t) is var d && d >= from && d <= to;
+        return items.Where(i => In(i.Created) || In(i.Modified) || logged(i).Any(In)).Select(i => i.Id).ToHashSet();
+    }
+
+    /// <summary>
+    /// What <see cref="ChangedIn"/> gives for the board's changed period, reading each item's events.log and notes of the current repository
+    /// (call it inside the project's <c>Workspace.In</c>); null while no period is set, which is "nothing is left out".
+    /// </summary>
+    public static IReadOnlySet<int>? Changed(IReadOnlyList<WorkItem> items, BoardOptions o)
+    {
+        if (o.ChangedFrom is not DateOnly from || o.ChangedTo is not DateOnly to) return null;
+        ILookup<int, DateTime> notes = Notes.NotesApi.GetAll().ToLookup(n => n.WorkItemId, n => n.Created);
+        return ChangedIn(items, i => WorkItemsApi.GetEvents(i.Id).Select(e => e.At).Concat(notes[i.Id]), from, to);
+    }
+
+    /// <summary>How many items the board shows with the changed period, and how many the other filters leave without it: the legend's "3 of 36 shown". Null while no period is set.</summary>
+    public static (int InPeriod, int Others)? ShownCount(IReadOnlyList<WorkItem> items, BoardOptions o, DateOnly? today = null)
+    {
+        if (!o.ChangedOn) return null;
+        DateOnly now = today ?? DateOnly.FromDateTime(DateTime.Today);
+        return (Visible(items, o, now).Count, Visible(items, o with { ChangedFrom = null, ChangedTo = null }, now).Count);
+    }
+
     // ── Time periods (due and start dates) ──
     public static readonly IReadOnlyList<(string Key, string Label)> DuePeriods =
         [("overdue", "Overdue"), ("today", "Today"), ("week", "This week"), ("next", "Next week"), ("later", "Later"), ("none", "No due date")];
@@ -278,9 +321,6 @@ public static class BoardModel
         "none" => due is null,
         _ => true,
     };
-
-    /// <summary>An agent changed this item, or added one of its subtasks, and the user has not reviewed it.</summary>
-    public static bool AgentFlag(WorkItem it) => it.AgentUnreviewed || it.Subtasks.Any(s => s.Agent is not null);
 
     /// <summary>Key of a list column (Title, Status, …) in the hidden list, next to the board columns' keys.</summary>
     public static string ListColumnKey(string title) => "col:" + title;

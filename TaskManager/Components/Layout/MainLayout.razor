@@ -72,14 +72,14 @@ else
         self = DotNetObjectReference.Create(this);
         systemDark = await Js.InvokeAsync<bool>("rtm.watchDark", self);   // current OS setting + notify on change
         bool narrow = await Js.InvokeAsync<bool>("rtm.watchNarrow", self);
-        if (narrow != narrowWindow) { narrowWindow = narrow; StateHasChanged(); }
+        if (narrow != narrowWindow) { narrowWindow = narrow; Popups.SetNarrowWindow(narrow); StateHasChanged(); }
         await ApplyTheme();
     }
 
     private bool narrowWindow;   // too narrow for the split screen: the list beside an open item is hidden, so not rendered
 
     [JSInvokable]
-    public Task NarrowChanged(bool narrow) => InvokeAsync(() => { narrowWindow = narrow; StateHasChanged(); });
+    public Task NarrowChanged(bool narrow) => InvokeAsync(() => { narrowWindow = narrow; Popups.SetNarrowWindow(narrow); StateHasChanged(); });
 
     [JSInvokable]
     public Task SystemDarkChanged(bool isDark)

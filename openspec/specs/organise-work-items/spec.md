@@ -676,3 +676,21 @@ A list row SHALL have no drag handle. Pressing anywhere on a row (not on a contr
 #### Scenario: Click
 - **WHEN** the user clicks a row's title
 - **THEN** the item opens
+
+### Requirement: Project name opens its options
+With several projects open, clicking a project's name on the board or in the list SHALL open a menu with Collapse (or Expand when collapsed) and Hide project, and Make it the active project for a project that is not the active one. The header SHALL show no "active" label and no options icon. A Shift-click SHALL select the project without opening the menu.
+
+#### Scenario: Collapse from the name
+- **WHEN** the user clicks a project's name and picks Collapse
+- **THEN** its columns close and the menu then offers Expand
+
+#### Scenario: Shift-click
+- **WHEN** the user Shift-clicks the project's name
+- **THEN** the project is selected and no menu opens
+
+### Requirement: No agent-review filter
+The side menu SHALL NOT offer an "agent work to review" filter; settings saved with it SHALL still load.
+
+#### Scenario: Old settings
+- **WHEN** the app opens settings that still carry the agent-only option
+- **THEN** the board loads and shows every item the other filters leave

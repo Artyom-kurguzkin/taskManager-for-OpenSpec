@@ -466,4 +466,61 @@ public sealed class KeepingNotesTests
         Assert.EndsWith("The body survives.\n", after);
         Assert.Equal("Ping: pong #1", NotesApi.Get(7)!.Title);
     }
+    // ── note kinds ──
+
+    [Fact(DisplayName = "A note can be a decision: created with kind decision it reads back as one, SetKind turns a note into a decision or back, and an ordinary note has no kind")]
+    public void DecisionNotes()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message, int id) = NotesApi.Create(123, "Claude", DateTime.Now, "decision");
+        Assert.True(ok, message);
+        Assert.Equal("decision", NotesApi.Get(id)!.Kind);
+        Assert.Contains("kind: decision", repo.Read("openspec/changes/add-health-check/notes/n" + id + ".md"));
+
+        (ok, message, int plain) = NotesApi.Create(123, "Claude");
+        Assert.True(ok, message);
+        Assert.Null(NotesApi.Get(plain)!.Kind);
+        Assert.DoesNotContain("kind:", repo.Read("openspec/changes/add-health-check/notes/n" + plain + ".md"));
+
+        (ok, message) = NotesApi.SetKind(plain, "decision");
+        Assert.True(ok, message);
+        Assert.Equal("decision", NotesApi.Get(plain)!.Kind);
+        (ok, message) = NotesApi.SetKind(plain, null);
+        Assert.True(ok, message);
+        Assert.Null(NotesApi.Get(plain)!.Kind);
+        Assert.False(NotesApi.SetKind(plain, "poem").Success);   // only known kinds
+    }
+
+    // ── events for every write ──
+
+    [Fact(DisplayName = "Attaching a file or a URL to a note records an attachment-added event on its work item naming the note and the file")]
+    public void AttachmentsAreRecordedOnTheWorkItem()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        string src = Path.Combine(Path.GetTempPath(), "rtm-att-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(src);
+            string file = Path.Combine(src, "shot.txt");
+            File.WriteAllText(file, "evidence");
+
+            Assert.True(NotesApi.AttachFile(123, file).Success);
+            Assert.True(NotesApi.AttachFile(123, file).Success);   // stored as shot-2.txt
+            Assert.True(NotesApi.AttachBytes(123, "pasted.png", [1, 2, 3]).Success);
+            Assert.True(NotesApi.AttachLink(123, "https://example.com/x").Success);
+            Assert.False(NotesApi.AttachLink(123, "notaurl").Success);   // refused: nothing recorded
+            Assert.True(NotesApi.RemoveAttachment(123, "https://example.com/x").Success);   // removing is not an addition
+
+            var events = WorkItemsApi.GetEvents(NotesApi.Get(123)!.WorkItemId);
+            Assert.Equal(
+                [("attachment-added", "n123: shot.txt"), ("attachment-added", "n123: shot-2.txt"), ("attachment-added", "n123: pasted.png"), ("attachment-added", "n123: https://example.com/x")],
+                events.Select(e => (e.Kind, e.Text)));
+            Assert.All(events, e => Assert.Equal("Tester", e.By));
+        }
+        finally { WorkItemsApi.ConfigureActor(null); try { Directory.Delete(src, true); } catch (IOException) { } }
+    }
 }

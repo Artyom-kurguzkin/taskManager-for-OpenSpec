@@ -4,25 +4,30 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using TaskManager.Mcp;
 
 namespace TaskManager.Hosting;
 
 /// <summary>
-/// --mcp [--agent X]: the stdio server agents start from .mcp.json. Finds the headless server (server.json + /health),
-/// starts it when absent, replaces it when its version differs, and relays JSON-RPC lines to POST /mcp unchanged.
-/// When the server cannot be reached it serves the tools in this process instead.
+/// --mcp [--agent X]: the stdio server agents start from .mcp.json. Finds the headless server (server.json + /health) and
+/// relays JSON-RPC lines to POST /mcp unchanged. It never starts a server: the desktop app does, and the server ends with it.
+/// While no server answers, initialize, ping and tools/list are answered here (so the client connects) and every other request
+/// gets an error asking the user to open the app; the next request finds the server once it is up, with no restart of the shim.
 /// stdout is protocol only: everything else goes to stderr.
 /// </summary>
 public static class McpShim
 {
+    public const string AppNotRunning = "The Repo Tasks app is not running. Ask the user to open it; the board tools start with it.";
+
     private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
     private static readonly SemaphoreSlim EnsureLock = new(1);
     private static readonly string Token = Paths.Token();
     private static readonly UTF8Encoding Utf8 = new(false);
-    private static int _port;
+    private static int? _port;
 
     public static async Task<int> RunAsync(string[] args)
     {
@@ -30,13 +35,8 @@ public static class McpShim
         if (agent is not null) Environment.SetEnvironmentVariable("RTM_AGENT", agent);
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RTM_REPO"))) Environment.SetEnvironmentVariable("RTM_REPO", Environment.CurrentDirectory);
 
-        if (await EnsureServerAsync() is { } port) _port = port;
-        else
-        {
-            Console.Error.WriteLine("rtm-mcp: no headless server reachable; serving in this process");
-            await ServeInProcessAsync();
-            return 0;
-        }
+        _port = await FindServerAsync();
+        if (_port is null) Console.Error.WriteLine("rtm-mcp: the Repo Tasks app is not running; tool calls ask for it until it is");
 
         using StreamReader stdin = new(Console.OpenStandardInput(), Utf8);
         using StreamWriter stdout = new(Console.OpenStandardOutput(), Utf8) { AutoFlush = true, NewLine = "\n" };
@@ -58,25 +58,60 @@ public static class McpShim
         return 0;
     }
 
-    /// <summary>POSTs one message; once more after re-ensuring the server if the connection failed (the server was killed or went idle).</summary>
+    /// <summary>Relays one message to the server; when none answers, answers it here (or with the "open the app" error).</summary>
     private static async Task RelayAsync(string line, Func<string, Task> write)
     {
         try
         {
-            try { await PostAsync(line, write); }
-            catch (HttpRequestException)
+            _port ??= await FindServerAsync();
+            if (_port is not null)
             {
-                _port = await EnsureServerAsync() ?? throw new InvalidOperationException("the board server is gone and could not be restarted");
-                await PostAsync(line, write);
+                try { await PostAsync(line, write); return; }
+                catch (HttpRequestException) { _port = await FindServerAsync(); }   // the app was closed, or restarted on another port
+                if (_port is not null) { await PostAsync(line, write); return; }
             }
+            if (Offline(line) is { } answer) await write(answer);
         }
         catch (Exception e)
         {   // a request must always get an answer, or the agent waits forever
             Console.Error.WriteLine($"rtm-mcp: {e.Message}");
-            if (JsonNode.Parse(line)?["id"] is { } id)
-                await write(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["error"] = new JsonObject { ["code"] = -32603, ["message"] = e.Message } }.ToJsonString());
+            if (JsonNode.Parse(line)?["id"] is { } id) await write(Error(id, e.Message));
         }
     }
+
+    private static string Error(JsonNode id, string message) =>
+        new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["error"] = new JsonObject { ["code"] = -32603, ["message"] = message } }.ToJsonString();
+
+    /// <summary>The reply when no server answers: null for a notification, the connection handshake answered here, else the error.</summary>
+    private static string? Offline(string line)
+    {
+        if (JsonNode.Parse(line) is not JsonObject request || request["id"] is not { } id) return null;
+        JsonNode? result = request["method"]?.GetValue<string>() switch
+        {
+            "initialize" => Initialize(request["params"]?["protocolVersion"]?.GetValue<string>()),
+            "ping" => new JsonObject(),
+            "tools/list" => JsonSerializer.SerializeToNode(new ListToolsResult { Tools = [.. Options.Value.ToolCollection!.Select(t => t.ProtocolTool)] }, McpJsonUtilities.DefaultOptions),
+            _ => null,
+        };
+        return result is null ? Error(id, AppNotRunning)
+            : new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id.DeepClone(), ["result"] = result }.ToJsonString();
+    }
+
+    private static readonly Lazy<IOptions<McpServerOptions>> LazyOptions = new(() =>
+    {   // the tool list and server info are the server's own definitions, built without a transport
+        ServiceCollection services = new();
+        services.AddMcpServer().AddBoardTools();
+        return services.BuildServiceProvider().GetRequiredService<IOptions<McpServerOptions>>();
+    });
+    private static IOptions<McpServerOptions> Options => LazyOptions.Value;
+
+    private static JsonObject Initialize(string? protocolVersion) => new()
+    {
+        ["protocolVersion"] = protocolVersion ?? "2025-06-18",
+        ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
+        ["serverInfo"] = new JsonObject { ["name"] = Options.Value.ServerInfo?.Name, ["version"] = Options.Value.ServerInfo?.Version },
+        ["instructions"] = Options.Value.ServerInstructions,
+    };
 
     private static async Task PostAsync(string line, Func<string, Task> write)
     {
@@ -101,8 +136,23 @@ public static class McpShim
         else if (!res.IsSuccessStatusCode) throw new InvalidOperationException($"the board server answered HTTP {(int)res.StatusCode}");
     }
 
-    /// <summary>The port of a running server of this version: the existing one, an older one replaced, or a freshly started one.</summary>
-    internal static async Task<int?> EnsureServerAsync()
+    /// <summary>The port of a server that answers /health (server.json first), of any version, or null. Starts nothing.</summary>
+    internal static async Task<int?> FindServerAsync() =>
+        Paths.ReadServerJson() is { } info && await VersionAtAsync(info.Port) is not null ? info.Port : null;
+
+    /// <summary>The arguments that start the headless server: with a parent pid it ends with that process and never idles out.</summary>
+    public static string ServeArgs(int? parentPid)
+    {
+        string head = Path.GetFileNameWithoutExtension(Environment.ProcessPath!).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+            ? $"\"{typeof(McpShim).Assembly.Location}\" --serve" : "--serve";
+        return parentPid is { } pid ? $"{head} --parent {pid} --idle 0" : head;
+    }
+
+    /// <summary>
+    /// The port of a running server of this version: the existing one, an older one replaced, or a freshly started one.
+    /// Only the desktop app calls it (with its own pid as <paramref name="parentPid"/>): the shim never starts a server.
+    /// </summary>
+    internal static async Task<int?> EnsureServerAsync(int? parentPid = null)
     {
         await EnsureLock.WaitAsync();
         try
@@ -113,14 +163,11 @@ public static class McpShim
                 await ShutdownAsync(info.Port);   // Bazel's way: an older server is asked to leave, then ours starts
                 for (int i = 0; i < 50 && await VersionAtAsync(info.Port) is not null; i++) await Task.Delay(100);
             }
-            string exe = Environment.ProcessPath!;
-            string args = Path.GetFileNameWithoutExtension(exe).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
-                ? $"\"{typeof(McpShim).Assembly.Location}\" --serve" : "--serve";
-            // The server must not hold this shim's stdio pipes, or the agent never sees EOF after the shim exits (checked:
+            // The server must not hold the stdio pipes of whoever starts it (an agent never sees EOF after a shim exits; checked:
             // it hangs). CreateProcess hands every inheritable handle to the child, so make ours non-inheritable, redirect
             // all three of the child's streams to pipes of its own, and close our ends at once.
             if (OperatingSystem.IsWindows()) foreach (int std in new[] { -10, -11, -12 }) SetHandleInformation(GetStdHandle(std), 1, 0);
-            using (Process server = Process.Start(new ProcessStartInfo(exe, args)
+            using (Process server = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, ServeArgs(parentPid))
             { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true })!)
             {
                 server.StandardInput.Close();
@@ -167,14 +214,5 @@ public static class McpShim
             (await Http.SendAsync(req, timeout.Token)).Dispose();
         }
         catch { /* already gone */ }
-    }
-
-    private static async Task ServeInProcessAsync()
-    {
-        HostApplicationBuilder b = Host.CreateApplicationBuilder();
-        b.Logging.ClearProviders();
-        b.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);   // stdout belongs to the protocol
-        b.Services.AddMcpServer().WithStdioServerTransport().AddBoardTools();
-        await b.Build().RunAsync();
     }
 }

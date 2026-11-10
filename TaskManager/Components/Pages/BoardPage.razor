@@ -25,6 +25,10 @@ else if (View == "calendar")
 {
     <Roadmap Projects="RoadmapProjects" Multi="Multi" ColorBy="@O.ColorBy" OnOpen="OpenFrom" />
 }
+else if (View == "analytics")
+{
+    <Analytics Items="AnalyticsItems" Features="@(Active?.Features ?? [])" Events="AnalyticsEvents" Charts="AnalyticsModel.Charts(O)" ChartsChanged="SetCharts" Project="@(Multi ? Active?.Name ?? "" : "")" />
+}
 else if (View == "list")
 {
     @* The list is a Radzen DataGrid over the projects' columns: one row per work item per column, in the board's order, grouped by
@@ -48,7 +52,7 @@ else if (View == "list")
                 @if (IsProjectGroup(context))
                 {
                     string pname = (string)context.Data.Key;
-                    <b class="gname proj-name">@pname</b>
+                    <b class="gname proj-name">@if (projects.FirstOrDefault(pr => pr.Name == pname) is { } gp) { @ProjectName(gp) } else { @pname }</b>
                 }
                 else if (IsSwimGroup(context))
                 {
@@ -193,15 +197,7 @@ else
                         <div class="proj-h @(selectedProjects.Contains(p.Root) ? "selected" : "")" @onclick="e => ProjectClick(p.Root, e)" @onclick:stopPropagation="true">
                             <button class="chev @(Collapsed(p) ? "" : "open")" @onclick:stopPropagation="true" aria-expanded="@(Collapsed(p) ? "false" : "true")" aria-label="@(Collapsed(p) ? $"Expand {p.Name}" : $"Collapse {p.Name}")"
                                     @onclick="() => Settings.ToggleProjectCollapsed(p.Root)">@Ui.Icon("chev")</button>
-                            <h2>@p.Name</h2>
-                            @if (IsActive(p)) { <span class="muted">active</span> }
-                            <Menu Label="Project options">
-                                <Activator><button type="button" class="ic" aria-label="Project options" title="Project options">@Ui.Icon("sliders")</button></Activator>
-                                <Items>
-                                    @if (!IsActive(p)) { <MenuItem OnClick="() => Workspace.Open(p.Root)">Make it the active project</MenuItem> }
-                                    <MenuItem OnClick="() => Settings.ToggleProjectHidden(p.Root)">Hide project</MenuItem>
-                                </Items>
-                            </Menu>
+                            <h2>@ProjectName(p)</h2>
                         </div>
                     }
                     @if (!Multi || !Collapsed(p))
@@ -267,13 +263,27 @@ else
         <button class="btn ghost" @onclick="() => selected.Clear()">Clear</button>
     </div>
 }
-else if (View == "list" || O.Unit == "tasks")
+else if (View != "analytics" && (View == "list" || O.Unit == "tasks"))
 {
     @* shown by the drag script while Shift is held (body.shift-held), so select mode announces itself before the first click *@
     <div class="actionbar select-hint"><span class="n">Select mode</span><span class="muted">@(View == "list" ? "Shift-click rows to select them" : "Shift-click cards to select them")</span></div>
 }
 
 @code {
+    // A project's name, on the board's heading and the list's project row: a plain click opens its menu (fold, switch to it, hide);
+    // a Shift / Ctrl / ⌘-click is the heading's select click, so the menu stays shut for it.
+    private RenderFragment ProjectName(Project p) => __builder =>
+    {
+        <Menu Label="Project options" IgnoreModifiedClick="true">
+            <Activator><button type="button" class="proj-name-btn hov" aria-haspopup="menu">@p.Name</button></Activator>
+            <Items>
+                <MenuItem OnClick="() => ToggleProjectCollapsed(p)">@(Collapsed(p) ? "Expand" : "Collapse")</MenuItem>
+                @if (!IsActive(p)) { <MenuItem OnClick="() => Workspace.Open(p.Root)">Make it the active project</MenuItem> }
+                <MenuItem OnClick="() => Settings.ToggleProjectHidden(p.Root)">Hide project</MenuItem>
+            </Items>
+        </Menu>
+    };
+
     // A list column's header: its title and a × that hides it (the side menu's Hidden list brings it back).
     private RenderFragment Head(string column) => __builder =>
     {

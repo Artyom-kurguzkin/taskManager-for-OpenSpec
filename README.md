@@ -99,16 +99,17 @@ This adds `dist\TaskManager-small.exe`, which shares the same `dist\wwwroot\`.
 
 ## Agents over MCP
 
-The app can serve the board to coding agents (Claude Code and other [MCP](https://modelcontextprotocol.io/) clients) as seven tools: `board_list`, `board_get`, `board_features`, `board_create`, `board_update`, `board_note` and `board_validate`. They sit on the same code the app uses, so ids are allocated under a lock, what an agent writes is signed with its name, and test names and OpenSpec validity are checked, instead of an agent following the conventions in `openspec/REPO-TASKS.md` by hand (that file stays as the fallback and is rewritten with the instructions for the tools).
+The app can serve the board to coding agents (Claude Code and other [MCP](https://modelcontextprotocol.io/) clients) as eight tools: `board_list`, `board_get`, `board_features`, `board_create`, `board_update`, `board_note`, `board_log` and `board_validate`. They sit on the same code the app uses, so ids are allocated under a lock, what an agent writes is signed with its name, and test names and OpenSpec validity are checked, instead of an agent following the conventions in `openspec/REPO-TASKS.md` by hand (that file stays as the fallback and is rewritten with the instructions for the tools). With the tools loaded they are the only way to touch the board, and the supervisor and every subagent log as they go: one short `board_note` per event while the work is in progress (chunk started, tests red, a blocker, a command and its result, chunk finished), and each decision as a decision note (`kind: "decision"`: what was decided, why, what it rules out), which the worklog emphasises.
 
 | Tool | What it does |
 |---|---|
 | `board_list` | work items filtered by status, feature, label, contributor, title text or `ready` (can be started now), in pages |
 | `board_get` | one item in full: description, subtasks, notes, the worklog (notes and events, newest first), delta specs, linked tests with their outcome, commits, documents, dependencies, and its `revision` |
 | `board_features` | the features with the open items on each |
-| `board_create` | a new work item with the next id: proposal, subtasks, delta specs, plan and dependencies, signed and validated |
-| `board_update` | status, priority, label, feature, dates, plan, dependencies, contributors, description, tests, commits, documents, subtasks and specs of an item |
-| `board_note` | a worklog entry on an item (a note, with the next note id); the title is optional |
+| `board_create` | a new work item with the next id: proposal, subtasks, delta specs, plan and dependencies, signed and validated; the change folder is `folder` or the first words of the title (at most 6 words and 48 characters) |
+| `board_update` | status, priority, label, feature, dates, plan, dependencies, contributors, description, tests, commits, documents, subtasks and specs of an item; `testsAdd`, `testsRemove`, `docsAdd`, `docsRemove` and `commitsAdd` change a list without re-sending it; `note` writes a worklog note in the same call; `resolution` (`cancelled`, `duplicate of #wiN`, `superseded by #wiN`) hides the item and writes the decision note |
+| `board_note` | a worklog entry on an item (a note, with the next note id) and the item's new `revision`; the title is optional |
+| `board_log` | one line in an item's worklog (`kind: log`, at most 300 characters, no note file), for events like "ran the suite: 525 passed"; returns the new `revision` |
 | `board_validate` | `openspec validate --strict` for one item or every open one, plus the app's own warnings |
 
 What the tools guarantee:
@@ -122,11 +123,11 @@ One server serves every repository on the machine. The same exe runs in three wa
 
 | Command | What it does |
 |---|---|
-| `TaskManager.exe` | the desktop app. It does not serve the tools itself; **Settings → Agents over MCP** shows whether the server is running, on which port, and starts or stops it |
-| `TaskManager.exe --serve [--port N] [--idle H]` | headless server for streamable HTTP MCP at `http://127.0.0.1:7431/mcp` (loopback only); exits after `H` idle hours (three by default, `--idle 0` = never) |
-| `TaskManager.exe --mcp [--agent X]` | stdio entry for MCP clients: finds the server, starts it when none is running, replaces one left over from an older build, and forwards to it. If no server can be reached it serves the tools in its own process |
+| `TaskManager.exe` | the desktop app. It starts the server when it opens (a newer build replaces an older server); **Settings → Agents over MCP** shows whether it is running, on which port, and starts or stops it |
+| `TaskManager.exe --serve [--port N] [--idle H] [--parent PID]` | headless server for streamable HTTP MCP at `http://127.0.0.1:7431/mcp` (loopback only). The app starts it with `--parent <its pid>`, and it exits when that process ends. Without `--parent` it exits after `H` idle hours (three by default, `--idle 0` = never) |
+| `TaskManager.exe --mcp [--agent X]` | stdio entry for MCP clients: finds the running server and forwards to it. It never starts one: while the app is closed a tool call gets an error asking you to open it, and the next call works once you have |
 
-The desktop app and the server are separate processes on purpose: the app shows what an agent wrote within a moment (it watches the files), and an agent reads what you changed in the app on its next call.
+The server runs while the app is open: open the app before using the tools, and closing it stops the server. The two are separate processes on purpose: the app shows what an agent wrote within a moment (it watches the files), and an agent reads what you changed in the app on its next call.
 
 Most clients want the stdio entry. Add this to `.mcp.json` in the repository the agents work in (the Settings page shows it with this machine's path; `claude mcp add repo-tasks -- <path to TaskManager.exe> --mcp` does the same):
 
@@ -152,11 +153,11 @@ A client that only speaks HTTP connects to `--serve` with the header `Authorizat
 | Environment variable | What it does |
 |---|---|
 | `RTM_AGENT` | the name the tools sign with (default `Claude`); `--agent X` and a tool's `agent` argument override it |
-| `RTM_PORT` | the port a server started by the stdio entry listens on (default 7431) |
+| `RTM_PORT` | the port the app's server listens on (default 7431) |
 | `RTM_HOME` | where the token, `server.json` and logs live instead of `%LOCALAPPDATA%\RepoTaskManager`, for demos and tests |
 | `RTM_APP` | not read by the app: the variable a committed `.mcp.json` can use for the exe's path (above) |
 
-When something goes wrong, the server's log is `%LOCALAPPDATA%\RepoTaskManager\logs\serve-<date>.log`; the stdio entry logs to stderr, which the client shows. After `dotnet publish` or a rebuild, the next agent that connects replaces the running server with the new build by itself.
+When something goes wrong, the server's log is `%LOCALAPPDATA%\RepoTaskManager\logs\serve-<date>.log`; the stdio entry logs to stderr, which the client shows. After `dotnet publish` or a rebuild, the app replaces a running server of an older build when it starts.
 
 ## Where things are stored
 
@@ -181,7 +182,7 @@ A modular monolith with one static class library per domain entity, plus the app
 - `GitHistory/`: git CLI wrapper
 - `Features/`, `WorkItems/`, `Notes/`: the domain modules
 - `LinkedTestRuns/`: reads the latest test results file for linked tests
-- `TaskManager.Mcp/`: the seven `board_*` MCP tools over the modules (no UI, no host)
+- `TaskManager.Mcp/`: the eight `board_*` MCP tools over the modules (no UI, no host)
 - `TaskManager/`: the Photino + Blazor app, the only project with UI; `Hosting/` holds the headless server (`--serve`) and the stdio entry (`--mcp`)
 - `TaskManager.Tests/`: xunit and bUnit tests, plus a sample repo in `Fixtures/`
 - `openspec/`: this project's own specs and changes

@@ -1372,8 +1372,8 @@ public sealed class EditingWorkItemsTests
             Assert.True(ok, message);
 
             IReadOnlyList<WorkItemEvent> events = WorkItemsApi.GetEvents(merged);
-            Assert.Equal([("Ann", "created"), ("Bob", "status"), ("Tester", "created")], events.Select(e => (e.By, e.Kind)));   // sorted by time, then its own created
-            Assert.Equal(WorkItemsApi.Get(merged)!.Title, events[^1].Text);
+            Assert.Equal([("Ann", "created"), ("Bob", "status"), ("Tester", "created"), ("Tester", "merged-from")], events.Select(e => (e.By, e.Kind)));   // sorted by time, then its own created, then what was merged in
+            Assert.Equal(WorkItemsApi.Get(merged)!.Title, events[2].Text);
             Assert.False(Directory.Exists(Path.Combine(WorkItemsApi.Get(merged)!.Path, "from-wi107")));   // the log is carried over, not copied as a stray file
         }
         finally { WorkItemsApi.ConfigureActor(null); }
@@ -1539,5 +1539,115 @@ public sealed class EditingWorkItemsTests
         Assert.Null(after.Plan);   // an empty text is left out, as null is: no plan
         Assert.Equal(before.Contributors, after.Contributors);
         YamlChecks.Valid(File.ReadAllText(yaml), ["", "abc1234"]);
+    }
+
+    // ── events for every write ──
+
+    [Fact(DisplayName = "Changing the title, priority, label, dates or feature records one event each with the old and the new value, and nothing when the value did not change")]
+    public void HeaderFieldChangesAreRecorded()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        try
+        {
+            Assert.True(WorkItemsApi.SetTitle(123, " Health endpoint ").Success);
+            Assert.True(WorkItemsApi.SetTitle(123, "Health endpoint").Success);   // same
+            Assert.True(WorkItemsApi.SetPriority(123, "low").Success);
+            Assert.True(WorkItemsApi.SetPriority(123, "low").Success);   // same
+            Assert.True(WorkItemsApi.SetLabel(123, "bug").Success);
+            Assert.True(WorkItemsApi.SetLabel(123, "bug").Success);   // same
+            Assert.True(WorkItemsApi.SetLabel(123, null).Success);
+            Assert.True(WorkItemsApi.SetStarted(123, new DateOnly(2026, 11, 3)).Success);
+            Assert.True(WorkItemsApi.SetStarted(123, new DateOnly(2026, 11, 3)).Success);   // same
+            Assert.True(WorkItemsApi.SetDue(123, new DateOnly(2026, 11, 20)).Success);
+            Assert.True(WorkItemsApi.SetStarted(123, null).Success);
+            Assert.True(WorkItemsApi.SetDue(123, null).Success);
+            Assert.True(WorkItemsApi.SetDates(123, new DateOnly(2026, 12, 1), new DateOnly(2026, 12, 9)).Success);   // both ends: one event
+            Assert.True(WorkItemsApi.SetDates(123, new DateOnly(2026, 12, 1), new DateOnly(2026, 12, 9)).Success);   // same
+            Assert.Equal(("2026-12-01", "2026-12-09"), (Item(123).Started?.ToString("yyyy-MM-dd"), Item(123).Due?.ToString("yyyy-MM-dd")));
+            Assert.True(WorkItemsApi.SetDates(123, null, null).Success);
+            Assert.True(WorkItemsApi.MoveFeature(123, "functional/banking").Success);
+            Assert.True(WorkItemsApi.MoveFeature(123, "functional/banking").Success);   // same
+            Assert.True(WorkItemsApi.MoveFeature(123, null).Success);
+
+            Assert.Equal(
+                [("title", "Health-check endpoint -> Health endpoint"),
+                 ("priority", "high -> low"),
+                 ("label", "none -> bug"), ("label", "bug -> none"),
+                 ("dates", "none -> 3 Nov – none"), ("dates", "3 Nov – none -> 3 Nov – 20 Nov"),
+                 ("dates", "3 Nov – 20 Nov -> none – 20 Nov"), ("dates", "none – 20 Nov -> none"),
+                 ("dates", "none -> 1 Dec – 9 Dec"), ("dates", "1 Dec – 9 Dec -> none"),
+                 ("feature", "non-functional/security -> functional/banking"), ("feature", "functional/banking -> none")],
+                Events(123));
+            Assert.All(WorkItemsApi.GetEvents(123), e => Assert.Equal("Tester", e.By));
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
+    [Fact(DisplayName = "Adding or removing a contributor and linking or unlinking the plan are recorded as events")]
+    public void ContributorsAndPlanAreRecorded()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        try
+        {
+            Assert.True(WorkItemsApi.SetContributors(123, ["Artyom", "Tom", "Ann"]).Success);
+            Assert.True(WorkItemsApi.SetContributors(123, ["Artyom", "Tom", "Ann"]).Success);   // same
+            Assert.True(WorkItemsApi.SetContributors(123, ["Artyom", "Ann"]).Success);
+
+            Assert.True(WorkItemsApi.SetPlan(123, "DevResources\\plans\\health-2026-11-10.md").Success);
+            Assert.True(WorkItemsApi.SetPlan(123, "DevResources/plans/health-2026-11-10.md").Success);   // same path
+            Assert.True(WorkItemsApi.SetPlan(123, "DevResources/plans/other.md").Success);
+            Assert.True(WorkItemsApi.SetPlan(123, null).Success);
+            Assert.True(WorkItemsApi.SetPlan(123, null).Success);   // nothing linked
+
+            Assert.Equal(
+                [("contributor-added", "Ann"), ("contributor-removed", "Tom"),
+                 ("plan-linked", "DevResources/plans/health-2026-11-10.md"),
+                 ("plan-unlinked", "DevResources/plans/health-2026-11-10.md"), ("plan-linked", "DevResources/plans/other.md"),
+                 ("plan-unlinked", "DevResources/plans/other.md")],
+                Events(123));
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
+    [Fact(DisplayName = "Editing the description records one event, and saving it unchanged records none")]
+    public void DescriptionEditsAreRecorded()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        try
+        {
+            Assert.True(WorkItemsApi.SetDescription(123, "## Why\n\nNew text.\n").Success);
+            Assert.True(WorkItemsApi.SetDescription(123, "## Why\n\nNew text.\n").Success);   // unchanged
+            Assert.True(WorkItemsApi.SetDescription(123, WorkItemsApi.GetDescription(123)).Success);   // read back and saved as it is
+
+            Assert.Equal([("description-edited", "proposal.md")], Events(123));
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
+    [Fact(DisplayName = "Merging work items records a merged-from event per source on the surviving item, and renaming records a title event")]
+    public void MergeAndRenameAreRecorded()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        try
+        {
+            string title107 = Item(107).Title, title125 = Item(125).Title;
+            (bool ok, string message, int merged) = WorkItemsApi.Merge([107, 123, 125], 123);
+            Assert.True(ok, message);
+            Assert.Equal(
+                [("merged-from", $"#wi107 {title107}"), ("merged-from", $"#wi125 {title125}")],
+                Events(merged).Where(e => e.Kind == "merged-from"));
+
+            Assert.True(WorkItemsApi.SetTitle(merged, "Renamed after the merge").Success);
+            Assert.Equal(("title", "Health-check endpoint -> Renamed after the merge"), Events(merged).Last());
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
     }
 }

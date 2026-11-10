@@ -60,6 +60,8 @@ function Start-HiddenApp([Parameter(Mandatory)][string]$RepoPath, [string]$Setti
         @{ LastRepo = $RepoPath; OpenRepos = @(@($RepoPath) + @($OpenRepos | Where-Object { $_ })) } | ConvertTo-Json | Set-Content $Settings
     }
     $env:RTM_SETTINGS = $Settings
+    # the app starts the board server it owns (#wi143): give this one a home and a port of its own, or it would replace the user's
+    $env:RTM_HOME = Join-Path $script:Out "rtm-home-$Port"; $env:RTM_PORT = "$($Port - 1900)"
     $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $script:Out "webview"
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$script:Port"
     $name = "rtm-hidden-$PID"

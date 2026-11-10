@@ -1,4 +1,4 @@
-<!-- repo-tasks-guide v14 plans=DevResources/plans attachments=local/task-tracking -->
+<!-- repo-tasks-guide v16 plans=DevResources/plans attachments=local/task-tracking -->
 # Repo Tasks: conventions for agents
 
 This repository's `openspec/` folder is shown and edited by the **Repo Tasks** app, a board of work items.
@@ -7,9 +7,9 @@ The app writes this file and refreshes it when it ships a newer version or the u
 
 ## 0. Use the `repo-tasks` tools when you have them
 
-The Repo Tasks app serves this board to agents over MCP (Model Context Protocol). The tools allocate ids under a lock, sign what they write, check test names and run the validator, so none of the hand rules below can be got wrong. Use them instead of editing files whenever you can.
+The Repo Tasks app serves this board to agents over MCP (Model Context Protocol). The tools allocate ids under a lock, sign what they write, check test names and run the validator, so none of the hand rules below can be got wrong. **When they are loaded they are the only way to touch the board.** Never edit anything under `openspec/` by hand while they load: create, update, note and validate through them.
 
-**Are they loaded?** Look for the seven `board_*` tools in your tool list (a client may prefix them with the server name, `mcp__repo-tasks__board_list`), or call `board_list`. In a terminal, `claude mcp list` shows `repo-tasks` and whether it is connected. If they answer, go to "Use them" below.
+**Are they loaded?** Look for the eight `board_*` tools in your tool list (a client may prefix them with the server name, `mcp__repo-tasks__board_list`), or call `board_list`. In a terminal, `claude mcp list` shows `repo-tasks` and whether it is connected. If they answer, go to "Use them" below.
 
 **Turn them on** when they are not loaded. Add this entry to `.mcp.json` at the repository root (or merge it into the `mcpServers` you already have), then restart the session or approve the server when the client asks:
 
@@ -29,7 +29,7 @@ The Repo Tasks app serves this board to agents over MCP (Model Context Protocol)
 - That path is the Repo Tasks exe **on the machine that wrote this file**; it is not the same on another machine. A `.mcp.json` that is committed can name an override: `"command": "${RTM_APP:-C:/Users/artyo/Documents/5-mine/repo-task-manager/dist/TaskManager-small.exe}"` runs the exe that the `RTM_APP` environment variable names, and this one otherwise.
 - The same in one command: `claude mcp add repo-tasks -- C:/Users/artyo/Documents/5-mine/repo-task-manager/dist/TaskManager-small.exe --mcp` (add `--scope project` to write `.mcp.json`, and `--env RTM_AGENT=<your name>` before the name to sign as yourself).
 - `RTM_AGENT` is the name the tools sign with (section 1); a tool's `agent` argument overrides it.
-- The stdio entry starts the app's server for you when none is running. A client that only speaks HTTP: run `TaskManager.exe --serve` (it keeps running, headless, and exits after three idle hours) and point the client at `http://127.0.0.1:7431/mcp` with the header `Authorization: Bearer <token>`, where the token is the content of the file `%LOCALAPPDATA%/RepoTaskManager/token` (created on first use, yours alone: never commit or paste it).
+- The app's server runs while the app is open; the stdio entry only connects to it, so the user has to open the app first (a tool call made while it is closed returns an error saying so). A client that only speaks HTTP: run `TaskManager.exe --serve` (headless; it exits after three idle hours) or use the one the app started, and point the client at `http://127.0.0.1:7431/mcp` with the header `Authorization: Bearer <token>`, where the token is the content of the file `%LOCALAPPDATA%/RepoTaskManager/token` (created on first use, yours alone: never commit or paste it).
 
 **Use them.** Every tool takes an optional `repo` (any path inside the repository; the default is the directory you work in).
 
@@ -48,20 +48,40 @@ The order is `board_create` (or `board_get` for an item that exists) → `board_
 - Update every open item your work touches, not only the one you were given (section 2 says which), and write `#wi<id>` / `#n<id>` links in the text.
 - An error message says what to fix; fix that and call again.
 
-**The worklog.** An item's page shows its worklog: its notes and a log of events, newest first. Status changes, links (commits, tests, `docs`, dependencies) and ticked subtasks are logged for you, under your name, whenever you use these tools, so do not write a note to say them. Write a `board_note` yourself for what the tools cannot see: a command you ran against a server or environment and what came back (put the output in a code block), a decision and why, a blocker, the result of a chunk of work. One short entry per event, as you go, not one summary at the end. `title` is optional (the first line of the body is used); link documents with `board_update`'s `docs` (repo-relative paths).
+**Looking through items.** When you are asked to look through the In Progress items (or any set of items), `board_get` each in detailed format and read its worklog, not only its description: the notes, decisions and events added since you last looked are part of the brief; say what is new before acting.
+
+**Log as you go.** An item's page shows its worklog: its notes and a log of events, newest first. Status changes, links (commits, tests, `docs`, dependencies) and ticked subtasks are logged for you, under your name, whenever you use these tools, so do not write a note to say them. The supervisor and every subagent write one short `board_note` per event while the work is in progress, not one summary at the end. Two sentences each, for:
+
+- chunk started: what and where;
+- tests red: which ones;
+- a blocker;
+- a command you ran and what came back (the output in a code block);
+- chunk finished: the `Passed!` line;
+- integration done.
+
+A subagent in a worktree passes `repo` = the main repository's path, so its entries land there and not in its copy, and its own name as `agent`. A one-line event (`ran the suite: 525 passed`) goes in `board_log` (no note file, at most 300 characters), and `board_update`'s `note` writes the hand-off note in the same call as the status, tests and commits. `title` is optional (the first line of the body is used); link documents with `board_update`'s `docs` (repo-relative paths).
+
+**Decisions.** Record each decision as its own decision note: `board_note` with `kind: "decision"` (by hand: `kind: decision` in the note's frontmatter). Keep it clear and brief: line one what was decided, line two why, at most a third line with what it rules out. The app emphasises decision notes in the worklog. For example:
+
+```
+board_note(id: 142, kind: "decision",
+  body: "Log entries are notes, decisions get kind: decision.\nWhy: the worklog can emphasise them without parsing text.\nRules out: a title prefix.")
+```
 
 **When no tools can be loaded** (no app on this machine, a client without MCP, the server will not start), the rest of this file is the fallback: the same changes by hand, in the same files, following sections 0a to 5.
 
 ## 0a. How to take on a task that is more than a quick fix
 
 1. **Research** how similar problems are solved in the industry before designing; note the sources.
-2. **Write a plan** in `DevResources/plans/<title-slug>-<yyyy-MM-dd>.md`: why, what others do, decisions, the chunks below, how it will be verified. Link it from the work item with `x-rtm.plan: DevResources/plans/<file>.md`; the app opens it from the item page.
+2. **Write a plan** in `DevResources/plans/<title-slug>-<yyyy-MM-dd>.md`: why, what others do, decisions, the chunks below, how it will be verified. Each decision of the plan also goes to the worklog as a decision note (section 0), one per decision. Link it from the work item with `x-rtm.plan: DevResources/plans/<file>.md`; the app opens it from the item page.
 3. **Split** the work into discrete chunks that can each be tested on their own (a unit test and a black-box check), as subtasks in `tasks.md` or as dependent work items (`x-rtm.dependsOn`).
 4. **Delegate** the chunks to cheaper models, each in its own git worktree so they never edit the same files. Keep the design decisions in the coordinating session. **Poll them** every few minutes (the worktree's `git status`) and ask a silent one for its status: completion notices get lost.
 5. When they come back, **verify** each chunk, merge it into the current branch and run the whole test suite for integration.
 6. **Update the board** (section 2) as you go, and leave the result **uncommitted** in the working tree for the user's review. Never commit unless the user asked.
 
 ## 1. Sign what you add or change (always)
+
+Sections 1 to 5 are the hand rules: they are only for when the `repo-tasks` tools are absent (section 0). With the tools loaded they sign, number and validate for you, and you do not edit these files.
 
 The app flags work done by an agent until the user has looked at it. So every time you **create or change** something here, sign it with your agent name (e.g. `Claude`, `Codex`), never the user's name:
 
@@ -133,8 +153,15 @@ yyyy-MM-ddTHH:mm:ss | <who> | <kind> | <text>
   - `commit-linked` / `commit-unlinked`: the commit hash, when you add or remove it in `x-rtm.commits`.
   - `test-linked` / `test-unlinked`: `Suite / Test`, when you add or remove it in `x-rtm.tests`.
   - `doc-linked` / `doc-unlinked`: the repo-relative path, when you add or remove it in `x-rtm.docs`.
-  - `subtask-done` / `subtask-reopened` / `subtask-added`: `<number> <text>`, e.g. `1.2 Refuse the 101st`.
+  - `subtask-done` / `subtask-reopened` / `subtask-added`: `<number> <text>`, e.g. `1.2 Refuse the 101st`; `subtask-added` also for subtasks written at creation.
   - `dependency-added` / `dependency-removed`: `#wi<id>` of the item it waits for.
+  - `title`: `Old -> New`, for a rename. `priority`, `label`: `Old -> New`. `dates`: what changed, e.g. `due 2026-11-20`.
+  - `feature`: `old -> new`.
+  - `contributor-added` / `contributor-removed`: the name.
+  - `plan-linked` / `plan-unlinked`: the repo-relative path of the plan.
+  - `description-edited`: `proposal.md`.
+  - `attachment-added`: `n<note>: <file>`, e.g. `n44: screenshot.png`.
+  - `merged-from`: on the item that survives a merge, one line per item merged into it, `#wi<id> <its title>`.
 - Linked documents are `x-rtm.docs: [<path>, …]` in the `x-rtm:` block: repo-relative paths, on one line.
 - What the log cannot say, a command you ran and what came back, a decision, a blocker, the result of a chunk of work, goes in a note (section 2), one short note per event, as you go.
 

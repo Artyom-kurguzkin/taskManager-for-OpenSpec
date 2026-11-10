@@ -14,7 +14,8 @@ using TaskManager.Mcp;
 namespace TaskManager.Hosting;
 
 /// <summary>
-/// --serve [--port N] [--idle H]: the one headless MCP server for every agent and repository.
+/// --serve [--port N] [--idle H] [--parent PID]: the one headless MCP server for every agent and repository; the desktop app starts
+/// it with its own pid as --parent, and it then exits when that process ends (and never idles out unless --idle says so).
 /// Stateless Streamable HTTP on 127.0.0.1 only, bearer token on everything but GET /health, Origin validated,
 /// server.json for discovery, POST /shutdown, exit after H idle hours (0 = never; fractions allowed).
 /// </summary>
@@ -23,7 +24,8 @@ public static class ServeHost
     public static async Task<int> RunAsync(string[] args)
     {
         int port = int.TryParse(Option(args, "--port"), out int p) ? p : Paths.Port;
-        double idleHours = double.TryParse(Option(args, "--idle"), CultureInfo.InvariantCulture, out double h) ? h : 3;
+        int? parentPid = int.TryParse(Option(args, "--parent"), out int pp) ? pp : null;   // the desktop app: the server lives and dies with it
+        double idleHours = double.TryParse(Option(args, "--idle"), CultureInfo.InvariantCulture, out double h) ? h : parentPid is null ? 3 : 0;
         TimeSpan idle = TimeSpan.FromHours(idleHours);
         byte[] token = Encoding.UTF8.GetBytes(Paths.Token());
 
@@ -80,6 +82,19 @@ public static class ServeHost
         app.Logger.LogInformation("serving MCP on http://127.0.0.1:{Port}/mcp (pid {Pid}, idle exit {Idle} h)", actual, Environment.ProcessId, idleHours);
 
         IHostApplicationLifetime lifetime = app.Lifetime;
+        if (parentPid is { } parent)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using System.Diagnostics.Process p = System.Diagnostics.Process.GetProcessById(parent);
+                    await p.WaitForExitAsync(lifetime.ApplicationStopping);
+                }
+                catch (ArgumentException) { /* the parent is already gone */ }
+                catch (OperationCanceledException) { return; }   // stopping anyway
+                app.Logger.LogInformation("parent process {Parent} ended, exiting", parent);
+                lifetime.StopApplication();
+            });
         if (idle > TimeSpan.Zero)
         {
             TimeSpan poll = TimeSpan.FromMilliseconds(Math.Clamp(idle.TotalMilliseconds / 4, 100, 30000));

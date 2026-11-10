@@ -2,7 +2,7 @@ schema: spec-driven
 created: 2026-11-09
 x-rtm:
   id: 121
-  title: One MCP server for every agent
+  title: Agent Sandbox & agent swarm stratefy for mcp access
   status: Planned
   priority: high
   contributors: [Artyom-kurguzkin, Claude]

@@ -21,7 +21,8 @@
             </div>
             <div class="range-f">
                 <span class="muted">@(pending is DateOnly p ? $"from {p:d MMM}: pick the end" : "pick the start")</span>
-                <button type="button" class="add range-clear" @onclick="Clear">Clear</button>
+                @if (ClearLabel is null) { <button type="button" class="add range-clear" @onclick="Clear">Clear</button> }
+                else if (Start is not null || End is not null) { <button type="button" class="add range-clear" @onclick="Clear">@ClearLabel</button> }
             </div>
         </div>
     </Items>
@@ -31,6 +32,10 @@
     [Parameter] public DateOnly? Start { get; set; }
     [Parameter] public DateOnly? End { get; set; }
     [Parameter] public string Label { get; set; } = "dates";
+    /// <summary>What the button reads while no range is set.</summary>
+    [Parameter] public string Empty { get; set; } = "no dates";
+    /// <summary>Names the button that clears the range ("Show all"), shown only while a range is set. Null keeps the plain "Clear" button.</summary>
+    [Parameter] public string? ClearLabel { get; set; }
     /// <summary>The new range; (null, null) when cleared.</summary>
     [Parameter] public EventCallback<(DateOnly? Start, DateOnly? End)> Changed { get; set; }
 
@@ -45,7 +50,7 @@
         (DateOnly s, DateOnly e) => $"{s:d MMM} – {e:d MMM}",
         (DateOnly s, null) => $"from {s:d MMM}",
         (null, DateOnly e) => $"due {e:d MMM}",
-        _ => "no dates",
+        _ => Empty,
     };
 
     private void Open()

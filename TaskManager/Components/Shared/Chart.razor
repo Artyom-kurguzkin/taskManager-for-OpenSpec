@@ -1,0 +1,178 @@
+@using System.Globalization
+@using Microsoft.AspNetCore.Components
+@using TaskManager.Board
+@* An inline SVG chart (column, bar, line or stacked column) of a ChartData: round-number ticks on the value axis, category labels
+   (turned or cut short, with the full text in a <title>, when they do not fit), a <title> on every mark for the hover text, and an
+   aria-label that sums the chart up. Colours are the board's CSS variables, so it follows the light and dark theme. *@
+@if (Data.Categories.Count == 0 || Data.Series.Count == 0)
+{
+    <p class="muted an-empty">Nothing to chart yet.</p>
+}
+else
+{
+    <svg class="chart" viewBox="0 0 @F(W) @F(H)" role="img" aria-label="@Aria" data-layout="@Spec.Layout">
+        @foreach (double t in Ticks)
+        {
+            double pos = Horizontal ? X0 + t / Top * PlotW : Y1 - t / Top * PlotH;
+            if (Horizontal)
+            {
+                <line class="grid" x1="@F(pos)" y1="@F(T)" x2="@F(pos)" y2="@F(Y1)" />
+                @Txt("tick", pos, Y1 + 15, "middle", F(t))
+            }
+            else
+            {
+                <line class="grid" x1="@F(X0)" y1="@F(pos)" x2="@F(X1)" y2="@F(pos)" />
+                @Txt("tick", X0 - 6, pos + 4, "end", F(t))
+            }
+        }
+        @foreach (Mark m in Marks)
+        {
+            <rect class="m" x="@F(m.X)" y="@F(m.Y)" width="@F(m.W)" height="@F(m.H)" rx="2" style="fill:var(@m.Colour)"><title>@m.Title</title></rect>
+            if (m.Value is string v)
+            {
+                @Txt("val", Horizontal ? m.X + m.W + 4 : m.X + m.W / 2, Horizontal ? m.Y + m.H / 2 + 4 : m.Y - 4, Horizontal ? "start" : "middle", v)
+            }
+        }
+        @foreach (Polyline l in Lines)
+        {
+            <polyline class="ln" points="@l.Points" style="stroke:var(@l.Colour)" />
+            @foreach (Mark m in l.Dots)
+            {
+                <circle class="dot" cx="@F(m.X)" cy="@F(m.Y)" r="3.5" style="fill:var(@m.Colour)"><title>@m.Title</title></circle>
+            }
+        }
+        @* the axis lines last, over the marks *@
+        @if (Horizontal) { <line class="axis" x1="@F(X0)" y1="@F(T)" x2="@F(X0)" y2="@F(Y1)" /> }
+        else { <line class="axis" x1="@F(X0)" y1="@F(Y1)" x2="@F(X1)" y2="@F(Y1)" /> }
+        @for (int i = 0; i < N; i++)
+        {
+            string full = Data.Categories[i], text = Cut(full, LabelChars);
+            double c = Centre(i);
+            if (Horizontal)
+            {
+                @Txt("cat", X0 - 6, c + 4, "end", text, full)
+            }
+            else if (Turned)
+            {
+                @Txt("cat", c, Y1 + 12, "end", text, full, $"rotate(-40 {F(c)} {F(Y1 + 12)})")
+            }
+            else
+            {
+                @Txt("cat", c, Y1 + 16, "middle", text, full)
+            }
+        }
+    </svg>
+}
+
+@code {
+    [Parameter, EditorRequired] public ChartSpec Spec { get; set; } = default!;
+    [Parameter, EditorRequired] public ChartData Data { get; set; } = default!;
+
+    private sealed record Mark(double X, double Y, double W, double H, string Colour, string Title, string? Value = null);
+    private sealed record Polyline(string Points, string Colour, IReadOnlyList<Mark> Dots);
+
+    // ponytail: no zoom and no tooltips beyond the <title>s; reach for a chart library only if the charts ever need exploring, not reading.
+    private const double T = 12, CharW = 6.2;
+    private double W => 560;
+    private double H => Horizontal ? Math.Max(300, T + 30 + N * (K * 13 + 9)) : 300;
+    private double R => Horizontal ? 30 : 12;
+    private int N => Data.Categories.Count;
+    private int K => Data.Series.Count;
+    private bool Horizontal => Spec.Layout == "bar";
+    private bool Stacked => Spec.Layout == "stacked" && K > 1;
+    private bool IsLine => Spec.Layout == "line";
+
+    // the value axis: round-number ticks up to the largest value (a stack's total when stacked)
+    private double Largest => Stacked ? Enumerable.Range(0, N).Max(i => Data.Series.Sum(s => s.Values[i])) : Data.Series.Max(s => s.Values.Max());
+    private (double Top, double Step) Axis
+    {
+        get
+        {
+            double max = Largest <= 0 ? 1 : Largest, raw = max / 4, mag = Math.Pow(10, Math.Floor(Math.Log10(raw)));
+            double step = Math.Max(1, new[] { 1d, 2, 5, 10 }.Select(m => m * mag).First(s => s >= raw - 1e-9));
+            return (Math.Ceiling(max / step) * step, step);
+        }
+    }
+    private double Top => Axis.Top;
+    private IEnumerable<double> Ticks => Enumerable.Range(0, (int)Math.Round(Top / Axis.Step) + 1).Select(n => n * Axis.Step);
+
+    // the plot area: category labels sit left of a bar chart, under any other
+    private int LabelChars => Horizontal ? 22 : Turned ? 16 : Math.Max(3, (int)(Slot / CharW));
+    private double X0 => Horizontal ? Math.Min(150, 12 + Math.Min(22, Data.Categories.Max(c => c.Length)) * CharW) : 12 + F(Top).Length * 7;
+    private double X1 => W - R;
+    private double Y1 => H - (Horizontal ? 26 : Turned ? 74 : 26);
+    private double PlotW => X1 - X0;
+    private double PlotH => Y1 - T;
+    private double Slot => (Horizontal ? PlotH : PlotW) / N;
+    private bool Turned => !Horizontal && Data.Categories.Max(c => c.Length) > (int)(PlotW / N / CharW);   // the labels do not fit side by side
+    private double Centre(int i) => (Horizontal ? T : X0) + (i + .5) * Slot;
+
+    // Razor reads a <text> tag as its own block marker, so the SVG text elements are written as markup here; the full text, when cut, goes in a <title>.
+    private static MarkupString Txt(string cls, double x, double y, string anchor, string text, string? full = null, string? transform = null)
+    {
+        string e(string s) => System.Net.WebUtility.HtmlEncode(s);
+        return new($"<text class=\"{cls}\" x=\"{F(x)}\" y=\"{F(y)}\" text-anchor=\"{anchor}\"{(transform is null ? "" : $" transform=\"{transform}\"")}>{(full is not null && full != text ? $"<title>{e(full)}</title>" : "")}{e(text)}</text>");
+    }
+
+    private static string Cut(string s, int n) => s.Length <= n ? s : s[..Math.Max(1, n - 1)] + "…";
+    private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private string ColourOf(int series, int category) => K == 1 && Data.CategoryColours is { } cc && !IsLine ? cc[category] : Data.Series[series].ColourKey;
+    private string TitleOf(int series, int category) =>
+        (K == 1 ? Data.Categories[category] : $"{Data.Categories[category]} · {Data.Series[series].Name}") + ": " + F(Data.Series[series].Values[category]);
+
+    private IEnumerable<Mark> Marks
+    {
+        get
+        {
+            if (IsLine) yield break;
+            double top = Top;
+            for (int i = 0; i < N; i++)
+            {
+                double used = 0;   // a stack's height so far
+                double band = Math.Min(Slot * .72, (Stacked ? 1 : K) * 56), bw = Stacked ? band : band / K;
+                for (int s = 0; s < K; s++)
+                {
+                    double v = Data.Series[s].Values[i];
+                    if (v <= 0 && !(K == 1)) continue;
+                    double len = Math.Max(v > 0 ? 1.5 : 0, v / top * (Horizontal ? PlotW : PlotH));
+                    string? label = K == 1 && v > 0 && Slot >= 16 ? F(v) : null;
+                    double along = Stacked ? used : 0;
+                    double off = Centre(i) - band / 2 + (Stacked ? 0 : s * bw);
+                    yield return Horizontal
+                        ? new(X0 + along, off, len, bw - (K > 1 ? 1 : 0), ColourOf(s, i), TitleOf(s, i), label)
+                        : new(off, Y1 - along - len, bw - (K > 1 ? 1 : 0), len, ColourOf(s, i), TitleOf(s, i), label);
+                    used += len;
+                }
+            }
+        }
+    }
+
+    private IEnumerable<Polyline> Lines
+    {
+        get
+        {
+            if (!IsLine) yield break;
+            for (int s = 0; s < K; s++)
+            {
+                List<Mark> dots = [.. Enumerable.Range(0, N).Select(i => new Mark(Centre(i), Y1 - Data.Series[s].Values[i] / Top * PlotH, 0, 0, Data.Series[s].ColourKey, TitleOf(s, i)))];
+                yield return new(string.Join(" ", dots.Select(d => F(d.X) + "," + F(d.Y))), Data.Series[s].ColourKey, dots);
+            }
+        }
+    }
+
+    private string Aria
+    {
+        get
+        {
+            string layout = AnalyticsModel.Layouts.First(l => l.Item1 == Spec.Layout).Item2.ToLowerInvariant();
+            string x = AnalyticsModel.Xs.FirstOrDefault(l => l.Item1 == Spec.X).Item2?.ToLowerInvariant() ?? Spec.X;
+            string by = Spec.Group == "none" || Spec.X == "time" && Spec.Group == "status" ? "" : $", grouped by {Spec.Group}";
+            string what = Spec.Y == "subtasks" ? "subtasks" : "work items";
+            string values = K == 1
+                ? string.Join(", ", Data.Categories.Take(8).Select((c, i) => $"{c} {F(Data.Series[0].Values[i])}")) + (N > 8 ? $" and {N - 8} more" : "")
+                : $"{K} series ({string.Join(", ", Data.Series.Take(5).Select(s => s.Name))}{(K > 5 ? ", …" : "")}) across {N} categories";
+            return $"{Spec.Title}: {layout} chart of {what} by {x}{by}. {values}";
+        }
+    }
+}

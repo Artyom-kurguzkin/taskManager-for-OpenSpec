@@ -21,9 +21,17 @@ Follow the `delegate-workflow` skill (`~/.claude/skills/delegate-workflow/SKILL.
 6. When they return, **verify** each chunk, apply its diff against HEAD to the working tree (per file, never a no-index diff against the main tree), and run the whole suite for integration.
 7. Keep the board current as you go (below) and leave everything **uncommitted** in the working tree for review.
 
-## After the work: update the board
+## The board: through the tools, as you go
 
-When the `repo-tasks` MCP tools are loaded (`board_list`, `board_get`, `board_features`, `board_create`, `board_update`, `board_note`, `board_validate`; `.mcp.json` at the repo root starts them), use them for every board write (create, update, note, validate) instead of hand-editing `openspec/`: they allocate the ids under a lock, stamp `agentBy`/`agentAt`, check test names and validate. Pass the `revision` from `board_get` into writes, set `In Review` when done, never `Completed`. The hand rules below stay as the fallback when the tools cannot be loaded.
+When the `repo-tasks` MCP tools are loaded (`board_list`, `board_get`, `board_features`, `board_create`, `board_update`, `board_note`, `board_validate`; `.mcp.json` at the repo root starts them), they are the **only** way to touch the board: every read and write (items, notes, subtasks, test links, spec deltas via `board_update specs`, status), never a hand edit of `openspec/`. They allocate the ids under a lock, stamp `agentBy`/`agentAt`, check test names and validate. Pass the `revision` from `board_get` into writes, set `In Review` when done, never `Completed`. The hand rules below are only for when the tools cannot be loaded (say so when that happens).
+
+**Log as you go.** While a task is in the works, the supervisor and every subagent write one short `board_note` per event on the work item: chunk started, tests red, a blocker, a command and its result (code block), chunk finished (the Passed line), integrated. Two sentences each, not one summary at the end. Subagents in worktrees pass `repo` = the main repository path and `agent: "Claude (chunk X)"`.
+
+**Decisions** are decision notes (`board_note` with `kind: "decision"`): clear and brief, what was decided and why, two lines. The app emphasises them in the worklog.
+
+**Read the whole item, not just the description.** When asked to look through the In Progress items (or any set of items), `board_get` each one in `detailed` format and read its worklog: notes, decisions and events added since you last looked are part of the brief, and often change it. Say what is new before acting.
+
+## After the work: update the board
 
 When a piece of work lands, find the work items it touches — the change you made **and** any older item whose topic it advances — in every status except Completed (archived), and update each:
 

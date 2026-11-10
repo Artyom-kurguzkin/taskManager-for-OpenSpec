@@ -136,7 +136,7 @@ public sealed partial class GuidingAgentsTests
 
         Assert.Equal(GuideChange.Updated, change);
         string text = repo.Read("openspec/REPO-TASKS.md");
-        Assert.StartsWith("<!-- repo-tasks-guide v14 ", text);
+        Assert.StartsWith("<!-- repo-tasks-guide v16 ", text);
         Assert.Contains("C:/apps/TaskManager.exe", text);
     }
 
@@ -146,5 +146,52 @@ public sealed partial class GuidingAgentsTests
         string line = Assert.Single(Guide.Split('\n'), l => l.Contains("title: \"Fix: the thing\""));
         Assert.Contains("Quote", line);
         foreach (string s in new[] { "`:`", "`#`", "starts with a special character" }) Assert.Contains(s, line);
+    }
+
+    // ── v15: tools only, log as you go, decisions ──
+
+    [Fact(DisplayName = "The agent guide says the repo-tasks tools are the only way to touch the board when they are present, and the hand rules are for when they are absent")]
+    public void GuideSaysToolsAreTheOnlyWay()
+    {
+        string text = Guide;
+        Assert.StartsWith("<!-- repo-tasks-guide v16 ", text);
+        Assert.Contains("`board_log`", text);
+
+        string tools = text[..text.IndexOf("## 0a.", StringComparison.Ordinal)];
+        Assert.Contains("the only way to touch the board", tools);
+        Assert.Contains("Never edit anything under `openspec/` by hand", tools);
+
+        string sign = text[text.IndexOf("## 1. Sign", StringComparison.Ordinal)..];
+        string intro = sign[..sign.IndexOf("- **Work item**", StringComparison.Ordinal)];
+        Assert.Contains("only for when the `repo-tasks` tools are absent", intro);
+    }
+
+    [Fact(DisplayName = "The agent guide says a review of items reads their worklog, not only the description")]
+    public void GuideSaysAReviewReadsTheWorklog()
+    {
+        string tools = Guide[..Guide.IndexOf("## 0a.", StringComparison.Ordinal)];
+        foreach (string s in new[] { "**Looking through items.**", "In Progress", "`board_get` each", "detailed", "worklog", "notes, decisions and events added since you last looked", "say what is new before acting" })
+            Assert.Contains(s, tools);
+    }
+
+    [Fact(DisplayName = "The agent guide tells supervisor and subagents to log as they go, one short entry per event, and to record decisions as decision notes, clear and brief")]
+    public void GuideTellsToLogAsYouGoAndRecordDecisions()
+    {
+        string text = Guide;
+        string tools = text[..text.IndexOf("## 0a.", StringComparison.Ordinal)];
+
+        foreach (string s in new[] { "**Log as you go.**", "supervisor and every subagent", "one short `board_note` per event", "not one summary at the end",
+                     "chunk started", "tests red", "a blocker", "chunk finished", "`Passed!`", "integration done", "`repo`" })
+            Assert.Contains(s, tools);
+
+        foreach (string s in new[] { "**Decisions.**", "decision note", "`kind: \"decision\"`", "`kind: decision`", "clear and brief", "what was decided", "why", "rules out", "emphasises" })
+            Assert.Contains(s, tools);
+
+        string plans = text[text.IndexOf("## 0a.", StringComparison.Ordinal)..text.IndexOf("## 1.", StringComparison.Ordinal)];
+        Assert.Contains("decision note", plans);
+
+        string hand = text[text.IndexOf("Keep the worklog current by hand", StringComparison.Ordinal)..];
+        foreach (string s in new[] { "`title`", "`priority`", "`label`", "`dates`", "`feature`", "`contributor-added`", "`contributor-removed`", "`plan-linked`", "`plan-unlinked`", "`description-edited`", "`attachment-added`", "`merged-from`", "`#wi<id> <its title>`", "a rename", "n<note>: <file>", "written at creation" })
+            Assert.Contains(s, hand);
     }
 }

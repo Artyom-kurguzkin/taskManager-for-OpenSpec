@@ -631,3 +631,6 @@ rtm.setCaret = function (el, pos) { if (!el) return; el.focus(); el.setSelection
 document.addEventListener("mousedown", (e) => { if (e.shiftKey && e.target.closest?.(".wk-e, .wk-date") && !e.target.closest(".wk-edit")) e.preventDefault(); });
 // Worklog: whether the focus is (still) inside the element, asked after a focusout (Tab from the note's title to its text keeps the editor, a click elsewhere leaves it).
 rtm.focusStays = function (el) { return !!el && el.contains(document.activeElement); };
+
+// Worklog: the side menu's Days list scrolls the feed to a day (or to "Linked earlier"), once the page has drawn it.
+rtm.scrollToDay = function (selector) { requestAnimationFrame(() => document.querySelector(selector)?.scrollIntoView({ block: "start", behavior: "smooth" })); };

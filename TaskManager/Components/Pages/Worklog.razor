@@ -16,10 +16,11 @@
    commits that mention it; links made before the log existed show at their commit time or under "Linked earlier". Shift-click on a note edits it
    in place; on a link it unlinks it. A plain click on an entry does nothing, so text can be selected and links in it work. *@
 <div class="worklog">
-    @foreach (Day day in days)
+    @foreach (Day day in days.Where(d => d.Date == Today || d.Rows.Any(Visible)))
     {
         bool open = !folded.Contains(day.Date);
-        <section class="wk-day @(day.Date == Today ? "today" : null)" data-day="@day.Date.ToString("yyyy-MM-dd")">
+        List<Row> shown = [.. day.Rows.Where(Visible)];
+        <section @key="day.Date" class="wk-day @(day.Date == Today ? "today" : null)" data-day="@day.Date.ToString("yyyy-MM-dd")">
             <Menu @ref="dayMenus[day.Date]" Label="@($"Add to {DayLabel(day.Date)}")" Class="wk-day-menu" ShiftClick>
                 <Activator>
                     <div class="wk-date hov" data-sk role="button" tabindex="0" aria-expanded="@(open ? "true" : "false")" title="Click to fold · Shift-click to add an entry"
@@ -29,6 +30,7 @@
                 </Activator>
                 <Items>
                     <MenuItem OnClick="() => AddNote(day.Date)">Add note</MenuItem>
+                    <MenuItem OnClick="() => AddNote(day.Date, NoteKinds.Decision)">Add decision</MenuItem>
                     <MenuItem OnClick="LinkDocument">Link document</MenuItem>
                     @if (run.File is null) { <button type="button" role="menuitem" class="menu-item" disabled title="No test results file configured">Link test</button> }
                     else { <MenuItem OnClick="() => OpenPicker(day.Date, TestPicker)">Link test</MenuItem> }
@@ -41,7 +43,8 @@
             {
                 <div class="wk-list">
                     @if (day.Rows.Count == 0) { <p class="muted wk-empty">Nothing yet today. Shift-click the date to add an entry.</p> }
-                    @foreach (Row r in day.Rows) { @Entry(r) }
+                    else if (shown.Count == 0) { <p class="muted wk-empty">Nothing here with the filters on.</p> }
+                    @Entries(shown)
                     @if (subtaskDay == day.Date)
                     {
                         @* one line to type a subtask in: Enter adds it and keeps the line for the next one, Esc or leaving it takes it down *@
@@ -74,15 +77,34 @@
             }
         </section>
     }
-    @if (earlier.Count > 0)
+    @if (earlier.Any(Visible))
     {
         <section class="wk-day wk-earlier">
             <h3 class="wk-earlier-h">Linked earlier</h3>
             <div class="wk-list">
-                @foreach (Row r in earlier) { @Entry(r) }
+                @Entries(earlier.Where(Visible))
             </div>
         </section>
     }
+    @* the item's description is its first post, so it ends the feed, after every day: no hover effect, Shift-click edits it in place, as a note *@
+    <section class="wk-first">
+        @if (editDesc) { @DescriptionEditor }
+        else
+        {
+            <Menu @ref="descMenu" Label="Description" Class="wk-menu" ShiftClick>
+                <Activator>
+                    <article class="wk-e wk-desc" data-kind="description" tabindex="0" data-sk title="Shift-click to edit" @onkeydown="DescriptionKey">
+                        <div class="wk-main">
+                            <div class="wk-line"><span class="wk-label">Description</span></div>
+                            @if (descriptionHtml is MarkupString text) { <div class="desc wk-body">@text</div> }
+                            else { <p class="muted wk-empty">Shift-click to add a description</p> }
+                        </div>
+                    </article>
+                </Activator>
+                <Items><MenuItem OnClick="StartEditDescription">Edit</MenuItem></Items>
+            </Menu>
+        }
+    </section>
 </div>
 
 @code {
@@ -136,6 +158,33 @@
     /// <summary>The worklog reads again when it shows another item; a re-render of the page it sits in is not a reason.</summary>
     protected override object? LoadKey => (Item.Id, Root);
 
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        // the side menu's Worklog block: its actions are the day menu's, for today; its filters are read back by Visible
+        actions = new WorklogActions(
+            () => Later(() => AddNote(Today)), () => Later(() => AddNote(Today, NoteKinds.Decision)), () => Later(LinkDocument),
+            () => Later(() => { OpenPicker(Today, TestPicker); return Task.CompletedTask; }),
+            () => Later(() => { OpenPicker(Today, CommitPicker); return Task.CompletedTask; }),
+            () => Later(() => { OpenSubtaskInput(Today); return Task.CompletedTask; }),
+            () => run.File is not null, () => IsRepository,
+            day => Later(() => JumpTo(day)));
+        Popups.OpenWorklog(actions);
+        Popups.WorklogChanged += OnFilters;
+    }
+
+    private WorklogActions actions = default!;
+
+    private void OnFilters()
+    {
+        if (publishing) return;
+        PublishDays();   // a filter can leave a day with nothing to show
+        InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>A side menu button ran: its work happens on the component's own context, and the feed draws again.</summary>
+    private void Later(Func<Task> work) => _ = InvokeAsync(async () => { await work(); StateHasChanged(); });
+
     protected override void Load()
     {
         (latestRun, isRepository, commitChoices, testChoices) = (null, null, null, null);
@@ -145,6 +194,55 @@
         notes = NotesApi.GetForWorkItem(item.Id);
         if (editId is int editing && notes.All(n => n.Id != editing)) editId = null;   // the note is gone
         (days, earlier) = Build();
+        if (!editDesc) ShowDescription(WorkItemsApi.GetDescription(item.Id));
+        Popups.SetWorklogPeople([.. days.SelectMany(d => d.Rows).Select(r => r.By).Where(b => b.Length > 0).Distinct().Order(StringComparer.OrdinalIgnoreCase)]);
+        PublishDays();
+    }
+
+    // ── The side menu's days ──
+
+    /// <summary>The days the feed shows now (the markup's own condition), newest first, for the side menu; "Linked earlier" last, as it is in the feed.</summary>
+    private void PublishDays()
+    {
+        if (!ReferenceEquals(Popups.WorklogOpen, actions)) return;   // only the worklog the side menu shows (the last opened) speaks for it
+        List<WorklogDay> shown = [.. days.Where(d => d.Date == Today || d.Rows.Any(Visible)).Select(d => new WorklogDay(d.Date, DayLabel(d.Date), d.Rows.Count(Visible)))];
+        int linked = earlier.Count(Visible);
+        if (linked > 0) shown.Add(new WorklogDay(DateTime.MinValue, "Linked earlier", linked));
+        publishing = true;   // the event this raises is the feed's own: it draws nothing new
+        try { Popups.SetWorklogDays(shown); }
+        finally { publishing = false; }
+    }
+
+    private bool publishing;
+
+    /// <summary>A day in the side menu was clicked: it unfolds if folded, and the feed scrolls to it.</summary>
+    private async Task JumpTo(DateTime day)
+    {
+        bool linked = day == DateTime.MinValue;
+        if (!linked) folded.Remove(day);
+        StateHasChanged();   // the unfolded day is in the page before the scroll asks for it
+        try { await Js.InvokeVoidAsync("rtm.scrollToDay", linked ? ".wk-earlier" : $".wk-day[data-day='{day:yyyy-MM-dd}']"); }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException) { }
+    }
+
+    // ── The side menu's filters ──
+
+    /// <summary>The kind of filter an entry answers to: decisions, other notes, links (commits, tests, documents, plans), subtask and dependency events, created and status events, or edits (everything else).</summary>
+    private static string FilterOf(Row r) => r.Kind switch
+    {
+        "note" => r.Note is { IsDecision: true } ? "decisions" : "notes",
+        "created" or "status" or "merged-from" => "events",
+        "commit-linked" or "commit-unlinked" or "test-linked" or "test-unlinked" or "doc-linked" or "doc-unlinked" or "plan-linked" or "plan-unlinked" or "commit" or "mention" or "test" or "doc" => "links",
+        "subtask-done" or "subtask-reopened" or "subtask-added" or "dependency-added" or "dependency-removed" => "subtasks",
+        _ => "edits",   // title, priority, label, dates, feature, contributors, description, attachments, and any kind not known yet
+    };
+
+    private bool Visible(Row r)
+    {
+        if (r.Note is not null && r.Note.Id == editId) return true;   // a note being written stays, whatever the filters say
+        WorklogFilters f = Popups.WorklogFilter;
+        bool kind = FilterOf(r) switch { "notes" => f.Notes, "decisions" => f.Decisions, "events" => f.Events, "links" => f.Links, "subtasks" => f.Subtasks, _ => f.Edits };
+        return kind && (f.Who == "all" || r.By == f.Who);
     }
 
     // ── The feed ──
@@ -198,11 +296,11 @@
             });
         }
         // links that no event names (made before the log existed): a commit git does not know, tests and documents have no time
-        foreach (string h in commits.Where(h => !Logged(h) && !picked.Any(c => SameHash(c.Hash, h))))
+        foreach (string h in commits.Distinct().Where(h => !Logged(h) && !picked.Any(c => SameHash(c.Hash, h))))
             old.Add(new Row { Key = "c" + h, Kind = "commit", Text = h, Unlink = $"commit:{h}", Order = order++ });
-        foreach (TestLink t in tests.Where(t => !events.Any(e => e.Kind == "test-linked" && e.Text == TestKey(t))))
+        foreach (TestLink t in tests.DistinctBy(TestKey).Where(t => !events.Any(e => e.Kind == "test-linked" && e.Text == TestKey(t))))
             old.Add(new Row { Key = "t" + TestKey(t), Kind = "test", Text = TestKey(t), Unlink = $"test:{TestKey(t)}", Linked = true, Order = order++ });
-        foreach (string d in docs.Where(d => !events.Any(e => e.Kind == "doc-linked" && e.Text.Equals(d, StringComparison.OrdinalIgnoreCase))))
+        foreach (string d in docs.Distinct(StringComparer.OrdinalIgnoreCase).Where(d => !events.Any(e => e.Kind == "doc-linked" && e.Text.Equals(d, StringComparison.OrdinalIgnoreCase))))
             old.Add(new Row { Key = "d" + d, Kind = "doc", Text = d, Unlink = $"doc:{d}", Linked = true, Order = order++ });
 
         List<Day> built = rows.GroupBy(r => r.At!.Value.Date)
@@ -236,26 +334,35 @@
 
     // ── Markup of the entries ──
 
-    private RenderFragment Entry(Row r) => @<text>
-        @if (r.Note is not null && r.Note.Id == editId) { @Editor(r.Note) }
-        else if (r.MenuLabel is string label)
+    /// <summary>
+    /// A list of entries. Each one is keyed by its row, so an entry's menu (open or not) stays with the entry when the feed changes around it: a new
+    /// entry above, or one taken away, must not hand the open menu to another entry. The loop is here, not in a call per entry: a keyed element only
+    /// matches its siblings inside one render fragment, and each call of a fragment from a loop is a region of its own.
+    /// </summary>
+    private RenderFragment Entries(IEnumerable<Row> rows) => @<text>
+        @foreach (Row r in rows)
         {
-            <Menu @ref="entryMenus[r.Key]" Label="@label" Class="wk-menu" ShiftClick>
-                <Activator>@Line(r)</Activator>
-                <Items><MenuItem OnClick="() => Act(r)">@label</MenuItem></Items>
-            </Menu>
+            if (r.Note is not null && r.Note.Id == editId) { @Editor(r.Note) }
+            else if (r.MenuLabel is string label)
+            {
+                <Menu @key="r.Key" @ref="entryMenus[r.Key]" Label="@label" Class="wk-menu" ShiftClick>
+                    <Activator>@Line(r)</Activator>
+                    <Items><MenuItem OnClick="() => Act(r)">@label</MenuItem></Items>
+                </Menu>
+            }
+            else { @Line(r) }
         }
-        else { @Line(r) }
     </text>;
 
-    private RenderFragment Line(Row r) => @<article class="wk-e @(r.Note is not null ? "wk-note" : r.Unlink is not null ? "wk-ev hov" : "wk-ev")" data-kind="@r.Kind" tabindex="0" data-sk="@(r.MenuLabel is null ? null : "")"
+    private RenderFragment Line(Row r) => @<article class="wk-e @(r.Note is { IsDecision: true } ? "wk-note wk-decision" : r.Note is not null ? "wk-note" : r.Unlink is not null ? "wk-ev hov" : "wk-ev")" data-kind="@(r.Note is { IsDecision: true } ? "decision" : r.Kind)" tabindex="0" data-sk="@(r.MenuLabel is null ? null : "")"
                  title="@(r.Note is not null ? "Shift-click to edit" : r.Unlink is not null ? "Shift-click to unlink" : null)" @onkeydown="e => EntryKey(e, r)">
         <span class="wk-mark" aria-hidden="true"></span>
         <div class="wk-main">
             @if (r.Note is Note n)
             {
                 <div class="wk-line">
-                    <b class="wk-title">@n.Title</b>
+                    @if (n.IsDecision) { <span class="wk-tag">Decision</span> }
+                    @if (!(n.IsDecision && n.Title == "Decision")) { <b class="wk-title">@n.Title</b> }   @* the tag already says it: a decision keeps its default title unseen *@
                     @if (n.AgentUnreviewed) { <AgentChip By="@n.AgentBy" At="n.AgentAt" OnReview="() => Review(n)" /> }
                     @if (n.MergedFrom is int from) { <span class="muted wk-from">from #wi@(from)</span> }
                 </div>
@@ -290,6 +397,14 @@
             case "subtask-added": <span>added subtask @SubtaskText(r.Text)</span> break;
             case "dependency-added": <span>waits on @Dependency(r.Text)</span> break;
             case "dependency-removed": <span>no longer waits on @Dependency(r.Text)</span> break;
+            case "title" or "priority" or "label" or "dates" or "feature": <span>@r.Kind: @r.Text.Replace(" -> ", " → ")</span> break;
+            case "merged-from": <span>merged @r.Text into this item</span> break;
+            case "contributor-added": <span>added contributor @r.Text</span> break;
+            case "contributor-removed": <span>removed contributor @r.Text</span> break;
+            case "plan-linked": <span>linked a plan: @DocLink(r.Text)</span> break;
+            case "plan-unlinked": <span>unlinked a plan: @r.Text</span> break;
+            case "description-edited": <span>edited the description</span> break;
+            case "attachment-added": <span>attached @AttachedText(r.Text)</span> break;
             case "commit": <span>commit <span class="mono">@r.Commit!.Hash</span> @r.Commit.Subject</span> break;
             case "mention": <span>mentions #wi@(r.Mention) <span class="mono">@r.Commit!.Hash</span> @r.Commit.Subject</span> break;
             case "test": <span>test: @r.Text @Dot(r.Text)</span> break;
@@ -297,6 +412,13 @@
             default: <span>@r.Kind: @r.Text</span> break;
         }
     </text>;
+
+    /// <summary>An attachment event's text, <c>n7: shot.png</c>, as "shot.png to #n7".</summary>
+    private static string AttachedText(string text)
+    {
+        int colon = text.IndexOf(": ", StringComparison.Ordinal);
+        return colon > 1 && text[0] == 'n' && int.TryParse(text[1..colon], out int note) ? $"{text[(colon + 2)..]} to #n{note}" : text;
+    }
 
     /// <summary>A commit by its short hash, with its subject when git knows it.</summary>
     private RenderFragment CommitText(string hash) => @<text><span class="mono">@hash</span>@(CommitOf(hash) is CommitInfo c ? " " + c.Subject : "")</text>;
@@ -364,18 +486,72 @@
 
     private int? editId;
     private string editTitle = "", editBody = "";
-    private bool focusEditor, pasting;
+    private bool focusEditor;
+    private string pasting = "";   // which paste listener the script has for this view: "note", "desc" or none
     private ElementReference editorWrap, editorBox;
     private DotNetObjectReference<Worklog>? self;
 
-    private RenderFragment Editor(Note n) => @<div class="wk-e wk-note wk-edit" data-kind="note" @ref="editorWrap" @onfocusout="EditorFocusOut">
+    private RenderFragment Editor(Note n) => @<div class="wk-e wk-note wk-edit @(n.IsDecision ? "wk-decision" : null)" data-kind="@(n.IsDecision ? "decision" : "note")" @ref="editorWrap" @onfocusout="EditorFocusOut">
         <span class="wk-mark" aria-hidden="true"></span>
         <div class="wk-main">
             <input class="wk-title-in" value="@editTitle" @oninput="SetEditTitle" aria-label="Note title" />
-            <textarea @ref="editorBox" class="desc-in" value="@editBody" @oninput="SetEditBody" aria-label="Note text" placeholder="Write in markdown. Paste an image to attach it."></textarea>
+            <textarea @ref="editorBox" class="desc-in" value="@editBody" @oninput="SetEditBody" aria-label="Note text" placeholder="@(n.IsDecision ? "What was decided, and why. Two lines." : "Write in markdown. Paste an image to attach it.")"></textarea>
             @if (n.Attachments.Count > 0) { <div class="wk-atts">@Attachments(n)</div> }
         </div>
     </div>;
+
+    // The description is edited by the same editor box: a text area (the paste script listens to it), and leaving it saves.
+    private bool editDesc;
+    private int? descCaret;
+    private string description = "";
+    private MarkupString? descriptionHtml;
+    private Menu? descMenu;
+
+    private RenderFragment DescriptionEditor => @<div class="wk-e wk-edit wk-desc" data-kind="description" @ref="editorWrap" @onfocusout="EditorFocusOut">
+        <div class="wk-main">
+            <div class="wk-line"><span class="wk-label">Description</span></div>
+            <textarea @ref="editorBox" class="desc-in" data-paste-img value="@editBody" @oninput="SetEditBody" aria-label="Description" placeholder="Write in markdown. Paste an image to attach it."></textarea>
+        </div>
+    </div>;
+
+    /// <summary>The saved description, and its markdown as HTML (converted when it is read, not on every render).</summary>
+    private void ShowDescription(string text)
+    {
+        description = text;
+        descriptionHtml = string.IsNullOrWhiteSpace(text) ? null : Ui.Markdown(text, Root ?? Workspace.Root);
+    }
+
+    private void DescriptionKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && e.ShiftKey) descMenu?.Open();
+    }
+
+    private void StartEditDescription()
+    {
+        SaveEdit();   // a note being edited is saved first
+        editDesc = focusEditor = true;
+        editBody = description;
+    }
+
+    /// <summary>Called by rtm.pasteDescription with a clipboard image pasted into the description box: the file is saved under the project's attachments
+    /// folder (wi&lt;item&gt;/, no note) and a link to it goes in at the caret, on its own line. <paramref name="text"/> is what the box holds now, minus any selection the paste replaced.</summary>
+    [JSInvokable]
+    public void PastedDescriptionImage(string name, string base64, string text, int caret)
+    {
+        if (!editDesc || (Root ?? Workspace.Root) is not string root) return;
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(base64); }
+        catch (FormatException) { Popups.Toast("That image could not be read", ToastKind.Warning); return; }
+        (bool ok, string path) = NotesApi.AttachItemImage(root, item.Id, name, bytes);
+        if (!ok) { Popups.Toast(path, ToastKind.Warning); return; }
+        caret = Math.Clamp(caret, 0, text.Length);
+        string before = text[..caret], after = text[caret..];
+        string insert = (before.Length > 0 && !before.EndsWith('\n') ? "\n" : "") + $"![]({path})" + (after.Length > 0 && !after.StartsWith('\n') ? "\n" : "");
+        editBody = before + insert + after;
+        descCaret = before.Length + insert.Length;
+        if (Run(WorkItemsApi.SetDescription(item.Id, editBody))) ShowDescription(editBody);   // saved at once: the file is not left unreferenced
+        InvokeAsync(StateHasChanged);
+    }
 
     private void SetEditTitle(ChangeEventArgs e) => editTitle = e.Value?.ToString() ?? "";
     private void SetEditBody(ChangeEventArgs e) => editBody = e.Value?.ToString() ?? "";
@@ -391,10 +567,10 @@
     /// <summary>Leaving the editor with the focus (a click outside, Tab, Esc): while it stays inside the editor (title to text) nothing happens.</summary>
     private async Task EditorFocusOut()
     {
-        if (editId is null) return;
+        if (editId is null && !editDesc) return;
         bool stays = false;
         try { stays = await Js.InvokeAsync<bool>("rtm.focusStays", editorWrap); } catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException) { }
-        if (stays || editId is null) return;
+        if (stays || (editId is null && !editDesc)) return;
         await FinishEdit();
     }
 
@@ -407,6 +583,12 @@
     /// <summary>Saves the open editor and closes it: the text when it changed, the title when it changed and is not blank. False when there was nothing open.</summary>
     private bool SaveEdit()
     {
+        if (editDesc)
+        {
+            editDesc = false;
+            if (editBody.Replace("\r\n", "\n") != description.Replace("\r\n", "\n") && Run(WorkItemsApi.SetDescription(item.Id, editBody))) ShowDescription(editBody);
+            return true;
+        }
         if (editId is not int id) return false;
         editId = null;
         if (notes.FirstOrDefault(n => n.Id == id) is Note n)
@@ -449,22 +631,28 @@
     {
         try
         {
-            if (editId is not null && !pasting)
+            // a clipboard image goes to the editor open now: a note takes it as an attachment, the description as a link at the caret
+            string want = editDesc ? "desc" : editId is not null ? "note" : "";
+            if (want != pasting)
             {
-                pasting = true;
-                await Js.InvokeVoidAsync("rtm.pasteImages", self ??= DotNetObjectReference.Create(this));
+                string was = pasting;
+                pasting = want;
+                if (was == "note") await Js.InvokeVoidAsync("rtm.stopPasteImages");
+                else if (was == "desc") await Js.InvokeVoidAsync("rtm.stopPasteDescription");
+                if (want == "note") await Js.InvokeVoidAsync("rtm.pasteImages", self ??= DotNetObjectReference.Create(this));
+                else if (want == "desc") await Js.InvokeVoidAsync("rtm.pasteDescription", self ??= DotNetObjectReference.Create(this));
             }
-            else if (editId is null && pasting)
+            if (descCaret is int caret && editDesc)
             {
-                pasting = false;
-                await Js.InvokeVoidAsync("rtm.stopPasteImages");
+                descCaret = null;
+                await Js.InvokeVoidAsync("rtm.setCaret", editorBox, caret);
             }
             if (focusSubtask && subtaskDay is not null)
             {
                 focusSubtask = false;
                 await subtaskBox.FocusAsync();
             }
-            if (focusEditor && editId is not null)
+            if (focusEditor && (editId is not null || editDesc))
             {
                 focusEditor = false;
                 await editorBox.FocusAsync();
@@ -481,10 +669,10 @@
         if (r.Unlink is string spec) await Unlink(spec);
     }
 
-    private async Task AddNote(DateTime day)
+    private async Task AddNote(DateTime day, string? kind = null)
     {
         DateTime created = day == Today ? DateTime.Now : day.Add(DateTime.Now.TimeOfDay);   // an older day gets the time of day it is now
-        (bool ok, string message, int id) = NotesApi.Create(item.Id, Workspace.Me, created);
+        (bool ok, string message, int id) = NotesApi.Create(item.Id, Workspace.Me, created, kind);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
         Workspace.Notify();   // every page (this one too) reads again
         folded.Remove(day);
@@ -620,15 +808,18 @@
     public override void Dispose()
     {
         base.Dispose();
+        Popups.WorklogChanged -= OnFilters;
+        if (actions is not null) Popups.CloseWorklog(actions);   // the side menu's Worklog block goes
         SaveEdit();   // leaving the view with the editor open keeps what was typed
         if (self is null) return;
-        if (pasting) _ = StopPaste();
+        if (pasting.Length > 0) _ = StopPaste(pasting);
+        pasting = "";
         self.Dispose();
     }
 
-    private async Task StopPaste()
+    private async Task StopPaste(string which)
     {
-        try { await Js.InvokeVoidAsync("rtm.stopPasteImages"); }
+        try { await Js.InvokeVoidAsync(which == "desc" ? "rtm.stopPasteDescription" : "rtm.stopPasteImages"); }
         catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException or TaskCanceledException) { }
     }
 }
