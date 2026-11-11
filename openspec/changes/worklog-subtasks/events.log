@@ -1,0 +1,13 @@
+2026-11-11T07:22:19 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-11T07:26:18 | Artyom-kurguzkin | attachment-added | n235: pasted-20261111-072618.png
+2026-11-11T07:27:35 | Artyom-kurguzkin | attachment-added | n235: pasted-20261111-072735.png
+2026-11-11T07:41:53 | Claude feed | log | Started: conversions must keep the note and log one converted event (with #wi146 bugs category). Reading Conversions.cs and Worklog.razor first.
+2026-11-11T08:00:28 | Claude feed | log | Suite: Passed! Failed: 0, Passed: 582. Promoting a note keeps it and logs one converted event; subtask conversions keep the subtask; the note no longer offers Make it a subtask once promoted.
+2026-11-11T08:14:12 | Claude | status | In Progress -> In Review
+2026-11-11T08:14:13 | Claude | test-linked | KeepingNotesTests / Promoting a note to a subtask keeps the note with its text and attachments, adds the subtask and records one converted event
+2026-11-11T08:14:13 | Claude | test-linked | KeepingNotesTests / Converting a subtask to a note, a decision or a bug creates it and keeps the subtask
+2026-11-11T08:14:13 | Claude | test-linked | UsingTheWorklogTests / After promoting a note the feed shows the note and the promoted line, and the note no longer offers Make it a subtask
+2026-11-11T08:40:08 | Artyom-kurguzkin | subtask-added | 1.5 New note test
+2026-11-11T08:40:08 | Artyom-kurguzkin | converted | note #n253 -> subtask 1.5
+2026-11-11T08:41:25 | Artyom-kurguzkin | attachment-added | n254: pasted-20261111-084125.png
+2026-11-11T08:41:58 | Artyom-kurguzkin | status | In Review -> Planned

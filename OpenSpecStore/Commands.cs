@@ -66,6 +66,13 @@ internal static class Commands
         OpenSpecStoreModule.LastSeen.Clear();
     }
 
+    /// <summary>Creates a folder and the missing ones above it, each marked as the app's own: the watcher reports every folder that appears, and an unmarked one reloads every open page 300 ms after the save.</summary>
+    internal static void CreateOwnedDirectory(string dir)
+    {
+        for (string? d = Path.GetFullPath(dir); d is not null && !Directory.Exists(d); d = Path.GetDirectoryName(d)) OpenSpecStoreModule.Own(d);
+        Directory.CreateDirectory(dir);
+    }
+
     internal static (bool Success, string Message) WriteText(string path, string content)
     {
         string full = Path.GetFullPath(path);
@@ -73,7 +80,7 @@ internal static class Commands
         // Only files the app has read are guarded. A file that has since been moved or deleted (an archived change folder
         // whose name a new change reuses) is not a conflict: writing there overwrites nothing.
         if (OpenSpecStoreModule.LastSeen.TryGetValue(full, out string? seen) && onDisk is not null && seen != onDisk) return (false, StaleMessage);
-        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        CreateOwnedDirectory(Path.GetDirectoryName(full)!);
         OpenSpecStoreModule.Own(full);
         string tmp = full + ".tmp";   // write beside, then swap in: a reader or a crash never sees half a file
         OpenSpecStoreModule.Own(tmp);   // the watcher would report the temp file otherwise
@@ -110,6 +117,17 @@ internal static class Commands
         return (true, "");
     }
 
+    internal static (bool Success, string Message) DeleteFile(string path)
+    {
+        string full = Path.GetFullPath(path);
+        if (!File.Exists(full)) return (true, "");
+        OpenSpecStoreModule.Own(full);
+        File.Delete(full);
+        OpenSpecStoreModule.LastSeen.TryRemove(full, out _);
+        OpenSpecStoreModule.Touch(full);
+        return (true, "");
+    }
+
     internal static (bool Success, string Message) MoveFolder(string from, string to)
     {
         string src = Path.GetFullPath(from), dst = Path.GetFullPath(to);
@@ -117,7 +135,7 @@ internal static class Commands
         if (Directory.Exists(dst)) return (false, $"{Path.GetFileName(dst)} already exists");
         OpenSpecStoreModule.Own(src);
         foreach (string entry in Directory.EnumerateFileSystemEntries(src, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.Own(entry);
-        Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+        CreateOwnedDirectory(Path.GetDirectoryName(dst)!);
         Directory.Move(src, dst);
         OpenSpecStoreModule.Own(dst);
         foreach (string entry in Directory.EnumerateFileSystemEntries(dst, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.Own(entry);

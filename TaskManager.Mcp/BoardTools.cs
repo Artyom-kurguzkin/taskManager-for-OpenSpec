@@ -266,7 +266,7 @@ public sealed partial class BoardTools
         [Description("How the item ends without being done: \"cancelled\", \"duplicate of #wiN\" or \"superseded by #wiN\". Hides the item (as `hidden: true`), keeps its status, writes a decision note titled Cancelled / Duplicate of #wiN / Superseded by #wiN and logs it.")] string? resolution = null,
         [Description("Why, as the body of the resolution note (default: the resolution itself).")] string? resolutionWhy = null,
         [Description("A worklog note written after the other changes of this call, like board_note: body, optional title, optional kind \"decision\". The result reports its note id.")] NoteInput? note = null,
-        [Description("Subtask edits: with `number`, tick/untick (`done`) or retext (`text`) that subtask; without, add a new signed subtask (appended to the last group).")] SubtaskInput[]? subtasks = null,
+        [Description("Subtask edits: with `number`, tick/untick (`done`), retext (`text`) or delete (`remove: true`, alone; the rest of its group is renumbered) that subtask; without, add a new signed subtask (appended to the last group). Removals are applied last, highest number first, so the numbers in one call all refer to the numbering before it.")] SubtaskInput[]? subtasks = null,
         [Description("Delta specs by capability: markdown writes or replaces it, null deletes it.")] Dictionary<string, string?>? specs = null,
         [Description(AgentHelp)] string? agent = null,
         [Description(RepoHelp)] string? repo = null) =>
@@ -293,7 +293,9 @@ public sealed partial class BoardTools
             {
                 if (s.Number is null && string.IsNullOrWhiteSpace(s.Text)) throw new McpException("A new subtask needs `text`; to change an existing one give its `number` (see board_get).");
                 if (s.Number is not null && !item.Subtasks.Any(k => k.Number == s.Number)) throw new McpException($"There is no subtask {s.Number} on #wi{id}; its subtasks are {(item.Subtasks.Count == 0 ? "none" : string.Join(", ", item.Subtasks.Select(k => k.Number)))}.");
-                if (s.Number is not null && s.Done is null && s.Text is null) throw new McpException($"Subtask {s.Number}: pass `done` and/or `text` to change it.");
+                if (s.Remove == true && s.Number is null) throw new McpException("`remove` needs the `number` of the subtask to remove (see board_get).");
+                if (s.Remove == true && (s.Done is not null || s.Text is not null)) throw new McpException($"Subtask {s.Number}: `remove` cannot go together with `done` or `text`; send them as separate entries.");
+                if (s.Number is not null && s.Remove != true && s.Done is null && s.Text is null) throw new McpException($"Subtask {s.Number}: pass `done` and/or `text` to change it.");
             }
 
             List<string> applied = [], warnings = [];
@@ -344,6 +346,7 @@ public sealed partial class BoardTools
             foreach (SubtaskInput s in subtasks ?? [])
             {
                 files = true;
+                if (s.Remove == true) continue;   // after the other edits, below
                 if (s.Number is string number)
                 {
                     if (s.Text is not null) Step($"subtask {number} text", WorkItemsApi.SetSubtaskText(id, number, Signed(s.Text, who)));
@@ -355,6 +358,9 @@ public sealed partial class BoardTools
                     if (s.Done == true && Item(id).Subtasks is [.., { } added]) Step($"subtask {added.Number} done", WorkItemsApi.SetSubtaskDone(id, added.Number, true));
                 }
             }
+            // descending, so renumbering the rest of a group never shifts a number still to remove
+            foreach (string number in (subtasks ?? []).Where(s => s.Remove == true).Select(s => s.Number!).Distinct().OrderByDescending(SubtaskOrder))
+                Step($"subtask {number} removed", WorkItemsApi.RemoveSubtask(id, number));
             foreach ((string cap, string? markdown) in specs ?? [])
             {
                 files = true;
@@ -495,12 +501,12 @@ public sealed partial class BoardTools
     /// <summary>The events the commands of this call write carry the agent's name. The actor is one static, which is safe: every tool runs under <see cref="Gate"/>, one at a time, and <see cref="Run{T}"/> hands it back.</summary>
     private static void ActAs(string who) => WorkItemsApi.ConfigureActor(() => who);
 
-    /// <summary>Checks what a note needs before anything is written and returns its kind: null or "decision".</summary>
+    /// <summary>Checks what a note needs before anything is written and returns its kind: null, "decision" or "bug".</summary>
     private static string? NoteKind(string? body, string? kind, string[]? attachments)
     {
         if (string.IsNullOrWhiteSpace(body)) throw new McpException("A note needs a body: say what happened, in plain words.");
         kind = string.IsNullOrWhiteSpace(kind) ? null : kind.Trim().ToLowerInvariant();
-        if (kind is not null && kind != NoteKinds.Decision) throw new McpException($"Unknown note kind \"{kind}\": the only kind is \"{NoteKinds.Decision}\"; leave `kind` out for an ordinary entry.");
+        if (kind is not null && !NoteKinds.All.Contains(kind)) throw new McpException($"Unknown note kind \"{kind}\": the kinds are {string.Join(", ", NoteKinds.All.Select(k => $"\"{k}\""))}; leave `kind` out for an ordinary entry.");
         foreach (string url in attachments ?? [])
             if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out Uri? uri) || uri.Scheme is not ("http" or "https")) throw new McpException($"Attachment \"{url}\" is not a full link: use http:// or https:// URLs. Files go in the note body, not as attachments.");
         return kind;
@@ -734,6 +740,13 @@ public sealed partial class BoardTools
 
     [GeneratedRegex(@"\s*[\r\n]+\s*")]
     private static partial Regex NewLines();
+
+    /// <summary>"2.10" as (2, 10), so subtask numbers sort numerically, not as text.</summary>
+    private static (int Group, int Index) SubtaskOrder(string number)
+    {
+        string[] parts = number.Split('.');
+        return (int.TryParse(parts[0], out int g) ? g : 0, parts.Length > 1 && int.TryParse(parts[^1], out int n) ? n : 0);
+    }
 
     /// <summary>A fresh tasks.md: one numbered group per distinct group heading (in order of appearance), each subtask signed.</summary>
     private static string TasksText(IEnumerable<SubtaskInput> subtasks, string agent)

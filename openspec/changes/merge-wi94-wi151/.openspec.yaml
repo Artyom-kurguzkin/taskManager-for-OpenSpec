@@ -1,0 +1,11 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-11
+x-rtm:
+  id: 155
+  title: remote agent runtime control
+  status: Backlog
+  contributors: [Artyom-kurguzkin, Claude]
+  features: [integration-with-agents]
+  label: feature
+  mergedFrom: [94, 151]

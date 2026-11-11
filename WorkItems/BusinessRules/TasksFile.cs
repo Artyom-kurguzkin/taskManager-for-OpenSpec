@@ -19,6 +19,18 @@ internal static partial class TasksFile
     [GeneratedRegex(@"^##\s+(?<g>.+)$")]
     private static partial Regex GroupHeading();
 
+    [GeneratedRegex(@"^(?<pre>##\s+(?:\d+\.\s+)?)(?<rest>.+)$")]
+    private static partial Regex HeadingLine();
+
+    /// <summary>"A · A · B" → "A · B": a " · "-separated segment that repeats the one before it is dropped.</summary>
+    internal static string CollapseSegments(string heading)
+    {
+        List<string> kept = [];
+        foreach (string part in heading.Split(" · "))
+            if (kept.Count == 0 || kept[^1].Trim() != part.Trim()) kept.Add(part);
+        return string.Join(" · ", kept);
+    }
+
     internal static IReadOnlyList<Subtask> Parse(string text)
     {
         List<Subtask> list = [];
@@ -123,9 +135,17 @@ internal static partial class TasksFile
     private static string Normalize(string text)
     {
         List<string> lines = Lines(text).ToList();
+        // A group heading with a segment repeated back to back ("A · A · B", from merging a merge) reads, and is written, as "A · B".
+        bool tidied = false;
+        for (int i = 0; i < lines.Count; i++)
+            if (HeadingLine().Match(lines[i]) is { Success: true } h && CollapseSegments(h.Groups["rest"].Value) is string clean && clean != h.Groups["rest"].Value)
+            {
+                lines[i] = h.Groups["pre"].Value + clean;
+                tidied = true;
+            }
         List<(int At, Match M)> numbered = lines.Select((l, i) => (i, Checkbox().Match(l))).Where(t => t.Item2.Success && t.Item2.Groups["num"].Success).ToList();
         HashSet<string> used = [.. numbered.Select(t => Num(t.M))], seen = [];
-        if (used.Count == numbered.Count) return text;
+        if (used.Count == numbered.Count && !tidied) return text;
         foreach ((int at, Match m) in numbered)
         {
             string num = Num(m);

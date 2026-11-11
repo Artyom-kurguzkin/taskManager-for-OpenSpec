@@ -553,4 +553,64 @@ public sealed class ArrangingTheBoardTests
         Assert.False(new BoardOptions().ChangedOn);
         Assert.True(new BoardOptions(ChangedFrom: new DateOnly(2026, 11, 2), ChangedTo: new DateOnly(2026, 11, 8)).ChangedOn);
     }
+
+    // ── changed period with times ──
+
+    [Fact(DisplayName = "With times on the changed period, only items with an event, note or file write inside the exact window are shown, and without times the whole days count as before")]
+    public void ChangedPeriodWithTimes()
+    {
+        DateOnly from = new(2026, 11, 2), to = new(2026, 11, 3);
+        TimeOnly start = new(14, 0), end = new(9, 30);
+        WorkItem Plain(int id) => W(id, "Backlog", [], []);   // created in September, files last written in October: outside
+        WorkItem[] items =
+        [
+            Plain(1), Plain(2), Plain(3), Plain(4),
+            Plain(5) with { Modified = new DateTime(2026, 11, 2, 20, 0, 0) },   // a file write inside the window
+            Plain(6) with { Modified = new DateTime(2026, 11, 3, 10, 0, 0) },   // a file write after it
+            Plain(7),
+        ];
+        Dictionary<int, DateTime[]> logged = new()
+        {
+            [1] = [new DateTime(2026, 11, 2, 13, 59, 59)],   // a second before the start: out
+            [2] = [new DateTime(2026, 11, 2, 14, 0, 0)],     // on the start: in
+            [3] = [new DateTime(2026, 11, 3, 9, 30, 45)],    // within the minute of the end: in
+            [4] = [new DateTime(2026, 11, 3, 9, 31, 0)],     // a minute after the end: out
+            [7] = [new DateTime(2026, 11, 2, 23, 0, 0)],     // between the two days' times: in
+        };
+        IEnumerable<DateTime> Logged(WorkItem i) => logged.GetValueOrDefault(i.Id) ?? [];
+
+        Assert.Equal([2, 3, 5, 7], BoardModel.ChangedIn(items, Logged, from, to, start, end).Order());
+        // without times the whole days count, as before
+        Assert.Equal([1, 2, 3, 4, 5, 6, 7], BoardModel.ChangedIn(items, Logged, from, to).Order());
+        // one time alone: the other end is the day's edge
+        Assert.Equal([2, 3, 4, 5, 6, 7], BoardModel.ChangedIn(items, Logged, from, to, start, null).Order());
+        Assert.Equal([1, 2, 3, 5, 7], BoardModel.ChangedIn(items, Logged, from, to, null, end).Order());
+
+        // the options carry the times, and old settings without them still load as whole days
+        BoardOptions o = new(ChangedFrom: from, ChangedTo: to, ChangedFromTime: start, ChangedToTime: end);
+        BoardOptions back = System.Text.Json.JsonSerializer.Deserialize<BoardOptions>(System.Text.Json.JsonSerializer.Serialize(o))!;
+        Assert.Equal((start, end), (back.ChangedFromTime, back.ChangedToTime));
+        BoardOptions old = System.Text.Json.JsonSerializer.Deserialize<BoardOptions>("{\"ChangedFrom\":\"2026-11-02\",\"ChangedTo\":\"2026-11-03\"}")!;
+        Assert.Equal((null, null), (old.ChangedFromTime, old.ChangedToTime));
+        Assert.Equal("changed 2 Nov 14:00 – 3 Nov 09:30", BoardModel.ChangedLabel(o));
+        Assert.Equal("changed 2 Nov – 3 Nov", BoardModel.ChangedLabel(old));
+    }
+
+    [Fact(DisplayName = "An item created on the first day before the window's start time is not counted by its creation alone")]
+    public void ChangedPeriodWithTimesCreation()
+    {
+        DateOnly day = new(2026, 11, 5);
+        DateTime created = new(2026, 11, 5, 13, 0, 0);
+        WorkItem noEvent = W(1, "Backlog", [], []) with { Created = created, Modified = new DateTime(2026, 10, 1) };
+        WorkItem withEvent = W(2, "Backlog", [], []) with { Created = created, Modified = new DateTime(2026, 10, 1) };
+        WorkItem[] items = [noEvent, withEvent];
+        IEnumerable<DateTime> Logged(WorkItem i) => i.Id == 2 ? [created] : [];   // 2's log has its created event at 13:00
+        bool HasCreated(WorkItem i) => i.Id == 2;
+        IReadOnlySet<int> In(TimeOnly a, TimeOnly b) => BoardModel.ChangedIn(items, Logged, day, day, a, b, HasCreated);
+
+        Assert.Empty(In(new TimeOnly(14, 0), new TimeOnly(18, 0)));                  // created at 13:00, before the window: not counted by creation alone
+        Assert.Equal([2], In(new TimeOnly(12, 0), new TimeOnly(14, 0)).Order());     // 2's created event is inside; 1 has none and its day is not all inside
+        Assert.Equal([1, 2], In(new TimeOnly(0, 0), new TimeOnly(23, 59)).Order());  // the whole creation day inside the window: both
+        Assert.Equal([2], In(new TimeOnly(0, 30), new TimeOnly(23, 59)).Order());    // 1's day starts before the window: out; 2's event is inside it
+    }
 }

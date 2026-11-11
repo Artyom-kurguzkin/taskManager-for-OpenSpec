@@ -1,0 +1,9 @@
+2026-11-11T05:24:52 | Claude | created | Server idle-exit test hangs when the machine is busy
+2026-11-11T05:24:52 | Claude | description-edited | proposal.md
+2026-11-11T05:24:52 | Claude | label | none -> bug
+2026-11-11T07:56:15 | Artyom-kurguzkin | title | New work item 18 -> remote agent runtime control
+2026-11-11T07:56:22 | Artyom-kurguzkin | feature | none -> integration-with-agents
+2026-11-11T07:56:31 | Artyom-kurguzkin | label | none -> feature
+2026-11-11T07:56:36 | Artyom-kurguzkin | dates | none -> 16 Nov – 30 Nov
+2026-11-11T07:57:37 | Artyom-kurguzkin | created | remote agent runtime control
+2026-11-11T07:57:37 | Artyom-kurguzkin | merged-from | #wi151 Server idle-exit test hangs when the machine is busy

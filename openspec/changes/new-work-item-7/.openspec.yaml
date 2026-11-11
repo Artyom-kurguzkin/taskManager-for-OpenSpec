@@ -4,10 +4,10 @@ created: 2026-11-10
 x-rtm:
   id: 136
   title: global feed view
-  status: Backlog
+  status: Planned
   contributors: [Artyom-kurguzkin]
   features: [track-work-items]
   label: enhancement
   started: 2026-11-09
   due: 2026-11-16
-  moved: 2026-11-10
+  moved: 2026-11-11

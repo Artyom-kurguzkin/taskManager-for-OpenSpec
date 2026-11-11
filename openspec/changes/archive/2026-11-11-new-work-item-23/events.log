@@ -1,0 +1,17 @@
+2026-11-11T07:35:05 | Artyom-kurguzkin | created | New work item
+2026-11-11T07:35:18 | Artyom-kurguzkin | title | New work item -> filter by time period patch
+2026-11-11T07:35:50 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-11T07:36:06 | Artyom-kurguzkin | label | none -> enhancement
+2026-11-11T07:36:11 | Artyom-kurguzkin | status | Backlog -> In Progress
+2026-11-11T07:36:23 | Artyom-kurguzkin | feature | none -> organise-work-items
+2026-11-11T07:41:40 | Claude time | log | Started: time-of-day window on the changed period (BoardOptions times, DateRange WithTime, ChangedIn exact window).
+2026-11-11T07:45:15 | Claude time | log | Tests red: 4 new (2 ArrangingTheBoard, 1 UsingTheBoard, 1 UsingThePages date range) did not compile before BoardOptions times existed; green after: 19 passed in the changed/date-range filter.
+2026-11-11T07:50:29 | Claude time | log | Suite: Failed 1, Passed 580, Total 581; the one failure (UsingTheWorklogTests.ChangedEventsAreCoalesced, not my area) passes alone, so it is timing-flaky. Next: real app check.
+2026-11-11T07:55:38 | Claude time | log | Chunk finished. Real app (hidden desktop): 38 cards; 10-11 Nov whole days 38; 20:00-06:00 gives 14 ("14 of 38 shown"); Show all back to 38. Shots changedtime-light/dark checked. Tests: Passed 108 (UsingTheBoard + changed + date range).
+2026-11-11T07:56:12 | Claude | log | Time-of-day chunk applied to the main tree (7 files, clean): from/to times on the changed period. Its real-app check: 38 cards for 10–11 Nov whole days, 14 for 20:00–06:00. Its suite: 580 of 581, one known timing flake. Field text is clipped by the narrow menu; passed to the menu agent.
+2026-11-11T08:14:19 | Claude | status | In Progress -> In Review
+2026-11-11T08:14:19 | Claude | test-linked | ArrangingTheBoardTests / With times on the changed period, only items with an event, note or file write inside the exact window are shown, and without times the whole days count as before
+2026-11-11T08:14:19 | Claude | test-linked | ArrangingTheBoardTests / An item created on the first day before the window's start time is not counted by its creation alone
+2026-11-11T08:14:19 | Claude | test-linked | UsingTheBoardTests / The changed picker takes a from and a to time once a range is picked, shows them in the field and the legend, and Show all clears them; the times are remembered per board
+2026-11-11T08:14:19 | Claude | test-linked | UsingThePagesTests / The date range picker shows time inputs only in its with-time mode
+2026-11-11T08:44:05 | Artyom-kurguzkin | status | In Review -> Completed

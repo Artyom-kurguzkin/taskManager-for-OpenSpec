@@ -3,12 +3,13 @@ created: 2026-11-10
 x-rtm:
   id: 135
   title: Subtasks from the worklog
-  status: In Review
+  status: Planned
   priority: high
   contributors: [Artyom-kurguzkin, Claude]
   features: [work-item-details]
   label: feature
   started: 2026-11-10
+  moved: 2026-11-11
+  tests: [{suite: KeepingNotesTests, test: 'Unticked checkboxes in a note become subtasks once: each line gets (created subtask) appended and stays in the note; ticked lines and code blocks are left alone'}, {suite: UsingTheWorklogTests, test: "Leaving the note editor turns the note's unticked checkboxes into subtasks, and the feed shows them as added"}, {suite: UsingTheWorklogTests, test: Add subtask in a day's menu adds subtasks one after another from an input in the feed}, {suite: UsingTheWorklogTests, test: 'Shift-clicking a day opens a menu to add a note, link a document, link a test, link a commit or add a subtask'}, {suite: UsingTheBoardOverMcpTests, test: board_note turns unticked checkboxes in its body into subtasks and reports their numbers}, {suite: KeepingNotesTests, test: 'Promoting a note to a subtask keeps the note with its text and attachments, adds the subtask and records one converted event'}, {suite: KeepingNotesTests, test: 'Converting a subtask to a note, a decision or a bug creates it and keeps the subtask'}, {suite: UsingTheWorklogTests, test: 'After promoting a note the feed shows the note and the promoted line, and the note no longer offers Make it a subtask'}]
   agentBy: Claude
-  agentAt: 2026-11-10T11:34:49
-  tests: [{suite: KeepingNotesTests, test: 'Unticked checkboxes in a note become subtasks once: each line gets (created subtask) appended and stays in the note; ticked lines and code blocks are left alone'}, {suite: UsingTheWorklogTests, test: "Leaving the note editor turns the note's unticked checkboxes into subtasks, and the feed shows them as added"}, {suite: UsingTheWorklogTests, test: "Add subtask in a day's menu adds subtasks one after another from an input in the feed"}, {suite: UsingTheWorklogTests, test: 'Shift-clicking a day opens a menu to add a note, link a document, link a test, link a commit or add a subtask'}, {suite: UsingTheBoardOverMcpTests, test: 'board_note turns unticked checkboxes in its body into subtasks and reports their numbers'}]
+  agentAt: 2026-11-11T08:14:13

@@ -627,10 +627,55 @@ rtm.pasteDescription = function (dotnet) {
 };
 rtm.stopPasteDescription = function () { if (rtm._pasteDesc) document.removeEventListener("paste", rtm._pasteDesc); rtm._pasteDesc = null; };
 rtm.setCaret = function (el, pos) { if (!el) return; el.focus(); el.setSelectionRange(pos, pos); };
+
+// Description editor: the section (.wk-first.filling) is scrolled to the top of its scroll area and made as tall as that area (--fill-h, kept in step with the window),
+// so the text box reaches the bottom of the window whatever its height. The CSS only lays out what is inside (a flex column).
+rtm.fillEditor = function (el) {
+  if (!el) return;
+  rtm._fill?.disconnect();
+  let box = el.parentElement;
+  while (box && !/auto|scroll/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+  const height = () => box ? box.clientHeight : window.innerHeight;
+  const size = () => {
+    if (!el.isConnected || !el.classList.contains("filling")) { rtm._fill?.disconnect(); return; }   // editing ended
+    el.style.setProperty("--fill-h", height() + "px");
+    el.scrollIntoView({ block: "start" });   // the window changed size: top and bottom stay at the window's edges
+  };
+  size();
+  if (box) { rtm._fill = new ResizeObserver(size); rtm._fill.observe(box); }
+};
 // Worklog: a Shift-click on a date or an entry opens its menu; the browser would also extend the text selection to it, so that mousedown is not let through.
 document.addEventListener("mousedown", (e) => { if (e.shiftKey && e.target.closest?.(".wk-e, .wk-date") && !e.target.closest(".wk-edit")) e.preventDefault(); });
 // Worklog: whether the focus is (still) inside the element, asked after a focusout (Tab from the note's title to its text keeps the editor, a click elsewhere leaves it).
 rtm.focusStays = function (el) { return !!el && el.contains(document.activeElement); };
+
+// Note editor in the feed: the text box is as tall as its text, from about three lines up to one screen of the feed's scroll area (the page scrolls, not the box).
+// Beyond that it stops growing, scrolls inside, and .NET is told (NoteEditorCapped) so the editor offers its expand button. In the expanded editor (.filling,
+// rtm.fillEditor) CSS sizes the box and the height is left alone. Called again for the same box it measures again.
+rtm.autoGrow = function (ta, dotnet) {
+  if (!ta) return;
+  if (ta._grow) { ta._grow(); return; }
+  let box = ta.parentElement;
+  while (box && !/auto|scroll/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+  const wrap = ta.closest(".wk-edit");
+  let capped = false, watch = null;
+  const grow = () => {
+    if (!ta.isConnected) { watch?.disconnect(); window.removeEventListener("resize", grow); return; }
+    if (wrap?.classList.contains("filling")) { ta.style.height = ""; ta.style.overflowY = ""; return; }
+    const top = box ? box.scrollTop : 0, cap = Math.max(160, (box ? box.clientHeight : window.innerHeight) - 90);
+    ta.style.height = "auto";   // measured from its own content, not from its previous height
+    const want = ta.scrollHeight, now = want > cap;
+    ta.style.height = Math.min(want, cap) + "px";
+    ta.style.overflowY = now ? "auto" : "hidden";
+    if (box) box.scrollTop = top;
+    if (now !== capped) { capped = now; dotnet?.invokeMethodAsync("NoteEditorCapped", now); }
+  };
+  ta._grow = grow;
+  if (box) { watch = new ResizeObserver(grow); watch.observe(box); }
+  window.addEventListener("resize", grow);
+  ta.addEventListener("input", grow);
+  grow();
+};
 
 // Worklog: the side menu's Days list scrolls the feed to a day (or to "Linked earlier"), once the page has drawn it.
 rtm.scrollToDay = function (selector) { requestAnimationFrame(() => document.querySelector(selector)?.scrollIntoView({ block: "start", behavior: "smooth" })); };

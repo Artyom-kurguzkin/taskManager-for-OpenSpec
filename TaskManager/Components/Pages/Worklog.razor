@@ -31,6 +31,7 @@
                 <Items>
                     <MenuItem OnClick="() => AddNote(day.Date)">Add note</MenuItem>
                     <MenuItem OnClick="() => AddNote(day.Date, NoteKinds.Decision)">Add decision</MenuItem>
+                    <MenuItem OnClick="() => AddNote(day.Date, NoteKinds.Bug)">Add bug</MenuItem>
                     <MenuItem OnClick="LinkDocument">Link document</MenuItem>
                     @if (run.File is null) { <button type="button" role="menuitem" class="menu-item" disabled title="No test results file configured">Link test</button> }
                     else { <MenuItem OnClick="() => OpenPicker(day.Date, TestPicker)">Link test</MenuItem> }
@@ -87,7 +88,7 @@
         </section>
     }
     @* the item's description is its first post, so it ends the feed, after every day: no hover effect, Shift-click edits it in place, as a note *@
-    <section class="wk-first">
+    <section class="@("wk-first" + (editDesc ? " filling" : ""))" @ref="firstSection">
         @if (editDesc) { @DescriptionEditor }
         else
         {
@@ -130,7 +131,6 @@
         public int Mention;
         public string? Unlink;       // "commit:abc1234", "test:Suite / Test" or "doc:path" when a Shift-click may unlink it
         public bool Linked;          // a link event whose link still stands
-        public string? MenuLabel => Note is not null ? "Edit" : Unlink is not null ? "Unlink" : null;
     }
 
     private sealed record Day(DateTime Date, List<Row> Rows);
@@ -138,6 +138,7 @@
     private static DateTime Today => DateTime.Today;
     private WorkItem item = default!;
     private IReadOnlyList<Note> notes = [];
+    private HashSet<int> promoted = [];   // the notes a subtask was made of: they offer no second one
     private List<Day> days = [];
     private List<Row> earlier = [];
     private readonly HashSet<DateTime> folded = [];
@@ -168,7 +169,8 @@
             () => Later(() => { OpenPicker(Today, CommitPicker); return Task.CompletedTask; }),
             () => Later(() => { OpenSubtaskInput(Today); return Task.CompletedTask; }),
             () => run.File is not null, () => IsRepository,
-            day => Later(() => JumpTo(day)));
+            day => Later(() => JumpTo(day)),
+            AddBug: () => Later(() => AddNote(Today, NoteKinds.Bug)));
         Popups.OpenWorklog(actions);
         Popups.WorklogChanged += OnFilters;
     }
@@ -192,7 +194,8 @@
         dependencyTitle.Clear();
         item = WorkItemsApi.Get(Item.Id) ?? Item;
         notes = NotesApi.GetForWorkItem(item.Id);
-        if (editId is int editing && notes.All(n => n.Id != editing)) editId = null;   // the note is gone
+        promoted = [.. NotesApi.PromotedNotes(item.Id)];
+        if (editId is int editing && notes.All(n => n.Id != editing)) { editId = null; editExpanded = editCapped = false; }   // the note is gone
         (days, earlier) = Build();
         if (!editDesc) ShowDescription(WorkItemsApi.GetDescription(item.Id));
         Popups.SetWorklogPeople([.. days.SelectMany(d => d.Rows).Select(r => r.By).Where(b => b.Length > 0).Distinct().Order(StringComparer.OrdinalIgnoreCase)]);
@@ -230,7 +233,8 @@
     /// <summary>The kind of filter an entry answers to: decisions, other notes, links (commits, tests, documents, plans), subtask and dependency events, created and status events, or edits (everything else).</summary>
     private static string FilterOf(Row r) => r.Kind switch
     {
-        "note" => r.Note is { IsDecision: true } ? "decisions" : "notes",
+        "note" => r.Note is { IsDecision: true } ? "decisions" : r.Note is { IsBug: true } ? "bugs" : "notes",
+        "converted" or "subtask-removed" => "edits",   // a note turned into a subtask or the other way round, and the subtask taken out: housekeeping
         "created" or "status" or "merged-from" => "events",
         "commit-linked" or "commit-unlinked" or "test-linked" or "test-unlinked" or "doc-linked" or "doc-unlinked" or "plan-linked" or "plan-unlinked" or "commit" or "mention" or "test" or "doc" => "links",
         "subtask-done" or "subtask-reopened" or "subtask-added" or "dependency-added" or "dependency-removed" => "subtasks",
@@ -241,7 +245,7 @@
     {
         if (r.Note is not null && r.Note.Id == editId) return true;   // a note being written stays, whatever the filters say
         WorklogFilters f = Popups.WorklogFilter;
-        bool kind = FilterOf(r) switch { "notes" => f.Notes, "decisions" => f.Decisions, "events" => f.Events, "links" => f.Links, "subtasks" => f.Subtasks, _ => f.Edits };
+        bool kind = FilterOf(r) switch { "notes" => f.Notes, "decisions" => f.Decisions, "bugs" => f.Bugs, "events" => f.Events, "links" => f.Links, "subtasks" => f.Subtasks, _ => f.Edits };
         return kind && (f.Who == "all" || r.By == f.Who);
     }
 
@@ -342,27 +346,48 @@
     private RenderFragment Entries(IEnumerable<Row> rows) => @<text>
         @foreach (Row r in rows)
         {
-            if (r.Note is not null && r.Note.Id == editId) { @Editor(r.Note) }
-            else if (r.MenuLabel is string label)
+            if (r.Note is Note editing && editing.Id == editId)
             {
-                <Menu @key="r.Key" @ref="entryMenus[r.Key]" Label="@label" Class="wk-menu" ShiftClick>
+                @* the editor is a keyed element of the loop itself, not a fragment call (a call is a region of its own, which a key cannot reach): when an entry arrives above, Blazor moves the same textarea, so focus, caret and the open editor stay *@
+                <div @key="r.Key" class="wk-e wk-note wk-edit @NoteClass(editing) @(editExpanded ? "filling" : null)" data-kind="@NoteName(editing)" @ref="editorWrap" @onfocusout="EditorFocusOut">
+                    <span class="wk-mark" aria-hidden="true"></span>
+                    @if (editCapped || editExpanded)
+                    {
+                        <button type="button" class="ic wk-expand" aria-label="@(editExpanded ? "Collapse editor" : "Expand editor")" title="@(editExpanded ? "Collapse editor" : "Expand editor")" @onclick="ToggleExpanded">@Ui.Icon(editExpanded ? "collapse" : "expand")</button>
+                    }
+                    <div class="wk-main">
+                        <input class="wk-title-in" value="@editTitle" @oninput="SetEditTitle" aria-label="Note title" />
+                        <textarea @ref="editorBox" class="desc-in grow" value="@editBody" @oninput="SetEditBody" aria-label="Note text" placeholder="@(editing.IsDecision ? "What was decided, and why. Two lines." : editing.IsBug ? "What is wrong, and how to see it." : "Write in markdown. Paste an image to attach it.")"></textarea>
+                        @if (editing.Attachments.Count > 0) { <div class="wk-atts">@Attachments(editing)</div> }
+                    </div>
+                </div>
+            }
+            else if (Choices(r) is { Count: > 0 } choices)
+            {
+                <Menu @key="r.Key" @ref="entryMenus[r.Key]" Label="@choices[0]" Class="wk-menu" ShiftClick>
                     <Activator>@Line(r)</Activator>
-                    <Items><MenuItem OnClick="() => Act(r)">@label</MenuItem></Items>
+                    <Items>
+                        @foreach (string choice in choices)
+                        {
+                            <MenuItem OnClick="() => Act(r, choice)">@choice</MenuItem>
+                        }
+                    </Items>
                 </Menu>
             }
             else { @Line(r) }
         }
     </text>;
 
-    private RenderFragment Line(Row r) => @<article class="wk-e @(r.Note is { IsDecision: true } ? "wk-note wk-decision" : r.Note is not null ? "wk-note" : r.Unlink is not null ? "wk-ev hov" : "wk-ev")" data-kind="@(r.Note is { IsDecision: true } ? "decision" : r.Kind)" tabindex="0" data-sk="@(r.MenuLabel is null ? null : "")"
-                 title="@(r.Note is not null ? "Shift-click to edit" : r.Unlink is not null ? "Shift-click to unlink" : null)" @onkeydown="e => EntryKey(e, r)">
+    private RenderFragment Line(Row r) => @<article class="wk-e @(r.Note is not null ? "wk-note " + NoteClass(r.Note) : Choices(r).Count > 0 ? "wk-ev hov" : "wk-ev")" data-kind="@(r.Note is not null ? NoteName(r.Note) : r.Kind)" tabindex="0" data-sk="@(Choices(r).Count == 0 ? null : "")"
+                 title="@(r.Note is not null ? "Shift-click to edit or convert" : r.Unlink is not null ? "Shift-click to unlink" : Choices(r).Count > 0 ? "Shift-click to convert" : null)" @onkeydown="e => EntryKey(e, r)">
         <span class="wk-mark" aria-hidden="true"></span>
         <div class="wk-main">
             @if (r.Note is Note n)
             {
                 <div class="wk-line">
                     @if (n.IsDecision) { <span class="wk-tag">Decision</span> }
-                    @if (!(n.IsDecision && n.Title == "Decision")) { <b class="wk-title">@n.Title</b> }   @* the tag already says it: a decision keeps its default title unseen *@
+                    else if (n.IsBug) { <span class="wk-tag">Bug</span> }
+                    @if (!(n.IsDecision && n.Title == "Decision") && !(n.IsBug && n.Title == "Bug")) { <b class="wk-title">@n.Title</b> }   @* the tag already says it: a decision or a bug keeps its default title unseen *@
                     @if (n.AgentUnreviewed) { <AgentChip By="@n.AgentBy" At="n.AgentAt" OnReview="() => Review(n)" /> }
                     @if (n.MergedFrom is int from) { <span class="muted wk-from">from #wi@(from)</span> }
                 </div>
@@ -395,6 +420,8 @@
             case "subtask-done": <span>ticked @SubtaskText(r.Text)</span> break;
             case "subtask-reopened": <span>reopened @SubtaskText(r.Text)</span> break;
             case "subtask-added": <span>added subtask @SubtaskText(r.Text)</span> break;
+            case "subtask-removed": <span>removed subtask @SubtaskText(r.Text)</span> break;
+            case "converted": <span>@ConvertedLine(r.Text)</span> break;
             case "dependency-added": <span>waits on @Dependency(r.Text)</span> break;
             case "dependency-removed": <span>no longer waits on @Dependency(r.Text)</span> break;
             case "title" or "priority" or "label" or "dates" or "feature": <span>@r.Kind: @r.Text.Replace(" -> ", " → ")</span> break;
@@ -430,6 +457,7 @@
     /// <summary>The commits that mention work item <paramref name="n"/>; kept while HEAD stays where it was, because each read is a git call and the feed reads on every change.</summary>
     private IReadOnlyList<CommitInfo> Mentioning(int n)
     {
+        if (!GitHistoryApi.IsRepository()) return [];   // no .git to read the head from: HeadToken would start git, on every read, for nothing
         string head = GitHistoryApi.HeadToken();
         if (mentions.TryGetValue(n, out var hit) && hit.Head == head) return hit.Commits;
         IReadOnlyList<CommitInfo> found = GitHistoryApi.Mentioning($"#wi{n}");
@@ -487,18 +515,30 @@
     private int? editId;
     private string editTitle = "", editBody = "";
     private bool focusEditor;
+    private string? tableFor;   // the textarea (its element reference) the markdown table helper (rtm.markdownEditor) was last attached to: a new one, when the feed changes around the editor, needs it again
     private string pasting = "";   // which paste listener the script has for this view: "note", "desc" or none
-    private ElementReference editorWrap, editorBox;
+    private ElementReference editorWrap, editorBox, firstSection;
     private DotNetObjectReference<Worklog>? self;
+    private bool editCapped, editExpanded, regrow;   // the note's text is taller than the window (rtm.autoGrow says so); the editor fills the window (the button); that wants rtm.fillEditor after the next render
+    private string? growFor;   // the textarea rtm.autoGrow was attached to
 
-    private RenderFragment Editor(Note n) => @<div class="wk-e wk-note wk-edit @(n.IsDecision ? "wk-decision" : null)" data-kind="@(n.IsDecision ? "decision" : "note")" @ref="editorWrap" @onfocusout="EditorFocusOut">
-        <span class="wk-mark" aria-hidden="true"></span>
-        <div class="wk-main">
-            <input class="wk-title-in" value="@editTitle" @oninput="SetEditTitle" aria-label="Note title" />
-            <textarea @ref="editorBox" class="desc-in" value="@editBody" @oninput="SetEditBody" aria-label="Note text" placeholder="@(n.IsDecision ? "What was decided, and why. Two lines." : "Write in markdown. Paste an image to attach it.")"></textarea>
-            @if (n.Attachments.Count > 0) { <div class="wk-atts">@Attachments(n)</div> }
-        </div>
-    </div>;
+    /// <summary>Called by rtm.autoGrow when the note's text becomes taller than the window (the box stops growing and scrolls inside), or shorter again.</summary>
+    [JSInvokable]
+    public void NoteEditorCapped(bool capped)
+    {
+        if (capped == editCapped) return;
+        editCapped = capped;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleExpanded()
+    {
+        editExpanded = !editExpanded;
+        regrow = true;
+        focusEditor = true;   // the button had the focus; the caret goes back to the text
+    }
+
+
 
     // The description is edited by the same editor box: a text area (the paste script listens to it), and leaving it saves.
     private bool editDesc;
@@ -560,6 +600,7 @@
     {
         if (editId != n.Id) SaveEdit();   // another note being edited is saved first
         editId = n.Id;
+        editExpanded = editCapped = false;
         (editTitle, editBody) = (n.Title, n.Body);
         focusEditor = true;
     }
@@ -591,6 +632,7 @@
         }
         if (editId is not int id) return false;
         editId = null;
+        editExpanded = editCapped = false;
         if (notes.FirstOrDefault(n => n.Id == id) is Note n)
         {
             // the text first: the title rewrites the same file. The workspace is told once, after both.
@@ -642,6 +684,9 @@
                 if (want == "note") await Js.InvokeVoidAsync("rtm.pasteImages", self ??= DotNetObjectReference.Create(this));
                 else if (want == "desc") await Js.InvokeVoidAsync("rtm.pasteDescription", self ??= DotNetObjectReference.Create(this));
             }
+            if (editDesc || editId is not null) { if (editorBox.Id is string box && box != tableFor) { tableFor = box; await Js.InvokeVoidAsync("rtm.markdownEditor", editorBox); } } else tableFor = null;
+            if (editId is not null && !editDesc) { if (editorBox.Id is string grow && (grow != growFor || regrow)) { growFor = grow; await Js.InvokeVoidAsync("rtm.autoGrow", editorBox, self ??= DotNetObjectReference.Create(this)); } } else growFor = null;
+            if (regrow && editId is not null) { regrow = false; if (editExpanded) await Js.InvokeVoidAsync("rtm.fillEditor", editorWrap); }
             if (descCaret is int caret && editDesc)
             {
                 descCaret = null;
@@ -656,6 +701,7 @@
             {
                 focusEditor = false;
                 await editorBox.FocusAsync();
+                if (editDesc) await Js.InvokeVoidAsync("rtm.fillEditor", firstSection);   // the description editor: scrolled to the top of the page, as tall as the window
             }
         }
         catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException) { }
@@ -663,17 +709,109 @@
 
     // ── Menus and links ──
 
-    private async Task Act(Row r)
+    private const string EditChoice = "Edit", UnlinkChoice = "Unlink", ToDecision = "Make it a decision", ToNote = "Make it a note", ToBug = "Make it a bug", ToSubtask = "Make it a subtask", ReportChoice = "Report a bug from this";
+
+    private static string? NoteClass(Note n) => n.IsDecision ? "wk-decision" : n.IsBug ? "wk-bug" : null;
+    private static string NoteName(Note n) => n.IsDecision ? "decision" : n.IsBug ? "bug" : "note";
+    private static string? KindOfChoice(string choice) => choice == ToDecision ? NoteKinds.Decision : choice == ToBug ? NoteKinds.Bug : null;
+
+    /// <summary>
+    /// What a Shift-click on the entry offers, in order: a note Edit, its other kinds and a subtask (once); a subtask still open its kinds; any other
+    /// entry a bug report from it, after Unlink for a link.
+    /// </summary>
+    private IReadOnlyList<string> Choices(Row r)
     {
-        if (r.Note is Note n) { StartEdit(n); return; }
-        if (r.Unlink is string spec) await Unlink(spec);
+        if (r.Note is Note n)
+        {
+            List<string> choices = [EditChoice];
+            if (n.IsDecision || n.IsBug) choices.Add(ToNote);
+            if (!n.IsDecision) choices.Add(ToDecision);
+            if (!n.IsBug) choices.Add(ToBug);
+            if (!promoted.Contains(n.Id)) choices.Add(ToSubtask);
+            return choices;
+        }
+        if (OpenSubtaskOf(r) is not null) return [ToNote, ToDecision, ToBug];
+        return r.Unlink is not null ? [UnlinkChoice, ReportChoice] : [ReportChoice];
     }
 
-    private async Task AddNote(DateTime day, string? kind = null)
+    /// <summary>The subtask a <c>subtask-added</c> entry names, when it is still in tasks.md under that number and text and not ticked.</summary>
+    private Subtask? OpenSubtaskOf(Row r)
+    {
+        if (r.Kind != "subtask-added") return null;
+        string[] parts = r.Text.Split(' ', 2);
+        return parts.Length == 2 ? item.Subtasks.FirstOrDefault(s => s.Number == parts[0] && s.Text == parts[1] && !s.Done) : null;
+    }
+
+    private async Task Act(Row r, string choice)
+    {
+        if (choice == UnlinkChoice) { if (r.Unlink is string spec) await Unlink(spec); return; }
+        if (choice == ReportChoice) { await AddNote(Today, NoteKinds.Bug, EventText(r)); return; }
+        if (r.Note is Note n)
+        {
+            if (choice == EditChoice) StartEdit(n);
+            else if (choice == ToSubtask) { (bool ok, string why, _) = NotesApi.ConvertToSubtask(n.Id); await Linked((ok, why)); }
+            else await Linked(NotesApi.ConvertKind(n.Id, KindOfChoice(choice)));
+            return;
+        }
+        if (OpenSubtaskOf(r) is Subtask s)
+        {
+            (bool ok, string why, _) = NotesApi.ConvertSubtask(item.Id, s.Number, KindOfChoice(choice), Workspace.Me);
+            await Linked((ok, why));
+        }
+    }
+
+    /// <summary>A <c>converted</c> event's text as a line: <c>note #n12 -&gt; subtask 2.3</c> is "promoted note #n12 to subtask 2.3", <c>subtask 2.3 -&gt; bug #n9</c> "converted subtask 2.3 to a bug #n9".</summary>
+    private static string ConvertedLine(string text)
+    {
+        string[] parts = text.Split(" -> ", 2);
+        if (parts.Length < 2) return "converted " + text;
+        return parts[1].StartsWith("subtask") ? $"promoted {parts[0]} to {parts[1]}" : $"converted {parts[0]} to a {parts[1]}";
+    }
+
+    /// <summary>What an event line says, as plain text: the title of a bug reported from it.</summary>
+    private string EventText(Row r)
+    {
+        string said = r.Kind switch
+        {
+            "created" => "created the item",
+            "status" => "status: " + r.Text.Replace(" -> ", " → "),
+            "commit-linked" => "linked a commit: " + r.Text + (CommitOf(r.Text) is CommitInfo c ? " " + c.Subject : ""),
+            "commit-unlinked" => "unlinked a commit: " + r.Text,
+            "test-linked" => "linked a test: " + r.Text,
+            "test-unlinked" => "unlinked a test: " + r.Text,
+            "doc-linked" => "linked a document: " + r.Text,
+            "doc-unlinked" => "unlinked a document: " + r.Text,
+            "subtask-done" => "ticked " + r.Text,
+            "subtask-reopened" => "reopened " + r.Text,
+            "subtask-added" => "added subtask " + r.Text,
+            "subtask-removed" => "removed subtask " + r.Text,
+            "converted" => ConvertedLine(r.Text),
+            "dependency-added" => "waits on " + r.Text,
+            "dependency-removed" => "no longer waits on " + r.Text,
+            "title" or "priority" or "label" or "dates" or "feature" => r.Kind + ": " + r.Text.Replace(" -> ", " → "),
+            "merged-from" => "merged " + r.Text + " into this item",
+            "contributor-added" => "added contributor " + r.Text,
+            "contributor-removed" => "removed contributor " + r.Text,
+            "plan-linked" => "linked a plan: " + r.Text,
+            "plan-unlinked" => "unlinked a plan: " + r.Text,
+            "description-edited" => "edited the description",
+            "attachment-added" => "attached " + AttachedText(r.Text),
+            "commit" => "commit " + r.Commit?.Hash + " " + r.Commit?.Subject,
+            "mention" => "mentions #wi" + r.Mention + " " + r.Commit?.Hash + " " + r.Commit?.Subject,
+            "test" => "test: " + r.Text,
+            "doc" => "document: " + r.Text,
+            _ => r.Kind + ": " + r.Text,
+        };
+        said = string.Join(' ', said.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return said.Length > 120 ? said[..120].TrimEnd() + "…" : said;
+    }
+
+    private async Task AddNote(DateTime day, string? kind = null, string? title = null)
     {
         DateTime created = day == Today ? DateTime.Now : day.Add(DateTime.Now.TimeOfDay);   // an older day gets the time of day it is now
         (bool ok, string message, int id) = NotesApi.Create(item.Id, Workspace.Me, created, kind);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
+        if (title is not null) NotesApi.SetTitle(id, title);
         Workspace.Notify();   // every page (this one too) reads again
         folded.Remove(day);
         if (NotesApi.Get(id) is Note note) StartEdit(note);

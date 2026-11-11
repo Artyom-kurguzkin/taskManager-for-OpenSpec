@@ -19,6 +19,13 @@
                     <button type="button" class="rd @Look(day)" data-day="@day.ToString("yyyy-MM-dd")" @onclick="() => Pick(day)">@day.Day</button>
                 }
             </div>
+            @if (WithTime)
+            {
+                <div class="range-t">
+                    <label><span>from</span> <input type="time" class="date-in" aria-label="from time" value="@Format(StartTime)" disabled="@(!Picked)" @onchange="e => TimeChanged(e, true)" /></label>
+                    <label><span>to</span> <input type="time" class="date-in" aria-label="to time" value="@Format(EndTime)" disabled="@(!Picked)" @onchange="e => TimeChanged(e, false)" /></label>
+                </div>
+            }
             <div class="range-f">
                 <span class="muted">@(pending is DateOnly p ? $"from {p:d MMM}: pick the end" : "pick the start")</span>
                 @if (ClearLabel is null) { <button type="button" class="add range-clear" @onclick="Clear">Clear</button> }
@@ -39,13 +46,36 @@
     /// <summary>The new range; (null, null) when cleared.</summary>
     [Parameter] public EventCallback<(DateOnly? Start, DateOnly? End)> Changed { get; set; }
 
+    /// <summary>Adds a from and a to time of day to the popup, enabled once a day or range is picked. Off by default.</summary>
+    [Parameter] public bool WithTime { get; set; }
+    [Parameter] public TimeOnly? StartTime { get; set; }
+    [Parameter] public TimeOnly? EndTime { get; set; }
+    /// <summary>The new times (null = the day's edge) after one of the inputs changed. Clearing the range is reported through <see cref="Changed"/> alone: the owner drops the times with it.</summary>
+    [Parameter] public EventCallback<(TimeOnly? From, TimeOnly? To)> TimesChanged { get; set; }
+
     private Menu? menu;
+    private bool Picked => Start is not null || End is not null;
+    private static string Format(TimeOnly? t) => t?.ToString("HH\\:mm") ?? "";
+
+    private async Task TimeChanged(ChangeEventArgs e, bool from)
+    {
+        TimeOnly? t = TimeOnly.TryParse(e.Value?.ToString(), out TimeOnly parsed) ? parsed : null;
+        await TimesChanged.InvokeAsync(from ? (t, EndTime) : (StartTime, t));
+    }
     private DateOnly month = new(DateTime.Today.Year, DateTime.Today.Month, 1);
     private DateOnly? pending;   // the start, between the first click and the second
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
 
     private string Text => (Start, End) switch
     {
+        (DateOnly s, DateOnly e) when WithTime && s == e => (StartTime, EndTime) switch
+        {
+            (TimeOnly a, TimeOnly b) => $"{s:d MMM} {Format(a)} – {Format(b)}",
+            (TimeOnly a, null) => $"{s:d MMM} from {Format(a)}",
+            (null, TimeOnly b) => $"{s:d MMM} until {Format(b)}",
+            _ => s.ToString("d MMM"),
+        },
+        (DateOnly s, DateOnly e) when WithTime => $"{s:d MMM}{(StartTime is null ? "" : " " + Format(StartTime))} – {e:d MMM}{(EndTime is null ? "" : " " + Format(EndTime))}",
         (DateOnly s, DateOnly e) when s == e => s.ToString("d MMM"),
         (DateOnly s, DateOnly e) => $"{s:d MMM} – {e:d MMM}",
         (DateOnly s, null) => $"from {s:d MMM}",

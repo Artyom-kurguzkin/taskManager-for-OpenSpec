@@ -47,6 +47,8 @@ public static class OpenSpecStoreApi
     public static string ReadText(string path) => Queries.ReadText(path);
     public static (bool Success, string Message) WriteText(string path, string content) => Commands.WriteText(path, content);
     public static (bool Success, string Message) DeleteFolder(string path) => Commands.DeleteFolder(path);
+    /// <summary>Deletes one file (nothing to do when it is already gone); the store is told, so every reader sees it gone.</summary>
+    public static (bool Success, string Message) DeleteFile(string path) => Commands.DeleteFile(path);
     public static (bool Success, string Message) MoveFolder(string from, string to) => Commands.MoveFolder(from, to);
 
     // ── x-rtm block ──
@@ -77,6 +79,9 @@ public static class OpenSpecStoreApi
 
     /// <summary>Tells the watcher that the app itself is about to change this path (e.g. through a CLI it runs).</summary>
     public static void MarkOwnChange(string path) => OpenSpecStoreModule.MarkOwn(path);
+
+    /// <summary>Creates a folder (and the missing ones above it) the app itself makes, so the watcher does not report it back as an outside change.</summary>
+    public static void CreateFolder(string path) => Commands.CreateOwnedDirectory(path);
 
     /// <summary>Which repository session is open (goes up on every open, so a closed and reopened one is a new session): what a module's per-repository cache is valid for.</summary>
     public static long RepoGeneration => OpenSpecStoreModule.Current?.Opened ?? 0;

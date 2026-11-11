@@ -90,120 +90,105 @@
     }
     else
     {
+        @* The subtasks are the main list (two thirds); what the item waits on, what waits on it and what is related to it are a rail beside it (one third).
+           In a narrow window the rail follows the list below it. *@
         <div class="view-grid view-linked @(narrow ? "stack" : null)">
-            <section class="tile" data-tile="subtasks">
-                <div class="tile-h"><h3>Subtasks</h3><span class="count">@item.Subtasks.Count(s => s.Done)/@item.Subtasks.Count</span></div>
-                <div>
-                    @foreach (IGrouping<string, Subtask> g in SubGroups)
-                    {
-                    @* more than one task group (merged items): each is a header with its progress that collapses *@
-                    @if (SubGroups.Count > 1)
-                    {
-                        bool groupOpen = !subCollapsed.Contains(g.Key);
-                        <div class="sub-group" data-sk role="button" tabindex="0" aria-expanded="@(groupOpen ? "true" : "false")"
-                             @onclick="() => ToggleSubGroup(g.Key)" @onkeydown="e => SubGroupKey(e, g.Key)">
-                            <span class="chev" aria-hidden="true">@(groupOpen ? "▾" : "▸")</span>
-                            <span class="g-name">@SubGroupName(g.Key)</span>
-                            <span class="g-prog mono">@g.Count(s => s.Done)/@g.Count()</span>
-                        </div>
-                    }
-                    @if (SubGroups.Count == 1 || !subCollapsed.Contains(g.Key))
-                    {
-                    @foreach (Subtask s in g)
-                    {
-                        <div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "")" data-sk>
-                            <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
-                                   @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
-                            <span class="mono">@s.Number</span>
-                            @if (s.Agent is not null) { <AgentChip By="@s.Agent" OnReview="() => Run(WorkItemsApi.MarkSubtaskReviewed(item.Id, s.Number))" /> }
-                            @if (editingSub == s.Number)
-                            {
-                                @* Enter or leaving the box saves, Esc cancels *@
-                                <input @ref="subBox" class="sub-edit" data-own-esc value="@s.Text" aria-label="Subtask @s.Number" @oninput="e => subText = (string)e.Value!"
-                                       @onkeydown="e => SubKey(e, s)" @onblur="() => SaveSub(s)" />
-                            }
-                            else
-                            {
-                                @* click edits it; Shift/Ctrl/⌘-click selects it, as cards on the board *@
-                                <span class="s-t" title="Click to edit · Shift-click to select" @onclick="e => SubClick(e, s)">@s.Text</span>
-                            }
-                        </div>
-                    }
-                    }
-                    }
-                    @if (item.Subtasks.Count == 0) { <p class="muted">No subtasks yet.</p> }
+            <section class="tile ln-main" data-tile="subtasks">
+                <div class="tile-h">
+                    <h3>Subtasks</h3>
+                    @if (item.Subtasks.Count > 0) { <span class="count">@item.Subtasks.Count(s => s.Done) of @item.Subtasks.Count done</span> }
+                    <div class="ln-bar" aria-hidden="true"><div style="width:@(item.Subtasks.Count == 0 ? 0 : (int)Math.Round(100.0 * item.Subtasks.Count(s => s.Done) / item.Subtasks.Count))%"></div></div>
                 </div>
+                @* task groups: the ones with open subtasks first, the fully done ones after them, each in file order; a group's done subtasks are folded into "N done" *@
+                @foreach (IGrouping<string, Subtask> g in OrderedSubGroups)
+                {
+                    List<Subtask> open = g.Where(s => !s.Done).ToList(), done = g.Where(s => s.Done).ToList();
+                    bool unfolded = subUnfolded.Contains(g.Key);
+                    <div class="sub-grp">
+                        @* more than one task group (merged items): each has a header with its progress *@
+                        @if (SubGroups.Count > 1)
+                        {
+                            <div class="sub-group"><span class="g-name">@SubGroupName(g.Key)</span><span class="g-prog mono">@done.Count / @g.Count()</span></div>
+                        }
+                        @foreach (Subtask s in open) { @SubRow(s) }
+                        @if (done.Count > 0)
+                        {
+                            <button type="button" class="sub-fold" aria-expanded="@(unfolded ? "true" : "false")" @onclick="() => ToggleFold(g.Key)">@(unfolded ? "▾" : "▸") @done.Count done</button>
+                            @if (unfolded) { @foreach (Subtask s in done) { @SubRow(s) } }
+                        }
+                    </div>
+                }
+                @if (item.Subtasks.Count == 0) { <p class="muted">No subtasks yet.</p> }
+                @* a #wi12 here makes the item wait on that one instead of adding a subtask *@
                 <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
-                    <input @bind="newSubtask" placeholder="Add a subtask, or #wi12…" aria-label="New subtask" /><button class="btn" data-sk type="submit">add</button>
+                    <span class="plus" aria-hidden="true">+</span>
+                    <input @bind="newSubtask" placeholder="Add a subtask, or #wi12 to wait on it" aria-label="New subtask" />
                 </form>
-                @if (!item.Archived) { <span class="muted">Type another item's id (#wi12) to wait on it. Click a subtask to edit it. Shift-click to select it (or several), then make it a work item of its own.</span> }
             </section>
 
-            @* items this one waits on (struck through once in review or done, so they no longer block) *@
-            <section class="tile" data-tile="waiting">
-                <div class="tile-h"><h3>Waiting on</h3>@if (WaitingOn.Count > 0) { <span class="count">@WaitingOn.Count</span> }</div>
-                <div>
+            <div class="ln-rail">
+                @* items this one waits on (struck through once in review or done, so they no longer block) *@
+                <section class="tile" data-tile="waiting">
+                    <div class="tile-h"><h3>Waiting on</h3></div>
                     @foreach (WorkItem d in WaitingOn)
                     {
                         bool done = WorkItemsApi.IsResolved(d);
                         <div class="sub dep waits @(done ? "done" : "blocking-me")" data-sk @onclick="@(() => Nav.NavigateTo($"item/{d.Id}"))">
-                            <span class="s-t">#wi@(d.Id) · @d.Title</span><span class="dep-s">@d.Status</span>
+                            <span class="mono">#wi@(d.Id)</span><span class="s-t">@d.Title</span><span class="tag lbl dep-s" style="--fill:var(@Ui.Band(d.Archived ? "Completed" : d.Status))">@(d.Archived ? "Completed" : d.Status)</span>
                             <button class="ic" aria-label="Remove dependency" title="Remove dependency" @onclick:stopPropagation="true"
                                     @onclick="() => Run(WorkItemsApi.RemoveDependency(item.Id, d.Id))">×</button>
                         </div>
                     }
-                    @if (WaitingOn.Count == 0) { <p class="muted">Not waiting on anything.</p> }
-                </div>
-                @if (!item.Archived)
-                {
-                    @* an existing work item this one has to wait on (typing its id in the subtask box does the same) *@
-                    <PickerMenu TItem="WorkItem" Label="Wait on another work item" ButtonText="+ wait on another work item" Placeholder="Filter work items…"
-                                Items="DependencyChoices" Text="@(w => [$"#wi{w.Id}", w.Title, w.Status])" OnPick="w => LinkDependency(w.Id)">
-                        <ItemTemplate Context="w"><span class="mono">#wi@(w.Id)</span> @w.Title <span class="muted">· @w.Status</span></ItemTemplate>
-                    </PickerMenu>
-                }
-            </section>
+                    @if (WaitingOn.Count == 0) { <p class="muted">Nothing.</p> }
+                    @if (!item.Archived)
+                    {
+                        @* an existing work item this one has to wait on (typing its id in the subtask box does the same) *@
+                        <PickerMenu TItem="WorkItem" Label="Wait on another work item" ButtonText="+ wait on another item" Placeholder="Filter work items…"
+                                    Items="DependencyChoices" Text="@(w => [$"#wi{w.Id}", w.Title, w.Status])" OnPick="w => LinkDependency(w.Id)">
+                            <ItemTemplate Context="w"><span class="mono">#wi@(w.Id)</span> @w.Title <span class="muted">· @w.Status</span></ItemTemplate>
+                        </PickerMenu>
+                    }
+                </section>
 
-            <section class="tile" data-tile="blocks">
-                <div class="tile-h"><h3>Waiting on this</h3>@if (Blocking.Count > 0) { <span class="count">@Blocking.Count</span> }</div>
-                <div>
+                <section class="tile" data-tile="blocks">
+                    <div class="tile-h"><h3>Waiting on this</h3>@if (Blocking.Count > 0) { <span class="count">@Blocking.Count</span> }</div>
                     @foreach (WorkItem b in Blocking)
                     {
                         <div class="sub dep blocks" data-sk @onclick="@(() => Nav.NavigateTo($"item/{b.Id}"))">
-                            <span class="s-t">#wi@(b.Id) · @b.Title</span><span class="dep-s">@b.Status</span>
+                            <span class="mono">#wi@(b.Id)</span><span class="s-t">@b.Title</span><span class="tag lbl dep-s" style="--fill:var(@Ui.Band(b.Archived ? "Completed" : b.Status))">@(b.Archived ? "Completed" : b.Status)</span>
                         </div>
                     }
-                    @if (Blocking.Count == 0) { <p class="muted">Nothing waits on this item.</p> }
-                </div>
-            </section>
+                    @if (Blocking.Count == 0) { <p class="muted">Nothing.</p> }
+                </section>
 
-            @* everything that belongs to the item, and the one place its plan and linked documents are shown, linked and unlinked: the plan, the documents (x-rtm.docs),
-               what the description and the notes name or attach, and the images *@
-            <section class="tile related" data-tile="related">
-                <div class="tile-h"><h3>Related</h3>@if (related.Count > 0) { <span class="count">@related.Count</span> }</div>
-                @if (related.Count == 0) { <p class="muted">Nothing attached yet.</p> }
-                else
-                {
-                    <ul class="rel-list">
-                        @foreach (Rel r in related)
-                        {
-                            <li class="rel" data-kind="@r.Kind">
-                                <span class="k">@r.Kind</span>
-                                @if (IsUrl(r.Target)) { <a class="rel-open" href="@r.Target" target="_blank" rel="noopener" title="@r.Target">@r.Name</a> }
-                                else if (r.Kind is "plan" or "doc") { <a class="rel-open" href="doc/@r.Target" title="@r.Target">@r.Name</a> }
-                                else { <button type="button" class="rel-open" title="@r.Target" @onclick="() => OpenFile(r.Target)">@r.Name</button> }
-                                @if (r.Stored) { <button type="button" class="ic rel-x" aria-label="Unlink @r.Name" title="Unlink (the file stays)" @onclick="() => Unlink(r)">×</button> }
-                            </li>
-                        }
-                    </ul>
-                }
-                @* the plan file (x-rtm.plan), picked from the plans folder; documents are linked from the worklog's date menu *@
-                @if (item.Plan is null)
-                {
-                    <PickerMenu TItem="string" Label="Link a plan" ButtonText="+ link plan" Placeholder="Filter plans…" Items="PlanFiles" Text="f => [f]"
-                                OnPick="f => Run(WorkItemsApi.SetPlan(item.Id, f))"><ItemTemplate Context="f"><span class="pick-item">@System.IO.Path.GetFileName(f)</span></ItemTemplate></PickerMenu>
-                }
-            </section>
+                @* everything that belongs to the item, and the one place its plan and linked documents are shown, linked and unlinked: the plan, the documents (x-rtm.docs),
+                   what the description and the notes name or attach, and the images *@
+                <section class="tile related" data-tile="related">
+                    <div class="tile-h"><h3>Related</h3>@if (related.Count > 0) { <span class="count">@related.Count</span> }</div>
+                    @if (related.Count == 0) { <p class="muted">Nothing attached yet.</p> }
+                    else
+                    {
+                        <ul class="rel-list">
+                            @foreach (Rel r in related)
+                            {
+                                <li class="rel" data-kind="@r.Kind">
+                                    <span class="k">@r.Kind</span>
+                                    @if (IsUrl(r.Target)) { <a class="rel-open" href="@r.Target" target="_blank" rel="noopener" title="@r.Target">@r.Name</a> }
+                                    else if (r.Kind is "plan" or "doc") { <a class="rel-open" href="doc/@r.Target" title="@r.Target">@r.Name</a> }
+                                    else { <button type="button" class="rel-open" title="@r.Target" @onclick="() => OpenFile(r.Target)">@r.Name</button> }
+                                    @if (r.Stored) { <button type="button" class="ic rel-x" aria-label="Unlink @r.Name" title="Unlink (the file stays)" @onclick="() => Unlink(r)">×</button> }
+                                </li>
+                            }
+                        </ul>
+                    }
+                    @* the plan file (x-rtm.plan), picked from the plans folder; documents are linked from the worklog's date menu *@
+                    @if (item.Plan is null)
+                    {
+                        <PickerMenu TItem="string" Label="Link a plan" ButtonText="+ link plan" Placeholder="Filter plans…" Items="PlanFiles" Text="f => [f]"
+                                    OnPick="f => Run(WorkItemsApi.SetPlan(item.Id, f))"><ItemTemplate Context="f"><span class="pick-item">@System.IO.Path.GetFileName(f)</span></ItemTemplate></PickerMenu>
+                    }
+                </section>
+            </div>
         </div>
     }
 </div>
@@ -286,7 +271,6 @@
         notes = NotesApi.GetForWorkItem(Id).OrderByDescending(n => n.Created).ThenByDescending(n => n.Id).ToList();
         related = RelatedTo(item, description, notes, ItemRoot);
         subSel.IntersectWith(item.Subtasks.Select(s => s.Number));
-        foreach (IGrouping<string, Subtask> g in SubGroups) if (subSeen.Add(g.Key) && g.All(s => s.Done)) subCollapsed.Add(g.Key);
     }
 
     private async Task SetStatus(string status)
@@ -333,7 +317,7 @@
         }
     }
 
-    // The columns of the linked tasks view stack in a narrow window; nothing is minimised there.
+    // The rail of the linked tasks view drops below the main list in a narrow window; nothing is minimised there.
     private bool narrow;
 
     private async Task<bool> IsNarrow()
@@ -345,11 +329,30 @@
     /// <summary>The subtasks in task groups, in file order (a merged item has one per source group).</summary>
     private List<IGrouping<string, Subtask>>? subGroups;
     private List<IGrouping<string, Subtask>> SubGroups => subGroups ??= item!.Subtasks.GroupBy(s => s.Group).ToList();
-    private readonly HashSet<string> subCollapsed = [], subSeen = [];   // per page view, not saved: a group that is all done starts collapsed
+    /// <summary>The groups as the main list shows them: those with an open subtask first, the fully done ones after, each in file order.</summary>
+    private IEnumerable<IGrouping<string, Subtask>> OrderedSubGroups => SubGroups.Where(g => g.Any(s => !s.Done)).Concat(SubGroups.Where(g => g.All(s => s.Done)));
+    private readonly HashSet<string> subUnfolded = [];   // groups whose "N done" is open; per page view, not saved: done subtasks start folded
 
     private static string SubGroupName(string group) => System.Text.RegularExpressions.Regex.Replace(group, @"^\d+\.\s*", "").Trim() is { Length: > 0 } n ? n : "Subtasks";
-    private void ToggleSubGroup(string group) { if (!subCollapsed.Remove(group)) subCollapsed.Add(group); }
-    private void SubGroupKey(KeyboardEventArgs e, string group) { if (e.Key is "Enter" or " ") ToggleSubGroup(group); }
+    private void ToggleFold(string group) { if (!subUnfolded.Remove(group)) subUnfolded.Add(group); }
+
+    /// <summary>One subtask row: its box, its text (click edits it, Shift-click selects it) and its number at the end of the line.</summary>
+    private RenderFragment SubRow(Subtask s) => @<div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "")" data-sk>
+        <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
+               @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item!.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
+        @if (editingSub == s.Number)
+        {
+            @* Enter or leaving the box saves, Esc cancels *@
+            <input @ref="subBox" class="sub-edit" data-own-esc value="@s.Text" aria-label="Subtask @s.Number" @oninput="e => subText = (string)e.Value!"
+                   @onkeydown="e => SubKey(e, s)" @onblur="() => SaveSub(s)" />
+        }
+        else
+        {
+            <span class="s-t" title="Click to edit · Shift-click to select, then make it a work item" @onclick="e => SubClick(e, s)">@s.Text</span>
+        }
+        @if (s.Agent is not null) { <AgentChip By="@s.Agent" OnReview="() => Run(WorkItemsApi.MarkSubtaskReviewed(item!.Id, s.Number))" /> }
+        <span class="mono">@s.Number</span>
+    </div>;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

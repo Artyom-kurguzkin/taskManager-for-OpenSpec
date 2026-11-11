@@ -77,7 +77,12 @@ internal static class Program
                 catch (Exception e) { LogCrash("Starting the MCP server failed; the app goes on.\n" + e); }
             });
 
+        // A crash in native code leaves no managed log: a marker per run, removed on a clean exit, lets the next start say that the last one died.
+        try { foreach (string lost in Hosting.RunMarker.Begin(Hosting.Paths.Logs, Environment.ProcessId)) LogCrash(lost); }
+        catch (Exception) { }
+
         app.Run();
+        Hosting.RunMarker.End(Hosting.Paths.Logs, Environment.ProcessId);
         OpenSpecStoreApi.Close();
     }
 

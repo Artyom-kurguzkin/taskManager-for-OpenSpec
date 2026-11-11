@@ -3,10 +3,10 @@ namespace TaskManager.Services;
 public enum ToastKind { Info, Success, Warning }
 
 /// <summary>What the open worklog shows: which kinds of entry (notes, decisions, created and status events, links, subtask events, edits) and whose. Set from the side menu.</summary>
-public sealed record WorklogFilters(bool Notes = true, bool Decisions = true, bool Events = true, bool Links = true, bool Subtasks = true, bool Edits = true, string Who = "all");
+public sealed record WorklogFilters(bool Notes = true, bool Decisions = true, bool Events = true, bool Links = true, bool Subtasks = true, bool Edits = true, string Who = "all", bool Bugs = true);
 
 /// <summary>What the side menu can do for the open worklog: the entries of its day menu, for today.</summary>
-public sealed record WorklogActions(Action AddNote, Action AddDecision, Action LinkDocument, Action LinkTest, Action LinkCommit, Action AddSubtask, Func<bool>? CanLinkTest = null, Func<bool>? CanLinkCommit = null, Action<DateTime>? JumpTo = null);
+public sealed record WorklogActions(Action AddNote, Action AddDecision, Action LinkDocument, Action LinkTest, Action LinkCommit, Action AddSubtask, Func<bool>? CanLinkTest = null, Func<bool>? CanLinkCommit = null, Action<DateTime>? JumpTo = null, Action? AddBug = null);
 
 /// <summary>A day of the worklog feed as the side menu lists it: Date is DateTime.MinValue for the "Linked earlier" group; Count is the entries shown.</summary>
 public sealed record WorklogDay(DateTime Date, string Label, int Count);

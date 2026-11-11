@@ -1,14 +1,17 @@
 schema: spec-driven
-skip_specs: true
 created: 2026-11-10
 x-rtm:
   id: 149
-  title: Work item Description editor is clunky
-  status: In Progress
+  title: Work item feed markdown editor patches
+  status: In Review
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [work-feed]
   label: enhancement
   started: 2026-11-10
   due: 2026-11-17
-  moved: 2026-11-10
+  moved: 2026-11-11
+  plan: DevResources/plans/in-progress-items-3-2026-11-10.md
+  tests: [{suite: UsingTheWorklogTests, test: The description editor fills the rest of the window below its header}, {suite: UsingTheWorklogTests, test: "The description editor shows only the user's text, without empty Why and What Changes sections, and saving keeps the item valid"}, {suite: UsingTheWorklogTests, test: "The app's scrollbar is defined once, in the base layer, from colour tokens"}, {suite: EditingWorkItemsTests, test: "Empty Why and What Changes sections are hidden from the description, and the proposal written on save is the user's text with only the headers the validator needs"}, {suite: EditingWorkItemsTests, test: A new work item starts with an empty description}, {suite: UsingTheWorklogTests, test: 'The note editor grows with its text instead of scrolling in a small box, and asks for the auto-grow helper when it opens'}, {suite: UsingTheWorklogTests, test: 'A note taller than the window gets an expand button that fills the window, and it collapses again'}]
+  agentBy: Claude
+  agentAt: 2026-11-11T08:14:17

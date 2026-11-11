@@ -6,10 +6,29 @@ the editor area should cover the entire rest of the screen downwards, not just a
 
 I also dont want the "why" & "what changes" headers -  i dont use them
 
-## Why
+
+testing table editor
+
+| Column 1 | Column 2 | Column 3 |
+| -------- | -------- | -------- |
+|       e   |          |          |
+|          |          |          |
+|          |          |          |
 
 
 
-## What Changes
 
-- 
+
+
+
+
+
+
+
+
+
+
+
+
+
+

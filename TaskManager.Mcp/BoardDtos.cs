@@ -9,7 +9,8 @@ public sealed record SubtaskInput(
     [property: Description("New subtask: the group heading it goes under (created if missing). board_create only; board_update appends to the last group.")] string? Group = null,
     [property: Description("Text of the subtask, one line.")] string? Text = null,
     [property: Description("board_update: the number of an existing subtask (like 1.2) to change. Leave out to add a new one.")] string? Number = null,
-    [property: Description("board_update: tick (true) or untick (false) the subtask.")] bool? Done = null);
+    [property: Description("board_update: tick (true) or untick (false) the subtask.")] bool? Done = null,
+    [property: Description("board_update: true, with `number`, removes that subtask (the rest of its group is renumbered, so read the numbers again with board_get afterwards). Not together with `done` or `text`.")] bool? Remove = null);
 
 public sealed record TestInput(
     [property: Description("Test class short name, as the latest results file names it.")] string Suite,

@@ -69,11 +69,14 @@ public sealed class UsingTheWorklogTests : IDisposable
         log.WaitForAssertion(() => Assert.DoesNotContain(log.FindAll(".menu-pop .menu-item"), i => Text(i) == text));   // the menu closed (a picker may have opened)
     }
 
-    /// <summary>An entry without a menu: a Shift-click on it does nothing (it has no click handler at all).</summary>
-    private static void NoMenuOn(IRenderedComponent<Worklog> log, IElement element)
+
+    /// <summary>An entry that can only be reported as a bug: its menu offers that and nothing else (closed again).</summary>
+    private static void OnlyReportOn(IRenderedComponent<Worklog> log, IElement element)
     {
-        try { element.Click(Shift); } catch (Bunit.MissingEventHandlerException) { }
-        Assert.Empty(log.FindAll(".menu-pop"));
+        OpenMenu(log, element);
+        Assert.Equal(["Report a bug from this"], MenuItems(log));
+        log.Find(".menu-backdrop").Click();
+        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".menu-pop")));
     }
 
     // ── git and test results, for the link cases ──
@@ -174,7 +177,7 @@ public sealed class UsingTheWorklogTests : IDisposable
 
         OpenMenu(log, Header(log, day));
 
-        Assert.Equal(["Add note", "Add decision", "Link document", "Link test", "Link commit", "Add subtask"], MenuItems(log));
+        Assert.Equal(["Add note", "Add decision", "Add bug", "Link document", "Link test", "Link commit", "Add subtask"], MenuItems(log));
         Assert.Equal("true", Header(log, day).GetAttribute("aria-expanded"));   // the Shift-click did not fold it
         // no results file and no git here: the two are switched off and say why
         Assert.Equal("No test results file configured", log.FindAll(".menu-pop .menu-item").Single(i => Text(i) == "Link test").GetAttribute("title"));
@@ -186,7 +189,7 @@ public sealed class UsingTheWorklogTests : IDisposable
         log.Find(".menu-backdrop").Click();
         log.WaitForAssertion(() => Assert.Empty(log.FindAll(".menu-pop")));
         Header(log, day).KeyDown(new KeyboardEventArgs { Key = "Enter", ShiftKey = true });
-        log.WaitForAssertion(() => Assert.Equal(6, MenuItems(log).Count));
+        log.WaitForAssertion(() => Assert.Equal(7, MenuItems(log).Count));
     }
 
     [Fact(DisplayName = "Add note opens an editor in the feed; leaving it saves the title and the text, and a note added under an older day is dated that day")]
@@ -242,7 +245,7 @@ public sealed class UsingTheWorklogTests : IDisposable
         Assert.Empty(log.FindAll(".wk-edit"));
 
         OpenMenu(log, note());
-        Assert.Equal(["Edit"], MenuItems(log));
+        Assert.Equal(["Edit", "Make it a decision", "Make it a bug", "Make it a subtask"], MenuItems(log));
         Pick(log, "Edit");
 
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
@@ -403,11 +406,11 @@ public sealed class UsingTheWorklogTests : IDisposable
         foreach ((string linked, string unlinked) in new[] { ("commit-linked", "commit-unlinked"), ("test-linked", "test-unlinked"), ("doc-linked", "doc-unlinked") })
         {
             OpenMenu(log, DayOf(log, today).QuerySelector($".wk-e[data-kind='{linked}']")!);
-            Assert.Equal(["Unlink"], MenuItems(log));
+            Assert.Equal(["Unlink", "Report a bug from this"], MenuItems(log));
             Pick(log, "Unlink");
             log.WaitForAssertion(() => Assert.NotNull(DayOf(log, today).QuerySelector($".wk-e[data-kind='{unlinked}']")));
-            // the link event stays as history, but the link is gone and so is its menu
-            NoMenuOn(log, DayOf(log, today).QuerySelector($".wk-e[data-kind='{linked}']")!);
+            // the link event stays as history, but the link is gone and so is Unlink
+            OnlyReportOn(log, DayOf(log, today).QuerySelector($".wk-e[data-kind='{linked}']")!);
         }
 
         Assert.Empty(WorkItemsApi.Get(123)!.Commits!);
@@ -416,11 +419,11 @@ public sealed class UsingTheWorklogTests : IDisposable
         Assert.Contains("unlinked a commit", Text(DayOf(log, today).QuerySelector(".wk-e[data-kind='commit-unlinked']")!));
         Assert.Contains("unlinked a test: UptimeTests / Ping test", Text(DayOf(log, today).QuerySelector(".wk-e[data-kind='test-unlinked']")!));
         Assert.Contains("unlinked a document: docs/runbook/uptime.md", Text(DayOf(log, today).QuerySelector(".wk-e[data-kind='doc-unlinked']")!));
-        // a status change has no menu
+        // a status change offers only Report a bug from this
         Assert.True(WorkItemsApi.SetStatus(123, "Planned").Success);
         ctx.Services.GetRequiredService<Workspace>().Notify();
         log.WaitForAssertion(() => Assert.NotNull(DayOf(log, today).QuerySelector(".wk-e[data-kind='status']")));
-        NoMenuOn(log, DayOf(log, today).QuerySelector(".wk-e[data-kind='status']")!);
+        OnlyReportOn(log, DayOf(log, today).QuerySelector(".wk-e[data-kind='status']")!);
     }
 
     [Fact(DisplayName = "Links made before the log existed still show: commits at their commit time, tests and documents under Linked earlier")]
@@ -454,9 +457,9 @@ public sealed class UsingTheWorklogTests : IDisposable
         Assert.Contains("docs/runbook/uptime.md", Text(earlier.QuerySelector(".wk-e[data-kind='doc']")!));
 
         // the old links can be undone from there; a commit that only mentions the item cannot
-        NoMenuOn(log, mentions);
+        OnlyReportOn(log, mentions);
         OpenMenu(log, earlier.QuerySelector(".wk-e[data-kind='test']")!);
-        Assert.Equal(["Unlink"], MenuItems(log));
+        Assert.Equal(["Unlink", "Report a bug from this"], MenuItems(log));
         Pick(log, "Unlink");
         log.WaitForAssertion(() => Assert.Empty(WorkItemsApi.Get(123)!.Tests!));
         log.WaitForAssertion(() => Assert.Null(log.Find(".wk-earlier").QuerySelector(".wk-e[data-kind='test']")));
@@ -606,6 +609,22 @@ public sealed class UsingTheWorklogTests : IDisposable
         Assert.InRange(page.Instance.Loads - before, 1, 2);   // the first at once, one more for what came after it
     }
 
+    [Fact(DisplayName = "A worklog of a folder that is not a git repository reads again without starting a git process")]
+    public async Task NoGitProcessWithoutARepository()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<Worklog> log = Log(ctx);
+        Assert.False(GitHistory.GitHistoryApi.IsRepository());   // the sample repo has no real .git (only an empty objects folder)
+        int before = GitHistory.GitHistoryModule.Processes;
+        int loads = log.Instance.Loads;
+
+        ctx.Services.GetRequiredService<Workspace>().Notify();
+        await Task.Delay(300);
+
+        Assert.True(log.Instance.Loads > loads);
+        Assert.Equal(before, GitHistory.GitHistoryModule.Processes);   // a process start costs 70 ms and more on a busy machine, per read
+    }
+
     [Fact(DisplayName = "The description is the last entry of the worklog, at the bottom as the item's first post, has no hover effect, and Shift-click Edit changes it in place")]
     public async Task DescriptionIsTheLastEntry()
     {
@@ -737,7 +756,7 @@ public sealed class UsingTheWorklogTests : IDisposable
         IElement Linked(string test) => DayOf(log, today).QuerySelectorAll(".wk-e[data-kind='test-linked']").Single(e => Text(e).Contains(test));
 
         OpenMenu(log, Linked("Ping test"));
-        Assert.Equal(["Unlink"], MenuItems(log));
+        Assert.Equal(["Unlink", "Report a bug from this"], MenuItems(log));
 
         // something else writes to the item (another agent, a status change): its entry lands above the two, and the feed draws again
         Assert.True(WorkItemsApi.SetStatus(123, "Planned").Success);
@@ -867,5 +886,405 @@ public sealed class UsingTheWorklogTests : IDisposable
         ui.FilterWorklog(new WorklogFilters(Notes: false, Decisions: false, Events: false, Links: false, Subtasks: false, Edits: false));
         log.WaitForAssertion(() => Assert.Empty(kinds()));
         Assert.Equal(0, ui.WorklogDays[0].Count);
+    }
+
+    // ── convert entries ──
+
+    [Fact(DisplayName = "A note's menu offers Make it a decision, a bug and a subtask, and a decision's offers Make it a note, a bug and a subtask, under Edit")]
+    public async Task ConvertMenuOfNotesAndDecisions()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool _, string _, int plain) = NotesApi.Create(123, "Tom", DateTime.Now.AddMinutes(-3));
+        Assert.True(NotesApi.SetTitle(plain, "Plain one").Success);
+        (bool _, string _, int decision) = NotesApi.Create(123, "Tom", DateTime.Now.AddMinutes(-2), NoteKinds.Decision);
+        Assert.True(NotesApi.SetTitle(decision, "Decided one").Success);
+        Assert.True(WorkItemsApi.AddSubtask(123, "Open subtask").Success);
+        IRenderedComponent<Worklog> log = Log(ctx);
+        DateTime today = DateTime.Today;
+        IElement entry(string text) => DayOf(log, today).QuerySelectorAll(".wk-e").Single(e => Text(e).Contains(text));
+
+        OpenMenu(log, entry("Plain one"));
+        Assert.Equal(["Edit", "Make it a decision", "Make it a bug", "Make it a subtask"], MenuItems(log));
+        Pick(log, "Edit");   // Edit stays first, and still opens the note
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
+        log.Find(".wk-edit").FocusOut();
+        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+
+        OpenMenu(log, entry("Decided one"));
+        Assert.Equal(["Edit", "Make it a note", "Make it a bug", "Make it a subtask"], MenuItems(log));
+        Pick(log, "Make it a note");
+        log.WaitForAssertion(() => Assert.False(NotesApi.Get(decision)!.IsDecision));
+
+        // the subtask added above, still open: Make it a note / decision, nothing else
+        OpenMenu(log, entry("added subtask 2.2 Open subtask"));
+        Assert.Equal(["Make it a note", "Make it a decision", "Make it a bug"], MenuItems(log));
+        Pick(log, "Make it a note");
+        log.WaitForAssertion(() => Assert.Contains(NotesApi.GetForWorkItem(123), n => n.Title == "Open subtask"));
+    }
+
+    [Fact(DisplayName = "A subtask that is ticked offers only Report a bug from this in the feed")]
+    public async Task TickedSubtaskHasNoConvertMenu()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.AddSubtask(123, "Finished subtask").Success);
+        Assert.True(WorkItemsApi.SetSubtaskDone(123, "2.2", true).Success);
+        IRenderedComponent<Worklog> log = Log(ctx);
+
+        OpenMenu(log, DayOf(log, DateTime.Today).QuerySelectorAll(".wk-e[data-kind='subtask-added']").Single());
+        Assert.Equal(["Report a bug from this"], MenuItems(log));
+    }
+
+    [Fact(DisplayName = "Making a note a subtask adds the subtask from its title, keeps the note and logs the conversion")]
+    public async Task NoteBecomesSubtask()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool _, string _, int id) = NotesApi.Create(123, "Tom", DateTime.Now.AddMinutes(-1));
+        Assert.True(NotesApi.SetTitle(id, "Restrict permissions").Success);
+        Assert.True(NotesApi.SaveBody(id, "details nobody keeps").Success);
+        IRenderedComponent<Worklog> log = Log(ctx);
+        DateTime today = DateTime.Today;
+
+        OpenMenu(log, DayOf(log, today).QuerySelectorAll(".wk-note").Single(e => Text(e).Contains("Restrict permissions")));
+        Pick(log, "Make it a subtask");
+
+        Assert.Equal("Restrict permissions", NotesApi.Get(id)!.Title);
+        Assert.Equal("Restrict permissions", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
+        string number = WorkItemsApi.Get(123)!.Subtasks[^1].Number;
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"note #n{id} -> subtask {number}");
+        log.WaitForAssertion(() => Assert.Contains($"promoted note #n{id} to subtask {number}", Text(DayOf(log, today).QuerySelector(".wk-e[data-kind='converted']")!)));
+        Assert.Contains(DayOf(log, today).QuerySelectorAll(".wk-note"), e => Text(e).Contains("Restrict permissions") && Text(e).Contains("details nobody keeps"));   // the note is still in the feed
+    }
+
+    [Fact(DisplayName = "Making a subtask a decision creates the decision from its text, keeps the subtask and logs the conversion")]
+    public async Task SubtaskBecomesDecision()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.AddSubtask(123, "Use note kinds").Success);
+        IRenderedComponent<Worklog> log = Log(ctx);
+        DateTime today = DateTime.Today;
+
+        OpenMenu(log, DayOf(log, today).QuerySelector(".wk-e[data-kind='subtask-added']")!);
+        Pick(log, "Make it a decision");
+
+        log.WaitForAssertion(() => Assert.Contains(WorkItemsApi.Get(123)!.Subtasks, s => s.Text == "Use note kinds"));
+        Note made = NotesApi.GetForWorkItem(123).Single(n => n.Title == "Use note kinds");
+        Assert.True(made.IsDecision);
+        Assert.Equal("Tester", made.By);
+        Assert.Equal(today, made.Created.Date);
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"subtask 2.2 -> decision #n{made.Id}");
+        log.WaitForAssertion(() => Assert.Contains($"converted subtask 2.2 to a decision #n{made.Id}", Text(DayOf(log, today).QuerySelector(".wk-e[data-kind='converted']")!)));
+        Assert.Contains("wk-decision", DayOf(log, today).QuerySelectorAll(".wk-note").Single(e => Text(e).Contains("Use note kinds")).ClassList);
+    }
+
+    // ── description editor ──
+
+    [Fact(DisplayName = "The description editor fills the rest of the window below its header")]
+    public async Task DescriptionEditorFillsTheWindow()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<Worklog> log = Log(ctx);
+
+        OpenMenu(log, log.Find(".wk-first .wk-e"));
+        Pick(log, "Edit");
+
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-first.filling textarea.desc-in")));   // the section takes the window's height, the box takes what the label leaves
+        log.WaitForAssertion(() => Assert.Contains(ctx.JSInterop.Invocations, i => i.Identifier == "rtm.fillEditor"));   // scrolled to the top of the page and sized to the scroll area
+
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        Assert.Matches(@"\.wk-first\.filling\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column", css);
+        Assert.Matches(@"\.wk-first\.filling textarea\.desc-in\s*\{[^}]*flex:\s*1", css);
+    }
+
+    [Fact(DisplayName = "The description editor shows only the user's text, without empty Why and What Changes sections, and saving keeps the item valid")]
+    public async Task DescriptionEditorShowsOnlyTheUsersText()
+    {
+        await using BunitContext ctx = NewContext();
+        repo.Write("openspec/changes/add-health-check/proposal.md", "# Proposal\n\nThe user's own words.\n\n## Why\n\n\n\n## What Changes\n\n- \n");
+        IRenderedComponent<Worklog> log = Log(ctx);
+
+        string shown = Text(log.Find(".wk-first .wk-body"));
+        Assert.Contains("The user's own words.", shown);
+        Assert.DoesNotContain("Why", shown);
+        Assert.DoesNotContain("What Changes", shown);
+
+        OpenMenu(log, log.Find(".wk-first .wk-e"));
+        Pick(log, "Edit");
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit textarea")));
+        Assert.Equal("The user's own words.", log.Find(".wk-edit textarea").GetAttribute("value")!.Trim());
+
+        log.Find(".wk-edit textarea").Input("Second words");
+        log.Find(".wk-edit textarea").FocusOut();
+        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+
+        string proposal = repo.Read("openspec/changes/add-health-check/proposal.md").Replace("\r\n", "\n");
+        Assert.Equal("# Proposal\n\nSecond words", proposal.TrimEnd('\n'));   // the user's text only: OpenSpec's validator (1.14.3, --strict) needs no Why or What Changes header
+        Assert.Null(WorkItemsApi.Get(123)!.Warning);
+    }
+
+    [Fact(DisplayName = "The app's scrollbar is defined once, in the base layer, from colour tokens")]
+    public void ScrollbarIsDefinedOnce()
+    {
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(css, @"::-webkit-scrollbar-thumb\s*\{"));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(css, @"scrollbar-color:"));
+        int layer = css.IndexOf("@layer base {", StringComparison.Ordinal), end = css.IndexOf("\n}\n", layer, StringComparison.Ordinal);
+        string baseLayer = css[layer..end];
+        Assert.Matches(@"::-webkit-scrollbar-thumb\s*\{", baseLayer);
+        Assert.Matches(@"scrollbar-color:[^;]*var\(--", baseLayer);
+        Assert.Contains("scrollbar-width: thin", baseLayer);
+        Assert.Contains("the app's scrollbar", baseLayer);
+    }
+
+// ── table helper ──
+
+    [Fact(DisplayName = "Every markdown editor in the app gets the table helper attached")]
+    public async Task EveryEditorGetsTheTableHelper()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<Worklog> log = Log(ctx);
+        int attached() => ctx.JSInterop.Invocations.Count(i => i.Identifier == "rtm.markdownEditor");
+        Assert.Equal(0, attached());   // no editor open: nothing to attach to
+
+        // the note editor
+        OpenMenu(log, Header(log, DateTime.Today));
+        Pick(log, "Add note");
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit textarea")));
+        log.WaitForAssertion(() => Assert.True(attached() >= 1));
+        log.Find(".wk-edit").FocusOut();
+        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+
+        // the description editor
+        int before = attached();
+        OpenMenu(log, log.Find(".wk-first .wk-e"));
+        Pick(log, "Edit");
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit textarea.desc-in")));
+        log.WaitForAssertion(() => Assert.True(attached() > before));
+    }
+
+    [Fact(DisplayName = "The table helper is attached to the textarea that is on screen for the editor opened from the side menu's Add note, and again when the editor is closed and reopened")]
+    public async Task TableHelperFollowsTheSideMenuEditor()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        IRenderedComponent<Worklog> log = Log(ctx);
+        string? attachedTo() => ctx.JSInterop.Invocations.Where(i => i.Identifier == "rtm.markdownEditor").Select(i => ((Microsoft.AspNetCore.Components.ElementReference)i.Arguments[0]!).Id).LastOrDefault();
+        string? onScreen() => log.FindAll(".wk-edit textarea").FirstOrDefault()?.GetAttribute("blazor:elementreference");
+
+        for (int round = 0; round < 2; round++)
+        {
+            await log.InvokeAsync(() => ui.WorklogOpen!.AddNote());   // the side menu's block
+            log.WaitForAssertion(() => Assert.NotNull(onScreen()));
+            log.WaitForAssertion(() => Assert.Equal(onScreen(), attachedTo()));
+
+            // an entry arriving above the editor (the file watcher's echo of the write, another agent's event) must not leave the helper on a textarea that is gone:
+            // the editor is keyed, so Blazor keeps its textarea and the helper stays on it
+            string? before = attachedTo();
+            string next = round == 0 ? "Planned" : "Confirmed";
+            File.AppendAllText(Path.Combine(repo.OpenSpec, "changes", "add-health-check", "events.log"), $"{DateTime.Now.AddMinutes(1 + round):s} | Tester | custom | {next} arrived\n");
+            ctx.Services.GetRequiredService<Workspace>().Notify();
+            log.WaitForAssertion(() => Assert.Contains($"{next} arrived", string.Concat(log.FindAll(".wk-e[data-kind='custom']").Select(Text))));
+            await log.InvokeAsync(() => { });
+            Assert.Equal(before, attachedTo());   // the same textarea, still the one the helper is on
+            log.Find(".wk-edit").FocusOut();
+            log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+        }
+    }
+
+    // ── editor survives feed updates ──
+
+    [Fact(DisplayName = "An open note editor keeps its textarea, text and focus when a new entry arrives above it, and does not close")]
+    public async Task OpenEditorSurvivesANewEntryAbove()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        IRenderedComponent<Worklog> log = Log(ctx);
+        List<string?> attached() => [.. ctx.JSInterop.Invocations.Where(i => i.Identifier == "rtm.markdownEditor").Select(i => ((Microsoft.AspNetCore.Components.ElementReference)i.Arguments[0]!).Id)];
+        await log.InvokeAsync(() => ui.WorklogOpen!.AddNote());
+        log.WaitForAssertion(() => Assert.Single(attached()));
+        string? textarea = attached().Single();
+        log.Find(".wk-edit textarea").Input("typed while the feed changes");
+
+        // an entry arriving above the editor: the file watcher's echo of a write, another agent's event
+        File.AppendAllText(Path.Combine(repo.OpenSpec, "changes", "add-health-check", "events.log"), $"{DateTime.Now.AddMinutes(1):s} | Someone | custom | arrived above\n");
+        ctx.Services.GetRequiredService<Workspace>().Notify();
+        log.WaitForAssertion(() => Assert.Contains("arrived above", string.Concat(log.FindAll(".wk-e[data-kind='custom']").Select(Text))));
+        await log.InvokeAsync(() => { });
+
+        // Blazor kept the textarea: the element reference the page holds is the one from before, so the table helper was not attached again (to a new
+        // element, which would have lost focus and the caret and, a moment later, closed the editor with its focusout), and the text is still in it
+        Assert.Equal([textarea], attached());
+        Assert.Equal("typed while the feed changes", log.Find(".wk-edit textarea").GetAttribute("value"));
+        Assert.Single(log.FindAll(".wk-edit"));
+    }
+
+    // ── note editor grows ──
+
+    [Fact(DisplayName = "The note editor grows with its text instead of scrolling in a small box, and asks for the auto-grow helper when it opens")]
+    public async Task NoteEditorGrowsWithItsText()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        IRenderedComponent<Worklog> log = Log(ctx);
+        await log.InvokeAsync(() => ui.WorklogOpen!.AddNote());
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit textarea.desc-in")));
+
+        string? onScreen() => log.Find(".wk-edit textarea").GetAttribute("blazor:elementreference");
+        log.WaitForAssertion(() => Assert.Contains(ctx.JSInterop.Invocations, i => i.Identifier == "rtm.autoGrow" && ((Microsoft.AspNetCore.Components.ElementReference)i.Arguments[0]!).Id == onScreen()));
+        Assert.Empty(log.FindAll(".wk-edit [aria-label='Expand editor']"));   // short: no expand button until the text is taller than one screen
+
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        Assert.Matches(@"\.wk-edit textarea\.desc-in\s*\{[^}]*resize:\s*none", css);   // no drag handle, no small fixed box
+        string js = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
+        Assert.Contains("rtm.autoGrow = ", js);
+    }
+
+    [Fact(DisplayName = "A note taller than the window gets an expand button that fills the window, and it collapses again")]
+    public async Task NoteTallerThanTheWindowCanExpand()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        IRenderedComponent<Worklog> log = Log(ctx);
+        await log.InvokeAsync(() => ui.WorklogOpen!.AddNote());
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit textarea.desc-in")));
+
+        await log.InvokeAsync(() => log.Instance.NoteEditorCapped(true));   // the helper: the text is taller than the window
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit button[aria-label='Expand editor']")));
+        Assert.Empty(log.FindAll(".wk-edit.filling"));
+
+        int fills() => ctx.JSInterop.Invocations.Count(i => i.Identifier == "rtm.fillEditor");
+        int before = fills();
+        log.Find(".wk-edit button[aria-label='Expand editor']").Click();
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit.filling")));
+        log.WaitForAssertion(() => Assert.True(fills() > before));   // sized to the scroll area, as the description editor is
+        Assert.Empty(log.FindAll(".wk-edit button[aria-label='Expand editor']"));
+
+        log.Find(".wk-edit button[aria-label='Collapse editor']").Click();
+        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit.filling")));
+        Assert.NotEmpty(log.FindAll(".wk-edit button[aria-label='Expand editor']"));   // still taller than the window: capped, with the button
+    }
+
+    // ── nothing is lost; bugs ──
+
+    [Fact(DisplayName = "After promoting a note the feed shows the note and the promoted line, and the note no longer offers Make it a subtask")]
+    public async Task PromotedNoteStaysInTheFeed()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool _, string _, int id) = NotesApi.Create(123, "Tom", DateTime.Now.AddMinutes(-1));
+        Assert.True(NotesApi.SetTitle(id, "Restrict permissions").Success);
+        Assert.True(NotesApi.SaveBody(id, "details nobody should lose").Success);
+        IRenderedComponent<Worklog> log = Log(ctx);
+        DateTime today = DateTime.Today;
+        IElement note() => DayOf(log, today).QuerySelectorAll(".wk-note").Single(e => Text(e).Contains("Restrict permissions"));
+
+        OpenMenu(log, note());
+        Pick(log, "Make it a subtask");
+
+        string number = WorkItemsApi.Get(123)!.Subtasks[^1].Number;
+        log.WaitForAssertion(() => Assert.Contains($"promoted note #n{id} to subtask {number}", Text(DayOf(log, today).QuerySelector(".wk-e[data-kind='converted']")!)));
+        Assert.Contains("details nobody should lose", Text(note()));
+        Assert.Equal("Restrict permissions", NotesApi.Get(id)!.Title);
+        Assert.Equal(1, WorkItemsApi.GetEvents(123).Count(e => e.Kind == "converted"));
+
+        OpenMenu(log, note());
+        Assert.Equal(["Edit", "Make it a decision", "Make it a bug"], MenuItems(log));   // no second subtask from the same note
+    }
+
+    [Fact(DisplayName = "A bug report shows with its Bug tag, is hidden by the Bugs filter and not by Notes, and Add bug from the day menu opens one in place")]
+    public async Task BugReports()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        (bool _, string _, int made) = NotesApi.Create(123, "Zed", DateTime.Now, NoteKinds.Bug);
+        Assert.True(NotesApi.SetTitle(made, "Save loses the title").Success);
+        Assert.True(NotesApi.SaveBody(made, "Open a note, type, close.").Success);
+        Assert.True(NotesApi.Create(123, "Zed", DateTime.Now.AddMinutes(-1)).Item1);
+        IRenderedComponent<Worklog> log = Log(ctx);
+        DateTime today = DateTime.Today;
+        List<string> kinds() => DayOf(log, today).QuerySelectorAll(".wk-e").Select(e => e.GetAttribute("data-kind")!).ToList();
+
+        IElement bug = DayOf(log, today).QuerySelectorAll(".wk-note").Single(e => Text(e).Contains("Save loses the title"));
+        Assert.Contains("wk-bug", bug.ClassList);
+        Assert.DoesNotContain("wk-decision", bug.ClassList);
+        Assert.Equal("Bug", Text(bug.QuerySelector(".wk-tag")!));
+        Assert.Contains("Open a note, type, close.", Text(bug));
+        Assert.Contains("bug", kinds());
+
+        ui.FilterWorklog(new WorklogFilters(Notes: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("note", kinds()));
+        Assert.Contains("bug", kinds());   // Notes does not hide bugs
+
+        ui.FilterWorklog(new WorklogFilters(Bugs: false));
+        log.WaitForAssertion(() => Assert.DoesNotContain("bug", kinds()));
+        Assert.Contains("note", kinds());
+        ui.FilterWorklog(new WorklogFilters());
+        log.WaitForAssertion(() => Assert.Contains("bug", kinds()));
+
+        // Add bug, from the day menu, right after Add decision
+        DateTime day = new(2026, 10, 2);
+        OpenMenu(log, Header(log, day));
+        Assert.Equal(["Add note", "Add decision", "Add bug"], MenuItems(log).Take(3));
+        Pick(log, "Add bug");
+
+        log.WaitForAssertion(() => Assert.NotNull(DayOf(log, day).QuerySelector(".wk-edit")));
+        Note created = NotesApi.GetForWorkItem(123).Single(n => n.IsBug && n.Id != made);
+        Assert.Equal(day, created.Created.Date);
+        Assert.Equal("Tester", created.By);
+        Assert.Contains("wk-bug", log.Find(".wk-edit").ClassList);
+        Assert.Equal("What is wrong, and how to see it.", log.Find(".wk-edit textarea").GetAttribute("placeholder"));
+
+        log.Find(".wk-edit input.wk-title-in").Input("Menu closes too early");
+        log.Find(".wk-edit textarea").Input("Shift-click, move the mouse.");
+        log.Find(".wk-edit").FocusOut();
+        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+        Assert.True(NotesApi.Get(created.Id)!.IsBug);   // saving keeps the kind
+    }
+
+    [Fact(DisplayName = "Every entry can become a bug: notes, decisions and subtasks convert, and an event offers Report a bug from this")]
+    public async Task EveryEntryCanBecomeABug()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool _, string _, int plain) = NotesApi.Create(123, "Tom", DateTime.Now.AddMinutes(-4));
+        Assert.True(NotesApi.SetTitle(plain, "Plain one").Success);
+        (bool _, string _, int decision) = NotesApi.Create(123, "Tom", DateTime.Now.AddMinutes(-3), NoteKinds.Decision);
+        Assert.True(NotesApi.SetTitle(decision, "Decided one").Success);
+        (bool _, string _, int bug) = NotesApi.Create(123, "Tom", DateTime.Now.AddMinutes(-2), NoteKinds.Bug);
+        Assert.True(NotesApi.SetTitle(bug, "Broken one").Success);
+        Assert.True(WorkItemsApi.AddSubtask(123, "Open subtask").Success);
+        Assert.True(WorkItemsApi.SetStatus(123, "Planned").Success);
+        IRenderedComponent<Worklog> log = Log(ctx);
+        DateTime today = DateTime.Today;
+        IElement entry(string text) => DayOf(log, today).QuerySelectorAll(".wk-e").Single(e => Text(e).Contains(text));
+
+        OpenMenu(log, entry("Broken one"));
+        Assert.Equal(["Edit", "Make it a note", "Make it a decision", "Make it a subtask"], MenuItems(log));
+        Pick(log, "Make it a decision");
+        log.WaitForAssertion(() => Assert.True(NotesApi.Get(bug)!.IsDecision));
+
+        OpenMenu(log, entry("Plain one"));
+        Pick(log, "Make it a bug");
+        log.WaitForAssertion(() => Assert.True(NotesApi.Get(plain)!.IsBug));
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"note #n{plain} -> bug");
+
+        OpenMenu(log, entry("Decided one"));
+        Pick(log, "Make it a bug");
+        log.WaitForAssertion(() => Assert.True(NotesApi.Get(decision)!.IsBug));
+
+        OpenMenu(log, entry("added subtask 2.2 Open subtask"));
+        Pick(log, "Make it a bug");
+        log.WaitForAssertion(() => Assert.Contains(NotesApi.GetForWorkItem(123), n => n.IsBug && n.Title == "Open subtask"));
+        Assert.Contains(WorkItemsApi.Get(123)!.Subtasks, s => s.Text == "Open subtask");   // the subtask stays
+
+        // an event: a bug note titled with what the feed says; the event stays and the new bug opens in place
+        IElement status = DayOf(log, today).QuerySelector(".wk-e[data-kind='status']")!;
+        string said = Text(status.QuerySelector(".wk-line")!);
+        OpenMenu(log, status);
+        Assert.Equal(["Report a bug from this"], MenuItems(log));
+        Pick(log, "Report a bug from this");
+
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
+        Note reported = NotesApi.GetForWorkItem(123).Single(n => n.IsBug && n.Title == said);
+        Assert.Contains("Planned", reported.Title);
+        Assert.Contains("wk-bug", log.Find(".wk-edit").ClassList);
+        Assert.NotNull(DayOf(log, today).QuerySelector(".wk-e[data-kind='status']"));
     }
 }

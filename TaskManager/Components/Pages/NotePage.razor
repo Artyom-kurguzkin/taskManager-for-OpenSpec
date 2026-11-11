@@ -114,6 +114,7 @@
     private ElementReference editorBox;
     private DotNetObjectReference<NotePage>? self;
     private bool focusEditor;
+    private string? tableFor;   // the textarea (its element reference) the markdown table helper (rtm.markdownEditor) was last attached to
     private CancellationTokenSource? pendingPreview;
     private DateTime modified;
     private IReadOnlyList<NoteLink> links = [];
@@ -218,6 +219,8 @@
             self = DotNetObjectReference.Create(this);
             await Js.InvokeVoidAsync("rtm.pasteImages", self);
         }
+        if (!editing) tableFor = null;
+        else if (editorBox.Id is string box && box != tableFor) { tableFor = box; await Js.InvokeVoidAsync("rtm.markdownEditor", editorBox); }
         if (!focusEditor) return;
         focusEditor = false;
         try { await editorBox.FocusAsync(); } catch (InvalidOperationException) { }

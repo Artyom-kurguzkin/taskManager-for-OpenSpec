@@ -84,7 +84,15 @@
   .mono { font-family: var(--f-mono); font-size: .92em; }
   .muted { color: var(--ink-2); }
   .num { font-variant-numeric: tabular-nums; }
-  /* no scrollbars; the edge fades on scroll areas show that there is more */
+  /* the app's scrollbar: the one definition, for every scroll area (text boxes, popups, menus, lists, code blocks, the feed): thin, a rounded thumb from the
+     --ink-2 token that darkens when pointed at, no track. Chromium (WebView2) draws it from the ::-webkit-scrollbar rules, which it ignores once scrollbar-width
+     or scrollbar-color is set, so the standard properties are for the browsers without them. */
+  @supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink-2) 45%, transparent) transparent; } }
+  *::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+  *::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+  *::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 8px; background: color-mix(in srgb, var(--ink-2) 45%, transparent); background-clip: content-box; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--ink-2); background-clip: content-box; }
+  /* the page, the side menu, the board and the list show none: the edge fades on those scroll areas show that there is more */
   html, main, nav.side, .board-wrap, .tbl-wrap { scrollbar-width: none; }
   html::-webkit-scrollbar, main::-webkit-scrollbar, nav.side::-webkit-scrollbar, .board-wrap::-webkit-scrollbar, .tbl-wrap::-webkit-scrollbar { display: none; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -229,7 +237,6 @@
   .nav-btn.is-sel { background: var(--sun); border-color: var(--line); color: var(--on-fill); }
   .nav-l { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   nav.side.expanded .nav-l { display: inline; }
-  .nav-toggle .nav-l { font-size: 12px; color: var(--ink-2); }
   nav.side.expanded .nav-caret { display: inline-flex; margin-left: auto; opacity: .6; }
   nav.side .menu-wrap, nav.side .menu-activator { display: block; }
   nav.side .menu-activator .nav-btn { width: 100%; }
@@ -240,13 +247,7 @@
   /* Worklog: the open feed's filters (check rows in two columns), who, and the day menu's actions for today; no frames, like the rest of the menu */
   .nav-worklog { align-self: stretch; }
   .nav-worklog .nav-h { padding: 0; }
-  .nav-checks { display: grid; grid-template-columns: repeat(2, auto); justify-content: start; gap: 6px 16px; }
   .nav-acts { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; align-self: stretch; }
-  .nav-act { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 0 6px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: 500 14px var(--f-body); text-align: left; white-space: nowrap; cursor: pointer; }
-  .nav-act svg { width: 14px; height: 14px; flex: none; color: var(--ink-2); }
-  .nav-act:hover:not(:disabled), .nav-act:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
-  .nav-act:hover:not(:disabled) svg, .nav-act:focus-visible svg { color: inherit; }
-  .nav-act:disabled { color: var(--ink-2); cursor: not-allowed; opacity: .6; }
   .menu-pop .proj-eye { margin-left: auto; padding: 2px 4px; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
   .menu-pop .proj-eye:hover { color: var(--ink); background: var(--stone); }
   .menu-pop .proj-eye.off { color: var(--ink); }   /* hidden: the crossed eye stands out */
@@ -276,14 +277,12 @@
     nav.side, nav.side.expanded { position: sticky; top: 0; width: auto; height: auto; flex-flow: row wrap; align-items: center;
       gap: 4px; padding: 2px 8px; border-right: 0; border-bottom: 2px solid var(--line-soft); overflow: visible; }
     nav.side .nav-l, nav.side.expanded .nav-l { display: none; }
-    .nav-toggle .nav-l { display: inline; }   /* the repo name stays visible in the header */
     .nav-btn { min-height: 36px; }
     nav.side .menu-wrap, nav.side .menu-activator { display: inline-block; }
     .nav-sep { display: none; }   /* the header bar's options run in one wrapping row */
     .nav-view { flex: 1 1 100%; order: 10; flex-flow: row wrap; align-items: center; margin: 0; border-bottom: 0; }
     .nav-hidden { flex: 1 1 100%; order: 11; max-width: 420px; border-bottom: 0; }
   }
-  @media (max-width: 640px) { .nav-toggle .nav-l { display: none; } }
 }
 
 /* ───────────────────────────────────────────── board ───────────────────────────────────────────── */
@@ -513,16 +512,54 @@
   /* work item page: Worklog / Linked tasks under the header, then the view */
   .item-views .seg-o { padding: 4px 18px; font-size: var(--t-md); }
   .view-grid { display: grid; gap: var(--s4); align-items: start; }
-  .view-linked { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }   /* the subtasks have the long lines */
+  .view-linked { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); column-gap: 56px; }   /* the subtasks are the main list, two thirds; a rail of what is linked is the third */
   /* the views have no frames (the user's wireframe): what they hold sits straight on the page, with a soft line between rows */
   .view-grid { gap: var(--s4) var(--s5); }
   .view-grid .tile { padding: 0; border: 0; border-radius: 0; background: transparent; }
   .view-grid .tile-h h3 { padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--ink-2); font-size: var(--t-sm); text-transform: uppercase; letter-spacing: .04em; }
   .view-grid .sub { --stroke: transparent; --fill: transparent; margin-bottom: 0; padding: 7px 4px; border-width: 0 0 1.5px; border-bottom-color: var(--line-soft); border-radius: 0; box-shadow: none; }
-  .view-grid .sub-group { --stroke: transparent; margin: 12px 0 2px; padding: 4px; border: 0; border-radius: 0; background: transparent; }
-  .view-grid .sub-group:hover, .view-grid .sub-group:focus-visible { box-shadow: none; transform: none; text-decoration: underline; text-underline-offset: 3px; }
   .view-grid .tile:has(> textarea.desc-in):focus-within { box-shadow: none; }
   .view-grid textarea.desc-in { padding: var(--s2); border-left: 2px solid var(--accent); }   /* editing shows as a line beside the text, not a box */
+  /* linked tasks: the main list. Heading, count and a thin progress bar on one line; groups with a line under their name; rows with a line between */
+  .ln-main { gap: 6px; }
+  .ln-main .tile-h { gap: 14px; }
+  .view-linked .tile-h .count { margin: 0; font: 400 14px var(--f-body); color: var(--ink-2); white-space: nowrap; }
+  .ln-bar { flex: 1; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 12%, transparent); }
+  .ln-bar > div { height: 100%; border-radius: 3px; background: var(--sage); }
+  .view-grid .sub-grp { padding-top: 14px; }
+  .view-grid .sub-group { --stroke: transparent; display: flex; align-items: center; gap: 10px; margin: 0; padding: 0 0 6px; border: 0 solid transparent; border-bottom: 1.5px solid var(--line-soft); border-radius: 0; background: transparent; cursor: default; font-weight: 400; }
+  .view-grid .sub-group:hover { box-shadow: none; transform: none; }
+  .view-grid .sub-group .g-name { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+  .view-grid .sub-group .g-prog { font-size: 13px; color: var(--ink-2); }
+  .ln-main .sub { align-items: flex-start; gap: 12px; padding: 9px 0; font-size: 15px; }
+  .ln-main .sub .mono { margin-top: 3px; font-size: 12px; white-space: nowrap; }
+  .ln-main .sub.done .s-t { color: var(--ink-2); }
+  .ln-main .sub.selected { background: color-mix(in srgb, var(--sky) 45%, transparent); }
+  .view-grid .sub-fold { align-self: flex-start; margin: 0; padding: 8px 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+  .view-grid .sub-fold:hover, .view-grid .sub-fold:focus-visible { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; outline: none; }
+  .sub-grp { display: flex; flex-direction: column; }
+  .add-line { display: flex; align-items: center; gap: 10px; padding-top: 14px; }
+  .add-line .plus { font-size: 20px; color: var(--ink-2); }
+  .add-line input { flex: 1; min-width: 0; padding: 6px 0; border: 0; border-bottom: 1.5px solid var(--line-soft); border-radius: 0; background: transparent; color: var(--ink); font: inherit; font-size: 15px; outline: none; }
+  .add-line input:focus { border-bottom-color: var(--accent); }
+  /* the rail: Waiting on, Waiting on this, Related, each a heading over rows with a line between; the count follows the heading after a dot */
+  .ln-rail { display: flex; flex-direction: column; gap: 30px; min-width: 0; }
+  .ln-rail .tile { gap: 8px; }
+  .ln-rail .tile-h .count::before { content: "· "; }
+  .ln-rail .sub { align-items: center; flex-wrap: nowrap; gap: 10px; padding: 8px 0; font-size: 15px; }
+  .ln-rail .sub .mono { margin: 0; font-size: 13px; white-space: nowrap; }
+  .ln-rail .sub.dep .s-t { flex: 1; min-width: 0; }
+  .ln-rail .sub.dep.blocking-me { background: transparent; color: inherit; }
+  .ln-rail .sub.dep.blocking-me .dep-s { color: var(--on-fill); }
+  .ln-rail .tile-h { gap: 4px; }
+  .ln-rail .sub.dep .tag.dep-s { flex: none; color: var(--on-fill); padding: 3px 10px; border: 0; border-radius: 10px; background: var(--fill); font-size: 12px; font-weight: 500; text-decoration: none; }
+  .ln-rail .sub.dep.done .s-t { color: var(--ink-2); }
+  .ln-rail .rel { padding: 8px 0; align-items: baseline; font-size: 15px; }
+  .ln-rail .rel .k { min-width: 44px; font-size: 12px; letter-spacing: 0; }
+  .ln-rail .rel-open { flex: 1; font-weight: 400; }
+  .ln-rail .rel-x { margin-left: 0; }
+  .ln-rail .menu-wrap { margin-top: 0; }
+  .ln-rail .menu-wrap > button, .ln-rail .menu-wrap .btn { align-self: flex-start; padding: 0; border: 0; background: none; font: inherit; font-size: 14px; color: var(--ink-2); }
   /* the related list: one row per document, plan, link or image, its kind first */
   .rel-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
   .rel { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 6px 0; border-top: 1.5px solid var(--line-soft); }
@@ -560,11 +597,8 @@
   .sub.dep.blocking-me .dep-s { color: var(--on-fill); }
   .sub.dep .ic { color: inherit; }
   .tile p.muted { margin: 0; }
-  @media (max-width: 1180px) {
-    .view-linked { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
   @media (max-width: 860px) {
-    .view-linked { grid-template-columns: minmax(0, 1fr); }
+    .view-linked { grid-template-columns: minmax(0, 1fr); }   /* the rail drops below the main list */
   }
   @media (max-width: 760px) {
     .view-grid { gap: var(--s3); }
@@ -745,6 +779,12 @@
   .rd.today { box-shadow: inset 0 0 0 1.5px var(--line); }
   .rd.in { background: color-mix(in srgb, var(--sun) 35%, transparent); color: var(--ink); }
   .rd.edge { background: var(--sun); color: var(--on-fill); font-weight: 700; }
+  .range-t { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 12.5px; color: var(--ink-2); }
+  .range-t label { display: flex; align-items: center; gap: 8px; }
+  .range-t label::after { content: none; }   /* the side menu's "label:" colon is not wanted here */
+  .range-t span { width: 34px; }
+  .range-t input { flex: 1; min-width: 0; border: 1px solid var(--line-soft); border-radius: 6px; }
+  .range-t input:disabled { opacity: .45; }
   .range-f { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 12.5px; }
 
   /* note attachments: images inline, files and links by name, each with a small remove control */
@@ -816,6 +856,11 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
   .wk-first .wk-empty { padding: 2px 0 0; }
   .wk-first .wk-edit { padding: 5px 0 8px 4px; }
   .wk-first .wk-edit textarea.desc-in { min-height: 12rem; }
+  /* editing the description: the section is as tall as the scroll area (rtm.fillEditor sets --fill-h and scrolls it to the top), the box takes all that is left below the label */
+  .wk-first.filling { display: flex; flex-direction: column; min-height: var(--fill-h, 100vh); }
+  .wk-first.filling .wk-edit { display: flex; flex-direction: column; align-items: stretch; flex: 1 1 auto; min-height: 0; }
+  .wk-first.filling .wk-edit .wk-main { flex: 1 1 auto; min-height: 0; }
+  .wk-first.filling textarea.desc-in { flex: 1 1 auto; resize: none; }
   /* every entry has the same 2px edge (transparent unless it is a card or hovered, see .hov) so times and markers line up */
   .wk-e { --stroke: transparent; --fill: transparent; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 16px; padding: 5px 12px; border: 2px solid var(--stroke); border-radius: 10px; background: var(--fill); }
   .wk-e.hov:hover, .wk-e.hov:focus-visible { --stroke: var(--line); --fill: var(--stone); color: var(--on-fill); outline: none; }   /* an entry with a menu: outlined when pointed at */
@@ -858,7 +903,15 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
   .wk-edit .wk-main { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; }
   .wk-title-in { width: 100%; padding: 2px 4px; border: 0; border-bottom: 2px solid var(--line-soft); border-radius: 0; background: transparent; color: var(--ink); font: 700 var(--t-md) var(--f-body); outline: none; }
   .wk-title-in:focus { border-bottom-color: var(--accent); }
-  .wk-edit textarea.desc-in { width: 100%; min-height: 8rem; padding: 6px 4px; resize: vertical; }
+  .wk-edit textarea.desc-in { width: 100%; min-height: 5.5rem; padding: 6px 4px; resize: none; }
+  /* the note's box is as tall as its text (rtm.autoGrow sets the height, up to one screen); the page scrolls, not the box. Taller than the screen: an expand button
+     at the top right, and the editor then fills the window like the description editor does (rtm.fillEditor sets --fill-h) */
+  .wk-edit textarea.desc-in.grow { overflow-y: hidden; }
+  .wk-edit.wk-note .wk-title-in { padding-right: 28px; }
+  .wk-expand { position: absolute; top: 8px; right: 12px; z-index: 1; }
+  .wk-edit.filling:not(.wk-desc) { display: flex; flex-direction: column; align-items: stretch; min-height: var(--fill-h, 100vh); }
+  .wk-edit.filling:not(.wk-desc) .wk-main { flex: 1 1 auto; min-height: 0; }
+  .wk-edit.filling:not(.wk-desc) textarea.desc-in { flex: 1 1 auto; min-height: 0; height: auto; overflow-y: auto; }
   .wk-pick { padding: 4px 0 4px 8px; }
   .wk-add-subtask { padding: 4px 0 4px 8px; }
   .wk-add-subtask input { width: 100%; padding: 6px 8px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--panel, transparent); color: var(--ink); font: var(--t-sm) var(--f-body); outline: none; }
@@ -923,4 +976,91 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
   /* a project's name is a button that opens its menu: heading text at rest, outlined on hover (.hov) */
   .proj-name-btn { font: inherit; color: inherit; padding: 0 8px; border: 2px solid var(--stroke); border-radius: 8px; background: var(--fill); }
   .proj-h h2 .menu-wrap, .proj-h h2 .menu-activator { display: inline-flex; }
+}
+/* table helper */
+@layer overlays {
+  /* the markdown editors' /table grid and table bar (wwwroot/js/md-editor.js): small panels fixed next to the caret, drawn like the menus */
+  .md-pop { position: fixed; z-index: 55; padding: 6px; background: var(--card); color: var(--ink); border: 2px solid var(--line); border-radius: 14px; box-shadow: 4px 4px 0 var(--shadow); }
+  .md-grid { padding: 10px; }
+  .md-gg { display: grid; grid-template-columns: repeat(8, 22px); gap: 3px; }
+  .md-gc { display: block; width: 22px; height: 22px; border: 1.5px solid var(--line-soft); border-radius: 5px; cursor: pointer; }
+  .md-gc.on { background: var(--sun); border-color: var(--line); }
+  .md-gl { margin-top: 8px; font: 700 14px var(--f-body); text-align: center; }
+  .md-gh { margin-top: 2px; font: 500 11px var(--f-body); color: var(--ink-2); text-align: center; white-space: nowrap; }
+  .md-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; max-width: calc(100vw - 8px); }
+  .md-grp { display: inline-flex; align-items: center; gap: 2px; }
+  .md-b { padding: 5px 9px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: 500 13px var(--f-body); white-space: nowrap; cursor: pointer; }
+  .md-b:hover { background: var(--stone); color: var(--on-fill); }
+  .md-b.ic { display: inline-flex; align-items: center; padding: 5px 7px; }
+  .md-b.on { background: var(--sun); color: var(--on-fill); }
+  .md-sep { align-self: stretch; width: 2px; margin: 3px 4px; background: var(--line-soft); border-radius: 1px; }
+
+  /* the grid overlay: a real grid laid over the table's lines in the textarea (md-editor.js sets its box, font and background); every row is one text line high */
+  .md-ov { position: fixed; z-index: 40; box-sizing: border-box; overflow: hidden; color: var(--ink); line-height: var(--lh); cursor: default; user-select: none; }
+  .md-gx { width: fit-content; max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
+  .md-t { border-collapse: separate; border-spacing: 0; table-layout: auto; }
+  .md-t th, .md-t td { box-sizing: border-box; height: var(--lh); padding: 0; font-weight: 500; white-space: nowrap; text-align: left; }
+  .md-t td { position: relative; padding: 0 9px; box-shadow: inset -1px -1px 0 var(--line-soft); }
+  .md-v { min-width: 4.5em; max-width: 26em; height: var(--lh); overflow: hidden; text-overflow: ellipsis; }
+  .md-t th { color: var(--ink-2); font-size: .78em; background: color-mix(in srgb, var(--stone) 32%, transparent); box-shadow: inset -1px -1px 0 var(--line-soft); text-align: center; }
+  .md-rh { min-width: 2.4em; padding: 0 6px !important; }
+  .md-corner { cursor: pointer; }
+  .md-ch, .md-rh { cursor: pointer; }
+  .md-ch:hover, .md-rh:hover, .md-corner:hover { background: color-mix(in srgb, var(--stone) 55%, transparent); }
+  .md-t th.sel { background: color-mix(in srgb, var(--sun) 55%, transparent); color: var(--ink); }
+  .md-hd td { font-weight: 700; box-shadow: inset -1px -2px 0 var(--ink-2); }
+  .md-t td.al-center { text-align: center; }
+  .md-t td.al-right { text-align: right; }
+  .md-t td.sel { background: color-mix(in srgb, var(--sun) 38%, transparent); }
+  .md-t td.act { box-shadow: inset 0 0 0 2px var(--line); }
+  .md-in { position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; margin: 0; padding: 0 9px; border: 0; border-radius: 0; outline: 2px solid var(--line); outline-offset: -2px; background: var(--card); color: var(--ink); font: inherit; text-align: inherit; user-select: text; }
+}
+
+/* bugs */
+@layer page {
+  /* a bug report is a note that stands out like a decision, in rose: a small BUG label, the mark and the title in the colour, no frame */
+  .wk-bug { --bug: color-mix(in srgb, var(--rose) 60%, var(--ink)); }
+  .wk-bug .wk-tag { font-size: var(--t-xs); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--bug); }
+  .wk-bug .wk-title { color: var(--bug); }
+  .wk-e.wk-bug .wk-mark { top: 14px; width: 14px; height: 14px; margin-left: -1px; border-radius: 3px; background: var(--bug); box-shadow: 0 0 0 1.5px var(--bug); }
+  .wk-bug .wk-body { font-size: var(--t-md); }
+}
+
+/* menu patch */
+@layer nav {
+  /* on/off options: a filled pill when on, plain underlined text when off (a real button, aria-pressed) */
+  .nav-pill { padding: 1px 12px; border: 2px solid transparent; border-radius: var(--r); background: none; color: var(--ink); font: 500 14px var(--f-body); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; cursor: pointer; white-space: nowrap; }
+  .nav-pill:hover { background: var(--stone); color: var(--on-fill); }
+  .nav-pill:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .nav-pill.is-sel { background: var(--sun); border-color: var(--line); color: var(--on-fill); text-decoration: none; }
+  .nav-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; align-self: stretch; }
+  .nav-view > .nav-pill { align-self: flex-start; margin-left: -6px; }
+  .nav-hidden > .nav-pill { align-self: flex-start; margin-left: -2px; }   /* plain text lines up with the fields above; the filled pill reaches 6px left of it */
+  /* the one Add entry button of the Worklog block */
+  .nav-add-menu { align-self: flex-start; }
+  .nav-add { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 14px; border: 2px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--ink); font: 600 14px var(--f-body); cursor: pointer; }
+  .nav-add svg { width: 14px; height: 14px; }
+  .nav-add:hover, .nav-add:focus-visible { background: var(--sage); color: var(--on-fill); outline: none; }
+  /* the changed period can carry times ("10 Nov 20:00 – 11 Nov 06:00"): wrap onto a second line in the narrow menu instead of clipping */
+  nav.side .field.changed { flex-wrap: wrap; align-items: flex-start; max-width: 100%; }
+  nav.side .field.changed > label { flex: 0 0 100%; }
+  nav.side .field.changed .dates-btn { max-width: 100%; height: auto; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+  nav.side .legend .lg.head { white-space: normal; overflow-wrap: anywhere; }
+  /* the collapse icon shares the first row of the expanded menu: the "N open" button takes the width, the icon ends the row;
+     the menu's top padding is the normal row gap */
+  nav.side.expanded { padding-top: 2px; }
+  .nav-row { display: flex; align-items: center; gap: 2px; }
+  .nav-row > .menu-wrap { flex: 1; min-width: 0; }
+  .nav-toggle.ic { flex: none; color: var(--ink); }
+  .nav-toggle.ic:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .nav-worklog .nav-h { align-self: stretch; }   /* the full width, so the icon ends the row */
+  .nav-worklog .nav-h .nav-toggle { margin-right: -2px; }
+  /* the Worklog block as the menu's first block: no dashed rule and no gap above it */
+  nav.side > .nav-view-btn:first-child + .nav-worklog { margin-top: 0; padding-top: 0; border-top: 0; }
+  @media (max-width: 900px) {
+    /* the header bar: the icon stays first in the bar, as big as the other icons */
+    .nav-row { display: contents; }
+    .nav-row > .nav-toggle { order: -1; width: 34px; height: 34px; border-radius: 10px; }
+    .nav-row > .nav-toggle svg { width: 16px; height: 16px; }
+  }
 }

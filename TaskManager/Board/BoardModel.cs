@@ -26,7 +26,9 @@ public sealed record BoardOptions(
     string? ListSettings = null,            // the list view's grid settings (column widths, order, sort, filters) as JSON
     DateOnly? ChangedFrom = null,           // the filter: only work that changed from this day ...
     DateOnly? ChangedTo = null,             // ... to this one (both set, or both null = off)
-    IReadOnlyList<ChartSpec>? Charts = null)   // the Analytics view's charts; null = the two defaults (AnalyticsModel.DefaultCharts)
+    IReadOnlyList<ChartSpec>? Charts = null,   // the Analytics view's charts; null = the two defaults (AnalyticsModel.DefaultCharts)
+    TimeOnly? ChangedFromTime = null,       // the changed period's time within its first day (null = from 00:00) ...
+    TimeOnly? ChangedToTime = null)         // ... and within its last day (null = to the end of it)
 {
     /// <summary>A changed period is set: items that did not change in it are left out.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
@@ -264,11 +266,27 @@ public static class BoardModel
     /// The ids of the items that changed from <paramref name="from"/> to <paramref name="to"/>, both days included, by local day: some of the
     /// times <paramref name="logged"/> gives for it (its events and notes), its creation, or its files' last write falls in it.
     /// </summary>
-    public static IReadOnlySet<int> ChangedIn(IReadOnlyList<WorkItem> items, Func<WorkItem, IEnumerable<DateTime>> logged, DateOnly from, DateOnly to)
+    public static IReadOnlySet<int> ChangedIn(IReadOnlyList<WorkItem> items, Func<WorkItem, IEnumerable<DateTime>> logged, DateOnly from, DateOnly to,
+        TimeOnly? fromTime = null, TimeOnly? toTime = null, Func<WorkItem, bool>? hasCreated = null)
     {
-        bool In(DateTime t) => DateOnly.FromDateTime(t) is var d && d >= from && d <= to;
-        return items.Where(i => In(i.Created) || In(i.Modified) || logged(i).Any(In)).Select(i => i.Id).ToHashSet();
+        if (fromTime is null && toTime is null)
+        {
+            bool In(DateTime t) => DateOnly.FromDateTime(t) is var d && d >= from && d <= to;
+            return items.Where(i => In(i.Created) || In(i.Modified) || logged(i).Any(In)).Select(i => i.Id).ToHashSet();
+        }
+        // with times: the exact window, its end inclusive to the end of the minute (the inputs take minutes)
+        DateTime start = from.ToDateTime(fromTime ?? TimeOnly.MinValue);
+        DateTime end = toTime is TimeOnly tt ? to.ToDateTime(tt).AddMinutes(1) : to.AddDays(1).ToDateTime(TimeOnly.MinValue);   // exclusive
+        bool Within(DateTime t) => t >= start && t < end;
+        // creation counts through its created event (in the log); with none, only when the whole creation day lies inside the window
+        bool CreatedIn(WorkItem i) => !(hasCreated?.Invoke(i) ?? false)
+            && DateOnly.FromDateTime(i.Created) is var d && d.ToDateTime(TimeOnly.MinValue) >= start && d.AddDays(1).ToDateTime(TimeOnly.MinValue) <= end;
+        return items.Where(i => CreatedIn(i) || Within(i.Modified) || logged(i).Any(Within)).Select(i => i.Id).ToHashSet();
     }
+
+    /// <summary>The changed period as the legend names it: "changed 10 Nov 20:00 – 11 Nov 06:00", the times only when set.</summary>
+    public static string ChangedLabel(BoardOptions o) =>
+        $"changed {o.ChangedFrom:d MMM}{(o.ChangedFromTime is TimeOnly a ? $" {a:HH\\:mm}" : "")} – {o.ChangedTo:d MMM}{(o.ChangedToTime is TimeOnly b ? $" {b:HH\\:mm}" : "")}";
 
     /// <summary>
     /// What <see cref="ChangedIn"/> gives for the board's changed period, reading each item's events.log and notes of the current repository
@@ -278,7 +296,8 @@ public static class BoardModel
     {
         if (o.ChangedFrom is not DateOnly from || o.ChangedTo is not DateOnly to) return null;
         ILookup<int, DateTime> notes = Notes.NotesApi.GetAll().ToLookup(n => n.WorkItemId, n => n.Created);
-        return ChangedIn(items, i => WorkItemsApi.GetEvents(i.Id).Select(e => e.At).Concat(notes[i.Id]), from, to);
+        return ChangedIn(items, i => WorkItemsApi.GetEvents(i.Id).Select(e => e.At).Concat(notes[i.Id]), from, to, o.ChangedFromTime, o.ChangedToTime,
+            i => WorkItemsApi.GetEvents(i.Id).Any(e => e.Kind == "created"));
     }
 
     /// <summary>How many items the board shows with the changed period, and how many the other filters leave without it: the legend's "3 of 36 shown". Null while no period is set.</summary>

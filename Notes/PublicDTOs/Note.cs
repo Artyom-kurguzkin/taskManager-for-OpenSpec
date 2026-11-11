@@ -22,6 +22,8 @@ public sealed record Note(
 {
     /// <summary>A decision: what was decided and why, clear and brief; the worklog emphasises it.</summary>
     public bool IsDecision => Kind == NoteKinds.Decision;
+    /// <summary>A bug report; the worklog shows it under its own filter.</summary>
+    public bool IsBug => Kind == NoteKinds.Bug;
     /// <summary>An agent stamped this note and the user has not reviewed it since.</summary>
     public bool AgentUnreviewed => AgentBy is not null && (ReviewedAt is null || (AgentAt is DateTime a && ReviewedAt < a));
 }
@@ -30,7 +32,8 @@ public sealed record Note(
 public static class NoteKinds
 {
     public const string Decision = "decision";
-    public static readonly IReadOnlyList<string> All = [Decision];
+    public const string Bug = "bug";             // a bug report: what is wrong, how to see it
+    public static readonly IReadOnlyList<string> All = [Decision, Bug];
 }
 
 /// <summary>A reference found in note text. Kind is "doc" ([[path]]), "item" (#wiN) or "note" (#nN).</summary>

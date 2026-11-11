@@ -694,3 +694,21 @@ The side menu SHALL NOT offer an "agent work to review" filter; settings saved w
 #### Scenario: Old settings
 - **WHEN** the app opens settings that still carry the agent-only option
 - **THEN** the board loads and shows every item the other filters leave
+
+### Requirement: Times on the changed period
+The changed-period picker SHALL offer an optional from time and to time once a day or range is picked. With times set, only items with an event, note or file write inside the exact window SHALL be shown, and the field and the legend SHALL show the times; without times whole days count. "Show all" SHALL clear dates and times.
+
+#### Scenario: Overnight window
+- **WHEN** the user picks 10 Nov to 11 Nov and sets from 20:00 and to 06:00
+- **THEN** only items touched between 10 Nov 20:00 and 11 Nov 06:00 are shown and the legend names that window
+
+### Requirement: Move and hide rows
+Shift-clicking (or Ctrl/⌘-clicking) a swimlane header SHALL select it. The up and down arrow keys SHALL move the selected rows past the next unselected one, and dragging a header onto another SHALL move it there. A × on the header SHALL hide the row, and the side menu's Hidden list SHALL bring it back. The order and the hidden rows SHALL be remembered per board and row field.
+
+#### Scenario: Move a label row up
+- **WHEN** rows are by label and the user Shift-clicks the "feature" header and presses the up arrow
+- **THEN** the feature row shows above the row before it, and stays there after a restart
+
+#### Scenario: Hide a row
+- **WHEN** the user clicks × on the "bug" row
+- **THEN** the row is gone from the board and listed under Hidden in the side menu, whose eye brings it back

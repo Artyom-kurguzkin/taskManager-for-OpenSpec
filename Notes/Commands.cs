@@ -16,7 +16,7 @@ internal static class Commands
         if (WorkItemsApi.Get(workItemId) is not WorkItem wi) return (false, "That work item no longer exists", 0);
         if (kind is not null && !NoteKinds.All.Contains(kind)) return (false, $"Unknown note kind '{kind}'; use {string.Join(", ", NoteKinds.All)} or none", 0);
         int id = OpenSpecStoreApi.Allocate("note", roots => roots.Max(r => Queries.MaxNoteIdUnder(r)));
-        NoteMeta meta = new() { Id = id, By = by, Created = created.ToString("s", CultureInfo.InvariantCulture), Title = kind == NoteKinds.Decision ? "Decision" : "New note", Kind = kind };
+        NoteMeta meta = new() { Id = id, By = by, Created = created.ToString("s", CultureInfo.InvariantCulture), Title = kind == NoteKinds.Decision ? "Decision" : kind == NoteKinds.Bug ? "Bug" : "New note", Kind = kind };
         string file = Path.Combine(wi.Path, "notes", $"n{id}.md");
         (bool ok, string message) = OpenSpecStoreApi.WriteText(file, NoteFile.Compose(meta, ""));
         return ok ? (true, "", id) : (false, message, 0);
@@ -43,25 +43,49 @@ internal static class Commands
         string[] lines = note.Body.Split('\n');
         List<string> created = [];
         string failure = "";
-        bool fenced = false;
+        bool fenced = false, rewritten = false;
         for (int i = 0; i < lines.Length && failure.Length == 0; i++)
         {
             string trimmed = lines[i].TrimStart();
             if (trimmed.StartsWith("```") || trimmed.StartsWith("~~~")) { fenced = !fenced; continue; }
-            if (fenced || lines[i].TrimEnd().EndsWith(Promoted, StringComparison.Ordinal)) continue;
+            if (fenced) continue;
             if (Unticked.Match(lines[i].TrimEnd('\r')) is not { Success: true } m) continue;
+            if (m.Groups["text"].Value.Contains(Promoted, StringComparison.Ordinal))
+            {
+                // already promoted, whatever was typed around the marker since: retext its subtask, keep one marker at the end
+                string tidy = TidyPromotedLine(note.WorkItemId, lines[i].TrimEnd('\r'), m);
+                if (tidy != lines[i].TrimEnd('\r')) { lines[i] = tidy + (lines[i].EndsWith('\r') ? "\r" : ""); rewritten = true; }
+                continue;
+            }
             HashSet<string> had = [.. WorkItemsApi.Get(note.WorkItemId)?.Subtasks.Select(s => s.Number) ?? []];
             (bool ok, string message) = WorkItemsApi.AddSubtask(note.WorkItemId, m.Groups["text"].Value);
             if (!ok) { failure = message; break; }
             if (WorkItemsApi.Get(note.WorkItemId)?.Subtasks.LastOrDefault(s => !had.Contains(s.Number)) is Subtask added) created.Add(added.Number);
             lines[i] = lines[i].TrimEnd() + " " + Promoted + (lines[i].EndsWith('\r') ? "\r" : "");
         }
-        if (created.Count > 0)
+        if (created.Count > 0 || rewritten)
         {
             (bool saved, string message) = SaveBody(id, string.Join('\n', lines));
             if (!saved) return (false, message, created);
         }
         return failure.Length == 0 ? (true, "", created) : (false, failure, created);
+    }
+
+    /// <summary>
+    /// A line that carries the marker was promoted before. The text before the first marker is what the subtask was made from: when exactly one
+    /// subtask has that text, it takes the line's text with every marker removed. The line comes back with the new text and one marker at its end.
+    /// The marker never reaches a subtask. A line with nothing but markers is left as it is.
+    /// </summary>
+    private static string TidyPromotedLine(int workItemId, string line, System.Text.RegularExpressions.Match m)
+    {
+        string text = m.Groups["text"].Value;
+        string original = text[..text.IndexOf(Promoted, StringComparison.Ordinal)].Trim();
+        string now = System.Text.RegularExpressions.Regex.Replace(text.Replace(Promoted, " "), @"\s+", " ").Trim();
+        if (now.Length == 0) return line;
+        if (now != original && original.Length > 0 &&
+            WorkItemsApi.Get(workItemId)?.Subtasks.Where(s => !s.Number.StartsWith('#') && s.Text.Trim() == original).ToList() is [Subtask only])
+            WorkItemsApi.SetSubtaskText(workItemId, only.Number, now);
+        return line[..m.Groups["text"].Index] + now + " " + Promoted;
     }
 
     internal static (bool Success, string Message) AddManualLink(int id, string link)
@@ -106,7 +130,7 @@ internal static class Commands
     private static string AttachmentsDir(string root) => AttachDirs.GetValueOrDefault(DirKey(root), DefaultAttachmentsDir);
 
     /// <summary>The open repository the note lives in: by its own path, so a switch of the active project meanwhile cannot send its files elsewhere.</summary>
-    private static string? RootOf(Note note) =>
+    internal static string? RootOf(Note note) =>
         OpenSpecStoreApi.OpenRoots.FirstOrDefault(r => Path.GetFullPath(note.Path).StartsWith(DirKey(r) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) ?? OpenSpecStoreApi.RepoRoot;
 
     /// <summary>Copies the file to local/task-tracking/wi&lt;item&gt;/n&lt;note&gt;/ (never overwriting), makes sure local/ is git-ignored, and lists it.</summary>

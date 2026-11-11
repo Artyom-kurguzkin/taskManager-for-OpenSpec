@@ -120,6 +120,8 @@ public static class WorkItemsApi
     public static (bool Success, string Message) SetSubtaskDone(int id, string number, bool done) => Commands.SetSubtaskDone(id, number, done);
     public static (bool Success, string Message) SetSubtaskText(int id, string number, string text) => Commands.SetSubtaskText(id, number, text);
     public static (bool Success, string Message) AddSubtask(int id, string text) => Commands.AddSubtask(id, text);
+    /// <summary>Takes the subtask out of tasks.md (the rest of its group is renumbered) and records <c>subtask-removed</c> with its number and text.</summary>
+    public static (bool Success, string Message) RemoveSubtask(int id, string number) => Commands.RemoveSubtask(id, number);
 
     /// <summary>Marks the agent's work on an item as reviewed (x-rtm.reviewedAt = now).</summary>
     public static (bool Success, string Message) MarkReviewed(int id) => Commands.MarkReviewed(id);

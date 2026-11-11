@@ -1,2 +1,8 @@
+skip_specs: true
 x-rtm:
   id: 92
+  title: web calendar integration
+  features: [organise-work-items]
+  label: feature
+  started: 2026-11-16
+  due: 2026-11-23

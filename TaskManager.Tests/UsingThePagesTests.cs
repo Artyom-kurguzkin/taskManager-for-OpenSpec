@@ -47,6 +47,10 @@ public sealed class UsingThePagesTests : IDisposable
         page.WaitForAssertion(() => Assert.Equal(view, CurrentView(page)));
     }
 
+    /// <summary>A subtask's text in the linked tasks main list (a folded done subtask is not there until its group's "N done" is opened).</summary>
+    private static IElement SubText(IRenderedComponent<WorkItemPage> page, string text) =>
+        page.FindAll(".tile[data-tile='subtasks'] .sub .s-t").Single(t => t.TextContent.Trim() == text);
+
     private static List<string> Tiles(IRenderedComponent<WorkItemPage> page) => page.FindAll(".tile").Select(t => t.GetAttribute("data-tile")!).ToList();
 
     [Fact(DisplayName = "The item page opens on the worklog, with Worklog and Linked tasks to switch between, the current one marked, and the description is the worklog's last entry")]
@@ -77,7 +81,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Empty(page.FindAll(".view-linked"));
     }
 
-    [Fact(DisplayName = "The linked tasks view lists what is attached to the item in a Related column: the plan, documents and attachments of its notes, and images, each once")]
+    [Fact(DisplayName = "The linked tasks view lists what is attached to the item in the rail's Related list: the plan, documents and attachments of its notes, and images, each once")]
     public async Task RelatedList()
     {
         await using BunitContext ctx = NewContext();
@@ -109,7 +113,8 @@ public sealed class UsingThePagesTests : IDisposable
         }, rows);
         Assert.Equal(rows.Count, rows.Distinct().Count());
         Assert.DoesNotContain("Nothing attached yet.", page.Find(".related").TextContent);
-        Assert.Equal(["Subtasks", "Waiting on", "Waiting on this", "Related"], page.FindAll(".tile-h h3").Select(h => h.TextContent.Trim()));   // Related is the fourth column
+        Assert.Equal(["Subtasks", "Waiting on", "Waiting on this", "Related"], page.FindAll(".tile-h h3").Select(h => h.TextContent.Trim()));   // Related is the last list of the rail
+        Assert.Equal("7", page.Find(".ln-rail .related .tile-h .count").TextContent.Trim());
 
         // plans and documents open the app's document page, a link opens as notes open theirs
         Assert.Equal("doc/DevResources/plans/health-2026-11-05.md", page.FindAll(".related .rel-open").Single(a => a.TextContent.Trim() == "health-2026-11-05.md").GetAttribute("href"));
@@ -119,8 +124,8 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("_blank", link.GetAttribute("target"));
     }
 
-    [Fact(DisplayName = "The linked tasks view shows subtasks, what the item waits on, what waits on it and what is related to it in four columns")]
-    public async Task LinkedTasksColumns()
+    [Fact(DisplayName = "The linked tasks rail lists what the item waits on and what waits on it, each with its status pill, and says so when a list is empty")]
+    public async Task LinkedTasksRail()
     {
         await using BunitContext ctx = NewContext();
         WorkItemsApi.AddDependency(123, 125);   // 123 waits on 125
@@ -130,21 +135,27 @@ public sealed class UsingThePagesTests : IDisposable
         View(page, "linked");
 
         Assert.Equal(["subtasks", "waiting", "blocks", "related"], Tiles(page));
-        Assert.Equal(4, page.FindAll(".tile[data-tile='subtasks'] .sub:not(.dep)").Count);
-        Assert.Contains("#wi125", page.Find(".tile[data-tile='waiting'] .sub.dep.waits").TextContent);
-        Assert.Contains(WorkItemsApi.Get(125)!.Status, page.Find(".tile[data-tile='waiting'] .sub.dep.waits").TextContent);
-        Assert.NotEmpty(page.FindAll(".tile[data-tile='waiting'] button[aria-label='Wait on another work item']"));
-        Assert.Contains("#wi107", page.Find(".tile[data-tile='blocks'] .sub.dep.blocks").TextContent);
-        Assert.Empty(page.FindAll(".tile[data-tile='subtasks'] .sub.dep"));   // the dependencies have their own columns
+        Assert.Equal(["waiting", "blocks", "related"], page.FindAll(".ln-rail > .tile").Select(t => t.GetAttribute("data-tile")!));   // the rail holds the three, the subtasks are the main list
+        Assert.Empty(page.FindAll(".ln-rail [data-tile='subtasks']"));
+        IElement waits = page.Find(".tile[data-tile='waiting'] .sub.dep.waits");
+        Assert.Contains("#wi125", waits.TextContent);
+        Assert.Equal(WorkItemsApi.Get(125)!.Status, waits.QuerySelector(".tag.lbl")!.TextContent.Trim());   // the status as a pastel pill
+        Assert.Contains("--fill:var(--", waits.QuerySelector(".tag.lbl")!.GetAttribute("style"));
+        Assert.Contains("+ wait on another item", page.Find(".tile[data-tile='waiting'] button[aria-label='Wait on another work item']").TextContent);
+        IElement blocks = page.Find(".tile[data-tile='blocks'] .sub.dep.blocks");
+        Assert.Contains("#wi107", blocks.TextContent);
+        Assert.Equal(WorkItemsApi.Get(107)!.Status, blocks.QuerySelector(".tag.lbl")!.TextContent.Trim());
+        Assert.Equal("1", page.Find(".tile[data-tile='blocks'] .tile-h .count").TextContent.Trim());
+        Assert.Empty(page.FindAll(".tile[data-tile='subtasks'] .sub.dep"));   // the dependencies are in the rail, not among the subtasks
 
-        // empty columns say so
+        // empty lists say so
         IRenderedComponent<WorkItemPage> alone = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 125));
         View(alone, "linked");
-        Assert.Equal(["subtasks", "waiting", "blocks", "related"], Tiles(alone));   // all four columns, also when something is empty
-        Assert.Contains("Not waiting on anything", alone.Find(".tile[data-tile='waiting']").TextContent);
+        Assert.Equal(["subtasks", "waiting", "blocks", "related"], Tiles(alone));   // all of them, also when something is empty
+        Assert.Contains("Nothing.", alone.Find(".tile[data-tile='waiting']").TextContent);
         IRenderedComponent<WorkItemPage> loner = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 124));
         View(loner, "linked");
-        Assert.Contains("Nothing waits on this item", loner.Find(".tile[data-tile='blocks']").TextContent);
+        Assert.Contains("Nothing.", loner.Find(".tile[data-tile='blocks']").TextContent);
     }
 
     [Fact(DisplayName = "Subtasks are ticked, edited, added and selected in the linked tasks view as they were in the subtasks tile")]
@@ -154,11 +165,12 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
 
-        page.Find("#sub-2-1").Change(true);   // tick
-        page.WaitForAssertion(() => Assert.Contains("- [x] 2.1", repo.Read("openspec/changes/add-health-check/tasks.md")));
+        page.Find("#sub-1-3").Change(true);   // tick
+        page.WaitForAssertion(() => Assert.Contains("- [x] 1.3", repo.Read("openspec/changes/add-health-check/tasks.md")));
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll("#sub-1-3")));   // done: folded away
 
         await page.InvokeAsync(() => { });
-        page.FindAll(".sub .s-t")[3].Click();   // edit in place
+        SubText(page, "Hide internals from anonymous callers").Click();   // edit in place
         page.WaitForAssertion(() => Assert.Equal("Hide internals from anonymous callers", page.Find(".sub input.sub-edit").GetAttribute("value")));
         page.Find(".sub input.sub-edit").Input("Hide internals from everyone");
         page.Find(".sub input.sub-edit").KeyDown("Enter");
@@ -169,7 +181,7 @@ public sealed class UsingThePagesTests : IDisposable
         page.Find("input[aria-label='New subtask']").Change("A fresh step");   // add
         page.Find("form.add-line").Submit();
         page.WaitForAssertion(() => Assert.Contains(WorkItemsApi.Get(123)!.Subtasks, s => s.Text == "A fresh step"));
-        page.WaitForAssertion(() => Assert.Equal(5, page.FindAll(".tile[data-tile='subtasks'] .sub").Count));
+        page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".tile[data-tile='subtasks'] .sub:not(.done)").Count));   // the open ones: 2.1 and the new one
 
         await page.InvokeAsync(() => { });
         Assert.Empty(page.FindAll(".actionbar"));   // select: Shift-click
@@ -182,8 +194,8 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("Move into a separate work item", page.Find(".actionbar button.primary").TextContent.Trim());
     }
 
-    [Fact(DisplayName = "The subtasks column lists every subtask and counts how many are done")]
-    public async Task SubtasksColumnListsAll()
+    [Fact(DisplayName = "The main list counts every subtask in its progress line and lists the open ones; the done ones are folded")]
+    public async Task SubtasksMainListCounts()
     {
         await using BunitContext ctx = NewContext();
         for (int i = WorkItemsApi.Get(123)!.Subtasks.Count; i < 25; i++) Assert.True(WorkItemsApi.AddSubtask(123, $"Extra step {i}").Success);
@@ -191,8 +203,10 @@ public sealed class UsingThePagesTests : IDisposable
 
         View(page, "linked");
 
-        Assert.Equal(25, page.FindAll(".tile[data-tile='subtasks'] .sub").Count);
-        Assert.Contains("/25", page.Find(".tile[data-tile='subtasks'] .tile-h").TextContent);
+        Assert.Equal(23, page.FindAll(".tile[data-tile='subtasks'] .sub:not(.done)").Count);   // 25, 2 of them done
+        Assert.Empty(page.FindAll(".tile[data-tile='subtasks'] .sub.done"));
+        Assert.Contains("2 of 25 done", page.Find(".tile[data-tile='subtasks'] .tile-h").TextContent);
+        Assert.Contains("width:8%", page.Find(".tile[data-tile='subtasks'] .ln-bar > div").GetAttribute("style")!.Replace(" ", ""));
     }
 
     [Fact(DisplayName = "The worklog view shows the item's notes in the feed and tells the page when one is added")]
@@ -225,7 +239,7 @@ public sealed class UsingThePagesTests : IDisposable
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
     }
 
-    [Fact(DisplayName = "In a narrow window the four linked-tasks columns stack and nothing is minimised")]
+    [Fact(DisplayName = "In a narrow window the linked tasks rail drops below the main list and nothing is minimised")]
     public async Task NarrowStacks()
     {
         await using BunitContext ctx = NewContext();
@@ -237,7 +251,8 @@ public sealed class UsingThePagesTests : IDisposable
 
         page.WaitForAssertion(() => Assert.Single(page.FindAll(".view-linked.stack")));
         Assert.Equal(["subtasks", "waiting", "blocks", "related"], Tiles(page));
-        Assert.Equal(4, page.FindAll(".tile[data-tile='subtasks'] .sub").Count);   // the subtasks are listed, not folded away
+        Assert.Equal(2, page.FindAll(".tile[data-tile='subtasks'] .sub:not(.done)").Count);   // the open subtasks are listed, not folded away
+        Assert.Equal(["ln-main", "ln-rail"], page.Find(".view-linked").Children.Select(c => c.ClassList.First(x => x.StartsWith("ln-"))));   // the rail follows the main list, so it is below it once stacked
         Assert.Empty(page.FindAll(".tile-h [aria-expanded], button.tile-h"));
     }
 
@@ -383,7 +398,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("runbook.md", Docs());
     }
 
-    [Fact(DisplayName = "The item page's views have no frames: the description, the Related list, the linked-tasks columns and rows, and the worklog's notes sit straight on the page")]
+    [Fact(DisplayName = "The item page's views have no frames: the description, the Related list, the linked-tasks main list, rail and rows, and the worklog's notes sit straight on the page")]
     public void ViewsHaveNoFrames()
     {
         string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
@@ -398,6 +413,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Matches(@"background:\s*transparent", heading);
         Assert.Matches(@"--stroke:\s*transparent", Rule(".view-grid .sub"));         // subtask and dependency rows: no box, a line between them
         Assert.Matches(@"--stroke:\s*transparent", Rule(".view-grid .sub-group"));
+        Assert.Matches(@"border:\s*0\b", Rule(".view-grid .sub-fold"));              // the "N done" button is plain text
         Assert.Matches(@"--stroke:\s*transparent", Rule(".wk-note"));                // a note in the feed is not a card
         Assert.Matches(@"box-shadow:\s*none", Rule(".wk-edit"));
     }
@@ -412,7 +428,8 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("In Progress", page.Find(".status-field").TextContent);
         Assert.Contains("Expose a lightweight /health endpoint", page.Find(".wk-first .desc").TextContent);
         View(page, "linked");
-        Assert.Equal(4, page.FindAll(".sub").Count);
+        Assert.Contains("2 of 4 done", page.Find(".tile[data-tile='subtasks'] .tile-h").TextContent);
+        Assert.Equal(2, page.FindAll(".sub").Count);   // the two open ones; the done ones are folded
         View(page, "worklog");
         Assert.Contains("Ping test", page.Find(".worklog").TextContent);
         Assert.DoesNotContain(page.FindAll("h3"), h => h.TextContent.Trim() == "Notes");   // no separate notes panel
@@ -467,7 +484,7 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
 
-        page.FindAll(".sub .s-t")[3].Click();
+        SubText(page, "Hide internals from anonymous callers").Click();
         AngleSharp.Dom.IElement box = page.Find(".sub input.sub-edit");
         Assert.Equal("Hide internals from anonymous callers", box.GetAttribute("value"));
         box.Input("Hide internals from everyone");
@@ -486,7 +503,7 @@ public sealed class UsingThePagesTests : IDisposable
         View(page, "linked");
         string before = repo.Read("openspec/changes/add-health-check/tasks.md");
 
-        page.FindAll(".sub .s-t")[0].Click();
+        SubText(page, "Ping test in suite 543").Click();
         page.Find(".sub input.sub-edit").Input("Something else");
         page.Find(".sub input.sub-edit").KeyDown("Escape");
 
@@ -499,8 +516,8 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
-        page.FindAll(".sub .s-t")[2].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
-        page.FindAll(".sub .s-t")[3].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        SubText(page, "Ping test in suite 543").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        SubText(page, "Hide internals from anonymous callers").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
 
         page.Find(".actionbar button.primary").Click();
 
@@ -756,7 +773,7 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
         View(page, "linked");
-        page.FindAll(".sub .s-t")[2].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        SubText(page, "Ping test in suite 543").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
         Assert.Equal("Make it a work item", page.Find(".actionbar button.primary").TextContent.Trim());
         page.Find(".actionbar button.primary").Click();
 
@@ -771,7 +788,7 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
         View(page, "linked");
-        page.FindAll(".sub .s-t")[2].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        SubText(page, "Ping test in suite 543").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
         page.Find(".actionbar button.dep").Click();
 
         Assert.Equal("Blocked", WorkItemsApi.Get(123)!.Status);
@@ -801,7 +818,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("#wi123", page.Find(".sub.dep.waits.blocking-me").TextContent);
     }
 
-    [Fact(DisplayName = "The Waiting on column has a picker of existing work items to wait on; choosing one makes it a dependency")]
+    [Fact(DisplayName = "The rail's Waiting on list has a picker of existing work items to wait on; choosing one makes it a dependency")]
     public async Task PickDependency()
     {
         await using BunitContext ctx = NewContext();
@@ -833,7 +850,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("#wi125", choices);
     }
 
-    [Fact(DisplayName = "Dependencies are listed in the Waiting on column: a done one struck through, and × removes it")]
+    [Fact(DisplayName = "Dependencies are listed in the rail's Waiting on list: a done one struck through, and × removes it")]
     public async Task DependenciesUnderSubtasks()
     {
         await using BunitContext ctx = NewContext();
@@ -1141,11 +1158,11 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Matches(@"\.note-grid \.tile\[data-tile=""note""\][^{]*\{[^}]*min-height", css);   // the note tile is tall enough to fill, even beside short tiles
     }
 
-    [Fact(DisplayName = "The Subtasks column shows each task group as a collapsible header with its progress")]
+    [Fact(DisplayName = "In the main list each task group is a header with its progress; groups with open subtasks come first in file order, fully done groups after them")]
     public async Task MergedGroups()
     {
         await using BunitContext ctx = NewContext();
-        WorkItemsApi.SetSubtaskDone(107, "1.2", true);   // 107's only group is then done: it starts collapsed
+        WorkItemsApi.SetSubtaskDone(107, "1.2", true);   // 107's only group is then done: it goes last
         (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123], 107);
         Assert.True(ok, message);
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, id));
@@ -1153,20 +1170,17 @@ public sealed class UsingThePagesTests : IDisposable
         View(page, "linked");
         List<IElement> groups = page.FindAll(".tile[data-tile='subtasks'] .sub-group").ToList();
         Assert.Equal(3, groups.Count);
-        Assert.Contains("Monthly remittance export", groups[0].TextContent);
-        Assert.Contains("2/2", groups[0].TextContent);
-        Assert.Contains("#wi123 Health-check endpoint · Endpoint", groups[1].TextContent);
-        Assert.Contains("2/3", groups[1].TextContent);
-        Assert.Equal("false", groups[0].GetAttribute("aria-expanded"));   // all done: collapsed
-        Assert.Equal("true", groups[1].GetAttribute("aria-expanded"));
-        Assert.DoesNotContain("Export job", page.Find(".tile[data-tile='subtasks']").TextContent);
-        Assert.Contains("Add /health route", page.Find(".tile[data-tile='subtasks']").TextContent);
+        Assert.Contains("#wi123 Health-check endpoint · Endpoint", groups[0].TextContent);
+        Assert.Contains("2 / 3", groups[0].TextContent);   // done / total
+        Assert.Contains("#wi123 Health-check endpoint · Hardening", groups[1].TextContent);
+        Assert.Contains("0 / 1", groups[1].TextContent);
+        Assert.Contains("Monthly remittance export", groups[2].TextContent);
+        Assert.Contains("2 / 2", groups[2].TextContent);
+        Assert.DoesNotContain("Export job", page.Find(".tile[data-tile='subtasks']").TextContent);   // folded
+        Assert.Contains("Ping test in suite 543", page.Find(".tile[data-tile='subtasks']").TextContent);
+        Assert.Contains("4 of 6 done", page.Find(".tile[data-tile='subtasks'] .tile-h").TextContent);
 
-        groups[0].Click();
-        Assert.Contains("Export job", page.Find(".tile[data-tile='subtasks']").TextContent);
-        page.FindAll(".tile[data-tile='subtasks'] .sub-group")[1].Click();
-        Assert.DoesNotContain("Add /health route", page.Find(".tile[data-tile='subtasks']").TextContent);
-        page.Find("input[aria-label='New subtask']").Change("Last one");   // adding still works, into the last group
+        page.Find("input[aria-label='New subtask']").Change("Last one");   // adding still works, into the last group of the file
         page.Find(".tile[data-tile='subtasks'] form.add-line").Submit();
         Assert.Contains("Hardening", WorkItemsApi.Get(id)!.Subtasks.Single(s => s.Text == "Last one").Group);
     }
@@ -1427,5 +1441,136 @@ public sealed class UsingThePagesTests : IDisposable
         View(page, "worklog");
 
         Assert.Equal(before, page.Instance.Loads);
+    }
+
+// ── table helper ──
+
+    [Fact(DisplayName = "Every markdown editor in the app gets the table helper attached: the note page's too")]
+    public async Task NotePageEditorGetsTheTableHelper()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+        int attached() => ctx.JSInterop.Invocations.Count(i => i.Identifier == "rtm.markdownEditor");
+        Assert.Equal(0, attached());   // not editing: no text box
+
+        page.Find(".note-view").Click();
+        page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll("textarea.desc-in")));
+        page.WaitForAssertion(() => Assert.True(attached() >= 1));
+    }
+
+    // ── linked tasks: main list and rail ──
+
+    [Fact(DisplayName = "The linked tasks view shows the subtasks as the main list with their progress, open first, done ones folded per group, and the rail beside it with waiting on, waiting on this and related")]
+    public async Task LinkedMainListAndRail()
+    {
+        await using BunitContext ctx = NewContext();
+        WorkItemsApi.SetSubtaskDone(107, "1.2", true);
+        (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123], 107);
+        Assert.True(ok, message);
+        Assert.True(WorkItemsApi.AddDependency(id, 124).Success);   // waits on 124
+        Assert.True(WorkItemsApi.AddDependency(125, id).Success);   // 125 waits on it
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, id));
+
+        View(page, "linked");
+
+        // two thirds main list, one third rail, side by side
+        Assert.Equal(["ln-main", "ln-rail"], page.Find(".view-linked").Children.Select(c => c.ClassList.First(x => x.StartsWith("ln-"))));
+        IElement main = page.Find(".ln-main");
+        Assert.Equal("subtasks", main.GetAttribute("data-tile"));
+        Assert.Equal("Subtasks", main.QuerySelector(".tile-h h3")!.TextContent.Trim());
+        Assert.Equal("4 of 6 done", main.QuerySelector(".tile-h .count")!.TextContent.Trim());
+        Assert.Contains("width:67%", main.QuerySelector(".ln-bar > div")!.GetAttribute("style")!.Replace(" ", ""));   // the progress bar, 4 of 6
+
+        // groups: the ones with open subtasks first (file order), the done one last; each with its open rows (the number at the end), then "N done"
+        List<IElement> groups = main.QuerySelectorAll(".sub-grp").ToList();
+        Assert.Equal(3, groups.Count);
+        Assert.Equal(["Ping test in suite 543"], groups[0].QuerySelectorAll(".sub .s-t").Select(t => t.TextContent.Trim()));
+        Assert.Equal("2.3", groups[0].QuerySelector(".sub .mono")!.TextContent.Trim());
+        Assert.Equal("▸ 2 done", groups[0].QuerySelector("button.sub-fold")!.TextContent.Trim());
+        Assert.Equal(["Hide internals from anonymous callers"], groups[1].QuerySelectorAll(".sub .s-t").Select(t => t.TextContent.Trim()));
+        Assert.Empty(groups[1].QuerySelectorAll("button.sub-fold"));   // nothing done in it: no fold
+        Assert.Empty(groups[2].QuerySelectorAll(".sub"));              // all done: only the fold
+        Assert.Equal("▸ 2 done", groups[2].QuerySelector("button.sub-fold")!.TextContent.Trim());
+        Assert.Equal("false", groups[2].QuerySelector("button.sub-fold")!.GetAttribute("aria-expanded"));
+        Assert.Empty(main.QuerySelectorAll(".sub.done"));
+
+        // the add line closes the list
+        Assert.Equal("Add a subtask, or #wi12 to wait on it", main.QuerySelector("form.add-line input")!.GetAttribute("placeholder"));
+        Assert.Same(main.QuerySelector("form.add-line"), main.Children[^1]);
+
+        // the rail: waiting on (with its picker), waiting on this, related
+        IElement rail = page.Find(".ln-rail");
+        Assert.Equal(["Waiting on", "Waiting on this", "Related"], rail.QuerySelectorAll(".tile-h h3").Select(h => h.TextContent.Trim()));
+        Assert.Contains("#wi124", rail.QuerySelector("[data-tile='waiting'] .sub.dep.waits")!.TextContent);
+        Assert.NotNull(rail.QuerySelector("[data-tile='waiting'] button[aria-label='Remove dependency']"));
+        Assert.NotNull(rail.QuerySelector("[data-tile='waiting'] button[aria-label='Wait on another work item']"));
+        Assert.Contains("#wi125", rail.QuerySelector("[data-tile='blocks'] .sub.dep.blocks")!.TextContent);
+        Assert.Equal("1", rail.QuerySelector("[data-tile='blocks'] .tile-h .count")!.TextContent.Trim());
+        Assert.NotNull(rail.QuerySelector("[data-tile='related']"));
+    }
+
+    [Fact(DisplayName = "A folded group's done subtasks open in place from its N done button")]
+    public async Task FoldedGroupOpensInPlace()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        View(page, "linked");
+        IElement Fold() => page.Find(".sub-grp button.sub-fold");
+        string[] Texts() => [.. page.FindAll(".tile[data-tile='subtasks'] .sub .s-t").Select(t => t.TextContent.Trim())];
+
+        Assert.Equal("▸ 2 done", Fold().TextContent.Trim());
+        Assert.DoesNotContain("Add /health route", Texts());
+
+        Fold().Click();
+
+        Assert.Equal("▾ 2 done", Fold().TextContent.Trim());
+        Assert.Equal("true", Fold().GetAttribute("aria-expanded"));
+        Assert.Equal(["Ping test in suite 543", "Add /health route", "Return build hash", "Hide internals from anonymous callers"], Texts());   // in place: the done ones follow the open ones of their group
+        Assert.Equal(["Add /health route", "Return build hash"], page.FindAll(".sub.done .s-t").Select(t => t.TextContent.Trim()));   // muted
+        Assert.True(page.Find("#sub-1-1").HasAttribute("checked"));
+
+        // a done subtask is reopened from there, and the fold counts one less
+        page.Find("#sub-1-1").Change(false);
+        page.WaitForAssertion(() => Assert.Contains("- [ ] 1.1", repo.Read("openspec/changes/add-health-check/tasks.md")));
+        page.WaitForAssertion(() => Assert.Equal("▾ 1 done", Fold().TextContent.Trim()));
+
+        Fold().Click();
+        Assert.Equal("▸ 1 done", Fold().TextContent.Trim());
+        Assert.DoesNotContain("Return build hash", Texts());
+    }
+
+    // ── changed period with times ──
+
+    [Fact(DisplayName = "The date range picker shows time inputs only in its with-time mode")]
+    public async Task DateRangeTimesOnlyInWithTimeMode()
+    {
+        await using BunitContext ctx = NewContext();
+        DateOnly day = new(2026, 11, 11);
+        (TimeOnly? From, TimeOnly? To)? times = null;
+        IRenderedComponent<TaskManager.Components.Shared.DateRange> Render(bool withTime, DateOnly? start, TimeOnly? startTime = null, TimeOnly? endTime = null) => ctx.Render<TaskManager.Components.Shared.DateRange>(p => p
+            .Add(c => c.Start, start).Add(c => c.End, start).Add(c => c.WithTime, withTime)
+            .Add(c => c.StartTime, startTime).Add(c => c.EndTime, endTime)
+            .Add(c => c.TimesChanged, t => { times = t; }));
+        async Task<IRenderedComponent<TaskManager.Components.Shared.DateRange>> Open(IRenderedComponent<TaskManager.Components.Shared.DateRange> range)
+        {
+            range.Find("button.dates-btn").Click();
+            range.WaitForAssertion(() => Assert.NotEmpty(range.FindAll(".range-pop")));
+            await range.InvokeAsync(() => { });
+            return range;
+        }
+
+        Assert.Empty((await Open(Render(false, day))).FindAll("input[type='time']"));   // off by default: the item page's dates are as before
+        IRenderedComponent<TaskManager.Components.Shared.DateRange> none = await Open(Render(true, null));
+        Assert.Equal(2, none.FindAll("input[type='time']").Count);
+        Assert.All(none.FindAll("input[type='time']"), i => Assert.True(i.HasAttribute("disabled")));   // nothing picked yet
+
+        IRenderedComponent<TaskManager.Components.Shared.DateRange> set = await Open(Render(true, day, new TimeOnly(9, 0), new TimeOnly(12, 30)));
+        Assert.All(set.FindAll("input[type='time']"), i => Assert.False(i.HasAttribute("disabled")));
+        Assert.Equal(["09:00", "12:30"], set.FindAll("input[type='time']").Select(i => i.GetAttribute("value")));
+        Assert.Equal("11 Nov 09:00 – 12:30", set.Find("button.dates-btn").TextContent.Trim());   // a single day, then its two times
+        set.Find("input[aria-label='to time']").Change("13:15");
+        set.WaitForAssertion(() => Assert.Equal((new TimeOnly(9, 0), new TimeOnly(13, 15)), times));
+        set.Find("input[aria-label='from time']").Change("");
+        set.WaitForAssertion(() => Assert.Equal((null, new TimeOnly(12, 30)), times));   // an emptied input clears that time (the other end is the parent's value, which this test never updates)
     }
 }

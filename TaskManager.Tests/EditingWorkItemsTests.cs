@@ -279,7 +279,7 @@ public sealed class EditingWorkItemsTests
         WorkItem it = Item(id);
         Assert.Equal(("rate-limit-the-api", "Blocked"), (it.Folder, it.Status));
         Assert.Contains("schema: spec-driven", repo.Read("openspec/changes/rate-limit-the-api/.openspec.yaml"));
-        Assert.StartsWith("# Proposal\n\n## Why\n", repo.Read("openspec/changes/rate-limit-the-api/proposal.md"));
+        Assert.StartsWith("# Proposal\n", repo.Read("openspec/changes/rate-limit-the-api/proposal.md"));
         Assert.StartsWith("# Tasks\n", repo.Read("openspec/changes/rate-limit-the-api/tasks.md"));
     }
 
@@ -303,7 +303,6 @@ public sealed class EditingWorkItemsTests
         OpenSpecStoreApi.Open(repo.Root);
         WorkItemsApi.Create("Rate-limit the API");
         Assert.StartsWith("schema: spec-driven\nskip_specs: true\ncreated: ", repo.Read("openspec/changes/rate-limit-the-api/.openspec.yaml"));
-        Assert.Contains("## What Changes", repo.Read("openspec/changes/rate-limit-the-api/proposal.md"));
     }
 
     [Fact(DisplayName = "Once a work item has delta specs, the next save removes skip_specs")]
@@ -1649,5 +1648,144 @@ public sealed class EditingWorkItemsTests
             Assert.Equal(("title", "Health-check endpoint -> Renamed after the merge"), Events(merged).Last());
         }
         finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
+    // ── convert entries ──
+
+    [Fact(DisplayName = "Removing a subtask drops its line, renumbers the rest of its group and records subtask-removed with its text")]
+    public void RemoveSubtask()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.True(WorkItemsApi.RemoveSubtask(123, "1.1").Success);
+
+        Assert.Equal(["1.1", "1.2", "2.1"], Item(123).Subtasks.Select(s => s.Number));   // what was 1.2 and 1.3 moved up
+        Assert.DoesNotContain(Item(123).Subtasks, s => s.Text == "Add /health route");
+        Assert.Equal("Ping test in suite 543", Item(123).Subtasks[1].Text);
+        Assert.Equal(("subtask-removed", "1.1 Add /health route"), Events(123).Last());   // as it was before the renumbering
+    }
+
+    [Fact(DisplayName = "Removing a subtask that is not there is refused and writes nothing")]
+    public void RemoveMissingSubtask()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string before = repo.Read(HealthTasks);
+
+        Assert.False(WorkItemsApi.RemoveSubtask(123, "9.9").Success);
+
+        Assert.Equal(before, repo.Read(HealthTasks));
+        Assert.DoesNotContain(Events(123), e => e.Kind == "subtask-removed");
+    }
+
+    // ── description editor ──
+
+    [Fact(DisplayName = "Empty Why and What Changes sections are hidden from the description, and the proposal written on save is the user's text with only the headers the validator needs")]
+    public void EmptyProposalSectionsAreHidden()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        const string file = "openspec/changes/add-health-check/proposal.md";
+
+        repo.Write(file, "# Proposal\n\nMy own words.\n\n## Why\n\n\n\n## What Changes\n\n- \n");
+        Assert.Equal("My own words.\n", WorkItemsApi.GetDescription(123));   // the user's text, first, without the empty template
+
+        repo.Write(file, "## Why\n\n\n\n## What Changes\n\n- \n");
+        Assert.Equal("", WorkItemsApi.GetDescription(123));
+
+        repo.Write(file, "## Why\n\nBecause an agent wrote it.\n\n## What Changes\n\n- one thing\n");
+        Assert.Equal("## Why\n\nBecause an agent wrote it.\n\n## What Changes\n\n- one thing\n", WorkItemsApi.GetDescription(123));   // content is shown
+
+        repo.Write(file, "## Why\n\nBecause.\n\n## What Changes\n\n- \n");
+        Assert.Equal("## Why\n\nBecause.\n", WorkItemsApi.GetDescription(123));   // only the empty one goes
+
+        Assert.True(WorkItemsApi.SetDescription(123, "My own words.\n\n## Why\n\n\n## What Changes\n\n- \n").Success);
+        Assert.Equal("# Proposal\n\nMy own words.\n", repo.Read(file).Replace("\r\n", "\n"));   // OpenSpec's validator (1.14.3, --strict) needs no Why or What Changes header
+    }
+
+    [Fact(DisplayName = "A new work item starts with an empty description")]
+    public void NewItemHasNoTemplateText()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string _, int id) = WorkItemsApi.Create("Rate-limit the API");
+
+        Assert.True(ok);
+        Assert.Equal("", WorkItemsApi.GetDescription(id));
+        string proposal = repo.Read("openspec/changes/rate-limit-the-api/proposal.md");
+        Assert.DoesNotContain("##", proposal);
+        Assert.DoesNotContain("- ", proposal);
+    }
+
+    // ── merge keeps group names clean ──
+
+    private static void Plain(TestRepo repo, string folder, int id, string title, string tasks)
+    {
+        string dir = repo.PathOf($"openspec/changes/{folder}");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, ".openspec.yaml"), $"schema: spec-driven\ncreated: 2026-09-01\nx-rtm:\n  id: {id}\n  title: {title}\n");
+        File.WriteAllText(Path.Combine(dir, "proposal.md"), $"# Proposal\n\n{title} body.\n");
+        File.WriteAllText(Path.Combine(dir, "tasks.md"), tasks);
+    }
+
+    [Fact(DisplayName = "Merging an item that was itself a merge keeps its group headings without repeating the title, even three merges deep")]
+    public void MergeOfMergesKeepsGroupNamesClean()
+    {
+        using TestRepo repo = new();
+        Plain(repo, "rework", 301, "Rework", "# Tasks\n\n## 1. Events\n\n- [ ] 1.1 a\n\n## 2. The page\n\n- [ ] 2.1 b\n");
+        Plain(repo, "other-a", 302, "Other A", "# Tasks\n\n## 1. Tasks\n\n- [ ] 1.1 c\n");
+        Plain(repo, "other-b", 303, "Other B", "# Tasks\n\n## 1. Tasks\n\n- [ ] 1.1 d\n");
+        Plain(repo, "other-c", 304, "Other C", "# Tasks\n\n## 1. Tasks\n\n- [ ] 1.1 e\n");
+        Plain(repo, "main", 305, "Main", "# Tasks\n\n## 1. Tasks\n\n- [ ] 1.1 f\n");
+        OpenSpecStoreApi.Open(repo.Root);
+        string today = DateTime.Now.ToString("yyyy-MM-dd");
+
+        (bool ok, string message, int one) = WorkItemsApi.Merge([301, 302], 301);
+        Assert.True(ok, message);
+        (ok, message, int two) = WorkItemsApi.Merge([one, 303], one);
+        Assert.True(ok, message);
+        (ok, message, int three) = WorkItemsApi.Merge([two, 304], two);
+        Assert.True(ok, message);
+
+        Assert.Equal(["1. Rework · Events", "2. Rework · The page", $"3. #wi302 Other A · merged {today}", $"4. #wi303 Other B · merged {today}", $"5. #wi304 Other C · merged {today}"],
+            Item(three).Subtasks.Select(s => s.Group).Distinct());
+
+        // as a source that is not the main item, its title is not put in front of a heading that already has it
+        (ok, message, int four) = WorkItemsApi.Merge([305, three], 305);
+        Assert.True(ok, message);
+        string[] groups = [.. Item(four).Subtasks.Select(s => s.Group).Distinct()];
+        Assert.Equal($"2. #wi{three} Rework · Events · merged {today}", groups[1]);
+        foreach (string g in groups)
+        {
+            string[] parts = g[(g.IndexOf(". ") + 2)..].Split(" · ");
+            Assert.Equal(parts.Length, parts.Distinct().Count());   // no segment twice
+        }
+    }
+
+    [Fact(DisplayName = "A group heading with a segment repeated back to back reads with it once, and is written clean on the next save")]
+    public void RepeatedHeadingSegmentIsCollapsed()
+    {
+        using TestRepo repo = new();
+        Plain(repo, "merged-item", 306, "Merged item",
+            "# Tasks\n\n## 1. #wi34 see work item deltas · merged 2026-11-10\n\n- [ ] 1.1 a\n\n" +
+            "## 2. #wi92 Changelog UI issues · merged 2026-11-10\n\n- [ ] 2.1 b\n\n" +
+            "## 3. work item details rework · work item details rework · Events and documents (chunk A)\n\n- [ ] 3.1 c\n\n" +
+            "## 4. work item details rework · work item details rework · The page (chunks C1, C2)\n\n- [ ] 4.1 d\n");
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.Equal(["1. #wi34 see work item deltas · merged 2026-11-10", "2. #wi92 Changelog UI issues · merged 2026-11-10",
+            "3. work item details rework · Events and documents (chunk A)", "4. work item details rework · The page (chunks C1, C2)"],
+            Item(306).Subtasks.Select(s => s.Group).Distinct());
+        Assert.Contains("work item details rework · work item details rework", repo.Read("openspec/changes/merged-item/tasks.md"));   // reading rewrites nothing
+
+        Assert.True(WorkItemsApi.SetSubtaskDone(306, "1.1", true).Success);
+
+        string tasks = repo.Read("openspec/changes/merged-item/tasks.md");
+        Assert.DoesNotContain("work item details rework · work item details rework", tasks);
+        Assert.Contains("## 3. work item details rework · Events and documents (chunk A)", tasks);
+        Assert.Contains("## 4. work item details rework · The page (chunks C1, C2)", tasks);
+        Assert.Contains("## 1. #wi34 see work item deltas · merged 2026-11-10", tasks);
     }
 }

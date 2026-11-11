@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-11
+x-rtm:
+  id: 152
+  title: filter by time period patch
+  status: In Review
+  contributors: [Artyom-kurguzkin]
+  features: [organise-work-items]
+  label: enhancement
+  started: 2026-11-11
+  moved: 2026-11-11
+  tests: [{suite: ArrangingTheBoardTests, test: 'With times on the changed period, only items with an event, note or file write inside the exact window are shown, and without times the whole days count as before'}, {suite: ArrangingTheBoardTests, test: An item created on the first day before the window's start time is not counted by its creation alone}, {suite: UsingTheBoardTests, test: 'The changed picker takes a from and a to time once a range is picked, shows them in the field and the legend, and Show all clears them; the times are remembered per board'}, {suite: UsingThePagesTests, test: The date range picker shows time inputs only in its with-time mode}]
+  agentBy: Claude
+  agentAt: 2026-11-11T08:14:20

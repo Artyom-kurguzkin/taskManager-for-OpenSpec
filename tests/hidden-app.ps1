@@ -15,7 +15,7 @@ $script:Repo = Split-Path -Parent $PSScriptRoot
 $script:Exe = Join-Path $script:Repo "TaskManager\bin\Debug\net10.0\TaskManager.exe"
 $script:Out = Join-Path $script:Repo "tests\out"          # gitignored: screenshots, scratch settings, WebView2 profile
 $script:ShotDir = Join-Path $script:Out "shots"
-$script:Port = 9333
+$script:CdpPort = 9333
 
 Add-Type -TypeDefinition @"
 using System;using System.Runtime.InteropServices;
@@ -49,7 +49,7 @@ function New-DemoRepo([string]$Name = "demo") {
 # Starts the Debug build on a hidden desktop with its own WebView2 profile and settings file, waits for the debug port,
 # connects CDP. -Settings: a JSON settings file to start from (default: a fresh one that opens $RepoPath and $OpenRepos).
 function Start-HiddenApp([Parameter(Mandatory)][string]$RepoPath, [string]$Settings, [string[]]$OpenRepos, [int]$Port = 9333) {
-    $script:Port = $Port   # agents working in parallel each take their own port
+    $script:CdpPort = $Port   # agents working in parallel each take their own port
     if (-not (Test-Path $script:Exe)) { throw "not built: $script:Exe  (dotnet build TaskManager)" }
     $running = Get-Process TaskManager -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $script:Exe }
     if ($running) { throw "a Debug instance is already running (pid $($running[0].Id)); Stop-HiddenApp it first, or Stop-Process -Id $($running[0].Id)" }
@@ -63,14 +63,14 @@ function Start-HiddenApp([Parameter(Mandatory)][string]$RepoPath, [string]$Setti
     # the app starts the board server it owns (#wi143): give this one a home and a port of its own, or it would replace the user's
     $env:RTM_HOME = Join-Path $script:Out "rtm-home-$Port"; $env:RTM_PORT = "$($Port - 1900)"
     $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $script:Out "webview"
-    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$script:Port"
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$script:CdpPort"
     $name = "rtm-hidden-$PID"
     $desk = [HiddenDesk]::Create($name)
     $appPid = [HiddenDesk]::Start($script:Exe, "`"$RepoPath`"", (Split-Path $script:Exe), $name)
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($true) {
-        try { $null = Invoke-RestMethod "http://localhost:$script:Port/json"; break } catch { }
-        if ($sw.Elapsed.TotalSeconds -gt 40) { Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue; [HiddenDesk]::Close($desk); throw "debug port $script:Port never opened (another WebView2 holding the profile? see Stop-HiddenApp)" }
+        try { $null = Invoke-RestMethod "http://localhost:$script:CdpPort/json"; break } catch { }
+        if ($sw.Elapsed.TotalSeconds -gt 40) { Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue; [HiddenDesk]::Close($desk); throw "debug port $script:CdpPort never opened (another WebView2 holding the profile? see Stop-HiddenApp)" }
         Start-Sleep -Milliseconds 300
     }
     Start-Sleep -Seconds 2   # Blazor circuit + first board render
@@ -90,7 +90,7 @@ function Stop-HiddenApp($App) {
 
 # ── CDP ──
 function Connect-Cdp {
-    $target = (Invoke-RestMethod "http://localhost:$script:Port/json")[0].webSocketDebuggerUrl
+    $target = (Invoke-RestMethod "http://localhost:$script:CdpPort/json")[0].webSocketDebuggerUrl
     $script:ws = New-Object System.Net.WebSockets.ClientWebSocket
     $script:ws.ConnectAsync([Uri]$target, [Threading.CancellationToken]::None).Wait()
     $script:cdpId = 0

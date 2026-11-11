@@ -523,4 +523,223 @@ public sealed class KeepingNotesTests
         }
         finally { WorkItemsApi.ConfigureActor(null); try { Directory.Delete(src, true); } catch (IOException) { } }
     }
+
+    // ── edited promoted subtask ──
+
+    [Fact(DisplayName = "Editing a note line that already made a subtask retexts that subtask instead of creating another, and the line keeps one marker at its end")]
+    public void EditingAPromotedLineRetextsItsSubtask()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.True(NotesApi.SaveBody(123, "- [ ] Still need to rework the Linked tasks\n").Success);
+        (bool ok, string message, IReadOnlyList<string> created) = NotesApi.PromoteSubtasks(123);
+        Assert.True(ok, message);
+        string number = Assert.Single(created);
+        int count = WorkItemsApi.Get(123)!.Subtasks.Count;
+        Assert.Equal("- [ ] Still need to rework the Linked tasks (created subtask)\n", NotesApi.Get(123)!.Body);
+
+        // the user types after the marker and saves
+        Assert.True(NotesApi.SaveBody(123, "- [ ] Still need to rework the Linked tasks (created subtask) - layout should be nicer\n").Success);
+        (ok, message, created) = NotesApi.PromoteSubtasks(123);
+
+        Assert.True(ok, message);
+        Assert.Empty(created);
+        Assert.Equal(count, WorkItemsApi.Get(123)!.Subtasks.Count);
+        Assert.Equal("Still need to rework the Linked tasks - layout should be nicer", WorkItemsApi.Get(123)!.Subtasks.Single(s => s.Number == number).Text);
+        Assert.Equal("- [ ] Still need to rework the Linked tasks - layout should be nicer (created subtask)\n", NotesApi.Get(123)!.Body);
+        Assert.Equal(1, WorkItemsApi.GetEvents(123).Count(e => e.Kind == "subtask-added"));
+
+        // and again: the new text is now the original
+        Assert.True(NotesApi.SaveBody(123, "- [ ] Still need to rework the Linked tasks - layout should be nicer (created subtask) too\n").Success);
+        (ok, message, created) = NotesApi.PromoteSubtasks(123);
+        Assert.True(ok, message);
+        Assert.Empty(created);
+        Assert.Equal(count, WorkItemsApi.Get(123)!.Subtasks.Count);
+        Assert.Equal("Still need to rework the Linked tasks - layout should be nicer too", WorkItemsApi.Get(123)!.Subtasks.Single(s => s.Number == number).Text);
+        Assert.Equal("- [ ] Still need to rework the Linked tasks - layout should be nicer too (created subtask)\n", NotesApi.Get(123)!.Body);
+    }
+
+    [Fact(DisplayName = "A line with the marker anywhere is never promoted again, and no subtask text ever contains the marker")]
+    public void AMarkedLineIsNeverPromotedAgain()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        int before = WorkItemsApi.Get(123)!.Subtasks.Count;
+        Assert.True(NotesApi.SaveBody(123, "- [ ] same\n- [ ] same\n").Success);
+        Assert.Equal(2, NotesApi.PromoteSubtasks(123).Created.Count);
+        int count = WorkItemsApi.Get(123)!.Subtasks.Count;
+        Assert.Equal(before + 2, count);
+
+        // no subtask has the text before the marker, or several do: the subtasks are left alone, the line is only tidied
+        Assert.True(NotesApi.SaveBody(123, "- [ ] never made (created subtask) b\n- [ ] x (created subtask) y (created subtask)\n- [ ] same (created subtask) edited\n  * [ ]   spaced   out (created subtask)  more\n").Success);
+        (bool ok, string message, IReadOnlyList<string> created) = NotesApi.PromoteSubtasks(123);
+
+        Assert.True(ok, message);
+        Assert.Empty(created);
+        Assert.Equal(count, WorkItemsApi.Get(123)!.Subtasks.Count);
+        Assert.All(WorkItemsApi.Get(123)!.Subtasks, s => Assert.DoesNotContain("(created subtask)", s.Text));
+        Assert.Equal("- [ ] never made b (created subtask)\n- [ ] x y (created subtask)\n- [ ] same edited (created subtask)\n  * [ ]   spaced out more (created subtask)\n", NotesApi.Get(123)!.Body);
+        Assert.Equal(["same", "same"], WorkItemsApi.Get(123)!.Subtasks.TakeLast(2).Select(s => s.Text));
+
+        // a tidy body is not written again
+        string after = repo.Read(NoteFile);
+        Assert.True(NotesApi.PromoteSubtasks(123).Success);
+        Assert.Equal(after, repo.Read(NoteFile));
+    }
+
+    // ── convert entries ──
+
+    [Fact(DisplayName = "Deleting a note removes its file and the attachment files copied for it, and refuses a note that is gone")]
+    public void DeleteNote()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.True(NotesApi.AttachBytes(123, "pasted.png", [1, 2, 3]).Success);
+        Assert.True(NotesApi.AttachLink(123, "https://example.com/x").Success);
+        string copied = NotesApi.Get(123)!.Attachments.Single(a => !a.StartsWith("http"));
+        Assert.True(File.Exists(Path.Combine(repo.Root, copied)));
+
+        (bool ok, string message) = NotesApi.Delete(123);
+
+        Assert.True(ok, message);
+        Assert.Null(NotesApi.Get(123));
+        Assert.False(File.Exists(Path.Combine(repo.Root, NoteFile)));
+        Assert.False(File.Exists(Path.Combine(repo.Root, copied)));
+        Assert.False(NotesApi.Delete(123).Success);
+    }
+
+    [Fact(DisplayName = "Converting a note to a decision and back changes only its kind and records a converted event each time")]
+    public void ConvertKind()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string title = NotesApi.Get(123)!.Title;
+
+        (bool ok, string message) = NotesApi.ConvertKind(123, NoteKinds.Decision);
+        Assert.True(ok, message);
+        Assert.True(NotesApi.Get(123)!.IsDecision);
+        Assert.Equal(title, NotesApi.Get(123)!.Title);
+        Assert.True(NotesApi.ConvertKind(123, null).Success);
+        Assert.False(NotesApi.Get(123)!.IsDecision);
+
+        Assert.Equal(["note #n123 -> decision", "decision #n123 -> note"], WorkItemsApi.GetEvents(123).Where(e => e.Kind == "converted").Select(e => e.Text));
+        Assert.False(NotesApi.ConvertKind(123, "poem").Success);
+        Assert.False(NotesApi.ConvertKind(999, null).Success);
+    }
+
+    [Fact(DisplayName = "Converting a note to a subtask uses its title, or the first line of its text when the title is the default, and keeps the note")]
+    public void ConvertNoteToSubtask()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        // a real title wins
+        (bool ok, string message, string number) = NotesApi.ConvertToSubtask(123);
+        Assert.True(ok, message);
+        Assert.Equal("2.2", number);
+        Assert.Equal("Ping test", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
+        Assert.NotNull(NotesApi.Get(123));
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == "note #n123 -> subtask 2.2");
+
+        // the default title: the first non-empty line, without its markdown lead, cut to 200 characters
+        (bool _, string _, int plain) = NotesApi.Create(123, "Tom", DateTime.Now);
+        Assert.True(NotesApi.SaveBody(plain, "\n\n## - [ ] " + new string('x', 300) + "\nsecond line\n").Success);
+        (ok, message, number) = NotesApi.ConvertToSubtask(plain);
+        Assert.True(ok, message);
+        Assert.Equal(new string('x', 200), WorkItemsApi.Get(123)!.Subtasks[^1].Text);
+        Assert.NotNull(NotesApi.Get(plain));
+
+        (bool _, string _, int decision) = NotesApi.Create(123, "Tom", DateTime.Now, NoteKinds.Decision);
+        Assert.True(NotesApi.SaveBody(decision, "- Keep it simple\n").Success);
+        Assert.True(NotesApi.ConvertToSubtask(decision).Success);
+        Assert.Equal("Keep it simple", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
+
+        // nothing to make a subtask of: refused, and the note stays
+        (bool _, string _, int empty) = NotesApi.Create(123, "Tom", DateTime.Now);
+        Assert.False(NotesApi.ConvertToSubtask(empty).Success);
+        Assert.NotNull(NotesApi.Get(empty));
+    }
+
+    [Fact(DisplayName = "Converting a subtask to a note or a decision creates it from the subtask's text, dated now and by the given person, and keeps the subtask")]
+    public void ConvertSubtaskToNote()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+
+        (bool ok, string message, int id) = NotesApi.ConvertSubtask(123, "1.2", NoteKinds.Decision, "Tom");
+        Assert.True(ok, message);
+        Note made = NotesApi.Get(id)!;
+        Assert.True(made.IsDecision);
+        Assert.Equal("Tom", made.By);
+        Assert.Equal(DateTime.Today, made.Created.Date);
+        Assert.Equal(["1.1", "1.2", "1.3", "2.1"], WorkItemsApi.Get(123)!.Subtasks.Select(s => s.Number)); // the subtask stays
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"subtask 1.2 -> decision #n{id}");
+
+        (ok, message, int plain) = NotesApi.ConvertSubtask(123, "2.1", null, "Tom");
+        Assert.True(ok, message);
+        Assert.Equal("Hide internals from anonymous callers", NotesApi.Get(plain)!.Title);
+        Assert.False(NotesApi.Get(plain)!.IsDecision);
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"subtask 2.1 -> note #n{plain}");
+
+        Assert.False(NotesApi.ConvertSubtask(123, "9.9", null, "Tom").Success);   // gone: no note made
+        Assert.Equal(3, NotesApi.GetForWorkItem(123).Count);
+    }
+    // ── nothing is lost; bugs ──
+
+    [Fact(DisplayName = "Promoting a note to a subtask keeps the note with its text and attachments, adds the subtask and records one converted event")]
+    public void PromotingKeepsTheNote()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.True(NotesApi.SaveBody(123, "# Ping test\n\nLong details the user wrote.\n").Success);
+        Assert.True(NotesApi.AttachBytes(123, "pasted.png", [1, 2, 3]).Success);
+        Assert.True(NotesApi.AttachLink(123, "https://example.com/x").Success);
+        Note before = NotesApi.Get(123)!;
+        string file = repo.Read(NoteFile);
+        int subtasks = WorkItemsApi.Get(123)!.Subtasks.Count;
+
+        (bool ok, string message, string number) = NotesApi.ConvertToSubtask(123);
+
+        Assert.True(ok, message);
+        Assert.Equal(file, repo.Read(NoteFile));   // not a byte of the note changed
+        Assert.Equal(before, NotesApi.Get(123));
+        Assert.True(File.Exists(Path.Combine(repo.Root, before.Attachments.Single(a => !a.StartsWith("http")))));
+        Assert.Equal(subtasks + 1, WorkItemsApi.Get(123)!.Subtasks.Count);
+        Assert.Equal("Ping test", WorkItemsApi.Get(123)!.Subtasks.Single(s => s.Number == number).Text);
+        Assert.Equal(["note #n123 -> subtask " + number], WorkItemsApi.GetEvents(123).Where(e => e.Kind == "converted").Select(e => e.Text));
+        Assert.Equal([123], NotesApi.PromotedNotes(123));
+        Assert.False(NotesApi.ConvertToSubtask(123).Success);   // already promoted: no second subtask
+        Assert.Equal(subtasks + 1, WorkItemsApi.Get(123)!.Subtasks.Count);
+    }
+
+    [Fact(DisplayName = "Converting a subtask to a note, a decision or a bug creates it and keeps the subtask")]
+    public void SubtaskToNoteDecisionBug()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        string[] numbers = [.. WorkItemsApi.Get(123)!.Subtasks.Select(s => s.Number)];
+
+        (bool ok, string message, int note) = NotesApi.ConvertSubtask(123, "1.1", null, "Tom");
+        Assert.True(ok, message);
+        (ok, message, int decision) = NotesApi.ConvertSubtask(123, "1.2", NoteKinds.Decision, "Tom");
+        Assert.True(ok, message);
+        (ok, message, int bug) = NotesApi.ConvertSubtask(123, "2.1", NoteKinds.Bug, "Tom");
+        Assert.True(ok, message);
+
+        Assert.Equal(numbers, WorkItemsApi.Get(123)!.Subtasks.Select(s => s.Number));   // every subtask stays
+        Assert.True(NotesApi.Get(bug)!.IsBug);
+        Assert.Equal(WorkItemsApi.Get(123)!.Subtasks.Single(s => s.Number == "2.1").Text, NotesApi.Get(bug)!.Title);
+        Assert.True(NotesApi.Get(decision)!.IsDecision);
+        Assert.False(NotesApi.Get(note)!.IsDecision || NotesApi.Get(note)!.IsBug);
+        Assert.Equal([$"subtask 1.1 -> note #n{note}", $"subtask 1.2 -> decision #n{decision}", $"subtask 2.1 -> bug #n{bug}"],
+            WorkItemsApi.GetEvents(123).Where(e => e.Kind == "converted").Select(e => e.Text));
+        Assert.DoesNotContain(WorkItemsApi.GetEvents(123), e => e.Kind == "subtask-removed");
+
+        // a note, a decision and a bug change into one another in place
+        Assert.True(NotesApi.ConvertKind(note, NoteKinds.Bug).Success);
+        Assert.True(NotesApi.Get(note)!.IsBug);
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"note #n{note} -> bug");
+        Assert.True(NotesApi.ConvertKind(note, NoteKinds.Decision).Success);
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"bug #n{note} -> decision");
+    }
 }

@@ -24,6 +24,24 @@ public static class NotesApi
     /// <summary>Makes the note a decision (<see cref="NoteKinds.Decision"/>) or an ordinary note again (null); only the frontmatter <c>kind</c> changes.</summary>
     public static (bool Success, string Message) SetKind(int id, string? kind) => Commands.SetKind(id, kind);
     public static (bool Success, string Message) SaveBody(int id, string body) => Commands.SaveBody(id, body);
+
+    /// <summary>Deletes the note's file, and the attachment files copied for it unless another note lists them too.</summary>
+    public static (bool Success, string Message) Delete(int id) => Conversions.Delete(id);
+    /// <summary>Makes the note a decision, a bug or an ordinary note (null) like <see cref="SetKind"/>, and records a <c>converted</c> event (nothing when the kind is already that).</summary>
+    public static (bool Success, string Message) ConvertKind(int id, string? kind) => Conversions.ConvertKind(id, kind);
+    /// <summary>
+    /// Adds a subtask to the note's work item from the note's title (when the title is still the default, "New note" or "Decision": the first line of its text),
+    /// and records a <c>converted</c> event; the note stays exactly as it is. Number is the new subtask's. A note with neither, or one already promoted
+    /// (see <see cref="PromotedNotes"/>), is refused.
+    /// </summary>
+    public static (bool Success, string Message, string Number) ConvertToSubtask(int id) => Conversions.ConvertToSubtask(id);
+    /// <summary>
+    /// Makes a note (a decision for <see cref="NoteKinds.Decision"/>) of the work item's subtask: titled with its text, dated now, by <paramref name="by"/>;
+    /// the subtask stays, and a <c>converted</c> event is recorded. Id is the new note's.
+    /// </summary>
+    public static (bool Success, string Message, int Id) ConvertSubtask(int workItemId, string number, string? kind, string by) => Conversions.ConvertSubtask(workItemId, number, kind, by);
+    /// <summary>The notes of the work item that were promoted to a subtask (a <c>converted</c> event names it) which still exists.</summary>
+    public static IReadOnlyList<int> PromotedNotes(int workItemId) => Conversions.PromotedNotes(workItemId);
     /// <summary>
     /// Turns the note's unticked checkboxes (<c>- [ ] text</c>, outside code blocks) into subtasks of its work item, each once: the line stays in the
     /// note with " (created subtask)" appended. Created lists the new subtask numbers; nothing is written when nothing qualified.

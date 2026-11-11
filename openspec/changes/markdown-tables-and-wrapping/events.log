@@ -1,3 +1,43 @@
 2026-11-10T17:57:48 | Artyom-kurguzkin | status | In Review -> Planned
 2026-11-10T20:53:37 | Artyom-kurguzkin | status | Planned -> In Progress
 2026-11-10T20:53:37 | Artyom-kurguzkin | priority | high -> low
+2026-11-10T21:19:01 | Claude | plan-linked | DevResources/plans/in-progress-items-3-2026-11-10.md
+2026-11-10T21:20:43 | Claude chunk B | log | Chunk B started: markdown table helper (/table grid, table bar, Tab nav); worktree reset to 31c8db7.
+2026-11-10T21:27:25 | Claude chunk B | log | Baseline fast suite at 31c8db7: 545 passed, 5 failed, 550 total (failures in ServingTheBoard/MCP process tests, unrelated). Tests written, red: 3 xunit (node wrapper, worklog attach, note page attach).
+2026-11-10T21:29:35 | Claude chunk B | log | node tests: 20 pass (wwwroot/js/md-table.js, pure functions). Next: DOM wiring md-editor.js + CSS + attach calls.
+2026-11-10T21:31:33 | Claude chunk B | log | Green: 3 target xunit tests (node wrapper, worklog attach, note page attach) pass with md-editor.js, CSS and attach calls in place. Next: real-app verification on the hidden desktop.
+2026-11-11T05:19:24 | Claude chunk B2 | log | Chunk B2 started: finishing the markdown table helper on top of base-wl10 + the partial patch; reading the partial work first.
+2026-11-11T05:20:40 | Claude chunk B2 | log | Partial work usable: md-table.js + md-editor.js + node tests + MarkdownTableHelperTests.cs (20 node tests pass). Wiring tests written red: 2 failed (worklog, note page). Now wiring Worklog/NotePage/index.html/app.css.
+2026-11-11T05:21:42 | Claude chunk B2 | log | Wired rtm.markdownEditor into Worklog (note + description) and NotePage, index.html scripts, CSS appended. Table-helper tests: 3 passed (were 2 red); 20 node tests pass. Next: baseline suite and real-app check.
+2026-11-11T05:29:31 | Claude chunk B2 | log | Chunk B2 done: 20 node tests pass, suite 570 passed, 0 failed (baseline 567 + 3 new). Real app (hidden desktop, light+dark): /table grid, insert, Tab/Enter, bar ops, align, undo, save, description editor all verified; shots in tests/out/shots/table-*.png.
+2026-11-11T05:35:55 | Claude chunk B3 | log | Chunk B3 started: table helper not triggering in main tree (no grid on /table, Tab not handled). Worktree reset to 31c8db7 + main patch applied.
+2026-11-11T05:45:24 | Claude chunk B3 | log | Cause found: the editor textarea is a new element when an entry arrives above it (Editor has no @key); attach is tracked by editId, so it stays on the dead one. bUnit test red (attached id != on-screen id after a status event).
+2026-11-11T06:03:16 | Claude chunk B3 | log | Chunk B3 done: fast suite 571 passed on re-run (first run 1 failed of 571, not reproduced, name not captured). Verified on hidden desktop, light and dark: side menu, day menu, description editor, note page; grid, Tab, Shift+Tab, bar.
+2026-11-11T06:09:35 | Claude chunk E | log | Chunk E started: worktree reset to 31c8db7, base-wl13.patch applied cleanly (Notes/Conversions.cs is at the repo root, not under TaskManager/). Keying the in-place note editor in Worklog.razor.
+2026-11-11T06:14:05 | Claude | test-linked | MarkdownTableHelperTests / The markdown table helper's table operations pass their node tests
+2026-11-11T06:14:05 | Claude | test-linked | UsingTheWorklogTests / Every markdown editor in the app gets the table helper attached
+2026-11-11T06:14:05 | Claude | test-linked | UsingThePagesTests / Every markdown editor in the app gets the table helper attached: the note page's too
+2026-11-11T06:14:05 | Claude | test-linked | UsingTheWorklogTests / The table helper is attached to the textarea that is on screen for the editor opened from the side menu's Add note, and again when the editor is closed and reopened
+2026-11-11T06:14:18 | Claude chunk E | log | Tests red: 1 (An open note editor keeps its textarea...: a second rtm.markdownEditor attach to a new textarea id after an entry arrives above). bUnit re-parses its DOM, so element identity can not be asserted; the attach count is the proxy. Fix keyed in Worklog.razor: green.
+2026-11-11T06:23:32 | Claude chunk E | log | Reproduced on the hidden desktop (pre-fix, item 146, side-menu note, two custom events appended to events.log): textarea replaced (marker lost), focus lost, editor closed. Status/test events alone did not trigger it; a custom event did. After the key: same element, focused, text kept, open.
+2026-11-11T06:32:03 | Claude chunk E | log | Chunk E done: fast suite Passed! 575 (baseline 574 + 1 new). Files: Worklog.razor, md-editor.js, UsingTheWorklogTests.cs (new test + one existing test adjusted to the kept textarea). Not committed.
+2026-11-11T06:44:24 | Claude | status | In Progress -> In Review
+2026-11-11T06:44:24 | Claude | test-linked | UsingTheWorklogTests / An open note editor keeps its textarea, text and focus when a new entry arrives above it, and does not close
+2026-11-11T07:19:11 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-11T07:21:10 | Artyom-kurguzkin | subtask-added | 1.3 change request
+2026-11-11T07:21:10 | Artyom-kurguzkin | converted | note #n234 -> subtask 1.3
+2026-11-11T07:31:46 | Artyom-kurguzkin | attachment-added | n237: pasted-20261111-073146.png
+2026-11-11T07:41:53 | Claude table | log | Started: grid overlay for markdown tables (md-editor.js, md-table.js, node tests, css). Base patch applied cleanly.
+2026-11-11T07:46:52 | Claude table | log | Node tests: 33 pass (new: move rows/columns, sort, clear, paste, setCell, toTsv, cellOffset, multi-row ops in md-table.js). Next: grid overlay DOM in md-editor.js.
+2026-11-11T07:57:58 | Claude table | log | Grid overlay built and verified in the hidden app (feed + description): select/edit/paste/sort/move/align/delete column/edit-as-text all write back. Remaining: shot review, note page, suite.
+2026-11-11T08:04:18 | Claude table | log | Suite: Passed! Failed 0, Passed 577, Total 577. Node tests 33 pass. Shots in tests/out/shots/grid-*.png of the worktree.
+2026-11-11T08:14:15 | Claude | status | In Progress -> In Review
+2026-11-11T08:14:15 | Claude | subtask-done | 1.3 Excel-like grid over a table in the editor, with an extended ribbon (from note n237)
+2026-11-11T08:47:15 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-11T09:10:27 | Claude | log | Read bug note n256 (typed text lost on Tab; cannot leave the grid with Down). Bug agent started: reproducing with real keys at human pace in a saved note with an empty table, before any fix.
+2026-11-11T09:10:32 | Claude grid | log | Started: reproducing table editor losing typed text on real keys (hidden desktop), then fix + grid exit keys.
+2026-11-11T09:24:19 | Claude grid | log | Reproduced on hidden desktop with real keys: single 'a' then Tab LOST in 4/4 places (new note, saved note, description, note page) at 0 and 300 ms. Instrumented: no input event, no value set. Cause: startEdit sets orig = input.value (= the typed char), so commit sees "unchanged".
+2026-11-11T09:28:43 | Claude grid | log | Fix in md-editor.js (orig = cell's real value) + md-table.js navigate/leave. Matrix after fix: a,Tab,b,Tab,c,Tab kept in all 8 (new note, saved note, description, note page x 0/300 ms), textarea stable 1.8 s later (no Blazor echo). node: 38 pass.
+2026-11-11T10:08:59 | Claude grid | log | Cause of lost typed text (known): startEdit set orig=input.value, so a cell opened by typing a character looked unchanged at commit. Not the Blazor echo (no input event at all before the fix). Fixed; exit keys + Home/End done; now re-verifying blur/click-outside and running suite.
+2026-11-11T10:23:50 | Claude grid | log | Suite after fix: 591 passed, 2 failed of 593 (DropSetsColumnAndRowFields + one more, board tests unrelated to the editor; machine under load, 6m24s). Re-running with a trx to name them.
+2026-11-11T10:28:04 | Claude grid | log | Done: results after fix all kept (8/8). Node 38 pass. Fast suite 592/593: "Several Changed events in one frame reload a page once more" fails (10 reloads vs 1-2), a C# coalescing test I did not touch; fails alone too. Shots gridfix-*.png in tests/out/shots.

@@ -1,0 +1,14 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-11
+x-rtm:
+  id: 153
+  title: list view moving tasks
+  status: Planned
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  started: 2026-11-11
+  due: 2026-11-11
+  moved: 2026-11-11

@@ -368,7 +368,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains(board.FindAll("th"), h => h.TextContent.Contains("Feature") && !h.TextContent.Contains("Features"));   // the header also holds its hide control
     }
 
-    [Fact(DisplayName = "Hidden work items leave the board until 'show hidden' is ticked")]
+    [Fact(DisplayName = "Hidden work items leave the board until 'show all hidden' is switched on")]
     public async Task HiddenItems()
     {
         await using BunitContext ctx = NewContext();
@@ -377,7 +377,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Equal(3, board.FindAll("article.card").Count);
 
         nav!.Find("button.nav-toggle").Click();   // the expanded side menu holds the view options
-        nav.Find("input#f-hidden").Change(true);
+        nav.Find("button#f-hidden").Click();
 
         Assert.Equal(4, board.FindAll("article.card").Count);
         Assert.Single(board.FindAll("article.card.hidden-item"));
@@ -420,9 +420,7 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
         nav!.Find("button.nav-toggle").Click();
-        nav.FindAll(".field").Single(f => f.TextContent.Contains("columns")).QuerySelector(".dd")!.Click();
-        nav.WaitForAssertion(() => Assert.Contains(nav.FindAll(".rz-dropdown-item"), i => i.TextContent.Trim() == "feature"));
-        nav.FindAll(".rz-dropdown-item").First(i => i.TextContent.Trim() == "feature").Click();
+        PickField("columns", "feature");
 
         board.WaitForAssertion(() => Assert.Contains("Banking", Columns(board)));
         Assert.Empty(board.FindAll(".cat-h"));   // no supergroups
@@ -531,7 +529,7 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
         nav!.Find("button.nav-toggle").Click();   // the expanded side menu holds the view options
-        nav.Find("input#f-hidden").Change(true);
+        nav.Find("button#f-hidden").Click();
 
         Assert.True(board.FindAll("tr[data-id]").Single(r => r.TextContent.Contains("#wi107")).HasAttribute("data-hidden"));
     }
@@ -635,7 +633,7 @@ public sealed class UsingTheBoardTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         nav!.Find("button.nav-toggle").Click();
-        Assert.Empty(nav.FindAll(".nav-hidden"));   // nothing hidden, nothing listed
+        Assert.Empty(nav.FindAll(".nav-hidden .grp-row"));   // nothing hidden, nothing listed under the Hidden header
 
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
         board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Hide column").Click();
@@ -644,7 +642,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Equal("0", nav.Find(".nav-hidden .grp-row .count").TextContent.Trim());   // how many items it holds
         nav.Find("button[aria-label='Show Blocked']").Click();
         Assert.Contains("Blocked", Columns(board));
-        Assert.Empty(nav.FindAll(".nav-hidden"));
+        Assert.Empty(nav.FindAll(".nav-hidden .grp-row"));
     }
 
     // The drag script (wwwroot/js/app.js) delivers each drop to what sits right after the gap: a column, a card, or the
@@ -747,8 +745,7 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
         nav!.Find("button.nav-toggle").Click();
-        nav.FindAll(".field").Single(f => f.TextContent.Contains("columns")).QuerySelector(".dd")!.Click();
-        nav.FindAll(".rz-dropdown-item").First(i => i.TextContent.Trim() == "due date").Click();
+        PickField("columns", "due date");
         board.WaitForAssertion(() => Assert.Equal(["Overdue", "Today", "This week", "Next week", "Later", "No due date"], Columns(board)));
         Assert.Contains("Health-check endpoint", CardsIn(board, "Today"));
         Assert.Contains(WorkItemsApi.Get(107)!.Title, CardsIn(board, "Overdue"));
@@ -982,8 +979,7 @@ public sealed class UsingTheBoardTests : IDisposable
     private void GroupByFeature()
     {
         nav!.Find("button.nav-toggle").Click();
-        nav.FindAll(".field").Single(f => f.TextContent.Contains("columns")).QuerySelector(".dd")!.Click();
-        nav.FindAll(".rz-dropdown-item").First(i => i.TextContent.Trim() == "feature").Click();
+        PickField("columns", "feature");
     }
 
     private static List<string> Columns(IRenderedComponent<BoardPage> board) => board.FindAll("section.col h3").Select(h => h.TextContent).ToList();
@@ -1537,11 +1533,11 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
 
         nav!.Find("button.nav-toggle").Click();
-        Assert.Equal(["columns", "rows", "colour"], nav.FindAll(".nav-view .organise .field label").Select(l => l.TextContent.Trim()));
+        Assert.Equal(["sort by", "columns", "rows", "colour"], nav.FindAll(".nav-view .organise .field label").Select(l => l.TextContent.Trim()));
         Assert.Contains("Organise", nav.Find(".nav-view .organise .nav-h").TextContent);
         Assert.DoesNotContain("swimlanes", nav.Find(".nav-view").TextContent);
         Assert.DoesNotContain("group by", nav.Find(".nav-view").TextContent);
-        Assert.Equal(["status", "none", "status"], nav.FindAll(".organise .field .rz-dropdown-label").Select(l => l.TextContent.Trim()));   // today's board: columns by status, no rows, coloured by status
+        Assert.Equal(["priority", "status", "none", "status"], nav.FindAll(".organise .field .rz-dropdown-label").Select(l => l.TextContent.Trim()));   // today's board: columns by status, no rows, coloured by status
 
         PickField("rows", "feature");
         PickField("colour", "label");
@@ -1700,7 +1696,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains(status, board.FindAll(".rm-group .rm-gname").Select(g => g.TextContent));
     }
 
-    [Fact(DisplayName = "The side menu separates the organise block, the sort and filters, and the display switches with dashed lines")]
+    [Fact(DisplayName = "The side menu separates the organise block (sort first), the filters, and the display switches with dashed lines")]
     public async Task SideMenuSeparators()
     {
         await using BunitContext ctx = NewContext();
@@ -1711,10 +1707,10 @@ public sealed class UsingTheBoardTests : IDisposable
         List<AngleSharp.Dom.IElement> seps = parts.Where(p => p.ClassList.Contains("nav-sep")).ToList();
         Assert.Equal(2, seps.Count);
         Assert.All(seps, s => Assert.Equal("separator", s.GetAttribute("role")));
-        Assert.True(parts[parts.IndexOf(seps[0]) - 1].ClassList.Contains("organise"));          // after the organise block (columns, rows, colour, legend)
-        Assert.Contains("sort by", parts[parts.IndexOf(seps[0]) + 1].TextContent);              // before sort by
+        Assert.True(parts[parts.IndexOf(seps[0]) - 1].ClassList.Contains("organise"));          // after the organise block (sort by, columns, rows, colour, legend)
+        Assert.Contains("contributor", parts[parts.IndexOf(seps[0]) + 1].TextContent);          // before the filters
         Assert.True(parts[parts.IndexOf(seps[1]) - 1].ClassList.Contains("seg"));               // after the Work items / Subtasks switch
-        Assert.Contains("compact cards", parts[parts.IndexOf(seps[1]) + 1].TextContent);        // before the checkboxes
+        Assert.Contains("compact cards", parts[parts.IndexOf(seps[1]) + 1].TextContent);        // before the pills
 
         string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css"));
         Assert.Matches(@"\.nav-sep\s*\{[^}]*2px dashed var\(--line-soft\)", css);               // the same dashed line as the menu's other separators
@@ -1761,7 +1757,7 @@ public sealed class UsingTheBoardTests : IDisposable
         nav!.WaitForAssertion(() => Assert.Equal(["bug"], nav.FindAll(".nav-hidden .grp-row .nm").Select(n => n.TextContent.Trim())));
         nav.Find(".nav-hidden button[aria-label='Show bug']").Click();
         board.WaitForAssertion(() => Assert.Equal(["~", "enhancement", "bug", "feature"], Rows()));
-        Assert.Empty(nav.FindAll(".nav-hidden"));
+        Assert.Empty(nav.FindAll(".nav-hidden .grp-row"));
     }
 
     private static string[] UiPeople(BunitContext ctx) => [.. ctx.Services.GetRequiredService<UiService>().WorklogPeople];
@@ -1769,7 +1765,7 @@ public sealed class UsingTheBoardTests : IDisposable
     private IRenderedComponent<Worklog> OpenWorklog(BunitContext ctx) =>
         ctx.Render<Worklog>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Root, repo.Root));
 
-    [Fact(DisplayName = "While a worklog is open the side menu shows a Worklog block with its filters and actions first, and the block goes when the worklog closes")]
+    [Fact(DisplayName = "While a worklog is open the side menu shows a Worklog block with its filter pills and Add entry button first, and the block goes when the worklog closes")]
     public async Task SideMenuShowsTheWorklog()
     {
         await using BunitContext ctx = NewContext();
@@ -1784,15 +1780,16 @@ public sealed class UsingTheBoardTests : IDisposable
         IElement block = nav.Find(".nav-worklog");
         Assert.Equal("Worklog", block.QuerySelector(".nav-h")!.TextContent.Trim());
         Assert.Empty(nav.FindAll(".organise"));   // not split: the page has no list, so no list options
-        Assert.Equal(["Notes", "Decisions", "Events", "Links", "Subtasks", "Edits"], block.QuerySelectorAll("label.check").Select(l => l.TextContent.Trim()));
-        Assert.All(block.QuerySelectorAll("label.check input"), i => Assert.True(i.HasAttribute("checked")));
+        Assert.Equal(["Notes", "Decisions", "Bugs", "Events", "Links", "Subtasks", "Edits"], block.QuerySelectorAll("button.nav-pill").Select(l => l.TextContent.Trim()));
+        Assert.All(block.QuerySelectorAll("button.nav-pill"), b => Assert.Equal("true", b.GetAttribute("aria-pressed")));
         Assert.Contains("everyone", block.QuerySelector(".field .dd")!.TextContent);
-        Assert.Equal(["Add note", "Add decision", "Link document", "Link test", "Link commit", "Add subtask"], block.QuerySelectorAll("button.nav-act").Select(b => b.TextContent.Trim()));
+        Assert.Empty(block.QuerySelectorAll("button.nav-act"));   // the list of actions is one Add entry menu now
+        Assert.Equal("Add entry", block.QuerySelector("button.nav-add")!.TextContent.Trim().TrimStart('+').Trim());
 
         // a filter acts on the feed at once
         string[] kinds() => [.. log.FindAll(".wk-day .wk-e").Select(e => e.GetAttribute("data-kind")!)];
         Assert.Contains("note", kinds());
-        nav.FindAll(".nav-worklog label.check input")[0].Change(false);   // Notes
+        nav.FindAll(".nav-worklog button.nav-pill")[0].Click();   // Notes
         log.WaitForAssertion(() => Assert.DoesNotContain("note", kinds()));
         Assert.False(ui.WorklogFilter.Notes);
         Assert.True(ui.WorklogFilter.Events);
@@ -1805,7 +1802,8 @@ public sealed class UsingTheBoardTests : IDisposable
 
         // an action does what the day menu does for today
         int before = NotesApi.GetForWorkItem(123).Count;
-        nav.FindAll(".nav-worklog button.nav-act").Single(b => b.TextContent.Trim() == "Add note").Click();
+        nav.Find(".nav-worklog button.nav-add").Click();
+        nav.FindAll("button[role=menuitem]").Single(b => b.TextContent.Trim() == "Note").Click();
         log.WaitForAssertion(() => Assert.Equal(before + 1, NotesApi.GetForWorkItem(123).Count));
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));   // opened for writing, in today's group
 
@@ -1887,7 +1885,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
     // ── decisions and edits ──
 
-    [Fact(DisplayName = "The Worklog block shows Decisions and Edits filters and an Add decision action")]
+    [Fact(DisplayName = "The Worklog block shows Decisions and Edits filter pills and a Decision entry in the Add entry menu")]
     public async Task SideMenuShowsDecisionsAndEdits()
     {
         await using BunitContext ctx = NewContext();
@@ -1899,21 +1897,24 @@ public sealed class UsingTheBoardTests : IDisposable
         nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-worklog")));
         IElement block = nav.Find(".nav-worklog");
 
-        Assert.Equal(["Notes", "Decisions", "Events", "Links", "Subtasks", "Edits"], block.QuerySelectorAll("label.check").Select(l => l.TextContent.Trim()));
-        Assert.Equal(["Add note", "Add decision"], block.QuerySelectorAll("button.nav-act").Take(2).Select(b => b.TextContent.Trim()));
+        Assert.Equal(["Notes", "Decisions", "Bugs", "Events", "Links", "Subtasks", "Edits"], block.QuerySelectorAll("button.nav-pill").Select(l => l.TextContent.Trim()));
 
-        nav.FindAll(".nav-worklog label.check input")[1].Change(false);   // Decisions
+        nav.FindAll(".nav-worklog button.nav-pill")[1].Click();   // Decisions
         Assert.False(ui.WorklogFilter.Decisions);
         Assert.True(ui.WorklogFilter.Notes);
-        nav.FindAll(".nav-worklog label.check input")[5].Change(false);   // Edits
+        nav.FindAll(".nav-worklog button.nav-pill")[6].Click();   // Edits
         Assert.False(ui.WorklogFilter.Edits);
         Assert.True(ui.WorklogFilter.Events);
-        nav.FindAll(".nav-worklog label.check input")[1].Change(true);
-        nav.FindAll(".nav-worklog label.check input")[5].Change(true);
+        nav.FindAll(".nav-worklog button.nav-pill")[2].Click();   // Bugs
+        Assert.False(ui.WorklogFilter.Bugs);
+        nav.FindAll(".nav-worklog button.nav-pill")[1].Click();
+        nav.FindAll(".nav-worklog button.nav-pill")[6].Click();
+        nav.FindAll(".nav-worklog button.nav-pill")[2].Click();
         Assert.Equal(new WorklogFilters(), ui.WorklogFilter);
 
-        // Add decision does what the day menu's does for today
-        nav.FindAll(".nav-worklog button.nav-act").Single(b => b.TextContent.Trim() == "Add decision").Click();
+        // the Decision entry does what the day menu's does for today
+        nav.Find(".nav-worklog button.nav-add").Click();
+        nav.FindAll("button[role=menuitem]").Single(b => b.TextContent.Trim() == "Decision").Click();
         log.WaitForAssertion(() => Assert.Single(NotesApi.GetForWorkItem(123), n => n.IsDecision));
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit.wk-decision")));
     }
@@ -2026,7 +2027,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
     // ── no agent filter ──
 
-    [Fact(DisplayName = "The side menu has no agent work to review checkbox, and a settings file that still has AgentOnly loads")]
+    [Fact(DisplayName = "The side menu has no agent work to review option, and a settings file that still has AgentOnly loads")]
     public async Task NoAgentFilter()
     {
         await using BunitContext ctx = NewContext();
@@ -2035,7 +2036,7 @@ public sealed class UsingTheBoardTests : IDisposable
         nav!.Find("button.nav-toggle").Click();
         Assert.Empty(nav.FindAll("input#f-agent"));
         Assert.DoesNotContain("agent work to review", nav.Find(".nav-view").TextContent);
-        Assert.NotEmpty(nav.FindAll("input#f-hidden"));   // the other checkboxes stay
+        Assert.NotEmpty(nav.FindAll("button#f-hidden"));   // the other options stay
         int shown = board.FindAll("article.card").Count;
 
         // a settings file written before the checkbox went: its AgentOnly is ignored, and every item shows
@@ -2046,5 +2047,231 @@ public sealed class UsingTheBoardTests : IDisposable
         BoardOptions loaded = new SettingsStore(settingsFile).Board(repo.Root);
         Assert.True(loaded.Compact);   // the rest of the board's options came through
         Assert.Equal(shown, BoardModel.Filtered(WorkItemsApi.GetAll(), loaded).Count);
+    }
+
+    // ── changed period with times ──
+
+    [Fact(DisplayName = "The changed picker takes a from and a to time once a range is picked, shows them in the field and the legend, and Show all clears them; the times are remembered per board")]
+    public async Task ChangedPickerTakesTimes()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        DateOnly day = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+        day = day.AddDays(3);
+        foreach (string file in Directory.EnumerateFiles(repo.OpenSpec, "*", SearchOption.AllDirectories)) File.SetLastWriteTime(file, new DateTime(2026, 1, 1));
+        string log123 = Path.Combine(repo.OpenSpec, "changes", "add-health-check", "events.log");
+        File.WriteAllText(log123, $"{day:yyyy-MM-dd}T10:00:00 | Tester | custom | something happened\n");   // the one thing that happened, at 10:00
+        File.SetLastWriteTime(log123, new DateTime(2026, 1, 1));
+        File.Delete(Path.Combine(repo.OpenSpec, "changes", "export-remittances", "events.log"));
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        int shown = board.FindAll("article.card").Count;
+        BoardOptions Saved() => settings.Board(repo.Root);
+        AngleSharp.Dom.IElement From() => nav!.Find("input[type='time'][aria-label='from time']");
+        AngleSharp.Dom.IElement To() => nav!.Find("input[type='time'][aria-label='to time']");
+
+        nav!.Find("button.nav-toggle").Click();
+        nav.Find("button[aria-label='changed']").Click();
+        nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".range-pop")));
+        Assert.True(From().HasAttribute("disabled") && To().HasAttribute("disabled"));   // no range yet: nothing to time
+        for (int n = 0; n < 2; n++)   // one day: its first click and its second
+        {
+            await nav.InvokeAsync(() => { });
+            nav.WaitForAssertion(() => nav.Find($".range-pop button.rd[data-day='{day:yyyy-MM-dd}']").Click());
+        }
+        nav.WaitForAssertion(() => Assert.Equal((day, day), (Saved().ChangedFrom, Saved().ChangedTo)));
+        board.WaitForAssertion(() => Assert.Single(board.FindAll("article.card")));   // the whole day: 123's event at 10:00 is in
+        Assert.Equal($"{day:d MMM}", nav.Find("button[aria-label='changed']").TextContent.Trim());
+
+        nav.Find("button[aria-label='changed']").Click();
+        nav.WaitForAssertion(() => Assert.False(From().HasAttribute("disabled") || To().HasAttribute("disabled")));   // a day is picked: the times open up
+        await nav.InvokeAsync(() => { });
+        From().Change("10:30");   // after the event
+        nav.WaitForAssertion(() => Assert.Equal(new TimeOnly(10, 30), Saved().ChangedFromTime));
+        nav.WaitForAssertion(() => Assert.Equal($"{day:d MMM} from 10:30", nav.Find("button[aria-label='changed']").TextContent.Trim()));
+        await nav.InvokeAsync(() => { });
+        To().Change("18:00");
+        nav.WaitForAssertion(() => Assert.Equal((new TimeOnly(10, 30), new TimeOnly(18, 0)), (Saved().ChangedFromTime, Saved().ChangedToTime)));   // remembered per board
+        nav.WaitForAssertion(() => Assert.Equal($"{day:d MMM} 10:30 – 18:00", nav.Find("button[aria-label='changed']").TextContent.Trim()));
+        Assert.Equal($"changed {day:d MMM} 10:30 – {day:d MMM} 18:00", nav.Find(".legend .lg.head").TextContent.Trim());
+        nav.WaitForAssertion(() => Assert.Equal($"0 of {shown} shown", nav.Find(".legend .lg.count").TextContent.Trim()));
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll("article.card")));   // the event is before the window
+
+        await nav.InvokeAsync(() => { });
+        From().Change("09:00");   // before it: 123 is back
+        nav.WaitForAssertion(() => Assert.Equal(new TimeOnly(9, 0), Saved().ChangedFromTime));
+        board.WaitForAssertion(() => Assert.Single(board.FindAll("article.card")));
+        nav.WaitForAssertion(() => Assert.Equal($"1 of {shown} shown", nav.Find(".legend .lg.count").TextContent.Trim()));
+
+        await nav.InvokeAsync(() => { });
+        nav.Find(".range-pop button.range-clear").Click();   // Show all
+        nav.WaitForAssertion(() => Assert.Equal((null, null, null, null), (Saved().ChangedFrom, Saved().ChangedTo, Saved().ChangedFromTime, Saved().ChangedToTime)));
+        nav.WaitForAssertion(() => Assert.Contains("any time", nav.Find("button[aria-label='changed']").TextContent));
+        Assert.Empty(nav.FindAll(".legend .lg.head"));
+        board.WaitForAssertion(() => Assert.Equal(shown, board.FindAll("article.card").Count));
+    }
+
+    // ── menu patch ──
+
+    [Fact(DisplayName = "The side menu has no checkboxes: filters and options are pills, filled when on and underlined when off")]
+    public async Task MenuHasPillsNotCheckboxes()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        nav!.Find("button.nav-toggle").Click();
+
+        Assert.Empty(nav.FindAll("input[type=checkbox]"));
+        Assert.Empty(nav.FindAll("label.check"));
+        IElement compact = nav.Find("button.nav-pill[data-opt=compact]");
+        Assert.Equal("compact cards", compact.TextContent.Trim());
+        Assert.Equal("false", compact.GetAttribute("aria-pressed"));
+        Assert.DoesNotContain("is-sel", compact.ClassList);
+
+        compact.Click();   // a real button: a click turns it on, and the board follows
+        compact = nav.Find("button.nav-pill[data-opt=compact]");
+        Assert.Equal("true", compact.GetAttribute("aria-pressed"));
+        Assert.Contains("is-sel", compact.ClassList);
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("article.card.collapsed")));
+
+        // the worklog's filters are pills too
+        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
+        ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
+        ctx.Services.GetRequiredService<UiService>().OpenWorklog(new WorklogActions(() => { }, () => { }, () => { }, () => { }, () => { }, () => { }));
+        nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-worklog button.nav-pill")));
+        Assert.Empty(nav.FindAll("input[type=checkbox]"));
+        nav.FindAll(".nav-worklog button.nav-pill")[0].Click();
+        IElement notes = nav.FindAll(".nav-worklog button.nav-pill")[0];
+        Assert.Equal("false", notes.GetAttribute("aria-pressed"));
+        Assert.DoesNotContain("is-sel", notes.ClassList);
+        Assert.Contains("is-sel", nav.FindAll(".nav-worklog button.nav-pill")[1].ClassList);
+    }
+
+    [Fact(DisplayName = "Sort by is the first field under Organise, and show all hidden sits under the Hidden header")]
+    public async Task SortFirstAndShowAllHiddenUnderHidden()
+    {
+        await using BunitContext ctx = NewContext();
+        WorkItemsApi.Hide(107);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        nav!.Find("button.nav-toggle").Click();
+
+        string[] fields = [.. nav.FindAll(".organise .field > label").Select(l => l.TextContent.Trim())];
+        Assert.Equal(["sort by", "columns", "rows", "colour"], fields);
+
+        // the option is under the Hidden header, named for what it does, and is not among the display switches
+        IElement hidden = nav.Find(".nav-hidden");
+        Assert.Equal("Hidden", hidden.QuerySelector(".nav-h")!.TextContent.Trim());
+        IElement show = hidden.QuerySelector("button#f-hidden")!;
+        Assert.Equal("show all hidden", show.TextContent.Trim());
+        Assert.Equal("false", show.GetAttribute("aria-pressed"));
+        Assert.Single(nav.FindAll("button#f-hidden"));
+        Assert.Equal(3, board.FindAll("article.card").Count);
+
+        show.Click();
+        board.WaitForAssertion(() => Assert.Equal(4, board.FindAll("article.card").Count));
+        Assert.Equal("true", nav.Find(".nav-hidden button#f-hidden").GetAttribute("aria-pressed"));
+    }
+
+    [Fact(DisplayName = "The Worklog block has one Add entry button whose menu offers note, decision, bug, subtask and the three links")]
+    public async Task WorklogHasOneAddEntryMenu()
+    {
+        await using BunitContext ctx = NewContext();
+        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
+        ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        nav!.Find("button.nav-toggle").Click();
+        List<string> done = [];
+        ui.OpenWorklog(new WorklogActions(() => done.Add("note"), () => done.Add("decision"), () => done.Add("document"), () => done.Add("test"), () => done.Add("commit"), () => done.Add("subtask"),
+            CanLinkTest: () => false, AddBug: () => done.Add("bug")));
+        nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-worklog")));
+
+        Assert.Empty(nav.FindAll(".nav-worklog button.nav-act"));
+        Assert.Single(nav.FindAll(".nav-worklog button.nav-add"));
+        Assert.Empty(nav.FindAll("button[role=menuitem]"));   // closed until clicked
+        nav.Find(".nav-worklog button.nav-add").Click();
+        IElement[] items = [.. nav.FindAll("button[role=menuitem]")];
+        Assert.Equal(["Note", "Decision", "Bug", "Subtask", "Link document", "Link test", "Link commit"], items.Select(i => i.TextContent.Trim()));
+        Assert.True(items[5].HasAttribute("disabled"));    // no test results file: the reason stays as the title
+        Assert.False(items[6].HasAttribute("disabled"));
+
+        items.Single(i => i.TextContent.Trim() == "Bug").Click();
+        Assert.Equal(["bug"], done);
+        nav.Find(".nav-worklog button.nav-add").Click();
+        nav.FindAll("button[role=menuitem]").Single(i => i.TextContent.Trim() == "Subtask").Click();
+        Assert.Equal(["bug", "subtask"], done);
+
+        // no bug action wired: no Bug entry
+        ui.CloseWorklog(ui.WorklogOpen!);
+        ui.OpenWorklog(new WorklogActions(() => { }, () => { }, () => { }, () => { }, () => { }, () => { }));
+        nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-worklog")));
+        nav.Find(".nav-worklog button.nav-add").Click();
+        Assert.DoesNotContain("Bug", nav.FindAll("button[role=menuitem]").Select(i => i.TextContent.Trim()));
+    }
+
+    [Fact(DisplayName = "With a work item filling the window the menu hides the projects, layout and new item rows, and shows them again in split view")]
+    public async Task ItemPageHidesTheFirstSectionUnlessSplit()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        NavigationManager location = ctx.Services.GetRequiredService<NavigationManager>();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        string[] first = ["button[aria-label='Open repositories']", "button[aria-label=Layout]", "button[aria-label='New work item']"];
+        nav!.Find("button.nav-toggle").Click();
+        Assert.All(first, q => Assert.NotEmpty(nav.FindAll(q)));   // the board has them
+
+        settings.Update(s => s with { Split = false });
+        location.NavigateTo("item/123");
+        nav.WaitForAssertion(() => Assert.All(first, q => Assert.Empty(nav.FindAll(q))));
+        Assert.NotEmpty(nav.FindAll("button.nav-toggle"));
+        Assert.NotEmpty(nav.FindAll("button[aria-label=Settings]"));
+
+        settings.Update(s => s with { Split = true });   // beside the list
+        nav.WaitForAssertion(() => Assert.All(first, q => Assert.NotEmpty(nav.FindAll(q))));
+
+        ui.SetNarrowWindow(true);   // too narrow for the split: the item fills the window again
+        nav.WaitForAssertion(() => Assert.All(first, q => Assert.Empty(nav.FindAll(q))));
+        ui.SetNarrowWindow(false);
+
+        location.NavigateTo("");   // and back on the board
+        nav.WaitForAssertion(() => Assert.All(first, q => Assert.NotEmpty(nav.FindAll(q))));
+    }
+
+    [Fact(DisplayName = "The expanded side menu has no row of its own for the collapse icon: it sits at the end of the first row, and the collapsed rail keeps it on top")]
+    public async Task CollapseIconSitsInTheFirstRowWhenExpanded()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        NavigationManager location = ctx.Services.GetRequiredService<NavigationManager>();
+
+        // collapsed: the rail's first row, icon only, with its label and state
+        IElement toggle = nav!.Find("button.nav-toggle");
+        Assert.Empty(toggle.QuerySelectorAll(".nav-l"));
+        Assert.DoesNotContain("openspec", toggle.TextContent);
+        Assert.Equal("Menu", toggle.GetAttribute("aria-label"));
+        Assert.Equal("Expand menu", toggle.GetAttribute("title"));
+        Assert.Equal("false", toggle.GetAttribute("aria-expanded"));
+        Assert.Single(nav.FindAll("nav.side > button.nav-toggle:first-child"));
+
+        // expanded on the board: in the row of the "N open" button, after it, and no longer a row of its own
+        toggle.Click();
+        toggle = nav.Find("button.nav-toggle");
+        Assert.Equal("Collapse menu", toggle.GetAttribute("title"));
+        Assert.Equal("true", toggle.GetAttribute("aria-expanded"));
+        Assert.Empty(nav.FindAll("nav.side > button.nav-toggle"));
+        Assert.NotNull(toggle.ParentElement!.QuerySelector("button.tabs-btn"));
+        Assert.Single(nav.FindAll(".nav-row > button.nav-toggle:last-child"));
+        Assert.Single(nav.FindAll("nav.side > .nav-row:first-child"));   // that row is the menu's first
+        toggle.Click();
+        Assert.Single(nav.FindAll("nav.side > button.nav-toggle:first-child"));   // and back on top of the rail
+
+        // an item filling the window: no first section, so the Worklog header's row has it
+        nav.Find("button.nav-toggle").Click();
+        settings.Update(s => s with { Split = false });
+        location.NavigateTo("item/123");
+        ctx.Services.GetRequiredService<UiService>().OpenWorklog(new WorklogActions(() => { }, () => { }, () => { }, () => { }, () => { }, () => { }));
+        nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-worklog .nav-h button.nav-toggle")));
+        Assert.Single(nav.FindAll("button.nav-toggle"));
+        Assert.Equal("Worklog", nav.Find(".nav-worklog .nav-h").TextContent.Trim());
+        Assert.Single(nav.FindAll(".nav-worklog > .nav-h:first-child > button.nav-toggle"));
+        nav.Find("button.nav-toggle").Click();   // it still collapses
+        nav.WaitForAssertion(() => Assert.Single(nav.FindAll("nav.side > button.nav-toggle:first-child")));
     }
 }

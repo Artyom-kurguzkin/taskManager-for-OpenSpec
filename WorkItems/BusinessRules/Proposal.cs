@@ -21,15 +21,46 @@ internal static partial class Proposal
     {
         Match m = Heading().Match(text);
         string body = m.Success ? text[(m.Index + m.Length)..] : text;
-        return body.Replace("\r\n", "\n").TrimStart('\n');
+        return WithoutEmptySections(body.Replace("\r\n", "\n").TrimStart('\n'));
     }
 
     internal static string WithBody(string text, string body)
     {
         Match m = Heading().Match(text);
         string heading = m.Success ? m.Value.TrimEnd('\r') : $"# {TemplateHeading}";
-        return $"{heading}\n\n{body.Replace("\r\n", "\n").TrimStart('\n')}";
+        return $"{heading}\n\n{WithoutEmptySections(body.Replace("\r\n", "\n").TrimStart('\n'))}";
     }
+
+    /// <summary>
+    /// OpenSpec's validator needs no "## Why" or "## What Changes" in proposal.md, and the app does not show them when they are empty
+    /// (nothing, or only a bullet marker): the old template left them behind. Sections with content, an agent's, stay.
+    /// </summary>
+    internal static string WithoutEmptySections(string body)
+    {
+        List<string> lines = [.. body.Split('\n')], kept = [];
+        bool removed = false;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            if (!TemplateSection().IsMatch(lines[i])) { kept.Add(lines[i]); continue; }
+            int end = i + 1;
+            while (end < lines.Count && !lines[end].StartsWith("## ") && !lines[end].StartsWith("# ")) end++;
+            if (lines.Skip(i + 1).Take(end - i - 1).All(l => EmptyLine().IsMatch(l))) { removed = true; i = end - 1; }
+            else kept.Add(lines[i]);
+        }
+        return removed ? Tidy(kept) : body;
+    }
+
+    private static string Tidy(List<string> lines)
+    {
+        string text = string.Join('\n', lines).TrimEnd('\n', ' ');
+        return text.Length == 0 ? "" : text + "\n";
+    }
+
+    [GeneratedRegex(@"^## (Why|What Changes)\s*$")]
+    private static partial Regex TemplateSection();
+
+    [GeneratedRegex(@"^\s*(?:[-*+]\s*)?$")]
+    private static partial Regex EmptyLine();
 
     internal static IEnumerable<string> RequirementNames(string deltaSpec) => Requirement().Matches(deltaSpec).Select(m => m.Groups["r"].Value);
 

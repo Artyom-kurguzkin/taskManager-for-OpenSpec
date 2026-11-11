@@ -1,0 +1,9 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-11
+x-rtm:
+  id: 158
+  title: bkank
+  status: Backlog
+  contributors: [Artyom-kurguzkin]
+  moved: 2026-11-11

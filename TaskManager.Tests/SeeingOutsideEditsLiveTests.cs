@@ -40,4 +40,22 @@ public sealed class SeeingOutsideEditsLiveTests
         }
         finally { OpenSpecStoreApi.Changed -= Handler; }
     }
+
+    [Fact(DisplayName = "The app's own save into folders that did not exist yet is not reported back either")]
+    public async Task OwnWriteIntoNewFoldersIsQuiet()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        int count = 0;
+        void Handler() => Interlocked.Increment(ref count);
+        OpenSpecStoreApi.Changed += Handler;
+        try
+        {
+            // the folders it creates raise their own Created events: a work item's new folder, its notes and specs folders
+            OpenSpecStoreApi.WriteText(repo.PathOf("openspec/changes/brand-new/specs/functional/x/spec.md"), "## ADDED Requirements\n");
+            await Task.Delay(1200);
+            Assert.Equal(0, count);   // each one would reload every open page, 300 ms later
+        }
+        finally { OpenSpecStoreApi.Changed -= Handler; }
+    }
 }

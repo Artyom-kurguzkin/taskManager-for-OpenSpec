@@ -358,6 +358,15 @@ internal static partial class Commands
         return (ok, message);
     }
 
+    internal static (bool Success, string Message) RemoveSubtask(int id, string number)
+    {
+        Subtask? subtask = Queries.Get(id)?.Subtasks.FirstOrDefault(s => s.Number == number && !s.Number.StartsWith('#'));
+        if (subtask is null) return (false, Queries.Get(id) is null ? NotFound : "That subtask no longer exists");
+        (bool ok, string message) = EditTasks(id, text => TasksFile.Remove(text, [number]));
+        if (ok) Log(id, ("subtask-removed", $"{subtask.Number} {subtask.Text}"));
+        return (ok, message);
+    }
+
     private static (bool Success, string Message) EditTasks(int id, Func<string, string> edit)
     {
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
@@ -366,7 +375,7 @@ internal static partial class Commands
     }
 
     internal static (bool Success, string Message, int Id) Create(string title, string status, IEnumerable<string>? features, IEnumerable<string>? contributors, string? folder = null) =>
-        CreateFolder(title, status, features, contributors, priority: null, proposalBody: "## Why\n\n\n\n## What Changes\n\n- \n", tasks: "# Tasks\n\n## 1. Tasks\n\n", deltas: new Dictionary<string, string>(), folder: folder, more: m => m.Moved = Today());
+        CreateFolder(title, status, features, contributors, priority: null, proposalBody: "", tasks: "# Tasks\n\n## 1. Tasks\n\n", deltas: new Dictionary<string, string>(), folder: folder, more: m => m.Moved = Today());
 
     /// <summary>
     /// A folder name no change has ever had: not under changes/ and not under changes/archive/ either (there with its
@@ -617,8 +626,17 @@ internal static partial class Commands
     {
         string name = GroupName(group);
         if (Regex.IsMatch(name, @"^#wi\d+ .+ · merged \d{4}-\d{2}-\d{2}$")) return name;   // merged in by an earlier merge: it keeps saying so
-        string title = isMain ? it.Title : $"#wi{it.Id} {it.Title}";
-        string heading = several && name.Length > 0 ? $"{title} · {name}" : title;
+        string numbered = $"#wi{it.Id} {it.Title}";
+        bool Starts(string s) => name == s || name.StartsWith(s + " · ", StringComparison.Ordinal);
+        string heading;
+        if (Starts(numbered)) heading = name;   // already says whose it is
+        else if (Starts(it.Title)) heading = isMain ? name : $"#wi{it.Id} {name}";   // "Title · Group" from an earlier merge: the title is not put on again
+        else
+        {
+            string title = isMain ? it.Title : numbered;
+            heading = several && name.Length > 0 ? $"{title} · {name}" : title;
+        }
+        heading = TasksFile.CollapseSegments(heading);
         return isMain ? heading : $"{heading} · merged {mergedOn}";
     }
 
@@ -662,7 +680,7 @@ internal static partial class Commands
             if ((top == "specs" && !keepSpecs) || own.Contains(rel)) continue;   // specs are merged per capability (an archived source's only when the result is not archived), the rest is rebuilt
             string target = top == "notes" ? Path.Combine(to, rel) : Path.Combine(to, $"from-wi{id}", rel);
             if (File.Exists(target)) continue;
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            OpenSpecStoreApi.CreateFolder(Path.GetDirectoryName(target)!);
             if (top == "notes" && stampNotes is not null && rel.EndsWith(".md")) OpenSpecStoreApi.WriteText(target, StampMerged(OpenSpecStoreApi.ReadText(file), id, stampNotes));   // a note a merge moves in says from where and when
             else File.Copy(file, target);
         }

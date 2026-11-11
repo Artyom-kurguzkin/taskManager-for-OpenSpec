@@ -962,4 +962,49 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
         Assert.True((await Call("board_log", new() { ["id"] = 107, ["text"] = " " })).IsError);
         Assert.Equal(last.Text, WorkItemsApi.GetEvents(107)[^1].Text);
     }
+
+    // ── remove a subtask ──
+
+    [Fact(DisplayName = "board_update removes a subtask with remove, renumbers the rest of its group and logs it, and refuses remove together with done or text")]
+    public async Task RemovesASubtask()
+    {
+        await Ok("board_update", new() { ["id"] = 107, ["subtasks"] = new object[] { new { text = "Third" }, new { text = "Fourth" } } });
+        Assert.Equal(["1.1", "1.2", "1.3", "1.4"], WorkItemsApi.Get(107)!.Subtasks.Select(s => s.Number));
+        string second = WorkItemsApi.Get(107)!.Subtasks[1].Text;
+
+        // removals go after the other subtask edits of the call (the tick of 1.4 lands first), in descending order
+        JsonElement r = await Ok("board_update", new()
+        {
+            ["id"] = 107, ["agent"] = "Codex",
+            ["subtasks"] = new object[] { new { number = "1.1", remove = true }, new { number = "1.3", remove = true }, new { number = "1.4", done = true } },
+        });
+
+        string[] applied = Strings(r.GetProperty("applied"));
+        Assert.Equal(["subtask 1.3 removed", "subtask 1.1 removed"], applied.Where(a => a.EndsWith("removed", StringComparison.Ordinal)));
+        Assert.True(Array.IndexOf(applied, "subtask 1.4 done") is >= 0 and int done && done < Array.IndexOf(applied, "subtask 1.3 removed"));
+        IReadOnlyList<WorkItems.PublicDTOs.Subtask> left = WorkItemsApi.Get(107)!.Subtasks;
+        Assert.Equal(["1.1", "1.2"], left.Select(s => s.Number));
+        Assert.Equal(second, left[0].Text);
+        Assert.Contains("Fourth", left[1].Text);
+        Assert.True(left[1].Done);
+        WorkItems.PublicDTOs.WorkItemEvent[] removed = [.. WorkItemsApi.GetEvents(107).Where(e => e.Kind == "subtask-removed")];
+        Assert.Equal(2, removed.Length);
+        Assert.Contains(removed, e => e.Text.StartsWith("1.3 ", StringComparison.Ordinal) && e.Text.Contains("Third"));
+        Assert.All(removed, e => Assert.Equal("Codex", e.By));
+
+        // remove together with done or text is refused, and nothing changes
+        (bool withDone, JsonElement _, string doneText) = await Call("board_update", new() { ["id"] = 107, ["subtasks"] = new object[] { new { number = "1.1", remove = true, done = true } } });
+        Assert.True(withDone);
+        Assert.Contains("remove", doneText);
+        (bool withText, JsonElement _, string textText) = await Call("board_update", new() { ["id"] = 107, ["subtasks"] = new object[] { new { number = "1.1", remove = true, text = "x" } } });
+        Assert.True(withText);
+        Assert.Contains("remove", textText);
+        Assert.Equal(2, WorkItemsApi.Get(107)!.Subtasks.Count);
+
+        // an unknown number keeps the existing error
+        (bool unknown, JsonElement _, string unknownText) = await Call("board_update", new() { ["id"] = 107, ["subtasks"] = new object[] { new { number = "9.9", remove = true } } });
+        Assert.True(unknown);
+        Assert.Contains("There is no subtask 9.9", unknownText);
+        Assert.Equal(2, WorkItemsApi.Get(107)!.Subtasks.Count);
+    }
 }
