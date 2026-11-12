@@ -399,8 +399,9 @@ public sealed class SwitchingProjectsTests : IDisposable
             Assert.True(File.Exists(repo1.PathOf("local/task-tracking/wi123/n123/x.png")));
             Assert.False(File.Exists(repo1.PathOf("files/att/wi123/n123/x.png")));
 
-            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Attachments folder']")!.Change("");   // empty = the default again
-            Assert.Equal("local/task-tracking", settings.AttachmentsDir(repo2.Root));
+            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Attachments folder']")!.Change("");   // empty = the default again; the folder holds the file attached above, so the page asks first
+            page.Find(".att-keep").Click();
+            page.WaitForAssertion(() => Assert.Equal("local/task-tracking", settings.AttachmentsDir(repo2.Root)));
             Assert.Contains("attachments=local/task-tracking", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
         }
     }

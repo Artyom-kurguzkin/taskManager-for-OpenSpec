@@ -1,0 +1,382 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "type": "rectangle",
+   "id": "start",
+   "x": 260,
+   "y": 20,
+   "width": 320,
+   "height": 80,
+   "backgroundColor": "#a5d8ff",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "start-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "start-label",
+   "containerId": "start",
+   "text": "A board file changed outside the app\n(git pull, checkout, hand edit)",
+   "originalText": "A board file changed outside the app\n(git pull, checkout, hand edit)",
+   "fontSize": 16,
+   "x": 261.6,
+   "y": 40,
+   "width": 316.8,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a0",
+   "x": 420,
+   "y": 100,
+   "width": 0,
+   "height": 50,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     50
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "diamond",
+   "id": "q1",
+   "x": 270,
+   "y": 150,
+   "width": 300,
+   "height": 140,
+   "backgroundColor": "#fff3bf",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "q1-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "q1-label",
+   "containerId": "q1",
+   "text": "Git merge or rebase\nin progress?",
+   "originalText": "Git merge or rebase\nin progress?",
+   "fontSize": 16,
+   "x": 336.4,
+   "y": 200,
+   "width": 167.20000000000002,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a1",
+   "x": 570,
+   "y": 220,
+   "width": 130,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     130,
+     0
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a1-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a1-label",
+   "containerId": "a1",
+   "text": "yes",
+   "originalText": "yes",
+   "fontSize": 14,
+   "x": 623.45,
+   "y": 211.25,
+   "width": 23.1,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "pause",
+   "x": 700,
+   "y": 175,
+   "width": 280,
+   "height": 90,
+   "backgroundColor": "#ffd8a8",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "pause-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "pause-label",
+   "containerId": "pause",
+   "text": "Sync paused\nuntil the merge is finished",
+   "originalText": "Sync paused\nuntil the merge is finished",
+   "fontSize": 16,
+   "x": 721.2,
+   "y": 200,
+   "width": 237.60000000000002,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a2",
+   "x": 420,
+   "y": 290,
+   "width": 0,
+   "height": 60,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     60
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a2-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a2-label",
+   "containerId": "a2",
+   "text": "no",
+   "originalText": "no",
+   "fontSize": 14,
+   "x": 412.3,
+   "y": 311.25,
+   "width": 15.400000000000002,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "diamond",
+   "id": "q2",
+   "x": 250,
+   "y": 350,
+   "width": 340,
+   "height": 160,
+   "backgroundColor": "#fff3bf",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "q2-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "q2-label",
+   "containerId": "q2",
+   "text": "Is the new content a version\nthe storage already moved past?",
+   "originalText": "Is the new content a version\nthe storage already moved past?",
+   "fontSize": 16,
+   "x": 283.6,
+   "y": 410,
+   "width": 272.8,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a3",
+   "x": 590,
+   "y": 430,
+   "width": 110,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     110,
+     0
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a3-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a3-label",
+   "containerId": "a3",
+   "text": "yes",
+   "originalText": "yes",
+   "fontSize": 14,
+   "x": 633.45,
+   "y": 421.25,
+   "width": 23.1,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "stale",
+   "x": 700,
+   "y": 385,
+   "width": 280,
+   "height": 90,
+   "backgroundColor": "#ffc9c9",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "stale-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "stale-label",
+   "containerId": "stale",
+   "text": "Stale: take the storage's version\nupload nothing",
+   "originalText": "Stale: take the storage's version\nupload nothing",
+   "fontSize": 16,
+   "x": 694.8,
+   "y": 410,
+   "width": 290.40000000000003,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a4",
+   "x": 420,
+   "y": 510,
+   "width": 0,
+   "height": 60,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     60
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a4-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a4-label",
+   "containerId": "a4",
+   "text": "no",
+   "originalText": "no",
+   "fontSize": 14,
+   "x": 412.3,
+   "y": 531.25,
+   "width": 15.400000000000002,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "edit",
+   "x": 250,
+   "y": 570,
+   "width": 340,
+   "height": 90,
+   "backgroundColor": "#b2f2bb",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "edit-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "edit-label",
+   "containerId": "edit",
+   "text": "A real edit: merge with the storage\nand upload the result",
+   "originalText": "A real edit: merge with the storage\nand upload the result",
+   "fontSize": 16,
+   "x": 266,
+   "y": 595,
+   "width": 308,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

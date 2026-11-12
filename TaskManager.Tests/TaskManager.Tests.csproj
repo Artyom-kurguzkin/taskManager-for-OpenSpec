@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />
+    <ProjectReference Include="../BoardSync/BoardSync.csproj" />
     <ProjectReference Include="../GitHistory/GitHistory.csproj" />
     <ProjectReference Include="../Features/Features.csproj" />
     <ProjectReference Include="../WorkItems/WorkItems.csproj" />
@@ -22,5 +23,6 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

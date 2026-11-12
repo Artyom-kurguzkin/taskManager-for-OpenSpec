@@ -10,6 +10,12 @@ public static class NotesApi
 {
     public static IReadOnlyList<Note> GetAll() => Queries.GetAll();
     public static IReadOnlyList<Note> GetForWorkItem(int workItemId) => Queries.GetAll().Where(n => n.WorkItemId == workItemId).ToList();
+    /// <summary>
+    /// Settles note ids used twice (two branches or computers each made a note offline, then merged): the note created first keeps its id, every other
+    /// one is renamed to the next free id with its frontmatter and its own #nN references rewritten, and a <c>renumbered</c> event is recorded on its work item.
+    /// Notes are repaired whenever they are read; this reads them now and returns the renumberings made since the last call (empty: nothing to do, nothing written).
+    /// </summary>
+    public static IReadOnlyList<(int OldId, int NewId, string Path)> RepairDuplicateIds() => Queries.RepairDuplicateIds();
     public static Note? Get(int id) => Queries.GetAll().FirstOrDefault(n => n.Id == id);
 
     /// <summary>Finds [[doc]], #wiN and #nN references in the text, in order, each once.</summary>
@@ -58,6 +64,28 @@ public static class NotesApi
     /// local/task-tracking). Files still go under wi&lt;item&gt;/n&lt;note&gt;/ in it, and the folder is git-ignored.
     /// </summary>
     public static void SetAttachmentsDir(string repoRoot, string? dir) => Commands.SetAttachmentsDir(repoRoot, dir);
+
+    /// <summary>The absolute folder the repository's attachments go to right now (what <see cref="SetAttachmentsDir"/> last set, else local/task-tracking under the repository).</summary>
+    public static string AttachmentsRoot(string repoRoot) => Commands.AttachmentsRoot(repoRoot);
+
+    /// <summary>
+    /// Whether a folder may be the attachments folder: Dir is it tidied (forward slashes, no trailing slash; empty gives local/task-tracking), Message says why not.
+    /// Refused: outside the repository (rooted, a drive, "..") , the repository itself, inside openspec/, names a folder cannot have.
+    /// </summary>
+    public static (bool Ok, string Dir, string Message) CheckAttachmentsDir(string? dir) => AttachmentsFolder.Check(dir);
+
+    /// <summary>How many files the repository-relative folder holds, below it too, not counting what a link (junction, symlink) leads to; 0 when it does not exist or is not allowed.</summary>
+    public static int CountAttachmentFiles(string repoRoot, string dir) => AttachmentsFolder.Count(repoRoot, dir);
+
+    /// <summary>
+    /// Moves every file under <paramref name="fromDir"/> to the same place under <paramref name="toDir"/> (both repository-relative), then points the notes' attachments entries
+    /// and the link targets in note bodies and descriptions (open and archived items) to the new place. Never overwrites: a file with the same bytes is dropped, another with the
+    /// same name is kept beside it as name-2. Links (junctions, symlinks) are not followed. Refused, changing nothing, when the folders are the same or one holds the other, when a
+    /// folder is not allowed (<see cref="CheckAttachmentsDir"/>) or is, or lies below, a link. A missing <paramref name="fromDir"/> is a success with nothing done. Safe to run
+    /// again after an interruption. Records no worklog event. Run it with the repository current (the app calls it inside <c>Workspace.In</c>); the caller then sets the new folder
+    /// (<see cref="SetAttachmentsDir"/>). Git-ignores <paramref name="toDir"/> like attaching does.
+    /// </summary>
+    public static AttachmentsMoveResult MoveAttachments(string repoRoot, string fromDir, string toDir) => AttachmentsFolder.Move(repoRoot, fromDir, toDir);
 
     /// <summary>Stores pasted data (e.g. a clipboard image) exactly like <see cref="AttachFile"/>.</summary>
     public static (bool Success, string Message) AttachBytes(int id, string fileName, byte[] bytes) => Commands.AttachBytes(id, fileName, bytes);

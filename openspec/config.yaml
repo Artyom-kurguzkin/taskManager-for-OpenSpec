@@ -23,6 +23,7 @@ x-rtm:
     - integration-with-agents
     - general-ux
     - security-&-stability
+    - multiplay
   lanes:
     board: [test, test-2]
   testResults:

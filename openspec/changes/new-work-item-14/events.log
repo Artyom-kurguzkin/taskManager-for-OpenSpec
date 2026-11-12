@@ -27,3 +27,6 @@
 2026-11-11T09:15:52 | Claude menu | log | Test red first (aria-expanded absent when false, icon still its own row); now green after SideNav.razor Toggle fragment + nav-row CSS. Full suite next, then real-app shots.
 2026-11-11T10:18:48 | Claude menu | log | Menu top fix done: icon ends the first row (N open / Worklog header), top pad 2px (was 6+34 icon row). Suite 591/593, the 2 failures differ each run (flaky: Several Changed events, Arrow keys) and pass alone. Shots in tests/out/shots/menutop-*-after.png.
 2026-11-11T10:19:44 | Claude | log | Menu-top fix applied to the main tree (3 files, clean): the collapse icon ends the first row; first text row moved up about 40 px. Agent's suite: 591 of 593, two failures it calls unrelated; main-tree suite follows with the grid and crash chunks.
+2026-11-12T05:11:57 | Claude | status | In Progress -> In Review
+2026-11-12T05:11:57 | Claude | test-unlinked | UsingTheBoardTests / The side menu's top row is a collapse icon without the repository name
+2026-11-12T05:11:57 | Claude | test-linked | UsingTheBoardTests / The expanded side menu has no row of its own for the collapse icon: it sits at the end of the first row, and the collapsed rail keeps it on top

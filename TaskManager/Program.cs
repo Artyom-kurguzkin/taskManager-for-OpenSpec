@@ -36,6 +36,8 @@ internal static class Program
         builder.Services.AddSingleton<UiService>();
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton(new AppMode { Detached = detached, StartPath = detached ? $"item/{detachedItem}" : null });
+        builder.Services.AddSingleton(new BoardStorageSettings(Hosting.Paths.Home, StorageProviders.Builtin));   // connected storage, per project (Settings → Board storage)
+        if (!detached) builder.Services.AddSingleton<BoardSyncService>();   // the main window syncs; a detached item window only reads
         builder.Services.AddSingleton<Workspace>();
         builder.Services.AddSingleton<FolderPicker>(() => app?.MainWindow.ShowOpenFolder("Choose a repository with an openspec/ folder")?.FirstOrDefault());
         builder.Services.AddSingleton<FilePicker>(title => app?.MainWindow.ShowOpenFile(title)?.FirstOrDefault());
@@ -82,6 +84,8 @@ internal static class Program
         catch (Exception) { }
 
         app.Run();
+        try { app.Services.GetService<BoardSyncService>()?.SyncOnExit().GetAwaiter().GetResult(); }   // what has not been synced yet goes now, for at most 15 seconds
+        catch (Exception e) { LogCrash("Syncing on exit failed; the app closes anyway. " + e); }
         Hosting.RunMarker.End(Hosting.Paths.Logs, Environment.ProcessId);
         OpenSpecStoreApi.Close();
     }

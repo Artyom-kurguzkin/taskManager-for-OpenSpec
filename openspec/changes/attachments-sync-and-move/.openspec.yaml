@@ -1,0 +1,17 @@
+schema: spec-driven
+created: 2026-11-12
+x-rtm:
+  id: 163
+  title: Attachments sync through the connected storage and move with their folder
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [track-work-items]
+  label: feature
+  started: 2026-11-12
+  moved: 2026-11-12
+  plan: DevResources/plans/attachments-sync-and-move-2026-11-12.md
+  tests: [{suite: SyncingAttachmentsTests, test: 'A picture attached on one computer arrives on the other, byte for byte'}, {suite: SyncingAttachmentsTests, test: Attachments and the board share one storage without touching each other's files}, {suite: SyncingAttachmentsTests, test: An attachment changed on both computers goes whole to the newer one and the other is kept in the trash}, {suite: SyncingAttachmentsTests, test: 'A file larger than the limit is skipped and reported, and the rest of the sync goes through'}, {suite: MovingAttachmentsTests, test: 'The attachments folder is saved with the project, and a folder a user had set before is used until the project has one'}, {suite: MovingAttachmentsTests, test: Moving the attachments folder moves every file and the notes list them at the new place}, {suite: MovingAttachmentsTests, test: 'A move never overwrites: the same file is dropped, a different file with the same name is kept beside it and the note points to the kept copy'}, {suite: MovingAttachmentsTests, test: 'Changing the folder in Settings asks before moving, and Keep them where they are only changes where new files go'}, {suite: SyncingWithConnectedStorageTests, test: A picture attached on one computer shows up in the other computer's attachments folder after its sync}, {suite: SyncingWithConnectedStorageTests, test: Attachments are not synced before the storage is approved on this computer}, {suite: SyncingWithConnectedStorageTests, test: 'Turning Sync attachments too off stops the attachments sync and deletes nothing, and it is saved with the project'}, {suite: SyncingWithConnectedStorageTests, test: 'The attachments folder moved on another computer is followed here, and nothing is uploaded again'}, {suite: SyncingWithConnectedStorageTests, test: 'After the storage address changes, the board and the attachments both start as a first connection'}]
+  dependsOn: [160]
+  agentBy: Claude
+  agentAt: 2026-11-12T16:16:01

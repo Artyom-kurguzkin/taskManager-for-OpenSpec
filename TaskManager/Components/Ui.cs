@@ -59,8 +59,60 @@ public static class Ui
         ["trash"] = "<path d=\"M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4\"/>",
     };
 
-    /// <summary>Markdown → HTML for display. Raw HTML in the file is not passed through.</summary>
-    public static readonly Markdig.MarkdownPipeline Pipeline = new Markdig.MarkdownPipelineBuilder().DisableHtml().UseEmphasisExtras().UseTaskLists().UsePipeTables().UseAutoLinks().Build();   // plans carry tables and bare links
+    /// <summary>
+    /// Markdown → HTML for display. Raw HTML in the file is not passed through, and the text of the board is never trusted for its links: a link is live only
+    /// when it goes to http, https, mailto, or is relative (the app's own #wi / #n / [[doc]] links are made after the render, as relative ones); any other
+    /// address (javascript:, data:, file:, \\host\share, //host) is plain text. An image is an image only when this app itself inlined a file of the repository
+    /// (<see cref="ImageSrc"/>); any other image is a link to its address with its alt text, so rendering a note never fetches anything.
+    /// </summary>
+    public static readonly Markdig.MarkdownPipeline Pipeline = new Markdig.MarkdownPipelineBuilder().DisableHtml().UseEmphasisExtras().UseTaskLists().UsePipeTables().UseAutoLinks().Use<SafeLinks>().Build();   // plans carry tables and bare links
+
+    /// <summary>The marker on a link whose image this app inlined from a file of the repository: the only image that is rendered as one.</summary>
+    private static readonly object InlinedImage = new();
+
+    private sealed class SafeLinks : Markdig.IMarkdownExtension
+    {
+        public void Setup(Markdig.MarkdownPipelineBuilder pipeline) { }
+
+        public void Setup(Markdig.MarkdownPipeline pipeline, Markdig.Renderers.IMarkdownRenderer renderer)
+        {
+            if (renderer is Markdig.Renderers.HtmlRenderer html) html.ObjectRenderers.ReplaceOrAdd<Markdig.Renderers.Html.Inlines.LinkInlineRenderer>(new SafeLinkRenderer());
+        }
+    }
+
+    private sealed class SafeLinkRenderer : Markdig.Renderers.Html.Inlines.LinkInlineRenderer
+    {
+        protected override void Write(Markdig.Renderers.HtmlRenderer renderer, Markdig.Syntax.Inlines.LinkInline link)
+        {
+            string url = link.Url ?? "";
+            if (link.IsImage)
+            {
+                if (link.GetData(InlinedImage) is true) { base.Write(renderer, link); return; }
+                if (!IsLiveAddress(url)) { renderer.WriteChildren(link); return; }       // the alt text
+                renderer.Write("<a href=\"").WriteEscapeUrl(url).Write("\">");
+                renderer.WriteChildren(link);
+                renderer.Write("</a>");
+                return;
+            }
+            if (IsLiveAddress(url)) base.Write(renderer, link); else renderer.WriteChildren(link);
+        }
+    }
+
+    /// <summary>http, https, mailto, or a relative address (a path, a #fragment, item/12); never another scheme, a drive path, a UNC path or a protocol-relative one.</summary>
+    internal static bool IsLiveAddress(string url)
+    {
+        url = url.Trim();
+        if (url.Length == 0) return false;
+        if (url.StartsWith("//", StringComparison.Ordinal) || url.StartsWith('\\') || url.Contains('\0') || url.Any(char.IsControl)) return false;
+        int colon = url.IndexOf(':');
+        int slash = url.IndexOfAny(['/', '?', '#']);
+        if (colon < 0 || (slash >= 0 && slash < colon)) return true;   // relative: no scheme before the first / ? or #
+        string scheme = url[..colon];
+        return scheme.Equals("http", StringComparison.OrdinalIgnoreCase) || scheme.Equals("https", StringComparison.OrdinalIgnoreCase) || scheme.Equals("mailto", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The largest image file that is inlined into a page as a data URL.</summary>
+    public const int MaxImageBytes = 8 * 1024 * 1024;
 
     public static MarkupString Markdown(string text) => new(Markdig.Markdown.ToHtml(text, Pipeline));
 
@@ -74,16 +126,40 @@ public static class Ui
         if (entry.Length == 0 || entry.Contains("..") || entry.Contains(':') || entry.StartsWith('/') || entry.StartsWith('\\')) return null;
         if (!ImageTypes.TryGetValue(System.IO.Path.GetExtension(entry), out string? type)) return null;
         string file = System.IO.Path.Combine(repoRoot, entry.Replace('/', System.IO.Path.DirectorySeparatorChar));
-        return System.IO.File.Exists(file) ? $"data:{type};base64,{Convert.ToBase64String(System.IO.File.ReadAllBytes(file))}" : null;
+        if (!System.IO.File.Exists(file) || !StaysInside(repoRoot, entry) || new System.IO.FileInfo(file).Length > MaxImageBytes) return null;
+        return $"data:{type};base64,{Convert.ToBase64String(System.IO.File.ReadAllBytes(file))}";
     }
 
-    /// <summary>Markdown → HTML where an image link to a file of the repository (<c>![](local/…/pasted.png)</c>) shows that file.</summary>
-    public static MarkupString Markdown(string text, string? repoRoot)
+    /// <summary>False when a folder or the file itself on the way from the repository root is a link (junction, symlink) that leads out of the repository.</summary>
+    private static bool StaysInside(string repoRoot, string entry)
+    {
+        try
+        {
+            string root = System.IO.Path.GetFullPath(repoRoot).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+            string current = root;
+            foreach (string segment in entry.Split('/', StringSplitOptions.RemoveEmptyEntries))
+            {
+                current = System.IO.Path.Combine(current, segment);
+                System.IO.FileSystemInfo info = System.IO.Directory.Exists(current) ? new System.IO.DirectoryInfo(current) : new System.IO.FileInfo(current);
+                if (!info.Exists || !info.Attributes.HasFlag(System.IO.FileAttributes.ReparsePoint)) continue;
+                string? target = info.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+                if (target is null || !(target.TrimEnd(System.IO.Path.DirectorySeparatorChar).Equals(root, StringComparison.OrdinalIgnoreCase) || target.StartsWith(root + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) return false;
+            }
+            return true;
+        }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return false; }
+    }
+
+    /// <summary>
+    /// Markdown → HTML where an image link to a file of the repository (<c>![](local/…/pasted.png)</c>) shows that file. With <paramref name="folder"/>
+    /// (the repository-relative folder of the document being shown) a link is read as a file beside the document first, then from the repository root.
+    /// </summary>
+    public static MarkupString Markdown(string text, string? repoRoot, string? folder = null)
     {
         if (repoRoot is null || !text.Contains("![", StringComparison.Ordinal)) return Markdown(text);
         Markdig.Syntax.MarkdownDocument doc = Markdig.Markdown.Parse(text, Pipeline);
         foreach (Markdig.Syntax.Inlines.LinkInline link in Markdig.Syntax.MarkdownObjectExtensions.Descendants<Markdig.Syntax.Inlines.LinkInline>(doc).Where(l => l.IsImage && l.Url is not null))
-            if (ImageSrc(repoRoot, link.Url!) is string src) link.Url = src;
+            if (((string.IsNullOrEmpty(folder) ? null : ImageSrc(repoRoot, folder + "/" + link.Url)) ?? ImageSrc(repoRoot, link.Url!)) is string src) { link.Url = src; link.SetData(InlinedImage, true); }
         System.IO.StringWriter html = new();
         Markdig.Renderers.HtmlRenderer renderer = new(html);
         Pipeline.Setup(renderer);

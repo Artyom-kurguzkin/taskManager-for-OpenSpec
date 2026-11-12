@@ -471,6 +471,13 @@ public sealed partial class BoardTools
             if (!ok) throw new McpException($"Could not open {root}: {message}");
             GitHistoryApi.Configure(root);
             OpenSpecStoreApi.Refresh();   // ponytail: every call re-reads the repository (the watcher lags 300 ms and can drop events in a server that runs for hours); cache per call if it ever shows
+            WorkItemsApi.ConfigureActor(() => "Board tools");
+            try
+            {
+                WorkItemsApi.ResolveDuplicateIds();   // a merge or a sync may have left two items or notes with one id: settled before the call reads, as the desktop app does when it sees the files change
+                NotesApi.RepairDuplicateIds();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or TimeoutException) { }   // files moving under the repair: the call reads what is there, the next one repairs
             try { return body(root); }
             finally
             {

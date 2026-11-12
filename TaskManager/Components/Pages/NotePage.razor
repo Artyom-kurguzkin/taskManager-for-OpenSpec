@@ -84,7 +84,7 @@
                         else if (IsImage(a) && ImageSrc(a) is string src) { <img class="att-img" src="@src" alt="@System.IO.Path.GetFileName(a)" /> }
                         else if (IsImage(a)) { <span class="muted">@System.IO.Path.GetFileName(a)</span> }
                         else { <button class="att-file" data-sk @onclick="() => OpenFile(a)">@System.IO.Path.GetFileName(a)</button> }
-                        <button class="ic att-x" aria-label="Remove attachment" title="Remove" @onclick="() => Run(NotesApi.RemoveAttachment(Id, a))">×</button>
+                        <button class="ic att-x" aria-label="Remove attachment" title="Remove" @onclick="() => RunAttachment(NotesApi.RemoveAttachment(Id, a))">×</button>
                     </div>
                 }
             </div>
@@ -201,7 +201,7 @@
     [JSInvokable]
     public void PastedImage(string name, string base64)
     {
-        try { Run(NotesApi.AttachBytes(Id, name, Convert.FromBase64String(base64))); }
+        try { RunAttachment(NotesApi.AttachBytes(Id, name, Convert.FromBase64String(base64))); }
         catch (FormatException) { Popups.Toast("That image could not be read", ToastKind.Warning); }
     }
 
@@ -257,7 +257,7 @@
 
     private void AttachFile(FilePicker pick)
     {
-        if (pick("Attach a file") is string chosen) Run(NotesApi.AttachFile(Id, chosen));
+        if (pick("Attach a file") is string chosen) RunAttachment(NotesApi.AttachFile(Id, chosen));
     }
 
     private void AddAttachedLink()

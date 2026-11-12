@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="BoardSync/BoardSync.csproj" />
   <Project Path="Features/Features.csproj" />
   <Project Path="GitHistory/GitHistory.csproj" />
   <Project Path="Notes/Notes.csproj" />

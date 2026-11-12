@@ -439,37 +439,66 @@ internal static partial class Commands
         return written ? (true, "", id) : (false, error, 0);
     }
 
-    /// <summary>
-    /// Provisional numbers are "highest stored + n", so storing a new number would shift them. Before allocating,
-    /// write every provisional number into its change so links like #wi125 never start pointing elsewhere.
-    /// </summary>
+    /// <summary>One repair at a time: two callers (the host's change handler and a tool call) must not renumber the same change twice.</summary>
+    private static readonly object RepairGate = new();
+
     /// <summary>
     /// Two changes carrying one number (created in two places, a copied folder, a merge): every one but the keeper takes the
     /// next free number. The keeper is an archived change first (its number is history), then the earliest created, then the
-    /// first folder name, so every copy of the repository resolves the same way. References other items hold to the number
-    /// stay as they are: they most likely meant the keeper. Returns what was renumbered.
+    /// first folder name, so every copy of the repository resolves the same way. What the renumbered change says about itself
+    /// (#wiN in its proposal, tasks, notes, events and title) follows it, and its worklog records the renumbering. References other
+    /// items hold to the number stay as they are: they most likely meant the keeper. With nothing duplicated nothing is read
+    /// again and nothing is written. Returns what was renumbered.
     /// </summary>
     internal static IReadOnlyList<(int OldId, int NewId, string Folder)> ResolveDuplicateIds()
     {
         WorkItemsModule.DuplicateScans++;
         if (OpenSpecStoreApi.OpenSpecRoot is null) return [];
-        StampProvisionalIds();
-        List<(int, int, string)> renumbered = [];
-        foreach (IGrouping<int, WorkItem> twins in Queries.GetAll(includeHidden: true).GroupBy(w => w.Id).Where(g => g.Count() > 1).ToList())
+        lock (RepairGate)
         {
-            foreach (WorkItem w in twins.OrderBy(w => w.Archived ? 0 : 1).ThenBy(w => w.Created).ThenBy(w => w.Folder, StringComparer.Ordinal).Skip(1))
+            static List<List<WorkItem>> Twins() => [.. Queries.GetAll(includeHidden: true).GroupBy(w => w.Id).Where(g => g.Count() > 1).Select(g => g.OrderBy(w => w.Archived ? 0 : 1).ThenBy(w => w.Created).ThenBy(w => w.Folder, StringComparer.Ordinal).ToList())];
+            List<List<WorkItem>> groups = Twins();
+            if (groups.Count == 0) return [];
+            StampProvisionalIds();   // before a new number is handed out, which would shift the provisional ones
+            List<(int, int, string)> renumbered = [];
+            foreach (List<WorkItem> twins in groups)
+            foreach (WorkItem w in twins.Skip(1))
             {
-                int newId = OpenSpecStoreApi.Allocate("work-item", roots => roots.Max(r => Queries.MaxIdUnder(r)));
                 string yaml = Queries.Yaml(w.Path);
                 Rtm meta = Metadata.TryRead<Rtm>(yaml, out string? problem);
                 if (problem is not null) continue;   // does not parse: left as it is until fixed, and the warning stays
+                int newId = OpenSpecStoreApi.Allocate("work-item", roots => roots.Max(r => Queries.MaxIdUnder(r)));
+                Regex own = OwnReference(w.Id);
+                FollowId(w.Path, own, newId);
                 meta.Id = newId;
-                if (Metadata.Write(yaml, meta).Success) renumbered.Add((w.Id, newId, w.Folder));
+                if (meta.Title is not null) meta.Title = own.Replace(meta.Title, $"#wi{newId}");
+                if (!Metadata.Write(yaml, meta).Success) continue;
+                EventLog.Append(w.Path, Actor(), [("renumbered", $"#wi{w.Id} -> #wi{newId}: the id was taken by \"{twins[0].Title}\" ({twins[0].Folder}) after a merge")]);
+                renumbered.Add((w.Id, newId, w.Folder));
             }
+            return renumbered;
         }
-        return renumbered;
     }
 
+    /// <summary>#wiN for one N, not when more digits follow (#wi1234 is not #wi123).</summary>
+    private static Regex OwnReference(int id) => new($@"#wi{id}(?!\d)");
+
+    /// <summary>Rewrites the references to the old number in what the change wrote about itself: proposal, tasks, notes and events.</summary>
+    private static void FollowId(string dir, Regex own, int newId)
+    {
+        string notes = Path.Combine(dir, "notes");
+        foreach (string file in (IEnumerable<string>)[Path.Combine(dir, "proposal.md"), Path.Combine(dir, "tasks.md"), EventLog.PathIn(dir), .. (Directory.Exists(notes) ? Directory.EnumerateFiles(notes, "n*.md") : [])])
+        {
+            if (!File.Exists(file)) continue;
+            string text = OpenSpecStoreApi.ReadText(file), now = own.Replace(text, $"#wi{newId}");
+            if (now != text) OpenSpecStoreApi.WriteText(file, now);
+        }
+    }
+
+    /// <summary>
+    /// Provisional numbers are "highest stored + n", so storing a new number would shift them. Before allocating,
+    /// write every provisional number into its change so links like #wi125 never start pointing elsewhere.
+    /// </summary>
     private static void StampProvisionalIds()
     {
         foreach (WorkItem w in Queries.WithoutStoredId())   // only those: reading every item's file for a number it already has was most of this scan's cost

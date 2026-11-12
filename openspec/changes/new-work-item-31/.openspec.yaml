@@ -1,0 +1,17 @@
+schema: spec-driven
+created: 2026-11-11
+x-rtm:
+  id: 159
+  title: resolve merge conflicts
+  status: In Review
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [track-work-items]
+  label: enhancement
+  started: 2026-11-11
+  due: 2026-11-11
+  moved: 2026-11-12
+  plan: DevResources/plans/board-sync-through-blob-storage-2026-11-12.md
+  tests: [{suite: RepairingDuplicateIdsTests, test: 'Two work items that got the same id after a merge: the one created first keeps it and the other gets the next free id'}, {suite: RepairingDuplicateIdsTests, test: "The renumbered work item's own references to its old id follow it, and other items' references stay with the keeper"}, {suite: RepairingDuplicateIdsTests, test: "A renumbering is recorded in the renumbered item's worklog, naming the old id, the new id and who kept it"}, {suite: RepairingDuplicateIdsTests, test: "Two notes that got the same id after a merge: the one created first keeps it, the other's file and frontmatter get the next free id"}, {suite: RepairingDuplicateIdsTests, test: With no duplicate ids the repair changes nothing and writes nothing}, {suite: RepairingDuplicateIdsTests, test: Repairing twice at once renumbers each duplicate once and logs it once}, {suite: RepairingDuplicateIdsTests, test: A reload after outside edits that introduce a duplicate id repairs it once and does not loop}, {suite: RepairingDuplicateIdsTests, test: 'The board tools see the repaired ids: a duplicate made outside shows once under each id'}, {suite: RepairingDuplicateIdsTests, test: "The worklog shows a renumbering among the item's events, and hiding events hides it"}]
+  agentBy: Claude
+  agentAt: 2026-11-12T06:44:32

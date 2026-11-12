@@ -1,4 +1,5 @@
 @page "/settings"
+@using Notes
 
 <div class="sheet settings" data-sk="soft">
     <h2>Settings</h2>
@@ -38,7 +39,7 @@
     {
         string project = System.IO.Path.GetFileName(repo.TrimEnd('\\', '/'));
         <section class="set-row" data-project="@project">
-            <div><h3>@project</h3><p class="muted">Plans and attachments folders are relative to the repository (yours only; agents read them from openspec/REPO-TASKS.md). Empty = @SettingsStore.DefaultPlansDir for plans, @SettingsStore.DefaultAttachmentsDir for attachments (kept out of git).</p></div>
+            <div><h3>@project</h3><p class="muted">Folders are relative to the repository; agents read them from openspec/REPO-TASKS.md. Plans: yours only, empty = @SettingsStore.DefaultPlansDir. Attachments: saved with the project, so every computer on it uses the same folder, empty = @SettingsStore.DefaultAttachmentsDir (kept out of git).</p></div>
             <div class="set-val set-folders">
                 <span class="muted">Location</span>
                 <div class="set-loc">
@@ -49,10 +50,23 @@
                 <input class="box text-in" data-sk value="@Settings.PlansDir(repo)" placeholder="@SettingsStore.DefaultPlansDir"
                        @onchange="e => Settings.SetPlansDir(repo, (string?)e.Value)" aria-label="Plans folder" />
                 <span class="muted">Attachments</span>
-                <input class="box text-in" data-sk value="@Settings.AttachmentsDir(repo)" placeholder="@SettingsStore.DefaultAttachmentsDir"
-                       @onchange="e => Settings.SetAttachmentsDir(repo, (string?)e.Value)" aria-label="Attachments folder" />
+                <input class="box text-in" data-sk @key="attKey" value="@(attAsk is { } pending && pending.Repo == repo ? pending.New : Settings.AttachmentsDir(repo))" placeholder="@SettingsStore.DefaultAttachmentsDir"
+                       @onchange="e => AttachmentsChanged(repo, (string?)e.Value)" aria-label="Attachments folder" />
+                @if (attAsk is { } ask && ask.Repo == repo)
+                {
+                    <div class="att-row att-ask">
+                        <p>Move the @ask.Files file@(ask.Files == 1 ? "" : "s") in <code>@ask.Old</code> to <code>@ask.New</code>? Notes and descriptions will point to the new place.</p>
+                        <div class="att-actions">
+                            <button class="btn primary att-move" data-sk @onclick="AttachmentsMove">Move</button>
+                            <button class="btn att-keep" data-sk @onclick="AttachmentsKeep">Keep them where they are</button>
+                            <button class="btn att-cancel" data-sk @onclick="AttachmentsCancel">Cancel</button>
+                        </div>
+                    </div>
+                }
+                @if (attNote is { } note && note.Repo == repo) { <p class="att-row @(note.Warn ? "att-warn" : "att-done muted")">@note.Text</p> }
             </div>
         </section>
+        <BoardStorageSection Root="@repo" />
     }
 
     <section class="set-row mcp">
@@ -116,6 +130,53 @@
 
     private static readonly IReadOnlyList<(string, string)> Themes = [("light", "Light"), ("dark", "Dark"), ("system", "System")];
     private static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List")];
+
+    // ── the attachments folder: changing it asks what to do with the files already in it ──
+
+    private sealed record AttachmentsAsk(string Repo, string Old, string New, int Files);
+    private sealed record AttachmentsNote(string Repo, string Text, bool Warn);
+    private AttachmentsAsk? attAsk;
+    private AttachmentsNote? attNote;
+    private int attKey;   // a new key makes the browser drop what was typed in the field (a refused or cancelled edit shows the saved folder again)
+
+    private void AttachmentsChanged(string repo, string? typed)
+    {
+        (attAsk, attNote) = (null, null);
+        (bool ok, string dir, string why) = NotesApi.CheckAttachmentsDir(typed);
+        string old = Settings.AttachmentsDir(repo);
+        if (!ok) { attNote = new(repo, why, true); attKey++; return; }
+        if (dir == old) { attKey++; return; }
+        int files = Workspace.In(repo, () => NotesApi.CountAttachmentFiles(repo, old));
+        if (files > 0) { attAsk = new(repo, old, dir, files); return; }   // saved once the user has answered
+        SaveAttachmentsDir(repo, dir);
+    }
+
+    private bool SaveAttachmentsDir(string repo, string dir, bool moved = false)
+    {
+        Workspace.AttachmentsFolderChangingHere(repo, dir, moved);   // before the write: the sync service must not take this change for a pull's and move the files a second time
+        (bool ok, string message) = Settings.SetAttachmentsDir(repo, dir);
+        if (!ok) { attNote = new(repo, message, true); attKey++; Workspace.AttachmentsFolderChangingHere(repo, Settings.AttachmentsDir(repo), false); }
+        return ok;
+    }
+
+    private void AttachmentsMove()
+    {
+        if (attAsk is not { } ask) return;
+        attAsk = null;
+        Notes.PublicDTOs.AttachmentsMoveResult result = Workspace.In(ask.Repo, () => NotesApi.MoveAttachments(ask.Repo, ask.Old, ask.New));
+        if (!result.Success) { attNote = new(ask.Repo, result.Message, true); attKey++; return; }
+        if (SaveAttachmentsDir(ask.Repo, ask.New, moved: true)) attNote = new(ask.Repo, result.Message, false);
+        Workspace.Notify();   // notes and descriptions were rewritten: every open page reads them again
+    }
+
+    private void AttachmentsKeep()
+    {
+        if (attAsk is not { } ask) return;
+        attAsk = null;
+        SaveAttachmentsDir(ask.Repo, ask.New);   // new files go to the new folder; the old ones and their references stay
+    }
+
+    private void AttachmentsCancel() { attAsk = null; attKey++; }
 
     private string repoPath = "";
     private string? error;

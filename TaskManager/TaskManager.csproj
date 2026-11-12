@@ -13,9 +13,11 @@
     <PackageReference Include="Radzen.Blazor" Version="12.1.6" />
     <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.5" />   <!-- the connected storage's secret: Windows per-user protection (DPAPI) -->
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />
+    <ProjectReference Include="../BoardSync/BoardSync.csproj" />
     <ProjectReference Include="../GitHistory/GitHistory.csproj" />
     <ProjectReference Include="../Features/Features.csproj" />
     <ProjectReference Include="../WorkItems/WorkItems.csproj" />

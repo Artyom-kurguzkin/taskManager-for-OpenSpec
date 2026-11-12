@@ -119,15 +119,18 @@ internal static class Commands
 
     private static string DirKey(string root) => Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-    /// <summary>Where this repository's note attachments go (relative, forward slashes). A folder outside the repository is refused: the default is used.</summary>
+    /// <summary>Where this repository's note attachments go (relative, forward slashes). A folder that is not allowed (see <see cref="AttachmentsFolder.Check"/>) is refused: the default is used.</summary>
     internal static void SetAttachmentsDir(string repoRoot, string? dir)
     {
-        string clean = (dir ?? "").Trim().Replace('\\', '/').Trim('/');
-        if (clean.Length == 0 || clean == DefaultAttachmentsDir || Path.IsPathRooted(clean) || clean.Split('/').Contains("..")) AttachDirs.TryRemove(DirKey(repoRoot), out _);
+        (bool ok, string clean, string _) = AttachmentsFolder.Check(dir);
+        if (!ok || clean == DefaultAttachmentsDir) AttachDirs.TryRemove(DirKey(repoRoot), out _);
         else AttachDirs[DirKey(repoRoot)] = clean;
     }
 
     private static string AttachmentsDir(string root) => AttachDirs.GetValueOrDefault(DirKey(root), DefaultAttachmentsDir);
+
+    /// <summary>The absolute folder this repository's attachments go to right now.</summary>
+    internal static string AttachmentsRoot(string repoRoot) => Path.GetFullPath(Path.Combine(repoRoot, AttachmentsDir(repoRoot).Replace('/', Path.DirectorySeparatorChar)));
 
     /// <summary>The open repository the note lives in: by its own path, so a switch of the active project meanwhile cannot send its files elsewhere.</summary>
     internal static string? RootOf(Note note) =>
@@ -240,7 +243,7 @@ internal static class Commands
     }
 
     /// <summary>Appends "local/" to the repository's .gitignore unless a line already says so.</summary>
-    private static void IgnoreFolder(string root, string attachDir)
+    internal static void IgnoreFolder(string root, string attachDir)
     {
         string ignored = attachDir == DefaultAttachmentsDir ? "local" : attachDir;   // the default keeps ignoring all of local/, as it always did
         string file = Path.Combine(root, ".gitignore");

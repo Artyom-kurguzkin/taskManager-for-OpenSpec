@@ -41,3 +41,4 @@
 2026-11-11T10:08:59 | Claude grid | log | Cause of lost typed text (known): startEdit set orig=input.value, so a cell opened by typing a character looked unchanged at commit. Not the Blazor echo (no input event at all before the fix). Fixed; exit keys + Home/End done; now re-verifying blur/click-outside and running suite.
 2026-11-11T10:23:50 | Claude grid | log | Suite after fix: 591 passed, 2 failed of 593 (DropSetsColumnAndRowFields + one more, board tests unrelated to the editor; machine under load, 6m24s). Re-running with a trx to name them.
 2026-11-11T10:28:04 | Claude grid | log | Done: results after fix all kept (8/8). Node 38 pass. Fast suite 592/593: "Several Changed events in one frame reload a page once more" fails (10 reloads vs 1-2), a C# coalescing test I did not touch; fails alone too. Shots gridfix-*.png in tests/out/shots.
+2026-11-12T05:11:57 | Claude | status | In Progress -> In Review

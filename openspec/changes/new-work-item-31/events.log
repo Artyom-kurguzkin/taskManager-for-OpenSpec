@@ -1,0 +1,25 @@
+2026-11-11T17:03:42 | Artyom-kurguzkin | created | New work item
+2026-11-11T17:03:58 | Artyom-kurguzkin | title | New work item -> resolve merge conflicts
+2026-11-11T17:04:10 | Artyom-kurguzkin | feature | none -> track-work-items
+2026-11-11T17:04:14 | Artyom-kurguzkin | status | Backlog -> Planned
+2026-11-11T17:04:17 | Artyom-kurguzkin | priority | low -> high
+2026-11-11T17:04:21 | Artyom-kurguzkin | label | none -> enhancement
+2026-11-11T17:04:30 | Artyom-kurguzkin | dates | none -> 11 Nov – 11 Nov
+2026-11-11T17:05:52 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-12T05:39:56 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-12T05:41:37 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-12T06:26:05 | Claude | plan-linked | DevResources/plans/board-sync-through-blob-storage-2026-11-12.md
+2026-11-12T06:26:23 | Claude chunk ids | log | Chunk ids started: reading how WorkItems/Notes/OpenSpecStore handle duplicate ids, then tests first for a repair.
+2026-11-12T06:29:41 | Claude chunk ids | log | Tests red: RepairingDuplicateIdsTests, 9 of 14 fail (no renumbered event, own refs not rewritten, MCP shows duplicate, concurrent repair crashes, no-dup scan still stamps).
+2026-11-12T06:32:26 | Claude chunk ids | log | RepairingDuplicateIdsTests green: Passed 14, Failed 0. Running the full fast suite next to find tests the new behaviour changes.
+2026-11-12T06:40:58 | Claude chunk ids | log | Chunk ids finished: RepairingDuplicateIdsTests Passed 15 (one added after the first run), full fast suite Passed 613, Failed 0. Checked in the hidden app, light and dark. Uncommitted in worktree agent-a0b8e2c75db77ae3f.
+2026-11-12T06:44:23 | Claude | status | In Progress -> In Review
+2026-11-12T06:44:24 | Claude | test-linked | RepairingDuplicateIdsTests / Two work items that got the same id after a merge: the one created first keeps it and the other gets the next free id
+2026-11-12T06:44:24 | Claude | test-linked | RepairingDuplicateIdsTests / The renumbered work item's own references to its old id follow it, and other items' references stay with the keeper
+2026-11-12T06:44:24 | Claude | test-linked | RepairingDuplicateIdsTests / A renumbering is recorded in the renumbered item's worklog, naming the old id, the new id and who kept it
+2026-11-12T06:44:24 | Claude | test-linked | RepairingDuplicateIdsTests / Two notes that got the same id after a merge: the one created first keeps it, the other's file and frontmatter get the next free id
+2026-11-12T06:44:24 | Claude | test-linked | RepairingDuplicateIdsTests / With no duplicate ids the repair changes nothing and writes nothing
+2026-11-12T06:44:24 | Claude | test-linked | RepairingDuplicateIdsTests / Repairing twice at once renumbers each duplicate once and logs it once
+2026-11-12T06:44:24 | Claude | test-linked | RepairingDuplicateIdsTests / A reload after outside edits that introduce a duplicate id repairs it once and does not loop
+2026-11-12T06:44:24 | Claude | test-linked | RepairingDuplicateIdsTests / The board tools see the repaired ids: a duplicate made outside shows once under each id
+2026-11-12T06:44:24 | Claude | test-linked | RepairingDuplicateIdsTests / The worklog shows a renumbering among the item's events, and hiding events hides it

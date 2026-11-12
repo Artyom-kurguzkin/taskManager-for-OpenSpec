@@ -1,0 +1,127 @@
+2026-11-11T17:06:08 | Artyom-kurguzkin | created | New work item
+2026-11-11T17:06:35 | Artyom-kurguzkin | title | New work item -> configurable external shared storage
+2026-11-11T17:06:46 | Artyom-kurguzkin | feature | none -> track-work-items
+2026-11-11T17:06:51 | Artyom-kurguzkin | status | Backlog -> Planned
+2026-11-11T17:06:55 | Artyom-kurguzkin | priority | low -> high
+2026-11-11T17:07:02 | Artyom-kurguzkin | label | none -> enhancement
+2026-11-11T17:07:05 | Artyom-kurguzkin | label | enhancement -> feature
+2026-11-11T17:07:08 | Artyom-kurguzkin | dates | none -> 11 Nov – 11 Nov
+2026-11-12T05:11:50 | Claude | plan-linked | DevResources/plans/board-sync-through-blob-storage-2026-11-12.md
+2026-11-12T05:11:50 | Claude | description-edited | proposal.md
+2026-11-12T05:11:51 | Claude | subtask-added | 1.1 merge: pure merge functions per file type against the base, with unit tests per rule
+2026-11-12T05:11:51 | Claude | subtask-added | 1.2 provider: the contract, the Folder provider and the S3-compatible provider (R2), one test set run against both
+2026-11-12T05:11:51 | Claude | subtask-added | 1.3 loop: local base, manifest swap and retry, triggers, deletion brake, first connection (needs merge and provider)
+2026-11-12T05:11:51 | Claude | subtask-added | 1.4 git: stale-content rule, pause during a merge, .gitattributes union line, reconcile when HEAD moved (needs loop)
+2026-11-12T05:11:51 | Claude | subtask-added | 1.5 ids: internal ids, reserved number blocks per device, collision repair (needs loop)
+2026-11-12T05:11:51 | Claude | subtask-added | 1.6 ui: per-project Board storage settings, key storage, test connection, sync state, conflict notes; checked on the hidden desktop in light and dark (needs loop)
+2026-11-12T05:39:51 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-12T06:26:24 | Claude chunk merge | log | Chunk merge started: worktree reset to 4972b22, BoardSync base applied, build green. Writing tests first for the pure merge rules.
+2026-11-12T06:26:25 | Claude chunk provider | log | Chunk provider started in its worktree: storage contract, Folder and S3 providers, tests first.
+2026-11-12T06:29:00 | Claude chunk provider | log | Provider tests written (StoringBoardFilesTests, FakeS3); red because the providers do not exist yet.
+2026-11-12T06:29:36 | Claude chunk merge | log | Merge tests written (MergingBoardFilesTests, 16 facts), stub throws NotImplemented: all red. Implementing events.log, yaml, tasks, text and note rules next.
+2026-11-12T06:33:48 | Claude chunk provider | log | Provider chunk done: StoringBoardFilesTests Passed 20/20; full fast suite Passed 618/618 (598 baseline + 20). Not committed; S3 verified only against the fake and the AWS example.
+2026-11-12T06:36:37 | Claude chunk merge | log | Chunk merge finished: MergingBoardFilesTests Passed 17/17; full fast suite Passed! Failed: 0, Passed: 615, Total: 615 (2 m 45 s). Not committed, in worktree agent-a5b0b9988779f50b4.
+2026-11-12T06:38:44 | Claude | subtask-done | 1.1 merge: pure merge functions per file type against the base, with unit tests per rule
+2026-11-12T06:38:44 | Claude | subtask-done | 1.2 provider: the contract, the Folder provider and the S3-compatible provider (R2), one test set run against both
+2026-11-12T06:38:59 | Claude chunk loop | log | Chunk started: sync engine (BoardSyncApi.Sync) in worktree sync-loop; reading design, writing tests first.
+2026-11-12T06:43:51 | Claude chunk loop | log | Sync engine chunk: 13 tests written in SyncingTheBoardTests, all red (engine stub throws NotImplementedException). Implementing now.
+2026-11-12T06:50:40 | Claude chunk loop | log | Sync engine done in worktree sync-loop: SyncingTheBoardTests 15 passed; fast suite Passed! Failed: 0, Passed: 650, Total: 650. Uncommitted.
+2026-11-12T06:59:40 | Claude | subtask-done | 1.3 loop: local base, manifest swap and retry, triggers, deletion brake, first connection (needs merge and provider)
+2026-11-12T07:00:11 | Claude chunk host | log | Chunk host started: wiring the app to the sync engine (settings, service, conflict reports). Baseline build in the worktree succeeds.
+2026-11-12T07:00:14 | Claude chunk git | log | Chunk git started: EditedInApp stale rule in SyncPlanner and GitFolder pause check, tests first in SyncingBesideGitTests.
+2026-11-12T07:03:11 | Claude chunk git | log | Tests red: SyncingBesideGitTests written (17 facts), 10 fail against stubs (Stale and GitPause only declared); next the planner stale rule and the git guard.
+2026-11-12T07:08:08 | Claude | subtask-done | 1.4 git: stale-content rule, pause during a merge, reconcile when HEAD moved (the .gitattributes line and the triggers are in the host chunk)
+2026-11-12T07:15:51 | Claude chunk trash | log | Chunk trash started in worktree sync-trash: the sync moves what it removes (and non-text clash losers) to StateFolder/trash instead of erasing; tests first in KeepingWhatSyncDeletesTests.
+2026-11-12T07:18:10 | Claude chunk trash | log | Tests red: 9 of 16 new KeepingWhatSyncDeletesTests failed before the implementation (Trashed existed but nothing was moved). Then implemented; the three sync classes pass 48/48.
+2026-11-12T07:19:33 | Claude | subtask-added | 1.7 trash: a file the sync removes is moved to a trash folder kept 30 days, never erased (decision #n285)
+2026-11-12T07:19:33 | Claude | subtask-added | 1.8 old content: recognised from this computer's uncapped memory and from a refused upload; objects named by path plus content; event logs always union-merged (decision #n289)
+2026-11-12T07:19:33 | Claude | subtask-added | 1.9 host: triggers (on change, timer, on open), conflicts as events and notes on the item, .gitattributes union line
+2026-11-12T07:19:33 | Claude | subtask-added | 1.10 after integration: full suite, hidden-desktop check of the merged build, spec deltas, first run against a real R2 bucket (needs the owner's bucket and token)
+2026-11-12T07:24:17 | Claude chunk trash | log | Trash chunk done (699 passed in the fast suite). Extra scope from the coordinator started: object key by path+content, unlimited memory of seen versions (local set + refused upload), events.log always merged. Tests first in RecognisingOldContentTests.
+2026-11-12T07:32:00 | Claude chunk trash | log | Chunk trash finished: fast suite in worktree sync-trash Passed 707, Failed 1 (FirstConnection asserts the old object key layout literally, line 184); the 3 sync classes plus Keeping/Recognising classes otherwise green.
+2026-11-12T07:35:31 | Claude | subtask-done | 1.7 trash: a file the sync removes is moved to a trash folder kept 30 days, never erased (decision #n285)
+2026-11-12T07:35:31 | Claude | subtask-done | 1.8 old content: recognised from this computer's uncapped memory and from a refused upload; objects named by path plus content; event logs always union-merged (decision #n289)
+2026-11-12T07:35:31 | Claude | subtask-done | 1.9 host: triggers (on change, timer, on open), conflicts as events and notes on the item, .gitattributes union line
+2026-11-12T07:36:21 | Claude chunk close | log | Chunk close started in worktree sync-close: blocked reason, git pause state, stale/trash toasts, DroppedHere, persisted app-writes, NUL-byte check, real-app check.
+2026-11-12T07:39:21 | Claude chunk close | log | Point 6: no NUL or other non-text bytes in BoardSync/, the sync tests, or the host files. Points 1+4 engine side (Blocked, TrashFolder, BackupFolder, DroppedHere) and their 3 engine tests written: 51 passed in the three engine classes.
+2026-11-12T07:54:34 | Claude chunk close | log | Real app (hidden desktop, 2 demo git repos, Folder storage): a) connect, Test connection, Sync now OK ("Synced just now: 542 sent", light+dark). b) status dragged in A reached B on its start; B board shows it.
+2026-11-12T08:00:13 | Claude chunk close | log | Real app c) conflicts OK both ways: A worklog 'kept "Blocked", dropped "In Progress" (another computer's change)'; B 'kept "Confirmed", dropped "In Progress" (this computer's change)'. Light+dark. Finding: the text is the syncing computer's view, read on the other too.
+2026-11-12T08:05:18 | Claude chunk close | log | Real app d) deletion: 2 items archived in A through the UI; B synced: folders gone, copies in B's state/trash, toasts 'Received 8 changes' + '4 files ... kept in the trash for 30 days', 'Open trash folder' link shown (not clicked: Explorer would open on the user's desktop).
+2026-11-12T08:05:18 | Claude chunk close | log | Real app e) git pause: .git/MERGE_HEAD in B, Settings reopened with no sync: 'Paused: Sync is paused while a git merge is in progress...', no Allow button, one toast; after removing the file Sync now goes back to 'Nothing new'. Light+dark.
+2026-11-12T08:06:12 | Claude chunk close | log | Real app f) stale: old yaml bytes put back on disk in B; Sync now restored the newer content, toast '1 board file was older than the synced version and was replaced by it'; storage manifest entry, object count (560) and A's copy unchanged.
+2026-11-12T08:13:57 | Claude | status | In Progress -> In Review
+2026-11-12T08:13:58 | Claude | test-linked | SyncingWithConnectedStorageTests / A project is set to this folder only by default and nothing syncs
+2026-11-12T08:13:58 | Claude | test-linked | SyncingWithConnectedStorageTests / Choosing connected storage with a folder saves the provider and path in the project's settings in the repository
+2026-11-12T08:13:58 | Claude | test-linked | SyncingWithConnectedStorageTests / The S3 secret is kept on this computer only: it is not in the repository and is never shown back
+2026-11-12T08:13:58 | Claude | test-linked | SyncingWithConnectedStorageTests / Two computers on the same storage: a work item changed on one shows up on the other after its sync
+2026-11-12T08:13:58 | Claude | test-linked | SyncingWithConnectedStorageTests / A sync runs shortly after the board changes, once for a burst of changes
+2026-11-12T08:13:58 | Claude | test-linked | SyncingWithConnectedStorageTests / A field changed on both computers is logged as a sync conflict event on the work item, with what was dropped
+2026-11-12T08:13:58 | Claude | test-linked | SyncingWithConnectedStorageTests / Text lost in a sync conflict is kept as a note on the work item
+2026-11-12T08:13:58 | Claude | test-linked | SyncingWithConnectedStorageTests / A new provider is one descriptor: the settings render its fields without new page code
+2026-11-12T08:13:58 | Claude | test-linked | SyncingWithConnectedStorageTests / Paths the app wrote are still app edits after the app restarts
+2026-11-12T08:13:58 | Claude | test-linked | SyncingTheBoardTests / Two computers syncing at the same moment both succeed: the one that lost the manifest retries against the winner's
+2026-11-12T08:13:58 | Claude | test-linked | SyncingTheBoardTests / A sync that would delete a large share of the board is blocked and changes nothing until it is allowed
+2026-11-12T08:13:58 | Claude | test-linked | SyncingTheBoardTests / Files changed on both computers while apart are merged by their rules, and both computers end with the same content
+2026-11-12T08:13:58 | Claude | test-linked | SyncingBesideGitTests / Old content that a checkout brings back is not uploaded: the storage's newer version returns
+2026-11-12T08:13:58 | Claude | test-linked | SyncingBesideGitTests / Sync is paused while a git merge, rebase, cherry-pick or revert is in progress, and writes nothing
+2026-11-12T08:13:58 | Claude | test-linked | KeepingWhatSyncDeletesTests / A file deleted on the other computer is moved to this computer's trash, not erased
+2026-11-12T08:13:58 | Claude | test-linked | RecognisingOldContentTests / Content this computer never saw but the storage has had for that file is recognised when the upload is refused, with no extra request
+2026-11-12T08:13:58 | Claude | test-linked | RecognisingOldContentTests / An old event log that a checkout brings back is merged with the storage's log and removes no line
+2026-11-12T08:13:58 | Claude | test-linked | MergingBoardFilesTests / Lists merge by what each side added and removed: a removal is not resurrected and both sides' additions are kept
+2026-11-12T08:13:58 | Claude | test-linked | StoringBoardFilesTests / A put for a version that is no longer current is refused and leaves the newer content
+2026-11-12T08:13:58 | Claude | subtask-done | 1.6 ui: per-project Board storage settings, key storage, test connection, sync state, conflict notes; checked on the hidden desktop in light and dark (needs loop)
+2026-11-12T08:14:12 | Claude | test-unlinked | StoringBoardFilesTests / A put for a version that is no longer current is refused and leaves the newer content
+2026-11-12T08:14:12 | Claude | test-linked | StoringBoardFilesTests / The S3 signature matches the published AWS Signature Version 4 example
+2026-11-12T08:14:12 | Claude | test-linked | StoringBoardFilesTests / Two writers racing on a conditional put into a folder: exactly one wins
+2026-11-12T08:36:50 | Claude sec engine | log | Security review of the sync engine and storage providers started; reading BoardSync, writing SecurityOfBoardSyncTests.
+2026-11-12T08:36:51 | Claude sec host | log | Security review started: reading BoardStorage, BoardSyncService, GitAttributes, settings UI, ServeHost; tests go to SecurityOfConnectedStorageTests.cs in worktree sec-host.
+2026-11-12T08:49:36 | Claude sec host | log | SEC CONFIRMED critical: config.yaml from a cloned repo (provider folder, any path incl. UNC) starts syncing the whole board on open with no consent (BoardSyncService.Configure/BoardStorage.Open).
+2026-11-12T08:49:36 | Claude sec host | log | SEC CONFIRMED high: saved S3 key id is sent (signed) and the board PUT to a changed endpoint after a git pull; credentials are not bound to endpoint/bucket and there is no confirmation. Plain http endpoints are accepted too.
+2026-11-12T08:49:36 | Claude sec host | log | SEC CONFIRMED high: engine follows a folder junction/symlink inside openspec/changes and uploads files from outside the board (LocalTree.Scan AttributesToSkip=0); same for Ui.ImageSrc reading through a link.
+2026-11-12T08:49:36 | Claude sec host | log | SEC CONFIRMED medium: empty 'provider:' in config.yaml throws NullReferenceException in BoardStorageSettings.Config (line 79) from Workspace.Open; markdown renders href=javascript: and remote img src; secret and key id survive Disconnect/provider change; no back-off in sync loop (26 syncs/3 s).
+2026-11-12T08:49:36 | Claude sec host | log | Sec review finished: 34 tests in SecurityOfConnectedStorageTests, 19 failing (defects proven), 15 passing (safe points); one NUL line blocks server-writes.log batch (low); key id printed in failure messages (low).
+2026-11-12T08:51:29 | Claude sec engine | log | HIGH: LocalTree.Scan/ToLocal/MoveToTrash follow junctions/symlinks inside the board folder: sync uploads, writes and trashes files outside openspec/changes (3 failing tests).
+2026-11-12T08:51:29 | Claude sec engine | log | MEDIUM: deletion brake is per sync; a hostile storage tombstoning 30% each sync wipes the local board (100 to 0 in 8 syncs, never Blocked). Overwrites have no brake and keep no local copy.
+2026-11-12T08:51:30 | Claude sec engine | log | MEDIUM: plain http:// S3 endpoint accepted and redirects followed (PUT body re-sent to the Location host); MITM can forge manifest+objects. Authorization header is stripped on redirect (safe).
+2026-11-12T08:51:30 | Claude sec engine | log | MEDIUM: manifest clock is unbounded: SyncClock.After wraps below the floor at 999999999999999-9999, and a far-future clock wins every clash and tombstone for good (3 failing tests).
+2026-11-12T08:51:30 | Claude sec engine | log | MEDIUM (DoS): marker-like text inside a code fence pauses sync for ever and can arrive through the storage; null entries/hash in manifest throw out of Sync; no response size cap; history unbounded (7.7 MB state.json); merge CPU blowups (tasks 50k lines 29 s, agent-mark regex).
+2026-11-12T08:51:30 | Claude sec engine | log | LOW: S3 prefix '..' climbs out of the bucket, userinfo in the endpoint leaks into errors, DTD parsed in listings, List never ends on a repeating token, FolderStorage follows junctions, device names/trailing dots/case aliases accepted.
+2026-11-12T08:51:30 | Claude sec engine | log | Finished: SecurityOfBoardSyncTests 43 tests, Failed 28 (defects proven), Passed 15 (safe points). No product file edited.
+2026-11-12T08:52:19 | Claude | status | In Review -> In Progress
+2026-11-12T08:52:19 | Claude | contributor-added | Claude
+2026-11-12T08:52:19 | Claude | subtask-added | 1.11 security fixes, host: repository settings are a proposal until approved on this computer; keys bound to their address; https only; links in the board not followed; empty provider; link and image addresses in notes; secrets removed on disconnect; key id protected
+2026-11-12T08:52:19 | Claude | subtask-added | 1.12 security fixes, engine: junctions not followed on read, write or trash; a copy kept before every overwrite; cumulative deletion and overwrite brake; clocks validated and bounded; redirects off; manifest nulls, sizes, history and path names validated; conflict markers in code fences; merge time bounds
+2026-11-12T09:11:06 | Claude fix host | log | Fix phase started (Claude fix host): approval per computer, bound keys, address validation, robust reads, scrubbed messages, safe markdown + CSP, capped log reads, back-off, .gitattributes link guard; tests added to SecurityOfConnectedStorageTests.cs first.
+2026-11-12T09:11:15 | Claude fix engine | log | Fix engine started: implementing decisions 1-8 in BoardSync/** from the 43 SecurityOfBoardSyncTests (28 red).
+2026-11-12T09:48:59 | Claude fix host | log | Host fixes in code: decisions 1-6, 8, 9, 10 and the Ui part of 7 done; security tests 58 pass, 3 fail (2 being fixed, 1 engine-dependent). Remaining: CSP meta in index.html, real-app check, SyncingWithConnectedStorage/pages suites, full fast suite.
+2026-11-12T09:49:31 | Claude fix engine | log | Decisions 1-8 are implemented in BoardSync/**; listed classes: 173 passed, 5 failed (all 5 are my old security facts that contradict a decision: max-clock floor, prefix with //, folder link Put throws, userinfo ctor throws, prefix ".." NotEmpty).
+2026-11-12T09:49:31 | Claude fix engine | log | Remaining: new facts for Replaced, cumulative window and AllowMassDelete reset, loopback http, links skipped both ways; then the whole fast suite once in the foreground and the report.
+2026-11-12T09:54:11 | Claude fix engine | log | New facts added (Replaced, 24h window + reset + expiry, loopback http, redirect, masked key, links both ways, manifest problems, history, caps, catch-all, markers, merge fallback): SecurityOfBoardSyncTests 51 passed, 5 failed (contradict decisions). Running the whole fast suite.
+2026-11-12T09:55:56 | Claude fix host | log | Suites SecurityOfConnectedStorage+SyncingWithConnectedStorage+UsingPages+KeepingNotes: Passed 200, Failed 1 (junction test, needs the engine fix). Existing tests changed: SecondComputerOnlyAsksForTheKey (adds Approve), DocPageShowsLinkedImages (missing image is now a link).
+2026-11-12T09:59:18 | Claude fix host | log | Real app (hidden desktop) run 1: CSP active, 0 violations on board, item, worklog, doc, note, settings; repo-named folder shows approval line (light/dark), Allow syncs, changed path asks again; javascript link is text, remote image a link, repo svg inline.
+2026-11-12T10:01:03 | Claude fix engine | log | Finished: whole fast suite Passed 800, Failed 5 (the 5 old security facts that contradict decisions 1/4/5); SecurityOfBoardSyncTests 51 passed of 56; MAIN untouched.
+2026-11-12T10:50:52 | Claude fix host | log | Decisions 1-10 all implemented in code (7 incl. CSP meta); real-app steps a-d done (CSP blocks probe, 0 console problems, approval flow, changed path asks again, markdown safe). Remaining: full fast suite and the report; no instances left running.
+2026-11-12T10:55:37 | Claude | subtask-done | 1.12 security fixes, engine: junctions not followed on read, write or trash; a copy kept before every overwrite; cumulative deletion and overwrite brake; clocks validated and bounded; redirects off; manifest nulls, sizes, history and path names validated; conflict markers in code fences; merge time bounds
+2026-11-12T10:59:35 | Claude fix host | log | Whole fast suite in sec-host: Failed 1, Passed 809, Total 810 (the junction test, needs the engine fix). Host fixes finished; report sent.
+2026-11-12T11:10:11 | Claude | subtask-done | 1.11 security fixes, host: repository settings are a proposal until approved on this computer; keys bound to their address; https only; links in the board not followed; empty provider; link and image addresses in notes; secrets removed on disconnect; key id protected
+2026-11-12T11:10:46 | Claude chunk wire | log | Chunk wire started: robust settings file IO (flake), wire Replaced/SkippedLinks/GitPause into host, run folder-link security test.
+2026-11-12T11:51:05 | Claude | status | In Progress -> In Review
+2026-11-12T11:51:05 | Claude | test-linked | SecurityOfConnectedStorageTests / A repository's own settings cannot start syncing the board to a folder the user never chose
+2026-11-12T11:51:05 | Claude | test-linked | SecurityOfConnectedStorageTests / Keys saved for one S3 address are not sent to another address after the repository's settings change
+2026-11-12T11:51:05 | Claude | test-linked | SecurityOfConnectedStorageTests / A folder link inside the board is not followed out of the board and its files are not uploaded
+2026-11-12T11:51:05 | Claude | test-linked | SecurityOfConnectedStorageTests / A markdown link with a javascript: address is not rendered as a live link
+2026-11-12T11:51:05 | Claude | test-linked | SecurityOfConnectedStorageTests / Going back to this folder only removes the saved secret from this computer
+2026-11-12T11:51:05 | Claude | test-linked | SecurityOfBoardSyncTests / a hostile storage cannot delete most of the board by tombstoning just under the brake in every sync
+2026-11-12T11:51:05 | Claude | test-linked | SecurityOfBoardSyncTests / content that a download replaces on this computer stays recoverable in the state folder
+2026-11-12T11:51:05 | Claude | test-linked | SecurityOfBoardSyncTests / a plain http endpoint (clear text, no TLS) is refused for a remote host
+2026-11-12T11:51:05 | Claude | test-linked | SecurityOfBoardSyncTests / a manifest clock far in the future does not make the storage win every clash for good
+2026-11-12T11:51:05 | Claude | test-linked | SyncingWithConnectedStorageTests / Saving a key while the credentials are being read never throws and never loses the value
+2026-11-12T11:51:05 | Claude | subtask-done | 1.10 after integration: full suite, hidden-desktop check of the merged build, spec deltas, first run against a real R2 bucket (needs the owner's bucket and token)
+2026-11-12T16:09:29 | Claude chunk simple | log | Trigger cut done in worktree sync-simple: Passed! - Failed: 0, Passed: 120, Skipped: 0, Total: 120 (SyncingWithConnectedStorageTests + SecurityOfConnectedStorageTests); no Task.Delay/Until/Settled left in either file.
+2026-11-12T16:15:53 | Claude | test-unlinked | SyncingWithConnectedStorageTests / A sync runs shortly after the board changes, once for a burst of changes
+2026-11-12T16:15:53 | Claude | test-unlinked | SyncingWithConnectedStorageTests / Saving a key while the credentials are being read never throws and never loses the value
+2026-11-12T16:15:53 | Claude | test-linked | SyncingWithConnectedStorageTests / A change starts a two-minute wait, and another change restarts it
+2026-11-12T16:15:53 | Claude | test-linked | SyncingWithConnectedStorageTests / When the wait ends the board syncs once
+2026-11-12T16:15:53 | Claude | test-linked | SyncingWithConnectedStorageTests / Opening a connected project syncs it once
+2026-11-12T16:15:53 | Claude | test-linked | SyncingWithConnectedStorageTests / Closing the app syncs what has not been synced yet, and never holds the app for more than the limit
+2026-11-12T16:15:53 | Claude | test-linked | SyncingWithConnectedStorageTests / Nothing syncs on a timer by itself: with no change, no start and no exit there is no sync

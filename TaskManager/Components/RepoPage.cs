@@ -93,6 +93,14 @@ public abstract class RepoPage : ComponentBase, IDisposable
         return false;
     }
 
+    /// <summary>Like <see cref="Run"/>, for a command that saved or removed an attachment file: the connected storage's sync follows even when no board file moved.</summary>
+    protected bool RunAttachment((bool Success, string Message) result)
+    {
+        bool ok = Run(result);
+        if (ok) Workspace.AttachmentsChanged();
+        return ok;
+    }
+
     public virtual void Dispose()
     {
         Workspace.Changed -= OnChanged;

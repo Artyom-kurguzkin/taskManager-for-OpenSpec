@@ -14,6 +14,7 @@ public sealed class Workspace : IDisposable
 {
     private readonly SettingsStore settings;
     private readonly UiService ui;
+    private readonly BoardSyncService? sync;   // null where no storage can be connected (tests that do not register it)
     private bool resolving;
     private readonly Dictionary<string, string> scanned = new(StringComparer.OrdinalIgnoreCase);   // per project: the WorkItemsApi.FolderStamp the last duplicate-number scan saw
     private string? guideNotice;
@@ -37,23 +38,35 @@ public sealed class Workspace : IDisposable
         if (line.Length > 0) guideNotice = guideNotice is null ? line : guideNotice + " " + line;
     }
 
-    public Workspace(SettingsStore settings, UiService ui)
+    public Workspace(SettingsStore settings, UiService ui, BoardSyncService? sync = null)
     {
         this.settings = settings;
         this.ui = ui;
+        this.sync = sync;
+        if (sync is not null) { sync.InProject = In; sync.Touched += Notify; }
         OpenSpecStoreApi.Changed += Notify;
         plansSeen = PlansState;
         settings.Changed += RefreshGuides;
     }
 
     private string plansSeen;
-    private string PlansState => string.Join(";", (settings.Current.PlansDirs ?? []).Select(kv => kv.Key + "=" + kv.Value)) + "|" + string.Join(";", (settings.Current.AttachmentsDirs ?? []).Select(kv => kv.Key + "=" + kv.Value));
+    /// <summary>What the guides and the Notes module are configured from: the plans folders (this computer's) and every open project's attachments folder (the project's own setting, which a pull can change).</summary>
+    private string PlansState => string.Join(";", (settings.Current.PlansDirs ?? []).Select(kv => kv.Key + "=" + kv.Value)) + "|" + string.Join(";", ConfiguredRoots().Select(r => r + "=" + settings.AttachmentsDir(r)));
+
+    private readonly HashSet<string> configured = new(StringComparer.OrdinalIgnoreCase);   // the open projects ConfigureProject has been through: a project is configured when it opens, not when its folder is first read
+
+    private List<string> ConfiguredRoots()
+    {
+        lock (configured) return [.. OpenSpecStoreApi.OpenRoots.Where(r => configured.Contains(Path.GetFullPath(r))).OrderBy(r => r, StringComparer.OrdinalIgnoreCase)];
+    }
 
     /// <summary>Gives the Notes module the project's attachments folder and brings the project's agent guide up to date with its plans and attachments folders.</summary>
     private void ConfigureProject(string root)
     {
+        lock (configured) configured.Add(Path.GetFullPath(root));
         NotesApi.SetAttachmentsDir(root, settings.AttachmentsDir(root));
         NoteGuide(root, AgentGuide.Ensure(root, settings.PlansDir(root), settings.AttachmentsDir(root)));
+        plansSeen = PlansState;
     }
 
     /// <summary>Makes sure git does not ignore the project's events.log files (GitHistory is pointed at <paramref name="root"/>); says so once when it had to add an exception.</summary>
@@ -100,6 +113,7 @@ public sealed class Workspace : IDisposable
         settings.Update(s => s with { LastRepo = OpenSpecStoreApi.RepoRoot });
         ConfigureProject(root);
         TrackWorklog(root);
+        sync?.Attach(root);
         OpenTabs(root);
         KeepTabs();
         Notify();
@@ -110,7 +124,7 @@ public sealed class Workspace : IDisposable
     private void OpenTabs(string active)
     {
         foreach (string tab in OpenRepos.Where(t => !OpenSpecStoreApi.OpenRoots.Any(o => SettingsStore.Key(o) == SettingsStore.Key(t))))
-            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) { GitHistoryApi.Configure(tab); ConfigureProject(tab); TrackWorklog(tab); }
+            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) { GitHistoryApi.Configure(tab); ConfigureProject(tab); TrackWorklog(tab); sync?.Attach(tab); }
         OpenSpecStoreApi.Use(active);
         GitHistoryApi.Configure(active);
     }
@@ -121,6 +135,7 @@ public sealed class Workspace : IDisposable
         List<string> keep = [.. OpenRepos, .. Root is string r ? [r] : Array.Empty<string>()];
         OpenSpecStoreApi.Keep(keep);
         GitHistoryApi.Keep(keep);
+        sync?.Prune(keep);
     }
 
     /// <summary>Reads or writes another open repository, then comes back to the active one.</summary>
@@ -198,6 +213,7 @@ public sealed class Workspace : IDisposable
     /// </summary>
     public void Notify()
     {
+        if (PlansState != plansSeen) RefreshGuides();   // config.yaml changed from outside (a pull): the attachments folder follows
         if (!resolving)   // the writes below raise Changed again
         {
             resolving = true;
@@ -208,14 +224,19 @@ public sealed class Workspace : IDisposable
                     {
                         // Numbers can only collide when a change folder appeared, came from outside or moved: an ordinary edit of one item's files never does.
                         string stamp = WorkItemsApi.FolderStamp();
-                        if (scanned.TryGetValue(project, out string? seen) && seen == stamp) return;
-                        foreach ((int oldId, int newId, string folder) in WorkItemsApi.ResolveDuplicateIds())
+                        if (!scanned.TryGetValue(project, out string? seen) || seen != stamp)
                         {
-                            (bool ok, string _, int noteId) = NotesApi.Create(newId, "App");
-                            if (ok && NotesApi.SetTitle(noteId, $"Renumbered from #wi{oldId}").Success) NotesApi.SaveBody(noteId, $"Two changes carried the number #wi{oldId}. This one ({folder}) was created later, so it is now #wi{newId}. Anything that refers to #wi{oldId} means the other change.\n");
-                            ui.Toast($"#wi{oldId} was used twice: {folder} is now #wi{newId}", ToastKind.Warning);
+                            foreach ((int oldId, int newId, string folder) in WorkItemsApi.ResolveDuplicateIds())
+                            {
+                                (bool ok, string _, int noteId) = NotesApi.Create(newId, "App");
+                                if (ok && NotesApi.SetTitle(noteId, $"Renumbered from #wi{oldId}").Success) NotesApi.SaveBody(noteId, $"Two changes carried the number #wi{oldId}. This one ({folder}) was created later, so it is now #wi{newId}. Anything that refers to #wi{oldId} means the other change.\n");
+                                ui.Toast($"#wi{oldId} was used twice: {folder} is now #wi{newId}", ToastKind.Warning);
+                            }
+                            scanned[project] = WorkItemsApi.FolderStamp();   // after the renumbering, which moved numbers
                         }
-                        scanned[project] = WorkItemsApi.FolderStamp();   // after the renumbering, which moved numbers
+                        // A note can come in under a number another one has without any folder changing (a merge adds a file to a folder both sides had): after the work items, whose numbers the notes belong to.
+                        foreach ((int oldId, int newId, string path) in NotesApi.RepairDuplicateIds())
+                            ui.Toast($"#n{oldId} was used twice: {Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(path)))} has a note that is now #n{newId}", ToastKind.Warning);
                     }); }
                     // Notify runs on the file watcher's timer: an error here would be thrown on a background thread and end the app.
                     // Files moving under the read (a merge, an archive, Explorer) are the usual cause, and the next change refreshes again.
@@ -231,8 +252,15 @@ public sealed class Workspace : IDisposable
             }
             finally { resolving = false; }
         }
+        sync?.BoardChanged();   // the one place the board's content is reported changing: connected projects sync two quiet minutes after
         Changed?.Invoke();
     }
+
+    /// <summary>An attachment file was saved or removed by the app: the connected storage's sync follows after the quiet wait, even when no board file changed.</summary>
+    public void AttachmentsChanged() => sync?.AttachmentsChanged();
+
+    /// <summary>The settings page is about to save another attachments folder (<paramref name="moved"/>: it moved the files itself): the sync service must not follow it as if a pull had changed it.</summary>
+    public void AttachmentsFolderChangingHere(string repo, string dir, bool moved) => sync?.AttachmentsFolderChangingHere(repo, dir, moved);
 
     /// <summary>The project a new work item goes to: the only one, or the one the user picks (null when cancelled).</summary>
     public async Task<string?> PickProject(string title)
@@ -251,5 +279,9 @@ public sealed class Workspace : IDisposable
         return (ok, message, id);
     }
 
-    public void Dispose() => OpenSpecStoreApi.Changed -= Notify;
+    public void Dispose()
+    {
+        OpenSpecStoreApi.Changed -= Notify;
+        if (sync is not null) sync.Touched -= Notify;
+    }
 }

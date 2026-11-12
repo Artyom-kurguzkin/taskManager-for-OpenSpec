@@ -1,0 +1,288 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "type": "rectangle",
+   "id": "zl",
+   "x": 20,
+   "y": 40,
+   "width": 330,
+   "height": 330,
+   "backgroundColor": "#dbe4ff",
+   "strokeColor": "#4a9eed",
+   "strokeWidth": 1,
+   "opacity": 40,
+   "roundness": {
+    "type": 3
+   }
+  },
+  {
+   "type": "text",
+   "id": "zlt",
+   "x": 36,
+   "y": 50,
+   "text": "This computer, in the repository",
+   "fontSize": 18,
+   "strokeColor": "#1c5fa8",
+   "width": 316.8,
+   "height": 22.5
+  },
+  {
+   "type": "rectangle",
+   "id": "board",
+   "x": 50,
+   "y": 100,
+   "width": 270,
+   "height": 90,
+   "backgroundColor": "#a5d8ff",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "board-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "board-label",
+   "containerId": "board",
+   "text": "Board files\nopenspec/changes (in git)",
+   "originalText": "Board files\nopenspec/changes (in git)",
+   "fontSize": 16,
+   "x": 74.99999999999999,
+   "y": 125,
+   "width": 220.00000000000003,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "att",
+   "x": 50,
+   "y": 250,
+   "width": 270,
+   "height": 90,
+   "backgroundColor": "#ffd8a8",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "att-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "att-label",
+   "containerId": "att",
+   "text": "Attachments folder\nlocal/task-tracking (not in git)",
+   "originalText": "Attachments folder\nlocal/task-tracking (not in git)",
+   "fontSize": 16,
+   "x": 44.19999999999999,
+   "y": 275,
+   "width": 281.6,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "zr",
+   "x": 640,
+   "y": 40,
+   "width": 330,
+   "height": 330,
+   "backgroundColor": "#d3f9d8",
+   "strokeColor": "#22c55e",
+   "strokeWidth": 1,
+   "opacity": 40,
+   "roundness": {
+    "type": 3
+   }
+  },
+  {
+   "type": "text",
+   "id": "zrt",
+   "x": 656,
+   "y": 50,
+   "text": "Connected storage",
+   "fontSize": 18,
+   "strokeColor": "#15803d",
+   "width": 168.3,
+   "height": 22.5
+  },
+  {
+   "type": "rectangle",
+   "id": "sb",
+   "x": 670,
+   "y": 100,
+   "width": 270,
+   "height": 90,
+   "backgroundColor": "#c3fae8",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "sb-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "sb-label",
+   "containerId": "sb",
+   "text": "manifest.json, objects/\nmerged by kind of file",
+   "originalText": "manifest.json, objects/\nmerged by kind of file",
+   "fontSize": 16,
+   "x": 703.8,
+   "y": 125,
+   "width": 202.4,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "sa",
+   "x": 670,
+   "y": 250,
+   "width": 270,
+   "height": 90,
+   "backgroundColor": "#c3fae8",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "sa-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "sa-label",
+   "containerId": "sa",
+   "text": "attachments/manifest.json, objects/\nwhole files, newer wins",
+   "originalText": "attachments/manifest.json, objects/\nwhole files, newer wins",
+   "fontSize": 16,
+   "x": 651,
+   "y": 275,
+   "width": 308,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a1",
+   "x": 320,
+   "y": 145,
+   "width": 350,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     350,
+     0
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "startArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a1-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a1-label",
+   "containerId": "a1",
+   "text": "board sync",
+   "originalText": "board sync",
+   "fontSize": 14,
+   "x": 456.5,
+   "y": 136.25,
+   "width": 77,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a2",
+   "x": 320,
+   "y": 295,
+   "width": 350,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     350,
+     0
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "startArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a2-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a2-label",
+   "containerId": "a2",
+   "text": "attachment sync",
+   "originalText": "attachment sync",
+   "fontSize": 14,
+   "x": 437.25,
+   "y": 286.25,
+   "width": 115.50000000000001,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "text",
+   "id": "n",
+   "x": 50,
+   "y": 390,
+   "text": "Paths in the storage are relative to the attachments folder, so moving the folder is a local rename:\nnothing is uploaded again.",
+   "fontSize": 14,
+   "strokeColor": "#b45309",
+   "width": 770.0000000000001,
+   "height": 35
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

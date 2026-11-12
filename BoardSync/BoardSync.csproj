@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Syncing the board between computers through a connected storage: merge rules, storage providers, the sync loop. -->
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+</Project>

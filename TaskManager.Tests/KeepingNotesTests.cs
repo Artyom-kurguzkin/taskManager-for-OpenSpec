@@ -95,7 +95,7 @@ public sealed class KeepingNotesTests
         Assert.Equal((107, "Twin note"), (moved.WorkItemId, moved.Title));
         Assert.Equal(repo.PathOf("openspec/changes/export-remittances/notes/n131.md"), moved.Path);
         Assert.False(File.Exists(repo.PathOf("openspec/changes/export-remittances/notes/n123.md")));
-        Assert.Equal("---\nid: 131\nby: Tom\ncreated: 2026-10-05T10:00:00\n---\n# Twin note\n\nSee #n123.\n", repo.Read("openspec/changes/export-remittances/notes/n131.md"));   // links to #n123 are left as written
+        Assert.Equal("---\nid: 131\nby: Tom\ncreated: 2026-10-05T10:00:00\n---\n# Twin note\n\nSee #n131.\n", repo.Read("openspec/changes/export-remittances/notes/n131.md"));   // what the note says about itself follows it; other notes' links to #n123 are left as written
         Assert.Equal("---\nid: 7\nby: Tom\ncreated: 2026-10-06T10:00:00\n---\n# Misnumbered\n", repo.Read("openspec/changes/plain-change/notes/n7.md"));
         Assert.Contains("id: 123", repo.Read(NoteFile));
 

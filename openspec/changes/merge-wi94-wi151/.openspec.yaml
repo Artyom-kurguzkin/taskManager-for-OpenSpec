@@ -8,4 +8,7 @@ x-rtm:
   contributors: [Artyom-kurguzkin, Claude]
   features: [integration-with-agents]
   label: feature
+  tests: [{suite: UsingTheWorklogTests, test: A worklog of a folder that is not a git repository reads again without starting a git process}, {suite: SeeingOutsideEditsLiveTests, test: The app's own save into folders that did not exist yet is not reported back either}]
   mergedFrom: [94, 151]
+  agentBy: Claude
+  agentAt: 2026-11-12T05:12:21

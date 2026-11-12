@@ -235,7 +235,7 @@
     {
         "note" => r.Note is { IsDecision: true } ? "decisions" : r.Note is { IsBug: true } ? "bugs" : "notes",
         "converted" or "subtask-removed" => "edits",   // a note turned into a subtask or the other way round, and the subtask taken out: housekeeping
-        "created" or "status" or "merged-from" => "events",
+        "created" or "status" or "merged-from" or "renumbered" or "sync-conflict" => "events",
         "commit-linked" or "commit-unlinked" or "test-linked" or "test-unlinked" or "doc-linked" or "doc-unlinked" or "plan-linked" or "plan-unlinked" or "commit" or "mention" or "test" or "doc" => "links",
         "subtask-done" or "subtask-reopened" or "subtask-added" or "dependency-added" or "dependency-removed" => "subtasks",
         _ => "edits",   // title, priority, label, dates, feature, contributors, description, attachments, and any kind not known yet
@@ -584,6 +584,7 @@
         catch (FormatException) { Popups.Toast("That image could not be read", ToastKind.Warning); return; }
         (bool ok, string path) = NotesApi.AttachItemImage(root, item.Id, name, bytes);
         if (!ok) { Popups.Toast(path, ToastKind.Warning); return; }
+        Workspace.AttachmentsChanged();
         caret = Math.Clamp(caret, 0, text.Length);
         string before = text[..caret], after = text[caret..];
         string insert = (before.Length > 0 && !before.EndsWith('\n') ? "\n" : "") + $"![]({path})" + (after.Length > 0 && !after.StartsWith('\n') ? "\n" : "");
@@ -664,7 +665,7 @@
     public void PastedImage(string name, string base64)
     {
         if (editId is not int id) return;
-        try { Run(NotesApi.AttachBytes(id, name, Convert.FromBase64String(base64))); }
+        try { RunAttachment(NotesApi.AttachBytes(id, name, Convert.FromBase64String(base64))); }
         catch (FormatException) { Popups.Toast("That image could not be read", ToastKind.Warning); }
         InvokeAsync(StateHasChanged);
     }

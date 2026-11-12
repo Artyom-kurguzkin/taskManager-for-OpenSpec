@@ -1,0 +1,489 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "type": "rectangle",
+   "id": "zl",
+   "x": 20,
+   "y": 60,
+   "width": 300,
+   "height": 400,
+   "backgroundColor": "#dbe4ff",
+   "strokeColor": "#4a9eed",
+   "strokeWidth": 1,
+   "opacity": 40,
+   "roundness": {
+    "type": 3
+   }
+  },
+  {
+   "type": "text",
+   "id": "zlt",
+   "x": 36,
+   "y": 70,
+   "text": "This computer",
+   "fontSize": 18,
+   "strokeColor": "#1c5fa8",
+   "width": 128.70000000000002,
+   "height": 22.5
+  },
+  {
+   "type": "rectangle",
+   "id": "files",
+   "x": 50,
+   "y": 120,
+   "width": 240,
+   "height": 90,
+   "backgroundColor": "#a5d8ff",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "files-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "files-label",
+   "containerId": "files",
+   "text": "Board files\nopenspec/ (also in git)",
+   "originalText": "Board files\nopenspec/ (also in git)",
+   "fontSize": 16,
+   "x": 68.8,
+   "y": 145,
+   "width": 202.4,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "base",
+   "x": 50,
+   "y": 330,
+   "width": 240,
+   "height": 90,
+   "backgroundColor": "#fff3bf",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "base-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "base-label",
+   "containerId": "base",
+   "text": "Last-synced copy\n(the merge base)",
+   "originalText": "Last-synced copy\n(the merge base)",
+   "fontSize": 16,
+   "x": 99.6,
+   "y": 355,
+   "width": 140.8,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "sync",
+   "x": 460,
+   "y": 200,
+   "width": 220,
+   "height": 130,
+   "backgroundColor": "#d0bfff",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "sync-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "sync-label",
+   "containerId": "sync",
+   "text": "Sync, in the app\nmerge per file type",
+   "originalText": "Sync, in the app\nmerge per file type",
+   "fontSize": 16,
+   "x": 486.4,
+   "y": 245,
+   "width": 167.20000000000002,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "zr",
+   "x": 820,
+   "y": 60,
+   "width": 320,
+   "height": 400,
+   "backgroundColor": "#d3f9d8",
+   "strokeColor": "#22c55e",
+   "strokeWidth": 1,
+   "opacity": 40,
+   "roundness": {
+    "type": 3
+   }
+  },
+  {
+   "type": "text",
+   "id": "zrt",
+   "x": 836,
+   "y": 70,
+   "text": "Connected storage (R2)",
+   "fontSize": 18,
+   "strokeColor": "#15803d",
+   "width": 217.8,
+   "height": 22.5
+  },
+  {
+   "type": "rectangle",
+   "id": "man",
+   "x": 850,
+   "y": 120,
+   "width": 260,
+   "height": 90,
+   "backgroundColor": "#c3fae8",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "man-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "man-label",
+   "containerId": "man",
+   "text": "manifest.json\npath -> content hash",
+   "originalText": "manifest.json\npath -> content hash",
+   "fontSize": 16,
+   "x": 892,
+   "y": 145,
+   "width": 176,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "obj",
+   "x": 850,
+   "y": 330,
+   "width": 260,
+   "height": 90,
+   "backgroundColor": "#c3fae8",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "obj-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "obj-label",
+   "containerId": "obj",
+   "text": "File versions\nnamed by content hash",
+   "originalText": "File versions\nnamed by content hash",
+   "fontSize": 16,
+   "x": 887.6,
+   "y": 355,
+   "width": 184.8,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a1",
+   "x": 290,
+   "y": 150,
+   "width": 0,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     170,
+     80
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a1-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a1-label",
+   "containerId": "a1",
+   "text": "1 what changed here",
+   "originalText": "1 what changed here",
+   "fontSize": 14,
+   "x": 301.85,
+   "y": 181.25,
+   "width": 146.3,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a2",
+   "x": 850,
+   "y": 165,
+   "width": 0,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     -170,
+     65
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a2-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a2-label",
+   "containerId": "a2",
+   "text": "2 read if changed",
+   "originalText": "2 read if changed",
+   "fontSize": 14,
+   "x": 699.55,
+   "y": 188.75,
+   "width": 130.9,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a3",
+   "x": 680,
+   "y": 310,
+   "width": 0,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     170,
+     65
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a3-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a3-label",
+   "containerId": "a3",
+   "text": "3 upload new",
+   "originalText": "3 upload new",
+   "fontSize": 14,
+   "x": 718.8,
+   "y": 333.75,
+   "width": 92.4,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a4",
+   "x": 680,
+   "y": 265,
+   "width": 0,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     300,
+     0
+    ],
+    [
+     300,
+     -55
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "strokeColor": "#b45309",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a4-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a4-label",
+   "containerId": "a4",
+   "text": "4 replace only if unchanged",
+   "originalText": "4 replace only if unchanged",
+   "fontSize": 14,
+   "x": 876.05,
+   "y": 228.75,
+   "width": 207.9,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#b45309"
+  },
+  {
+   "type": "arrow",
+   "id": "a5",
+   "x": 460,
+   "y": 310,
+   "width": 0,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     -170,
+     65
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a5-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a5-label",
+   "containerId": "a5",
+   "text": "5 save as base",
+   "originalText": "5 save as base",
+   "fontSize": 14,
+   "x": 321.1,
+   "y": 333.75,
+   "width": 107.80000000000001,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a6",
+   "x": 460,
+   "y": 265,
+   "width": 0,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     -290,
+     0
+    ],
+    [
+     -290,
+     -55
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "strokeStyle": "dashed",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a6-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a6-label",
+   "containerId": "a6",
+   "text": "merged files written back",
+   "originalText": "merged files written back",
+   "fontSize": 14,
+   "x": 73.74999999999999,
+   "y": 228.75,
+   "width": 192.50000000000003,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "text",
+   "id": "note",
+   "x": 400,
+   "y": 480,
+   "text": "Step 4 lost because another computer wrote first?\nRead the new manifest and start again from step 2.",
+   "fontSize": 14,
+   "strokeColor": "#b45309",
+   "width": 385.00000000000006,
+   "height": 35
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

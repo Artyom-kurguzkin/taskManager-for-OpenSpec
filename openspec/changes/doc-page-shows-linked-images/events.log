@@ -1,0 +1,10 @@
+2026-11-12T06:06:42 | Claude | created | Images linked from a document do not show on the document page
+2026-11-12T06:06:42 | Claude | status | Planned -> In Progress
+2026-11-12T06:06:42 | Claude | description-edited | proposal.md
+2026-11-12T06:06:42 | Claude | label | none -> bug
+2026-11-12T06:06:42 | Claude | subtask-added | 1.1 Failing test, then the fix in Ui.Markdown and DocPage
+2026-11-12T06:06:42 | Claude | subtask-added | 1.2 Checked in the real app with the sync plan, light and dark
+2026-11-12T06:06:50 | Claude | status | In Progress -> In Review
+2026-11-12T06:06:50 | Claude | test-linked | UsingThePagesTests / An image a document links to shows on the doc page: a file beside the document or a path from the repository root, an .svg too
+2026-11-12T06:06:50 | Claude | subtask-done | 1.1 Failing test, then the fix in Ui.Markdown and DocPage
+2026-11-12T06:06:50 | Claude | subtask-done | 1.2 Checked in the real app with the sync plan, light and dark

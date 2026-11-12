@@ -62,6 +62,21 @@ internal static partial class Queries
         internal Dictionary<string, NotesFolder> Folders = new(StringComparer.OrdinalIgnoreCase);
         internal IReadOnlyList<Note> Notes = [];
         internal int MaxId;
+        /// <summary>Renumberings made by loads and not yet handed to <see cref="NotesApi.RepairDuplicateIds"/>.</summary>
+        internal List<(int OldId, int NewId, string Path)> Renumbered = [];
+    }
+
+    /// <summary>Reads the notes (which settles collisions on the way) and hands over the renumberings made since the last call; empty when there were none.</summary>
+    internal static IReadOnlyList<(int OldId, int NewId, string Path)> RepairDuplicateIds()
+    {
+        lock (NotesModule.Gate)
+        {
+            Cached();
+            if (!NotesModule.Cache.TryGetValue(OpenSpecStoreApi.RepoRoot ?? "", out NotesCache? c) || c.Renumbered.Count == 0) return [];
+            List<(int, int, string)> made = c.Renumbered;
+            c.Renumbered = [];
+            return made;
+        }
     }
 
     /// <summary>A note whose frontmatter did not parse shows its title (from the body) followed by why, so the warning is where the user looks first.</summary>
@@ -134,19 +149,27 @@ internal static partial class Queries
             wrote |= OpenSpecStoreApi.WriteText(r.File, NoteFile.Compose(r.Meta, r.Body)).Success;
         }
         foreach (IGrouping<int, Raw> twins in raws.Where(r => r.Id > 0).GroupBy(r => r.Id).Where(g => g.Count() > 1).ToList())
-            foreach (Raw r in twins.OrderBy(r => r.Created).ThenBy(r => r.FileNumber).ThenBy(r => r.File, StringComparer.Ordinal).Skip(1).Where(r => r.Meta.Problem is null))   // a file whose frontmatter does not parse is never rewritten
+        {
+            List<Raw> ordered = [.. twins.OrderBy(r => r.Created).ThenBy(r => r.FileNumber).ThenBy(r => r.File, StringComparer.Ordinal)];
+            foreach (Raw r in ordered.Skip(1).Where(r => r.Meta.Problem is null))   // a file whose frontmatter does not parse is never rewritten
             {
-                int id = ++maxId;
+                int id = ++maxId, old = r.Id;
                 string target = Path.Combine(Path.GetDirectoryName(r.File)!, $"n{id}.md");
+                string body = Regex.Replace(r.Body, $@"#n{old}(?!\d)", $"#n{id}");   // what the note says about itself follows it; other notes' links to #n{old} meant the keeper
                 r.Meta.Id = id;
                 r.Meta.Created ??= r.Created.ToString("s", CultureInfo.InvariantCulture);
-                if (!OpenSpecStoreApi.WriteText(target, NoteFile.Compose(r.Meta, r.Body)).Success) continue;
+                if (!OpenSpecStoreApi.WriteText(target, NoteFile.Compose(r.Meta, body)).Success) continue;
                 OpenSpecStoreApi.MarkOwnChange(r.File);
                 try { File.Delete(r.File); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
                 r.File = target;
                 r.FileNumber = id;
+                r.Body = body;
                 wrote = true;
+                cache.Renumbered.Add((old, id, target));
+                Raw keeper = ordered[0];
+                WorkItemsApi.LogEvent(r.WorkItemId, "renumbered", $"#n{old} -> #n{id}: the id was taken by \"{NoteFile.Title(keeper.Meta.Title, keeper.Body, keeper.Id)}\" ({Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(keeper.File)))}) after a merge");
             }
+        }
 
         if (wrote)   // the files under the cached notes just changed: build them again from what was written
             foreach (NotesFolder f in folders)

@@ -1022,6 +1022,21 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Matches(@"overflow-x:\s*auto", Rule(".desc table"));
     }
 
+    [Fact(DisplayName = "An image a document links to shows on the doc page: a file beside the document or a path from the repository root, an .svg too")]
+    public async Task DocPageShowsLinkedImages()
+    {
+        await using BunitContext ctx = NewContext();
+        repo.Write("DevResources/plans/loop.excalidraw.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+        repo.Write("docs/shot.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+        repo.Write("DevResources/plans/pic-plan.md", "# Plan\n\n![loop](loop.excalidraw.svg)\n\n![shot](docs/shot.svg)\n\n![gone](missing.svg)\n");
+        IRenderedComponent<DocPage> page = ctx.Render<DocPage>(p => p.Add(c => c.Path, "DevResources/plans/pic-plan.md"));
+
+        page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".desc img").Count));   // only the files of the repository are images
+        Assert.StartsWith("data:image/svg+xml;base64,", page.Find(".desc img[alt=loop]").GetAttribute("src"));   // beside the document
+        Assert.StartsWith("data:image/svg+xml;base64,", page.Find(".desc img[alt=shot]").GetAttribute("src"));   // from the repository root
+        Assert.Equal("gone", page.Find(".desc a[href='missing.svg']").TextContent);                                  // a missing file is a link with its text, never an image to fetch
+    }
+
     [Fact(DisplayName = "A markdown file under the repository opens on the doc page, rendered, with its path shown; a missing file or a path outside the repository shows not found")]
     public async Task DocPageRendersMarkdown()
     {

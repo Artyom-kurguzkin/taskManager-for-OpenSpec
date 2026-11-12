@@ -82,6 +82,7 @@ public static class ServeHost
         app.Logger.LogInformation("serving MCP on http://127.0.0.1:{Port}/mcp (pid {Pid}, idle exit {Idle} h)", actual, Environment.ProcessId, idleHours);
 
         IHostApplicationLifetime lifetime = app.Lifetime;
+        _ = Services.ServerWrites.Run(Paths.Home, lifetime.ApplicationStopping);   // tells the desktop app which board files this server wrote (they are app edits for the sync, git's are not)
         if (parentPid is { } parent)
             _ = Task.Run(async () =>
             {

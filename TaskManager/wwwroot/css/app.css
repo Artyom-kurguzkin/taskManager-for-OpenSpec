@@ -1064,3 +1064,25 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
     .nav-row > .nav-toggle svg { width: 16px; height: 16px; }
   }
 }
+
+/* board storage */
+@layer page {
+  .bs .bs-wide { grid-column: 1 / -1; }
+  .bs-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .bs-state, .bs-test-result, .bs-ask-detail, .bs-skipped, .bs-toolarge { margin: 0; overflow-wrap: anywhere; user-select: text; }
+  .bs-state.bad, .bs-test-result.bad { font-weight: 600; }
+  .bs-attach { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  .bs-attach .nav-pill { margin-left: -6px; }   /* the pill reaches 6px left of plain text, like the menu's */
+  .bs-trash { margin: 0; }
+  .bs-open-trash { padding: 0; border: 0; background: none; color: var(--ink); font: 500 13.5px var(--f-body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .bs .seg { flex-wrap: wrap; }
+}
+
+/* attachments folder */
+@layer page {
+  .att-row { grid-column: 2; margin: 0; min-width: 0; }   /* under the field, in its column */
+  .att-ask p, p.att-row { margin: 0; overflow-wrap: anywhere; user-select: text; }
+  .att-actions { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 8px; }
+  .att-warn { font-weight: 600; }
+}
+@media (max-width: 640px) { @layer page { .att-row { grid-column: 1 / -1; } } }

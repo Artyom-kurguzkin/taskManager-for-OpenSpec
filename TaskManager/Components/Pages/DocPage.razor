@@ -14,7 +14,7 @@
         <div class="kv"><label>document</label><span class="mono">@Path</span></div>
         <BackButton />
     </div>
-    <div class="desc">@Ui.Markdown(text)</div>
+    <div class="desc">@Ui.Markdown(text, Workspace.Root, Path.Contains('/') ? Path[..Path.LastIndexOf('/')] : null)</div>
 </div>
 
 @code {

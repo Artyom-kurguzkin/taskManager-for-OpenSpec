@@ -1,0 +1,12 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-12
+x-rtm:
+  id: 162
+  title: mutli-user support for external storage
+  status: Backlog
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [multiplay]
+  label: feature
+  moved: 2026-11-12

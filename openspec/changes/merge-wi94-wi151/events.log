@@ -7,3 +7,5 @@
 2026-11-11T07:56:36 | Artyom-kurguzkin | dates | none -> 16 Nov – 30 Nov
 2026-11-11T07:57:37 | Artyom-kurguzkin | created | remote agent runtime control
 2026-11-11T07:57:37 | Artyom-kurguzkin | merged-from | #wi151 Server idle-exit test hangs when the machine is busy
+2026-11-12T05:12:21 | Claude | test-linked | UsingTheWorklogTests / A worklog of a folder that is not a git repository reads again without starting a git process
+2026-11-12T05:12:21 | Claude | test-linked | SeeingOutsideEditsLiveTests / The app's own save into folders that did not exist yet is not reported back either
