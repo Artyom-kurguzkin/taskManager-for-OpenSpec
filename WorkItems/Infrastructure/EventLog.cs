@@ -45,10 +45,8 @@ internal static class EventLog
         try
         {
             if (!Directory.Exists(dir)) return (false, "That work item no longer exists");
-            string file = PathIn(dir);
-            string text = OpenSpecStoreApi.ReadText(file);
-            if (text.Length > 0 && !text.EndsWith('\n')) text += "\n";
-            return OpenSpecStoreApi.WriteText(file, edit(text));
+            // read again under the folder's lock and append to what is there now: another writer's event is never overwritten and this one is never refused as stale
+            return OpenSpecStoreApi.UpdateText(PathIn(dir), text => edit(text.Length > 0 && !text.EndsWith('\n') ? text + "\n" : text));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return (false, e.Message); }
     }

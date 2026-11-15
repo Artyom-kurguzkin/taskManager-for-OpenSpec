@@ -8,7 +8,6 @@ namespace TaskManager.Tests;
 /// Completing a work item whose change the OpenSpec CLI refuses as written, end to end through the real CLI (via npx):
 /// the user moves the card and it archives, whatever is wrong with the specs. Slow and needs Node.js.
 /// </summary>
-[Collection(nameof(ModuleStateCollection))]
 [Trait("Category", "OpenSpecCli")]
 public sealed class CompletingItemsTheCliWouldRefuseTests
 {

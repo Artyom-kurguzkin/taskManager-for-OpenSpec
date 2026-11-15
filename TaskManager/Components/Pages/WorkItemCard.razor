@@ -21,6 +21,7 @@
             @* the column already names the contributor when grouped by contributor, and the label when grouped by label *@
             @if (Options.GroupBy != "contributor" && Item.Contributors.Count > 0) { <text> · </text><span class="who-list">@string.Join(", ", Item.Contributors)</span> }
             @if (Item.Subtasks.Count > 0) { <text> · </text><span class="subs">@Item.Subtasks.Count(s => s.Done)/@Item.Subtasks.Count</span> }
+            <AgentBadge Item="Item" />
         </span>
         <span class="tags">
             <span class="tag">#wi@(Item.Id)</span>

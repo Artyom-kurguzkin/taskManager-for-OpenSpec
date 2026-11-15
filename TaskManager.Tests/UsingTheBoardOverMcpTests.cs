@@ -14,7 +14,6 @@ using WorkItems.PublicDTOs;
 namespace TaskManager.Tests;
 
 /// <summary>The eight board tools, called the way an agent calls them: through an MCP client over an in-memory pipe.</summary>
-[Collection(nameof(ModuleStateCollection))]
 public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
 {
     private ServiceProvider services = null!;

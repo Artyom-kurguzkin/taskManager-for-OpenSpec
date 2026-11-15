@@ -19,6 +19,13 @@ public static partial class BoardSyncApi
     /// <paramref name="stateFolder"/> is the sync's state folder (<see cref="SyncOptions.StateFolder"/>): with it, files that are still byte-identical to what the last sync wrote are not looked at,
     /// exactly as in a sync, so the status shown here and the sync agree. Markers inside fenced code blocks never count.
     /// </summary>
-    public static string? GitPause(string localRoot, string? gitFolder, string? stateFolder = null) =>
-        GitGuard.Pause(localRoot, gitFolder, string.IsNullOrWhiteSpace(stateFolder) ? null : new SyncStateStore(stateFolder).Load()?.Entries);
+    public static string? GitPause(string localRoot, string? gitFolder, string? stateFolder = null)
+    {
+        if (string.IsNullOrWhiteSpace(stateFolder)) return GitGuard.Pause(localRoot, gitFolder);
+        SyncStateStore store = new(stateFolder);
+        StatCache stat = StatCache.Open(store, DateTime.UtcNow);        // the status line is shown on every render: unchanged files are not read, only listed
+        string? pause = GitGuard.Pause(localRoot, gitFolder, store.Load()?.Entries, cache: stat);
+        stat.Save();
+        return pause;
+    }
 }

@@ -11,7 +11,7 @@ namespace TaskManager.Tests;
 /// The UI asks the modules for the same data many times per click. Each module parses the repo once and serves
 /// later reads from memory until something changes: the app's own write, an outside edit, or a repo switch.
 /// </summary>
-[Collection(nameof(ModuleStateCollection))]
+[Collection(nameof(RealTimeCollection))]
 public sealed class CachingTheRepoTests
 {
     [Fact(DisplayName = "Reading work items repeatedly parses the repo only once")]

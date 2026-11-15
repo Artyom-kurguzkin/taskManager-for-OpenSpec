@@ -1,0 +1,31 @@
+2026-11-13T12:00:17 | Claude | created | Side menu: every clickable option coloured, show all hidden works and has an icon when collapsed
+2026-11-13T12:00:17 | Claude | status | Planned -> In Progress
+2026-11-13T12:00:17 | Claude | description-edited | proposal.md
+2026-11-13T12:00:17 | Claude | label | none -> bug
+2026-11-13T12:00:17 | Claude | subtask-added | 1.1 Dropdown values and the changed selector rendered as pills; none or the neutral choice grey, anything else yellow
+2026-11-13T12:00:17 | Claude | subtask-added | 1.2 show all hidden works; the label reads show all hidden
+2026-11-13T12:00:18 | Claude | subtask-added | 1.3 Collapsed menu: icon button for show all hidden
+2026-11-13T12:08:05 | Claude chunk nav-colours | test-linked | UsingTheBoardTests / Side menu dropdown values are pills: grey for none or the neutral choice, yellow for any other value
+2026-11-13T12:08:05 | Claude chunk nav-colours | test-linked | UsingTheBoardTests / The changed selector is a grey pill at any time and yellow once a range is set
+2026-11-13T12:08:05 | Claude chunk nav-colours | test-linked | UsingTheBoardTests / Show all hidden brings the hidden columns, rows and projects back on the board and the list
+2026-11-13T12:08:05 | Claude chunk nav-colours | test-linked | UsingTheBoardTests / The collapsed menu has a show all hidden button that is pressed when on
+2026-11-13T12:08:05 | Claude chunk nav-colours | subtask-done | 1.1 Dropdown values and the changed selector rendered as pills; none or the neutral choice grey, anything else yellow
+2026-11-13T12:08:05 | Claude chunk nav-colours | subtask-done | 1.2 show all hidden works; the label reads show all hidden
+2026-11-13T12:08:05 | Claude chunk nav-colours | subtask-done | 1.3 Collapsed menu: icon button for show all hidden
+2026-11-13T12:10:51 | Claude | status | In Progress -> In Review
+2026-11-13T12:10:51 | Claude | feature | none -> organise-work-items
+2026-11-13T13:07:43 | Claude chunk show-hidden | test-linked | UsingTheBoardTests / With show all hidden on every work item of a hidden project renders as a card and the column count equals the cards shown
+2026-11-13T13:07:43 | Claude chunk show-hidden | test-linked | UsingTheBoardTests / With show all hidden on only contributor, period and changed can leave a work item out
+2026-11-13T13:07:43 | Claude chunk show-hidden | test-linked | UsingTheBoardTests / A collapsed project section shows its cards while show all hidden is on
+2026-11-13T13:07:43 | Claude chunk show-hidden | test-linked | UsingTheBoardTests / In the list a collapsed project's rows show while show all hidden is on
+2026-11-13T13:10:28 | Claude | log | Integrated the show-hidden chunk into main (BoardModel.cs, BoardPage.razor.cs, UsingTheBoardTests.cs). One suite run: Passed 964, Failed 1; the failure is a bUnit find-then-trigger race in UsingThePagesTests, unrelated to the chunk; an agent is making that test deterministic.
+2026-11-13T13:13:22 | Claude | log | The UsingThePagesTests race is fixed structurally (find and trigger in one InvokeAsync, shared View helper too). One suite run in main: Passed 965, Failed 0, 57 s. The four show-hidden tests pass in latest.trx. Still In Review.
+2026-11-13T16:01:46 | Claude chunk fold-stays | test-unlinked | UsingTheBoardTests / With show all hidden on only contributor, period and changed can leave a work item out
+2026-11-13T16:01:46 | Claude chunk fold-stays | test-unlinked | UsingTheBoardTests / A collapsed project section shows its cards while show all hidden is on
+2026-11-13T16:01:46 | Claude chunk fold-stays | test-unlinked | UsingTheBoardTests / In the list a collapsed project's rows show while show all hidden is on
+2026-11-13T16:01:46 | Claude chunk fold-stays | test-linked | UsingTheBoardTests / With show all hidden on only contributor, period, changed and a project's collapse can leave a work item out
+2026-11-13T16:01:46 | Claude chunk fold-stays | test-linked | UsingTheBoardTests / A collapsed project stays collapsed while show all hidden is on
+2026-11-13T16:01:46 | Claude chunk fold-stays | test-linked | UsingTheBoardTests / In the list a collapsed project's rows stay folded while show all hidden is on
+2026-11-13T16:01:46 | Claude chunk fold-stays | test-linked | UsingTheBoardTests / A collapsed project's work items count in no column header, with show all hidden on or off
+2026-11-13T16:01:46 | Claude chunk fold-stays | test-linked | UsingTheBoardTests / A collapsed project's work items count in no side menu Hidden count, with show all hidden on or off
+2026-11-13T16:06:13 | Claude | log | Integrated the fold-stays chunk into main (BoardModel.cs, BoardPage.razor(.cs), SideNav.razor, UsingTheBoardTests.cs). One suite run: Passed 967, Failed 0. Collapsed projects stay collapsed and count nowhere. Still In Review.

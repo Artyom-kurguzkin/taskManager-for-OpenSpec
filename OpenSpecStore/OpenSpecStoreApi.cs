@@ -46,6 +46,8 @@ public static class OpenSpecStoreApi
     // ── Files ──
     public static string ReadText(string path) => Queries.ReadText(path);
     public static (bool Success, string Message) WriteText(string path, string content) => Commands.WriteText(path, content);
+    /// <summary>Reads the file fresh under the change folder's lock, applies <paramref name="edit"/> to its text and writes that, never refused as stale (append-only files like events.log).</summary>
+    public static (bool Success, string Message) UpdateText(string path, Func<string, string> edit) => Commands.UpdateText(path, edit);
     public static (bool Success, string Message) DeleteFolder(string path) => Commands.DeleteFolder(path);
     /// <summary>Deletes one file (nothing to do when it is already gone); the store is told, so every reader sees it gone.</summary>
     public static (bool Success, string Message) DeleteFile(string path) => Commands.DeleteFile(path);

@@ -75,7 +75,7 @@
             <span class="muted">The list fills in as you type valid [[doc]], #wi and #n references.</span>
         </section>
         <section class="tile attachments" data-tile="attachments">
-            <div class="tile-h"><h3>Attachments</h3><span class="muted">kept out of git, under local/</span></div>
+            <div class="tile-h"><h3>Attachments</h3><span class="muted">kept out of git, synced with the board storage</span></div>
             <div class="att-list">
                 @foreach (string a in note.Attachments)
                 {
@@ -144,7 +144,7 @@
         // ponytail: link resolution reads the repo, so do it on a 250 ms pause rather than per keystroke
         pendingPreview?.Cancel();
         CancellationTokenSource preview = pendingPreview = new();
-        _ = Task.Delay(250, preview.Token).ContinueWith(t =>
+        _ = Task.Delay(TimeSpan.FromMilliseconds(250), Time, preview.Token).ContinueWith(t =>
         {
             if (t.IsCanceled) return;
             InvokeAsync(() => { previewBody = body; links = NotesApi.ResolveLinks(previewBody); StateHasChanged(); });
@@ -152,7 +152,7 @@
         saving = true;
         pendingSave?.Cancel();
         CancellationTokenSource cts = pendingSave = new();
-        _ = Task.Delay(600, cts.Token).ContinueWith(t => { if (!t.IsCanceled) InvokeAsync(Save); }, TaskScheduler.Default);
+        _ = Task.Delay(TimeSpan.FromMilliseconds(600), Time, cts.Token).ContinueWith(t => { if (!t.IsCanceled) InvokeAsync(Save); }, TaskScheduler.Default);
     }
 
     /// <summary>

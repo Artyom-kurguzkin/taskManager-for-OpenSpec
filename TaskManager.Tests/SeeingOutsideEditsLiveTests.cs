@@ -2,7 +2,7 @@ using OpenSpecStore;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
+[Collection(nameof(RealTimeCollection))]
 public sealed class SeeingOutsideEditsLiveTests
 {
     [Fact(DisplayName = "Ticking a checkbox in another editor is noticed within 2 seconds")]

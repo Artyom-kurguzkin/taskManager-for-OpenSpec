@@ -43,7 +43,7 @@ public static class BoardMcp
         - Write #wiN for another work item and #nN for a note in any text. Commits that mention #wiN link themselves; others go in `commits`.
         - Linked tests: `tests` take the test class short name as `suite` and the display name as `test`, exactly as the latest results file names them; names that are not in it come back as warnings, so run the tests first.
         - A change that alters what the product does needs a delta spec per capability (`specs`): requirements with SHALL or MUST and a WHEN/THEN scenario. A refactoring or chore needs none.
-        - Plans are markdown files you write yourself under the plans folder (DevResources/plans by default); the tools only link them with `plan`.
+        - Plans are markdown files you write yourself under the project's plans folder (openspec/REPO-TASKS.md names it; DevResources/plans in a project that has not set one); the tools only link them with `plan`.
         - Errors say how to fix the call: read them, fix, call again.
         """;
 

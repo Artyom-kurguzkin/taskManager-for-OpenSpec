@@ -24,22 +24,39 @@ internal sealed class GitState
     public CommitLog? Log;
 }
 
+/// <summary>The module's state: the configured repository, what is known about each repository, and the counters tests read.</summary>
+internal sealed class GitHistoryState
+{
+    public string? RepoRoot;
+    public readonly Dictionary<string, GitState> States = new(StringComparer.OrdinalIgnoreCase);
+    public int RepoChecks, UserNameLookups, Processes;
+    public int LogLimit = 5000;
+}
+
+/// <summary>Process-wide state. The app has one such state; a test runs against its own (<see cref="Isolated"/>), so tests that run at the same time never share a repository or a counter.</summary>
 internal static class GitHistoryModule
 {
-    internal static string? RepoRoot;
-    internal static readonly Dictionary<string, GitState> States = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly GitHistoryState Shared = new();
+
+    /// <summary>A test seam: the state of the code running from where it was set (one per test); null = the process-wide one, which is all the app ever uses.</summary>
+    internal static readonly AsyncLocal<GitHistoryState?> Isolated = new();
+
+    internal static GitHistoryState S => Isolated.Value ?? Shared;
+
+    internal static string? RepoRoot { get => S.RepoRoot; set => S.RepoRoot = value; }
+    internal static Dictionary<string, GitState> States => S.States;
     private static readonly GitState None = new();
 
     /// <summary>The state of the configured repository (a throwaway one when none is configured).</summary>
     internal static GitState State => RepoRoot is string r && States.TryGetValue(r, out GitState? s) ? s : None;
 
     /// <summary>How many times the git-repo check actually ran (tests use it to prove it's cached).</summary>
-    internal static int RepoChecks;
-    internal static int UserNameLookups;
+    internal static int RepoChecks { get => S.RepoChecks; set => S.RepoChecks = value; }
+    internal static int UserNameLookups { get => S.UserNameLookups; set => S.UserNameLookups = value; }
 
     /// <summary>How many git processes were started (tests use it to prove a question was answered from memory).</summary>
-    internal static int Processes;
+    internal static int Processes => S.Processes;
 
     /// <summary>How many of the newest commits of the current branch the cached log holds; older hashes are fetched one by one.</summary>
-    internal static int LogLimit = 5000;
+    internal static int LogLimit { get => S.LogLimit; set => S.LogLimit = value; }
 }

@@ -13,6 +13,18 @@ public interface IBoardStorage
     /// <summary>The file, or null when it is not there.</summary>
     Task<StoredFile?> Get(string path, CancellationToken ct = default);
 
+    /// <summary>
+    /// Writes the file into <paramref name="destination"/> as it arrives; false when it is not there. A storage that can read in chunks overrides this so a large file is never held whole in memory;
+    /// the default reads it with <see cref="Get"/> and writes it.
+    /// </summary>
+    async Task<bool> GetTo(string path, Stream destination, CancellationToken ct = default)
+    {
+        StoredFile? file = await Get(path, ct);
+        if (file is null) return false;
+        await destination.WriteAsync(file.Bytes, ct);
+        return true;
+    }
+
     /// <summary><see cref="StoredFile.NotModified"/> when <paramref name="version"/> is still current, the new file when it is not, null when the file is not there.</summary>
     Task<StoredFile?> GetIfChanged(string path, string? version, CancellationToken ct = default);
 

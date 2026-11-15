@@ -4,7 +4,6 @@ using WorkItems.PublicDTOs;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class ReadingWorkItemsTests
 {
     private static WorkItem Item(int id) => WorkItemsApi.Get(id) ?? throw new Xunit.Sdk.XunitException($"#wi{id} not found");

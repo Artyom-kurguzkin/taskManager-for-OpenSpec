@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using BoardSync;
 using BoardSync.PublicDTOs;
@@ -253,5 +254,122 @@ public sealed class StoringBoardFilesTests
         Assert.Equal(winner.Version, after!.Version);
         Assert.Equal(23, results.Count(r => !r.Written));
         Assert.Single(await store.Storage.List(""));   // no lock or temp files listed
+    }
+    // ---- s3-stream chunk ----
+
+    /// <summary>Replaces the body of every successful GET with a generated one of <see cref="Length"/> bytes, read in whatever sizes the caller asks for.</summary>
+    private sealed class StreamedBodyHandler(FakeS3 inner, long length, bool announce) : DelegatingHandler(inner)
+    {
+        public long Length => length;
+        public int LargestRead { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            HttpResponseMessage response = await base.SendAsync(request, ct);
+            if (request.Method != HttpMethod.Get || !response.IsSuccessStatusCode) return response;
+            StreamContent content = new(new Generated(this, length, seekable: announce));
+            if (announce) content.Headers.ContentLength = length;
+            response.Content = content;
+            return response;
+        }
+
+        public static byte At(long position) => (byte)(position * 31 + (position >> 8));
+
+        private sealed class Generated(StreamedBodyHandler owner, long length, bool seekable) : Stream
+        {
+            private long _position;
+            public override bool CanRead => true;
+            public override bool CanSeek => seekable;
+            public override bool CanWrite => false;
+            public override long Length => seekable ? length : throw new NotSupportedException();
+            public override long Position { get => _position; set { if (value != _position) throw new NotSupportedException(); } }
+            public override void Flush() { }
+            public override int Read(byte[] buffer, int offset, int count) => Fill(buffer.AsSpan(offset, count));
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) => new(Fill(buffer.Span));
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+            private int Fill(Span<byte> span)
+            {
+                owner.LargestRead = Math.Max(owner.LargestRead, span.Length);
+                int n = (int)Math.Min(span.Length, length - _position);
+                for (int i = 0; i < n; i++) span[i] = At(_position + i);
+                _position += n;
+                return n;
+            }
+        }
+    }
+
+    /// <summary>A destination that keeps only a hash, a count and the largest single write.</summary>
+    private sealed class HashingSink : Stream
+    {
+        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        public long Written { get; private set; }
+        public int LargestWrite { get; private set; }
+        public string Hash => Convert.ToHexString(_hash.GetHashAndReset());
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => Written;
+        public override long Position { get => Written; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
+        public override void Write(ReadOnlySpan<byte> buffer) { _hash.AppendData(buffer); Written += buffer.Length; LargestWrite = Math.Max(LargestWrite, buffer.Length); }
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct = default) { Write(buffer.Span); return ValueTask.CompletedTask; }
+    }
+
+    private static IBoardStorage StreamingStorage(StreamedBodyHandler handler) =>
+        BoardSyncApi.S3Storage("https://account.r2.example.test", FakeS3.Bucket, "boards/main", FakeS3.AccessKey, FakeS3.SecretKey, FakeS3.Region, handler);
+
+    [Fact(DisplayName = "An S3 object is streamed to its destination without being held whole in memory")]
+    public async Task S3ObjectIsStreamed()
+    {
+        FakeS3 fake = new();
+        StreamedBodyHandler handler = new(fake, 12L * 1024 * 1024 + 5, announce: true);
+        IBoardStorage storage = StreamingStorage(handler);
+        await storage.Put("objects/ab/abcdef", Bytes("small stand-in"), PutCondition.Always);
+        HashingSink sink = new();
+
+        Assert.True(await storage.GetTo("objects/ab/abcdef", sink));
+
+        using IncrementalHash expected = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        byte[] block = new byte[65536];
+        for (long at = 0; at < handler.Length; at += block.Length)
+        {
+            int n = (int)Math.Min(block.Length, handler.Length - at);
+            for (int i = 0; i < n; i++) block[i] = StreamedBodyHandler.At(at + i);
+            expected.AppendData(block, 0, n);
+        }
+        Assert.Equal(handler.Length, sink.Written);
+        Assert.Equal(Convert.ToHexString(expected.GetHashAndReset()), sink.Hash);
+        Assert.InRange(sink.LargestWrite, 1, 81920);          // never one buffer of the whole body
+        Assert.InRange(handler.LargestRead, 1, 81920);
+        Assert.False(await storage.GetTo("objects/ab/missing", new HashingSink()));
+        Assert.Equal(2 + 1, fake.Requests);                    // put, get, missing get: no extra round trips
+    }
+
+    [Theory(DisplayName = "A streamed S3 object over the cap is refused and nothing is left at the destination")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task S3StreamedObjectOverTheCap(bool announced)
+    {
+        FakeS3 fake = new();
+        StreamedBodyHandler handler = new(fake, 3L * 1024 * 1024, announce: announced);
+        IBoardStorage storage = StreamingStorage(handler);
+        await storage.Put("objects/ab/abcdef", Bytes("small stand-in"), PutCondition.Always);
+        HashingSink sink = new();
+
+        using (StorageLimits.OverrideObjectMax(1024 * 1024))
+        {
+            BoardStorageException e = await Assert.ThrowsAsync<BoardStorageException>(() => storage.GetTo("objects/ab/abcdef", sink));
+            Assert.True(e.IsTooLarge);
+        }
+
+        if (announced) Assert.Equal(0, sink.Written);          // refused on the announced length, before a byte is written
+        else Assert.True(sink.Written <= 1024 * 1024);          // never past the cap
     }
 }

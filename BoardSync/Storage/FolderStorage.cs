@@ -38,6 +38,26 @@ internal sealed class FolderStorage(string folder) : IBoardStorage
         return bytes is null ? null : new StoredFile(bytes, Hash(bytes));
     }, "read", path);
 
+    public Task<bool> GetTo(string path, Stream destination, CancellationToken ct = default) => Guard(async () =>
+    {
+        string file = Resolve(path);
+        long cap = StorageLimits.For(path);
+        for (int attempt = 0; ; attempt++)
+        {
+            FileStream stream;
+            try { stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, useAsync: true); }
+            catch (FileNotFoundException) { return false; }
+            catch (DirectoryNotFoundException) { return false; }
+            catch (IOException) when (attempt < 50) { await Task.Delay(10, ct); continue; }      // a file being replaced at this moment: only the open is retried, never a half-copied stream
+            await using (stream)
+            {
+                if (stream.Length > cap) throw StorageLimits.TooBig(path, cap);
+                await StorageLimits.ReadCapped(stream, destination, cap, path, ct);
+                return true;
+            }
+        }
+    }, "read", path);
+
     public async Task<StoredFile?> GetIfChanged(string path, string? version, CancellationToken ct = default)
     {
         StoredFile? file = await Get(path, ct);

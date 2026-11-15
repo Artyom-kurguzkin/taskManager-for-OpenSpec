@@ -9,6 +9,23 @@
         <Seg Name="theme" Options="Themes" Value="@Settings.Current.Theme" ValueChanged="v => Settings.Update(s => s with { Theme = v })" />
     </section>
 
+    <section class="set-row" data-setting="user-settings">
+        <div>
+            <h3>User settings</h3>
+            <p class="muted">What you arrange for each project (the view, grouping, sort, hidden columns, rows and projects, the list's column order and widths) and the settings on this page are kept in one file on this computer, never in a repository and never synced. Move it to a folder of your choice; it keeps its name, settings.json.</p>
+        </div>
+        <div class="set-val">
+            <div class="set-loc">
+                <span class="set-path" title="@Settings.FilePath">@System.IO.Path.GetDirectoryName(Settings.FilePath)</span>
+            </div>
+            <input class="box text-in" data-sk value="@settingsFolder" placeholder="Folder to move the settings to…" @onchange="e => settingsFolder = (string?)e.Value ?? string.Empty" aria-label="User settings folder" />
+            @if (Picker is not null) { <button class="btn pick-settings-folder" data-sk @onclick="BrowseSettings">Browse…</button> }
+            <button class="btn primary move-settings" data-sk disabled="@(settingsFolder.Trim().Length == 0)" @onclick="MoveSettings">Move</button>
+            @if (Settings.Notice is { } notice) { <p class="warning settings-notice">@notice</p> }
+            @if (settingsMoved is { } moved) { <p class="@(movedOk ? "muted settings-moved" : "warning settings-moved")">@moved</p> }
+        </div>
+    </section>
+
     <section class="set-row">
         <div><h3>Open another repository</h3><p class="muted">Folder with the openspec/ directory this app reads and writes. A folder without one is set up for OpenSpec when opened. It joins the projects below.</p></div>
         <div class="set-val">
@@ -26,11 +43,6 @@
     </section>
 
     <section class="set-row">
-        <div><h3>Default board view</h3><p class="muted">What the board shows when you open a repository for the first time.</p></div>
-        <Seg Name="defview" Options="Views" Value="@Settings.Current.DefaultView" ValueChanged="v => Settings.Update(s => s with { DefaultView = v })" />
-    </section>
-
-    <section class="set-row">
         <div><h3>Keyboard hints</h3><p class="muted">Press F to show a letter on every clickable element, then type it. Shift + the letter selects. Off by default.</p></div>
         <label class="check"><input type="checkbox" id="f-hints" checked="@Settings.Current.Hints" @onchange="e => Settings.Update(s => s with { Hints = (bool)e.Value! })" /> on</label>
     </section>
@@ -39,31 +51,33 @@
     {
         string project = System.IO.Path.GetFileName(repo.TrimEnd('\\', '/'));
         <section class="set-row" data-project="@project">
-            <div><h3>@project</h3><p class="muted">Folders are relative to the repository; agents read them from openspec/REPO-TASKS.md. Plans: yours only, empty = @SettingsStore.DefaultPlansDir. Attachments: saved with the project, so every computer on it uses the same folder, empty = @SettingsStore.DefaultAttachmentsDir (kept out of git).</p></div>
+            <div><h3>@project</h3><p class="muted">One folder for this project's files, relative to the repository and saved with the project. Images are kept out of git and synced with the board storage; plans stay in git.</p></div>
             <div class="set-val set-folders">
                 <span class="muted">Location</span>
                 <div class="set-loc">
                     <span class="set-path" title="@repo">@repo</span>
                     <button class="btn show-folder" data-sk @onclick="() => ShowInFolder(repo)">Show in folder</button>
                 </div>
-                <span class="muted">Plans</span>
-                <input class="box text-in" data-sk value="@Settings.PlansDir(repo)" placeholder="@SettingsStore.DefaultPlansDir"
-                       @onchange="e => Settings.SetPlansDir(repo, (string?)e.Value)" aria-label="Plans folder" />
-                <span class="muted">Attachments</span>
-                <input class="box text-in" data-sk @key="attKey" value="@(attAsk is { } pending && pending.Repo == repo ? pending.New : Settings.AttachmentsDir(repo))" placeholder="@SettingsStore.DefaultAttachmentsDir"
-                       @onchange="e => AttachmentsChanged(repo, (string?)e.Value)" aria-label="Attachments folder" />
-                @if (attAsk is { } ask && ask.Repo == repo)
+                <span class="muted">Files</span>
+                <input class="box text-in" data-sk @key="filesKey" value="@(filesAsk is { } pending && pending.Repo == repo ? pending.New : Settings.FilesDir(repo) ?? "")" placeholder="@SettingsStore.DefaultFilesDir"
+                       @onchange="e => FilesChanged(repo, (string?)e.Value)" aria-label="Files folder" />
+                <p class="att-row muted files-now">Images: @Settings.AttachmentsDir(repo) · Plans: @Settings.PlansDir(repo)</p>
+                @if (Settings.FilesDir(repo) is null && !(filesAsk is { } waiting && waiting.Repo == repo))
+                {
+                    <p class="att-row muted files-legacy">Plans are in <code>@Settings.PlansDir(repo)</code> and images in <code>@Settings.AttachmentsDir(repo)</code>. <button class="files-put-both" data-sk @onclick="() => FilesChanged(repo, SettingsStore.DefaultFilesDir)">Put both in one folder</button></p>
+                }
+                @if (filesAsk is { } ask && ask.Repo == repo)
                 {
                     <div class="att-row att-ask">
-                        <p>Move the @ask.Files file@(ask.Files == 1 ? "" : "s") in <code>@ask.Old</code> to <code>@ask.New</code>? Notes and descriptions will point to the new place.</p>
+                        <p>Move @ask.What? Notes, descriptions and plan links will point to the new places.</p>
                         <div class="att-actions">
-                            <button class="btn primary att-move" data-sk @onclick="AttachmentsMove">Move</button>
-                            <button class="btn att-keep" data-sk @onclick="AttachmentsKeep">Keep them where they are</button>
-                            <button class="btn att-cancel" data-sk @onclick="AttachmentsCancel">Cancel</button>
+                            <button class="btn primary att-move" data-sk @onclick="FilesMove">Move</button>
+                            <button class="btn att-keep" data-sk @onclick="FilesKeep">Keep them where they are</button>
+                            <button class="btn att-cancel" data-sk @onclick="FilesCancel">Cancel</button>
                         </div>
                     </div>
                 }
-                @if (attNote is { } note && note.Repo == repo) { <p class="att-row @(note.Warn ? "att-warn" : "att-done muted")">@note.Text</p> }
+                @if (filesNote is { } note && note.Repo == repo) { <p class="att-row @(note.Warn ? "att-warn" : "att-done muted")">@note.Text</p> }
             </div>
         </section>
         <BoardStorageSection Root="@repo" />
@@ -129,57 +143,98 @@
     }
 
     private static readonly IReadOnlyList<(string, string)> Themes = [("light", "Light"), ("dark", "Dark"), ("system", "System")];
-    private static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List")];
 
-    // ── the attachments folder: changing it asks what to do with the files already in it ──
+    // ── the files folder: changing it asks what to do with the images and plans already in the old places ──
 
-    private sealed record AttachmentsAsk(string Repo, string Old, string New, int Files);
-    private sealed record AttachmentsNote(string Repo, string Text, bool Warn);
-    private AttachmentsAsk? attAsk;
-    private AttachmentsNote? attNote;
-    private int attKey;   // a new key makes the browser drop what was typed in the field (a refused or cancelled edit shows the saved folder again)
-
-    private void AttachmentsChanged(string repo, string? typed)
+    private sealed record FilesAsk(string Repo, string New, string OldImages, string OldPlans, int Images, int Plans, int PlanFiles)
     {
-        (attAsk, attNote) = (null, null);
-        (bool ok, string dir, string why) = NotesApi.CheckAttachmentsDir(typed);
-        string old = Settings.AttachmentsDir(repo);
-        if (!ok) { attNote = new(repo, why, true); attKey++; return; }
-        if (dir == old) { attKey++; return; }
-        int files = Workspace.In(repo, () => NotesApi.CountAttachmentFiles(repo, old));
-        if (files > 0) { attAsk = new(repo, old, dir, files); return; }   // saved once the user has answered
-        SaveAttachmentsDir(repo, dir);
+        public string NewImages => New + "/" + SettingsStore.ImagesName;
+        public string NewPlans => New + "/" + SettingsStore.PlansName;
+        public string What => string.Join(" and ", new[]
+        {
+            Images > 0 ? $"{Images} image{(Images == 1 ? "" : "s")} from {OldImages} to {NewImages}" : null,
+            PlanFiles > 0 ? $"{(Plans > 0 ? $"{Plans} plan{(Plans == 1 ? "" : "s")}" : $"{PlanFiles} file{(PlanFiles == 1 ? "" : "s")}")} from {OldPlans} to {NewPlans}" : null,
+        }.OfType<string>());
     }
 
-    private bool SaveAttachmentsDir(string repo, string dir, bool moved = false)
+    private sealed record FilesNote(string Repo, string Text, bool Warn);
+    private FilesAsk? filesAsk;
+    private FilesNote? filesNote;
+    private int filesKey;   // a new key makes the browser drop what was typed in the field (a refused or cancelled edit shows the saved folder again)
+
+    private void FilesChanged(string repo, string? typed)
     {
-        Workspace.AttachmentsFolderChangingHere(repo, dir, moved);   // before the write: the sync service must not take this change for a pull's and move the files a second time
-        (bool ok, string message) = Settings.SetAttachmentsDir(repo, dir);
-        if (!ok) { attNote = new(repo, message, true); attKey++; Workspace.AttachmentsFolderChangingHere(repo, Settings.AttachmentsDir(repo), false); }
+        (filesAsk, filesNote) = (null, null);
+        string? current = Settings.FilesDir(repo);
+        if (current is null && string.IsNullOrWhiteSpace(typed)) { filesKey++; return; }   // nothing chosen: the old layout stays
+        (bool ok, string dir, string why) = NotesApi.CheckFilesDir(typed);
+        if (!ok) { filesNote = new(repo, why, true); filesKey++; return; }
+        if (dir == current) { filesKey++; return; }
+        string oldImages = Settings.AttachmentsDir(repo), oldPlans = Settings.PlansDir(repo);
+        string newImages = dir + "/" + SettingsStore.ImagesName, newPlans = dir + "/" + SettingsStore.PlansName;
+        int images = oldImages == newImages ? 0 : Workspace.In(repo, () => NotesApi.CountAttachmentFiles(repo, oldImages));
+        (int plans, int planFiles) = oldPlans == newPlans ? (0, 0) : Workspace.In(repo, () => NotesApi.CountPlanFiles(repo, oldPlans));
+        if (images + planFiles > 0) { filesAsk = new(repo, dir, oldImages, oldPlans, images, plans, planFiles); return; }   // saved once the user has answered
+        SaveFilesDir(repo, dir);
+    }
+
+    private bool SaveFilesDir(string repo, string dir, bool imagesMoved = false)
+    {
+        Workspace.AttachmentsFolderChangingHere(repo, dir + "/" + SettingsStore.ImagesName, imagesMoved);   // before the write: the sync service must not take this change for a pull's and move the files a second time
+        (bool ok, string message) = Settings.SetFilesDir(repo, dir);
+        if (!ok) { filesNote = new(repo, message, true); filesKey++; Workspace.AttachmentsFolderChangingHere(repo, Settings.AttachmentsDir(repo), false); }
         return ok;
     }
 
-    private void AttachmentsMove()
+    private void FilesMove()
     {
-        if (attAsk is not { } ask) return;
-        attAsk = null;
-        Notes.PublicDTOs.AttachmentsMoveResult result = Workspace.In(ask.Repo, () => NotesApi.MoveAttachments(ask.Repo, ask.Old, ask.New));
-        if (!result.Success) { attNote = new(ask.Repo, result.Message, true); attKey++; return; }
-        if (SaveAttachmentsDir(ask.Repo, ask.New, moved: true)) attNote = new(ask.Repo, result.Message, false);
-        Workspace.Notify();   // notes and descriptions were rewritten: every open page reads them again
+        if (filesAsk is not { } ask) return;
+        filesAsk = null;
+        List<string> said = [];
+        bool imagesMoved = false, plansFailed = false;
+        if (ask.Images > 0)
+        {
+            Notes.PublicDTOs.AttachmentsMoveResult images = Workspace.In(ask.Repo, () => NotesApi.MoveAttachments(ask.Repo, ask.OldImages, ask.NewImages));
+            if (!images.Success) { filesNote = new(ask.Repo, images.Message, true); filesKey++; return; }   // nothing was moved: the old places stay in use
+            imagesMoved = images.Moved + images.Duplicates > 0;
+            said.Add(images.Message);
+        }
+        if (ask.PlanFiles > 0)
+        {
+            Notes.PublicDTOs.AttachmentsMoveResult plans = Workspace.In(ask.Repo, () => NotesApi.MovePlans(ask.Repo, ask.OldPlans, ask.NewPlans));
+            plansFailed = !plans.Success;
+            said.Add(plans.Success ? plans.Message : $"The plans were not moved: {plans.Message}");
+        }
+        if (SaveFilesDir(ask.Repo, ask.New, imagesMoved)) filesNote = new(ask.Repo, string.Join(" ", said), plansFailed);
+        Workspace.Notify();   // notes, descriptions and plan links were rewritten: every open page reads them again
     }
 
-    private void AttachmentsKeep()
+    private void FilesKeep()
     {
-        if (attAsk is not { } ask) return;
-        attAsk = null;
-        SaveAttachmentsDir(ask.Repo, ask.New);   // new files go to the new folder; the old ones and their references stay
+        if (filesAsk is not { } ask) return;
+        filesAsk = null;
+        SaveFilesDir(ask.Repo, ask.New);   // new files go to the new folder; the old ones and their links stay
     }
 
-    private void AttachmentsCancel() { attAsk = null; attKey++; }
+    private void FilesCancel() { filesAsk = null; filesKey++; }
 
     private string repoPath = "";
     private string? error;
+
+    private string settingsFolder = "";
+    private string? settingsMoved;
+    private bool movedOk;
+
+    private void BrowseSettings()
+    {
+        if (Picker?.Invoke("Choose a folder for your user settings") is string chosen) settingsFolder = chosen;
+    }
+
+    private void MoveSettings()
+    {
+        (movedOk, settingsMoved) = Settings.MoveTo(settingsFolder);
+        if (movedOk) settingsFolder = "";
+    }
 
     private FolderOpener? FolderOpener => Services.GetService(typeof(FolderOpener)) as FolderOpener;
 

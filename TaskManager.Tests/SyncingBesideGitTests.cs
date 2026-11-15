@@ -106,6 +106,7 @@ public sealed class SyncingBesideGitTests : IDisposable
     /// <summary>Every file under the folders with its size and last-write time: equal snapshots mean nothing was written.</summary>
     private static List<string> Snapshot(params string[] folders) =>
         [.. folders.Where(Directory.Exists).SelectMany(f => Directory.EnumerateFiles(f, "*", SearchOption.AllDirectories))
+            .Where(f => Path.GetFileName(f) != "scan.json")      // the stat cache is a speed-up the passes keep, not state or content
             .OrderBy(f => f, StringComparer.Ordinal)
             .Select(f => $"{f}|{new FileInfo(f).Length}|{File.GetLastWriteTimeUtc(f).Ticks}")];
 

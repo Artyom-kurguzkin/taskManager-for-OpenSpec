@@ -45,16 +45,18 @@ internal static class SyncEngine
     {
         SyncStateStore store = new(options.StateFolder);
         SyncStateFile? state = store.Load();
-        string? pause = GitGuard.Pause(root, options.GitFolder, state?.Entries, checkMarkers: !options.WholeFilesOnly);
-        if (pause is not null) return SyncReport.Of(SyncOutcome.Blocked, pause, SyncBlock.GitBusy);       // before anything is read or written, here or in the storage
         DateTime now = (options.UtcNow ?? (() => DateTime.UtcNow))();
+        StatCache stat = StatCache.Open(store, now);                 // one memory of size, time and hash per path for the guard and the scan below: an unchanged file is not read
+        string? pause = GitGuard.Pause(root, options.GitFolder, state?.Entries, checkMarkers: !options.WholeFilesOnly, stat);
+        if (pause is not null) { stat.Save(); return SyncReport.Of(SyncOutcome.Blocked, pause, SyncBlock.GitBusy); }       // before anything is read or written, here or in the storage
         if (state is not null && !Directory.Exists(root))
             return SyncReport.Of(SyncOutcome.Failed, $"The board folder \"{root}\" does not exist, so nothing was synced. Nothing was deleted anywhere.");
         List<string> links = [], tooLarge = [];
-        Dictionary<string, LocalFile> local = LocalTree.Scan(root, links, tooLarge, hooks?.OnScanBuffer);          // links are not followed: what is behind one is not this board's; a file over the cap is not read at all
+        Dictionary<string, LocalFile> local = LocalTree.Scan(root, links, tooLarge, hooks?.OnScanBuffer, stat, options.SettleWindow);          // links are not followed: what is behind one is not this board's; a file over the cap is not read at all
+        stat.Save();
         List<SyncStateStore.DeletionEntry> deletions = store.LoadDeletions(now, DeletionWindowLength);
         DeletionWindow window = new(deletions.Sum(d => d.Here), deletions.Sum(d => d.Storage), deletions.Count > 0 ? deletions[0].Live : null);
-        Dictionary<string, byte[]> fetched = new(StringComparer.Ordinal);     // objects already downloaded in an earlier round
+        using ObjectFetcher fetcher = new(options.Storage, store, Path.Combine(options.StateFolder, "fetch"));      // objects downloaded so far (in files in the state folder, six at a time), kept for the later rounds of this pass
         Dictionary<string, HashSet<string>> seen = store.LoadSeen();           // every content this computer ever saw for a path
         HashSet<string> inherited = store.LoadPending();                       // objects a sync that died was about to create
         HashSet<string> pending = new(inherited, StringComparer.Ordinal);      // what pending.json holds now
@@ -72,7 +74,7 @@ internal static class SyncEngine
             seenChanged |= Remember(seen, remote);
 
             HashSet<string> refused = new(StringComparer.Ordinal);
-            SyncPlan plan = await SyncPlanner.Build(options, now, store, local, baseEntries, remote, firstConnection: state is null, fetched, seen, refused, ct, links, window, tooLarge);
+            SyncPlan plan = await SyncPlanner.Build(options, now, store, local, baseEntries, remote, firstConnection: state is null, fetcher, seen, refused, ct, links, window, tooLarge);
             if (plan.BlockedMessage is not null) return SyncReport.Of(SyncOutcome.Blocked, plan.BlockedMessage, SyncBlock.MassDelete);
 
             List<PlanItem> uploads = plan.Items.Where(i => i.Upload is not null && i.NewEntry is not null).ToList();
@@ -85,19 +87,24 @@ internal static class SyncEngine
                     foreach (PlanItem item in uploads) pending.Add(SyncModels.ObjectPath(item.Path, item.NewEntry!.Hash));
                     store.SavePending(pending);
                 }
-                foreach (PlanItem item in uploads.Where(i => i.Probe))
+                // Six at a time. Each answer is recorded the moment it arrives (under the lock), exactly as one after another: a refusal is taken out of pending.json before the next answer is looked at.
+                object answers = new();
+                await Parallel.ForEachAsync(uploads.Where(i => i.Probe), ObjectFetcher.Options(ct), async (item, token) =>
                 {
                     string key = SyncModels.ObjectPath(item.Path, item.NewEntry!.Hash);
-                    if (created.Contains(key)) continue;
-                    PutResult probe = await options.Storage.Put(key, ReadForUpload(item), PutCondition.OnlyIfAbsent, ct);
-                    if (probe.Written || inherited.Contains(key)) { created.Add(key); continue; }
-                    refused.Add(item.Path);                // already there, and not by us: this path has had this content before
-                    pending.Remove(key);
-                    if (track) store.SavePending(pending);
-                }
+                    lock (answers) if (created.Contains(key)) return;
+                    PutResult probe = await options.Storage.Put(key, ReadForUpload(item), PutCondition.OnlyIfAbsent, token);
+                    lock (answers)
+                    {
+                        if (probe.Written || inherited.Contains(key)) { created.Add(key); return; }
+                        refused.Add(item.Path);                // already there, and not by us: this path has had this content before
+                        pending.Remove(key);
+                        if (track) store.SavePending(pending);
+                    }
+                });
                 if (refused.Count > 0)
                 {
-                    plan = await SyncPlanner.Build(options, now, store, local, baseEntries, remote, firstConnection: state is null, fetched, seen, refused, ct, links, window, tooLarge);
+                    plan = await SyncPlanner.Build(options, now, store, local, baseEntries, remote, firstConnection: state is null, fetcher, seen, refused, ct, links, window, tooLarge);
                     if (plan.BlockedMessage is not null) return SyncReport.Of(SyncOutcome.Blocked, plan.BlockedMessage, SyncBlock.MassDelete);
                     uploads = plan.Items.Where(i => i.Upload is not null && i.NewEntry is not null).ToList();
                 }
@@ -109,11 +116,14 @@ internal static class SyncEngine
 
             if (plan.Items.Any(i => i.NewEntry is not null))
             {
-                foreach (PlanItem item in uploads)
+                object claimed = new();
+                await Parallel.ForEachAsync(uploads, ObjectFetcher.Options(ct), async (item, token) =>
                 {
                     string key = SyncModels.ObjectPath(item.Path, item.NewEntry!.Hash);
-                    if (created.Add(key)) await options.Storage.Put(key, ReadForUpload(item), PutCondition.OnlyIfAbsent, ct);   // refused = already there
-                }
+                    bool mine;
+                    lock (claimed) mine = created.Add(key);
+                    if (mine) await options.Storage.Put(key, ReadForUpload(item), PutCondition.OnlyIfAbsent, token);   // refused = already there
+                });
                 // ponytail: one manifest for the whole board, so every change rewrites it; split per work item when many people sync.
                 byte[] bytes = SyncModels.Serialize(new ManifestFile { Entries = entries });
                 PutCondition condition = manifest is null ? PutCondition.OnlyIfAbsent : PutCondition.OnlyIfVersion(version!);
@@ -136,7 +146,7 @@ internal static class SyncEngine
             SyncStateFile next = new() { StorageVersion = skipped.Count > 0 ? state?.StorageVersion : newVersion, Entries = entries };
             plan.Forget(skipped);
             if (state is null || !SyncModels.Serialize(state).AsSpan().SequenceEqual(SyncModels.Serialize(next)))
-                store.Save(next, options.WholeFilesOnly ? new Dictionary<string, Func<byte[]>>() : plan.FinalContent);        // whole files are never merged, so they need no base copies
+                store.Save(next, options.WholeFilesOnly ? new Dictionary<string, Func<byte[]>>() : plan.FinalContent, options.WholeFilesOnly ? null : plan.FinalFiles);        // whole files are never merged, so they need no base copies
             seenChanged |= Remember(seen, entries);
             if (seenChanged) store.SaveSeen(seen);
             if (options.AllowMassDelete) { if (deletions.Count > 0) store.SaveDeletions([]); }            // an allowed mass deletion starts the window again
@@ -197,7 +207,7 @@ internal static class SyncEngine
                 // The sync never erases a file on this computer: what it removes is moved, what it overwrites for good is copied, to the trash first.
                 if (item.Op == LocalOp.Delete) trashed = store.MoveToTrash(now, item.Path, file);
                 else if (item.TrashOf is not null) trashed = store.CopyToTrash(now, item.Path, item.TrashOf);
-                else if (item.KeepOld && item.BackupOf is null && currentHash is not null && currentHash != SyncModels.HashOf(item.WriteBytes!))
+                else if (item.KeepOld && item.BackupOf is null && currentHash is not null && currentHash != item.WriteHash)
                 {
                     byte[]? current = LocalTree.ReadOrNull(file);          // only now, and only this one
                     if (current is null || SyncModels.HashOf(current) != currentHash) { skipped.Add(item.Path); continue; }      // it changed meanwhile: left as it is
@@ -213,7 +223,11 @@ internal static class SyncEngine
             if (trashed is not null) { plan.Trashed.Add(trashed); plan.TrashFolder = store.TrashFolder(now); }
             if (replaced is not null) { plan.Replaced.Add(replaced); plan.TrashFolder = store.TrashFolder(now); }
             if (backedUp is not null) { plan.BackedUp.Add(backedUp); plan.BackupFolder = store.BackupFolder(now); }
-            if (item.Op == LocalOp.Write) LocalTree.WriteAtomic(file, item.WriteBytes!);
+            if (item.Op == LocalOp.Write)
+            {
+                if (item.WriteFrom is null) LocalTree.WriteAtomic(file, item.WriteBytes!);
+                else if (!FileCopy.CopyVerified(item.WriteFrom.FilePath, file, item.WriteFrom.Hash)) throw new SyncFailure($"The downloaded copy of \"{item.Path}\" changed in the sync's own folder, so nothing was written. Sync again.");
+            }
             else LocalTree.RemoveEmptyParents(root, file);
         }
         return skipped;

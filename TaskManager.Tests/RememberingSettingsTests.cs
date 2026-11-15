@@ -17,7 +17,7 @@ public sealed class RememberingSettingsTests
         SettingsStore reopened = new(file);
 
         Assert.Equal(("dark", @"C:\repo", "Artyom", true), (reopened.Current.Theme, reopened.Current.LastRepo, reopened.Current.Name, reopened.Current.Hints));
-        Assert.Equal(new BoardOptions(GroupBy: "feature", Category: "Functional", View: "list"), reopened.Board(@"C:\repo"));
+        Assert.Equal(new BoardOptions(GroupBy: "feature", Category: "Functional", View: "list", ListGroupBy: "feature", ListSwimlane: "none"), reopened.Board(@"C:\repo"));   // a list saved before it had its own groups keeps its grouping
         File.Delete(file);
     }
 
@@ -28,6 +28,24 @@ public sealed class RememberingSettingsTests
         store.SaveBoard(@"C:\repo", new BoardOptions(GroupBy: "bucket"));
 
         Assert.Equal("feature", store.Board(@"C:\repo").GroupBy);
+        File.Delete(file);
+    }
+
+    [Fact(DisplayName = "A saved list keeps the groups it had, a saved board or a fresh repository gets a flat list, and a choice made for the list is kept apart from the board's columns")]
+    public void ListGroupsDefaultToNone()
+    {
+        SettingsStore store = new(file);
+        Assert.Equal(("none", "none"), (store.Board(@"C:\fresh").ListGroupBy, store.Board(@"C:\fresh").ListSwimlane));
+
+        store.SaveBoard(@"C:\board", new BoardOptions(GroupBy: "feature", Swimlane: "label"));
+        Assert.Equal(("none", "none"), (store.Board(@"C:\board").ListGroupBy, store.Board(@"C:\board").ListSwimlane));
+
+        store.SaveBoard(@"C:\list", new BoardOptions(GroupBy: "label", Swimlane: "priority", View: "list"));
+        Assert.Equal(("label", "priority"), (store.Board(@"C:\list").ListGroupBy, store.Board(@"C:\list").ListSwimlane));
+
+        store.SaveBoard(@"C:\list", store.Board(@"C:\list") with { ListGroupBy = "none" });
+        SettingsStore reopened = new(file);
+        Assert.Equal(("none", "priority", "label"), (reopened.Board(@"C:\list").ListGroupBy, reopened.Board(@"C:\list").ListSwimlane, reopened.Board(@"C:\list").GroupBy));
         File.Delete(file);
     }
 
@@ -67,16 +85,7 @@ public sealed class RememberingSettingsTests
         SettingsStore store = new(file);
         Assert.Equal("light", store.Current.Theme);
         Assert.Null(store.Current.LastRepo);
-        Assert.Equal(new BoardOptions(), store.Board(@"C:\other"));
-        File.Delete(file);
-    }
-
-    [Fact(DisplayName = "A new repository opens with the default board view from settings")]
-    public void DefaultViewForNewRepo()
-    {
-        SettingsStore store = new(file);
-        store.Update(s => s with { DefaultView = "list" });
-        Assert.Equal("list", store.Board(@"C:\new").View);
+        Assert.Equal(new BoardOptions(ListGroupBy: "none", ListSwimlane: "none"), store.Board(@"C:\other"));   // the board starts as status columns, the list flat
         File.Delete(file);
     }
 }

@@ -9,3 +9,12 @@
 2026-11-11T07:47:56 | Artyom-kurguzkin | feature | none -> general-ux
 2026-11-11T07:48:01 | Artyom-kurguzkin | dates | none -> 11 Nov – 11 Nov
 2026-11-11T07:48:27 | Artyom-kurguzkin | attachment-added | n241: pasted-20261111-074827.png
+2026-11-13T12:12:52 | Claude chunk list-drag | test-linked | UsingTheBoardTests / In the list view a work item row carries the drag handle so a press off the text starts a drag
+2026-11-13T12:12:52 | Claude chunk list-drag | test-linked | UsingTheBoardTests / Dropping a list row on another group moves the work item there
+2026-11-13T12:12:52 | Claude chunk list-drag | test-linked | UsingTheBoardTests / Dropping a list row above another row in my order reorders them
+2026-11-13T12:15:30 | Claude | status | Planned -> In Review
+2026-11-13T12:54:12 | Claude chunk list-select-drag | test-unlinked | UsingTheBoardTests / In the list view a work item row carries the drag handle so a press off the text starts a drag
+2026-11-13T12:54:12 | Claude chunk list-select-drag | test-linked | UsingTheBoardTests / In the list view only a Shift-click selected row is a drag handle: it drags after a few pixels wherever the press lands
+2026-11-13T12:54:12 | Claude chunk list-select-drag | test-linked | UsingTheBoardTests / Dragging a selected list row moves every selected row to the drop group in their order
+2026-11-13T12:54:12 | Claude chunk list-select-drag | test-linked | UsingTheBoardTests / A press on an unselected list row selects cells and never starts a drag
+2026-11-13T12:56:22 | Claude | log | Integrated the selection-then-drag chunk into main (app.js, app.css, UsingTheBoardTests.cs) and ran the fast suite once: Passed 961, Failed 0, 1 m 7 s. The three linked tests pass in latest.trx. Shots tests/out/shots/list-select-drag-*.png. Still In Review.

@@ -8,7 +8,6 @@ using WorkItems;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class OpeningARepositoryTests
 {
     [Fact(DisplayName = "Opening a folder that contains openspec/ makes it the workspace")]

@@ -24,7 +24,6 @@ namespace TaskManager.Tests;
 /// number; after a git merge the repository holds both. The app repairs that by itself: the later one takes the next free number, what it
 /// says about itself follows it, and its worklog tells what happened.
 /// </summary>
-[Collection(nameof(ModuleStateCollection))]
 public sealed class RepairingDuplicateIdsTests : IDisposable
 {
     private readonly TestRepo repo = new();

@@ -15,7 +15,7 @@ namespace TaskManager.Tests;
 /// <summary>
 /// The attachments folder is a project setting (openspec/config.yaml, x-rtm.attachmentsDir), and changing it moves the files and the references to them.
 /// </summary>
-[Collection(nameof(ModuleStateCollection))]
+[Collection(nameof(RealTimeCollection))]
 public sealed class MovingAttachmentsTests : IDisposable
 {
     private const string Def = "local/task-tracking";
@@ -468,7 +468,7 @@ public sealed class MovingAttachmentsTests : IDisposable
         return ctx;
     }
 
-    private static AngleSharp.Dom.IElement Field(IRenderedComponent<SettingsPage> page) => page.Find("input[aria-label='Attachments folder']");
+    private static AngleSharp.Dom.IElement Field(IRenderedComponent<SettingsPage> page) => page.Find("input[aria-label='Files folder']");
 
     private void WithImages()
     {
@@ -489,29 +489,30 @@ public sealed class MovingAttachmentsTests : IDisposable
         Field(page).Change("files/att");
 
         string ask = page.Find(".att-ask").TextContent;
-        Assert.Contains("Move the 2 files in", ask);
+        Assert.Contains("Move 2 images from", ask);
         Assert.Contains(Def, ask);
-        Assert.Contains("files/att", ask);
-        Assert.Contains("Notes and descriptions will point to the new place.", ask);
+        Assert.Contains("files/att/images", ask);
+        Assert.Contains("Notes, descriptions and plan links will point to the new places.", ask);
         Assert.Equal(["Move", "Keep them where they are", "Cancel"], page.FindAll(".att-ask button").Select(b => b.TextContent.Trim()));
         Assert.Equal(Def, settings.AttachmentsDir(repo.Root));                          // nothing is saved before the answer
+        Assert.Null(settings.FilesDir(repo.Root));
         Assert.True(File.Exists(repo.PathOf($"{Def}/wi123/n123/shot.png")));
 
         page.Find(".att-ask .att-cancel").Click();                                       // cancelling puts the field back
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".att-ask")));
-        Assert.Equal(Def, Field(page).GetAttribute("value"));
+        Assert.True(string.IsNullOrEmpty(Field(page).GetAttribute("value")));          // the old layout has no files folder to show
         Assert.Equal(Def, settings.AttachmentsDir(repo.Root));
 
         await page.InvokeAsync(() => { });
         Field(page).Change("files/att");
         page.Find(".att-ask .att-keep").Click();
-        page.WaitForAssertion(() => Assert.Equal("files/att", settings.AttachmentsDir(repo.Root)));
+        page.WaitForAssertion(() => Assert.Equal("files/att/images", settings.AttachmentsDir(repo.Root)));
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".att-ask")));
         Assert.True(File.Exists(repo.PathOf($"{Def}/wi123/n123/shot.png")));           // the files stay
         Assert.Contains($"{Def}/wi123/n123/shot.png", Unix(repo.Read(NoteFile)));       // and so do the references
-        Assert.Contains("attachmentsDir: files/att", Config());
+        Assert.Contains("filesDir: files/att", Config());
         Assert.True(NotesApi.AttachBytes(123, "new.png", Png).Success);                  // only new files go to the new folder
-        Assert.True(File.Exists(repo.PathOf("files/att/wi123/n123/new.png")));
+        Assert.True(File.Exists(repo.PathOf("files/att/images/wi123/n123/new.png")));
         Assert.Equal("files/att", Field(page).GetAttribute("value"));
     }
 
@@ -530,10 +531,10 @@ public sealed class MovingAttachmentsTests : IDisposable
         page.WaitForAssertion(() => Assert.Contains("Moved 2 files", page.Find(".att-done").TextContent));
         Assert.Contains("2 references", page.Find(".att-done").TextContent);   // the entry of the note and the link in the description
         Assert.Empty(page.FindAll(".att-ask"));
-        Assert.Equal("files/att", ctx.Services.GetRequiredService<SettingsStore>().AttachmentsDir(repo.Root));
+        Assert.Equal("files/att/images", ctx.Services.GetRequiredService<SettingsStore>().AttachmentsDir(repo.Root));
         Assert.Equal("files/att", Field(page).GetAttribute("value"));
-        Assert.True(File.Exists(repo.PathOf("files/att/wi123/n123/shot.png")));
-        Assert.True(File.Exists(repo.PathOf("files/att/wi123/pasted-1.png")));
+        Assert.True(File.Exists(repo.PathOf("files/att/images/wi123/n123/shot.png")));
+        Assert.True(File.Exists(repo.PathOf("files/att/images/wi123/pasted-1.png")));
         Assert.False(Directory.Exists(repo.PathOf(Def)));
 
         IRenderedComponent<WorkItemPage> after = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
@@ -549,12 +550,12 @@ public sealed class MovingAttachmentsTests : IDisposable
 
         Field(page).Change("files/att");                                                 // nothing in the old folder: nothing to ask
         Assert.Empty(page.FindAll(".att-ask"));
-        Assert.Equal("files/att", settings.AttachmentsDir(repo.Root));
+        Assert.Equal("files/att/images", settings.AttachmentsDir(repo.Root));
 
         await page.InvokeAsync(() => { });
         Field(page).Change("openspec/pics");
         page.WaitForAssertion(() => Assert.Contains("openspec", page.Find(".att-warn").TextContent));
-        Assert.Equal("files/att", settings.AttachmentsDir(repo.Root));
+        Assert.Equal("files/att/images", settings.AttachmentsDir(repo.Root));
         Assert.Empty(page.FindAll(".att-ask"));
         Assert.Contains("saved with the project", page.Find("section[data-project] .muted").TextContent);   // the hint no longer calls the attachments folder the user's alone
     }

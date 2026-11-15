@@ -24,7 +24,7 @@ internal static class GitCli
     internal static (int Exit, string Output, string Error) Run(params string[] args)
     {
         if (GitHistoryModule.RepoRoot is not string root || !Directory.Exists(root)) return (-1, "", "No repository is open");
-        Interlocked.Increment(ref GitHistoryModule.Processes);
+        Interlocked.Increment(ref GitHistoryModule.S.Processes);
         bool noRepo = AnswerWithoutSpawnWhenNoRepository && !HasDotGit(root);
         bool globalName = noRepo && args is ["config", "user.name"];
         if (noRepo && args is ["rev-parse" or "check-ignore" or "log" or "show" or "add" or "commit", ..])

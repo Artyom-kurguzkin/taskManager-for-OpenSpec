@@ -170,7 +170,7 @@ public sealed partial class BoardTools
         [Description("bug, feature or enhancement.")] string? label = null,
         [Description("Backlog (default), Planned, Confirmed or In Progress. Use In Progress when you start now.")] string status = "Backlog",
         [Description("high or low (default low).")] string? priority = null,
-        [Description("Repo-relative path of the plan file you wrote, like DevResources/plans/name-2026-11-09.md.")] string? plan = null,
+        [Description("Repo-relative path of the plan file you wrote, in the project's plans folder (named in openspec/REPO-TASKS.md), like DevResources/plans/name-2026-11-09.md.")] string? plan = null,
         [Description("Ids of the work items this one waits for.")] int[]? dependsOn = null,
         [Description("The steps, each with an optional group heading; they are signed as yours. Leave out for none.")] SubtaskInput[]? subtasks = null,
         [Description("Delta specs by capability, e.g. {\"billing\": \"## ADDED Requirements\\n\\n### Requirement: ...\"}. Needed when the work changes what the product does; each requirement has SHALL or MUST and a #### Scenario with WHEN and THEN lines. Use the feature's own path as the key.")] Dictionary<string, string>? specs = null,
@@ -212,6 +212,7 @@ public sealed partial class BoardTools
             {
                 Step("linking the plan", WorkItemsApi.SetPlan(id, plan));
                 if (!File.Exists(Path.Combine(root, plan.Trim().Replace('/', Path.DirectorySeparatorChar)))) warnings.Add($"The plan file {plan.Trim()} does not exist yet; write it.");
+                PlanFolderWarning(root, plan, warnings);
             }
             if (dependsOn is { Length: > 0 })
             {
@@ -315,6 +316,7 @@ public sealed partial class BoardTools
             if (plan is not null)
             {
                 Step("plan", WorkItemsApi.SetPlan(id, plan));
+                PlanFolderWarning(root, plan, warnings);
             }
             if (dependsOn is not null) Step("dependsOn", WorkItemsApi.SetDependencies(id, dependsOn));
             if (contributors is not null || status == "In Progress")
@@ -457,6 +459,15 @@ public sealed partial class BoardTools
             }
             return new ValidateResult(rows.All(r => r.Valid), rows, warnings);
         });
+
+    /// <summary>A project with a files folder keeps its plans in <c>&lt;folder&gt;/plans</c>: a plan linked from anywhere else is linked, with a word about where plans go.</summary>
+    private static void PlanFolderWarning(string root, string plan, List<string> warnings)
+    {
+        if (NotesApi.ProjectFilesDir(root) is not string files) return;
+        string folder = files + "/plans/";
+        if (!plan.Trim().Replace('\\', '/').StartsWith(folder, StringComparison.OrdinalIgnoreCase))
+            warnings.Add($"This project keeps its plans in {folder} (see openspec/REPO-TASKS.md): the plan was linked where you wrote it; write new plans there.");
+    }
 
     // ── Plumbing ──
 

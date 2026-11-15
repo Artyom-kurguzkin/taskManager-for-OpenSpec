@@ -1,0 +1,14 @@
+2026-11-13T09:07:45 | Claude | created | Fast test suite: one full run under two minutes
+2026-11-13T09:07:45 | Claude | status | Planned -> In Progress
+2026-11-13T09:07:46 | Claude | description-edited | proposal.md
+2026-11-13T09:07:46 | Claude | label | none -> enhancement
+2026-11-13T09:07:47 | Claude | subtask-added | 1.1 Measure one run before and after; per-class breakdown
+2026-11-13T09:07:48 | Claude | subtask-added | 1.2 Module state behind the AsyncLocal seam; per-test state in the test framework; classes parallel
+2026-11-13T09:07:48 | Claude | subtask-added | 1.3 TimeProvider seams for the page timers; FakeTimeProvider in their tests
+2026-11-13T09:07:49 | Claude | subtask-added | 1.4 Integrate into main and run the whole suite once
+2026-11-13T09:10:06 | Claude | status | In Progress -> In Review
+2026-11-13T09:10:06 | Claude | subtask-done | 1.1 Measure one run before and after; per-class breakdown
+2026-11-13T09:10:06 | Claude | subtask-done | 1.2 Module state behind the AsyncLocal seam; per-test state in the test framework; classes parallel
+2026-11-13T09:10:06 | Claude | subtask-done | 1.3 TimeProvider seams for the page timers; FakeTimeProvider in their tests
+2026-11-13T09:10:06 | Claude | subtask-done | 1.4 Integrate into main and run the whole suite once
+2026-11-13T09:12:27 | Claude | log | Smoke check in the real app on the hidden desktop (port 9604, demo repo): board renders light and dark, note autosave reached disk in ~0.5 s, an outside edit to proposal.md showed on the open item page in ~3 s without reload. Shots tests/out/shots/smoke-*.png.

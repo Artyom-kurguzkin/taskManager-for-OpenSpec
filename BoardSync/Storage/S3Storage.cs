@@ -10,7 +10,7 @@ namespace BoardSync.Storage;
 /// An S3-compatible bucket (Cloudflare R2, Amazon S3, MinIO) over plain HttpClient with a hand-written AWS Signature Version 4.
 /// Path-style URLs: {endpoint}/{bucket}/{prefix}/{path}. The version is the ETag exactly as the server returns it (quotes included).
 /// </summary>
-internal sealed partial class S3Storage : IBoardStorage
+internal sealed partial class S3Storage : IBoardStorage, IDisposable
 {
     private const string EmptyPayloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -21,6 +21,17 @@ internal sealed partial class S3Storage : IBoardStorage
     private readonly string _secretKey;
     private readonly string _region;
     private readonly HttpClient _http;
+    private readonly HttpMessageHandler _handler;
+
+    /// <summary>
+    /// One connection pool for every storage built without a handler of its own (a pass builds a new S3Storage each time; each would otherwise open a new TLS connection).
+    /// Connections are renewed after 5 minutes so a changed address is picked up. A signed request is for one address: redirects are never followed, and no cookies are kept.
+    /// Never disposed: it lives as long as the process, and a storage's Dispose leaves it alone.
+    /// </summary>
+    private static readonly SocketsHttpHandler SharedHandler = new() { AllowAutoRedirect = false, UseCookies = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) };
+
+    /// <summary>The handler this storage sends through (a test seam): the shared pool unless the caller passed its own.</summary>
+    internal HttpMessageHandler Handler => _handler;
 
     // ponytail: constants; make them settings if a board ever outgrows them.
     private const int MaxListPages = 1000;
@@ -46,9 +57,13 @@ internal sealed partial class S3Storage : IBoardStorage
         _secretKey = secretKey;
         _region = string.IsNullOrWhiteSpace(region) ? "auto" : region;
         // A signed request is for one address: a redirect is never followed (it would also re-send the board to wherever it points).
-        _http = handler is null ? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) : new HttpClient(handler, disposeHandler: false);
+        _handler = handler ?? SharedHandler;
+        _http = new HttpClient(_handler, disposeHandler: false);
         _http.Timeout = RequestTimeout;
     }
+
+    /// <summary>Releases this storage's HttpClient. The connection pool (the shared handler, or the caller's own) stays.</summary>
+    public void Dispose() => _http.Dispose();
 
     /// <summary>A bucket name or prefix is plain names between slashes: no empty, "." or ".." part (those would climb out of the configured place).</summary>
     private static void CheckParts(string value, string what)
@@ -65,6 +80,15 @@ internal sealed partial class S3Storage : IBoardStorage
         if (r.Status == HttpStatusCode.NotFound) return null;
         if (!r.Ok) throw Unexpected(r, "read", path);
         return new StoredFile(r.Body, r.ETag ?? FallbackVersion(r.Body));
+    }
+
+    /// <summary>Streams the object into <paramref name="destination"/> as it arrives: same request, errors and cap as <see cref="Get"/>, but the body is never held whole in memory.</summary>
+    public async Task<bool> GetTo(string path, Stream destination, CancellationToken ct = default)
+    {
+        S3Response r = await Send(HttpMethod.Get, ObjectPath(path), [], null, null, "read", path, ct, destination);
+        if (r.Status == HttpStatusCode.NotFound) return false;
+        if (!r.Ok) throw Unexpected(r, "read", path);
+        return true;
     }
 
     public async Task<StoredFile?> GetIfChanged(string path, string? version, CancellationToken ct = default)
@@ -146,7 +170,7 @@ internal sealed partial class S3Storage : IBoardStorage
 
     /// <summary>Signs and sends one request. Refused keys, a missing bucket, server errors and network failures throw; everything else comes back for the caller to read.</summary>
     private async Task<S3Response> Send(HttpMethod method, string path, IReadOnlyList<KeyValuePair<string, string>> query, byte[]? body,
-        Action<HttpRequestMessage>? headers, string what, string subject, CancellationToken ct)
+        Action<HttpRequestMessage>? headers, string what, string subject, CancellationToken ct, Stream? sink = null)
     {
         string canonicalQuery = S3Signer.CanonicalQuery(query);
         string encodedPath = S3Signer.EncodePath(path.TrimStart('/'));
@@ -172,7 +196,16 @@ internal sealed partial class S3Storage : IBoardStorage
         {
             using HttpResponseMessage response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             string? etag = response.Headers.TryGetValues("ETag", out IEnumerable<string>? values) ? values.FirstOrDefault() : null;
-            byte[] content = await StorageLimits.ReadCapped(response.Content, cap, subject, deadline.Token);
+            byte[] content;
+            if (sink is not null && response.IsSuccessStatusCode)
+            {
+                // Streamed: the announced length is checked first so an oversized object writes nothing; the cap is then enforced chunk by chunk.
+                if (response.Content.Headers.ContentLength > cap) throw StorageLimits.TooBig(subject, cap);
+                await using Stream received = await response.Content.ReadAsStreamAsync(deadline.Token);
+                await StorageLimits.ReadCapped(received, sink, cap, subject, deadline.Token);
+                content = [];
+            }
+            else content = await StorageLimits.ReadCapped(response.Content, cap, subject, deadline.Token);
             result = new S3Response(response.StatusCode, content, etag);
         }
         catch (HttpRequestException e)

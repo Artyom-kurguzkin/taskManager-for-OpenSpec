@@ -3,7 +3,7 @@
 @using TaskManager.Board
 <Menu @ref="menu" Label="@Label" Class="range">
     <Activator>
-        <button type="button" class="box dd mini dates-btn" data-sk aria-label="@Label" @onclick="Open">@Text</button>
+        <button type="button" class="box dd mini dates-btn @(Picked ? "is-on" : "is-off")" data-sk aria-label="@Label" @onclick="Open">@Text</button>
     </Activator>
     <Items>
         <div class="range-pop" @onclick:stopPropagation="true">

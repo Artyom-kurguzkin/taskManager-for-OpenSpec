@@ -36,19 +36,51 @@ internal static class StorageLimits
     {
         if (content.Headers.ContentLength > cap) throw TooBig(path, cap);
         await using Stream stream = await content.ReadAsStreamAsync(ct);
-        return await ReadCapped(stream, cap, path, ct);
+        return await ReadCapped(stream, cap, path, ct, content.Headers.ContentLength);
     }
 
-    internal static async Task<byte[]> ReadCapped(Stream stream, long cap, string path, CancellationToken ct)
+    /// <summary>
+    /// Reads into one buffer: a stream that knows its length (a file) or a response that announced it fills one exact array, so the bytes are never copied a second time;
+    /// without a length the buffer doubles as the bytes arrive.
+    /// </summary>
+    internal static async Task<byte[]> ReadCapped(Stream stream, long cap, string path, CancellationToken ct, long? announced = null)
     {
-        using MemoryStream buffer = new();
-        byte[] chunk = new byte[81920];
+        long known = stream.CanSeek ? stream.Length - stream.Position : announced ?? 0;
+        if (known > cap) throw TooBig(path, cap);
+        byte[] buffer = new byte[known > 0 ? (int)Math.Min(known, Array.MaxLength) : 4096];
+        byte[] one = new byte[1];
+        int length = 0;
         while (true)
         {
-            int read = await stream.ReadAsync(chunk, ct);
-            if (read == 0) return buffer.ToArray();
-            if (buffer.Length + read > cap) throw TooBig(path, cap);
-            buffer.Write(chunk, 0, read);
+            if (length < buffer.Length)
+            {
+                int read = await stream.ReadAsync(buffer.AsMemory(length), ct);
+                if (read == 0) break;
+                length += read;
+                if (length > cap) throw TooBig(path, cap);
+                continue;
+            }
+            if (await stream.ReadAsync(one, ct) == 0) break;           // the buffer is full: is there more than was announced?
+            if (length + 1L > cap) throw TooBig(path, cap);
+            Array.Resize(ref buffer, (int)Math.Min(Math.Max(length * 2L, 4096L), Math.Min(cap, Array.MaxLength)));
+            buffer[length++] = one[0];
+        }
+        if (length != buffer.Length) Array.Resize(ref buffer, length);          // shorter than announced, or no length known: one copy at the end, as before
+        return buffer;
+    }
+
+    /// <summary>Copies the stream into <paramref name="destination"/> in chunks and stops with a storage error as soon as more than <paramref name="cap"/> bytes arrive. Returns how many.</summary>
+    internal static async Task<long> ReadCapped(Stream source, Stream destination, long cap, string path, CancellationToken ct)
+    {
+        byte[] chunk = new byte[81920];
+        long total = 0;
+        while (true)
+        {
+            int read = await source.ReadAsync(chunk, ct);
+            if (read == 0) return total;
+            total += read;
+            if (total > cap) throw TooBig(path, cap);
+            await destination.WriteAsync(chunk.AsMemory(0, read), ct);
         }
     }
 }

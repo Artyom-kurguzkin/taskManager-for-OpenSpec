@@ -28,8 +28,13 @@ public sealed record BoardOptions(
     DateOnly? ChangedTo = null,             // ... to this one (both set, or both null = off)
     IReadOnlyList<ChartSpec>? Charts = null,   // the Analytics view's charts; null = the two defaults (AnalyticsModel.DefaultCharts)
     TimeOnly? ChangedFromTime = null,       // the changed period's time within its first day (null = from 00:00) ...
-    TimeOnly? ChangedToTime = null)         // ... and within its last day (null = to the end of it)
+    TimeOnly? ChangedToTime = null,         // ... and within its last day (null = to the end of it)
+    string? ListGroupBy = null,             // the list's groups: none or any column field; null = never chosen, which the list shows as none (SettingsStore.Board fills it in)
+    string? ListSwimlane = null)            // the list's subgroups, the same
 {
+    /// <summary>The options as the list view reads them: its groups and subgroups in place of the board's columns and rows (none until chosen).</summary>
+    public BoardOptions ForList() => this with { GroupBy = ListGroupBy ?? BoardModel.NoSwimlane, Swimlane = ListSwimlane ?? BoardModel.NoSwimlane };
+
     /// <summary>A changed period is set: items that did not change in it are left out.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool ChangedOn => ChangedFrom is not null && ChangedTo is not null;
@@ -125,6 +130,9 @@ public static class BoardModel
         void Loose(bool any, string label, Func<WorkItem, bool> none) { if (any) values.Add(new(Unassigned, label, none)); }
         switch (field)
         {
+            case "none":   // the list with no groups: one column with no name, holding every shown item
+                values.Add(new(Unassigned, "", _ => true));
+                break;
             case "contributor":
                 Loose(visible.Any(i => i.Contributors.Count == 0), "No contributors", i => i.Contributors.Count == 0);
                 values.AddRange(all.SelectMany(i => i.Contributors).Distinct().Order(StringComparer.OrdinalIgnoreCase).Select(p => new FieldValue(p, p, i => i.Contributors.Contains(p))));
@@ -358,6 +366,7 @@ public static class BoardModel
         "priority" => "priority:" + column,
         "due" => "due:" + column,
         "started" => "started:" + column,
+        "none" => "none:" + column,
         _ => "status:" + column,
     };
 
@@ -401,11 +410,18 @@ public static class BoardModel
     public static BoardOptions ToggleHidden(BoardOptions o, string key) =>
         o with { Hidden = IsHidden(o, key) ? o.Hidden!.Where(k => k != key).ToList() : [.. o.Hidden ?? [], key] };
 
-    /// <summary>The user's order first, then the rest in their usual order; hidden ones dropped unless asked for.</summary>
+    /// <summary>
+    /// "Show all hidden" is on: a hidden column, row or grid column (by key) comes back to the board, list and calendar, and so do hidden projects
+    /// and deleted items (<c>WorkItemsApi.GetAll(includeHidden: o.ShowHidden)</c>). Only the contributor, the due period, the changed period
+    /// (<see cref="Visible"/>) and a project folded to its heading still leave work items out: a folded project stays folded and counts nowhere.
+    /// </summary>
+    public static bool Concealed(BoardOptions o, string key) => !o.ShowHidden && IsHidden(o, key);
+
+    /// <summary>The user's order first, then the rest in their usual order; hidden ones dropped unless asked for (or "show all hidden" is on).</summary>
     public static IEnumerable<T> Arrange<T>(IEnumerable<T> items, Func<T, string> key, BoardOptions o, bool includeHidden = false)
     {
         List<string> order = o.Order?.ToList() ?? [];
-        return items.Where(x => includeHidden || !IsHidden(o, key(x)))
+        return items.Where(x => includeHidden || !Concealed(o, key(x)))
             .Select((x, i) => (x, i))
             .OrderBy(t => order.IndexOf(key(t.x)) is int p and >= 0 ? p : order.Count + t.i)
             .Select(t => t.x);

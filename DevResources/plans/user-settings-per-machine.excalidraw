@@ -1,0 +1,265 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "id": "repo",
+   "type": "rectangle",
+   "x": 40,
+   "y": 60,
+   "width": 260,
+   "height": 150,
+   "strokeColor": "#1e1e1e",
+   "backgroundColor": "#fff3bf",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "repo-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "repo-label",
+   "containerId": "repo",
+   "text": "Repository (git, synced)\nopenspec/ board files\nattachments/plans\nconfig.yaml: storage, filesDir",
+   "originalText": "Repository (git, synced)\nopenspec/ board files\nattachments/plans\nconfig.yaml: storage, filesDir",
+   "fontSize": 14,
+   "x": 54.499999999999986,
+   "y": 100,
+   "width": 231.00000000000003,
+   "height": 70,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "cloud",
+   "type": "ellipse",
+   "x": 40,
+   "y": 260,
+   "width": 260,
+   "height": 110,
+   "strokeColor": "#1e1e1e",
+   "backgroundColor": "#d0ebff",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "cloud-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "cloud-label",
+   "containerId": "cloud",
+   "text": "Connected storage\nboard + attachments/images",
+   "originalText": "Connected storage\nboard + attachments/images",
+   "fontSize": 14,
+   "x": 69.89999999999999,
+   "y": 297.5,
+   "width": 200.20000000000002,
+   "height": 35,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "user",
+   "type": "rectangle",
+   "x": 460,
+   "y": 60,
+   "width": 300,
+   "height": 190,
+   "strokeColor": "#1e1e1e",
+   "backgroundColor": "#e9ecef",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "user-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "user-label",
+   "containerId": "user",
+   "text": "This computer, this user\nsettings.json\nper project: view, groups, sort,\nhidden columns/rows/projects,\ncolumn order and widths",
+   "originalText": "This computer, this user\nsettings.json\nper project: view, groups, sort,\nhidden columns/rows/projects,\ncolumn order and widths",
+   "fontSize": 14,
+   "x": 486.79999999999995,
+   "y": 111.25,
+   "width": 246.40000000000003,
+   "height": 87.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "pointer",
+   "type": "rectangle",
+   "x": 460,
+   "y": 300,
+   "width": 300,
+   "height": 70,
+   "strokeColor": "#1e1e1e",
+   "backgroundColor": "#ffffff",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "pointer-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "pointer-label",
+   "containerId": "pointer",
+   "text": "%APPDATA%\\RepoTaskManager\\settings-location.txt\n(fixed; names the chosen folder)",
+   "originalText": "%APPDATA%\\RepoTaskManager\\settings-location.txt\n(fixed; names the chosen folder)",
+   "fontSize": 12,
+   "x": 454.9,
+   "y": 320,
+   "width": 310.20000000000005,
+   "height": 30,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "a1",
+   "type": "arrow",
+   "x": 610,
+   "y": 300,
+   "width": 0,
+   "height": -50,
+   "strokeColor": "#1e1e1e",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     -50
+    ]
+   ],
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a1-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a1-label",
+   "containerId": "a1",
+   "text": "found at start",
+   "originalText": "found at start",
+   "fontSize": 12,
+   "x": 563.8,
+   "y": 267.5,
+   "width": 92.4,
+   "height": 15,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "a2",
+   "type": "arrow",
+   "x": 300,
+   "y": 135,
+   "width": 160,
+   "height": 0,
+   "strokeColor": "#c92a2a",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     160,
+     0
+    ]
+   ],
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a2-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a2-label",
+   "containerId": "a2",
+   "text": "never crosses",
+   "originalText": "never crosses",
+   "fontSize": 12,
+   "x": 337.1,
+   "y": 127.5,
+   "width": 85.80000000000001,
+   "height": 15,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "a3",
+   "type": "arrow",
+   "x": 170,
+   "y": 210,
+   "width": 0,
+   "height": 50,
+   "strokeColor": "#1e1e1e",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     50
+    ]
+   ],
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a3-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a3-label",
+   "containerId": "a3",
+   "text": "sync",
+   "originalText": "sync",
+   "fontSize": 12,
+   "x": 156.8,
+   "y": 227.5,
+   "width": 26.400000000000002,
+   "height": 15,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "note",
+   "type": "text",
+   "x": 40,
+   "y": 400,
+   "fontSize": 13,
+   "text": "A new build or reinstall reads the pointer, then the settings: nothing is lost with the app folder.\nThe repository and the storage hold what every computer shares; settings.json holds what only this one arranges.",
+   "width": 800.8000000000001,
+   "height": 32.5
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

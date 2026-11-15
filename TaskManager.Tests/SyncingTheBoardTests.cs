@@ -90,6 +90,7 @@ public sealed class SyncingTheBoardTests : IDisposable
     /// <summary>Every file under the folders with its size and last-write time: equal snapshots mean nothing was written.</summary>
     private static List<string> Snapshot(params string[] folders) =>
         [.. folders.Where(Directory.Exists).SelectMany(f => Directory.EnumerateFiles(f, "*", SearchOption.AllDirectories))
+            .Where(f => Path.GetFileName(f) != "scan.json")      // the stat cache is a speed-up the passes keep, not state or content
             .OrderBy(f => f, StringComparer.Ordinal)
             .Select(f => $"{f}|{new FileInfo(f).Length}|{File.GetLastWriteTimeUtc(f).Ticks}")];
 
@@ -584,7 +585,7 @@ public sealed class SyncingTheBoardTests : IDisposable
         }
 
         string?[] history = [.. ManifestEntries(a.Storage).GetProperty(Tasks).GetProperty("history").EnumerateArray().Select(h => h.GetString())];
-        Assert.Equal(20, history.Length);
+        Assert.Equal(3, history.Length);        // written with three earlier versions; a manifest with up to twenty is still read
         Assert.Equal(Sha(SeedTasks + "version 24\n"), history[0]);
     }
 

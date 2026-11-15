@@ -1,14 +1,16 @@
 schema: spec-driven
-skip_specs: true
 created: 2026-11-11
 x-rtm:
   id: 153
   title: list view moving tasks
-  status: Planned
+  status: In Review
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [general-ux]
   label: bug
   started: 2026-11-11
   due: 2026-11-11
-  moved: 2026-11-11
+  moved: 2026-11-13
+  tests: [{suite: UsingTheBoardTests, test: Dropping a list row on another group moves the work item there}, {suite: UsingTheBoardTests, test: Dropping a list row above another row in my order reorders them}, {suite: UsingTheBoardTests, test: 'In the list view only a Shift-click selected row is a drag handle: it drags after a few pixels wherever the press lands'}, {suite: UsingTheBoardTests, test: Dragging a selected list row moves every selected row to the drop group in their order}, {suite: UsingTheBoardTests, test: A press on an unselected list row selects cells and never starts a drag}]
+  agentBy: Claude chunk list-select-drag
+  agentAt: 2026-11-13T12:54:12

@@ -10,6 +10,8 @@ namespace TaskManager;
 /// <summary>Composition root: the only place that wires services, configures modules and owns the window.</summary>
 internal static class Program
 {
+    private static volatile bool windowFocused = true;   // Photino reports focus in and out; the sync service reads it
+
     [STAThread]
     private static void Main(string[] args)
     {
@@ -26,7 +28,8 @@ internal static class Program
         bool detached = detachedItem is not null && detachedRepo is not null && Directory.Exists(detachedRepo);
 
         // RTM_SETTINGS lets demos/tests run with their own settings file instead of the user's.
-        SettingsStore settings = new(Environment.GetEnvironmentVariable("RTM_SETTINGS") ?? SettingsStore.DefaultPath);
+        // Otherwise the user's file, in the folder they chose (the pointer next to the default file names it) or the default one.
+        SettingsStore settings = Environment.GetEnvironmentVariable("RTM_SETTINGS") is string own ? new(own) : SettingsStore.Open(SettingsStore.DefaultPath, SettingsStore.DefaultPointerPath);
         if (detached)
         {
             settings.ReadOnly = true;   // the main window owns the settings file; this process only reads it
@@ -37,9 +40,10 @@ internal static class Program
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton(new AppMode { Detached = detached, StartPath = detached ? $"item/{detachedItem}" : null });
         builder.Services.AddSingleton(new BoardStorageSettings(Hosting.Paths.Home, StorageProviders.Builtin));   // connected storage, per project (Settings → Board storage)
+        if (!detached) builder.Services.AddSingleton(SyncSetup.Default with { Focused = () => windowFocused });   // the idle check asks less often while the window has no focus
         if (!detached) builder.Services.AddSingleton<BoardSyncService>();   // the main window syncs; a detached item window only reads
         builder.Services.AddSingleton<Workspace>();
-        builder.Services.AddSingleton<FolderPicker>(() => app?.MainWindow.ShowOpenFolder("Choose a repository with an openspec/ folder")?.FirstOrDefault());
+        builder.Services.AddSingleton<FolderPicker>(title => app?.MainWindow.ShowOpenFolder(title ?? "Choose a repository with an openspec/ folder")?.FirstOrDefault());
         builder.Services.AddSingleton<FilePicker>(title => app?.MainWindow.ShowOpenFile(title)?.FirstOrDefault());
         builder.Services.AddSingleton<EditorLauncher>(EditorLaunchers.Default);
         builder.Services.AddSingleton<FolderOpener>(FolderOpeners.Default);
@@ -49,6 +53,8 @@ internal static class Program
         builder.RootComponents.Add<App>("#app");
 
         app = builder.Build();
+        app.MainWindow.WindowFocusIn += (_, _) => windowFocused = true;
+        app.MainWindow.WindowFocusOut += (_, _) => windowFocused = false;
         if (detached) app.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(false).SetSize(960, 1000);   // a normal window beside the main one
         else app.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(true).SetMaximized(true);   // icons: WindowFrame
         // The exception goes to a log first: before the window exists a message box cannot be shown (it threw and hid the cause), and a crash is then silent.

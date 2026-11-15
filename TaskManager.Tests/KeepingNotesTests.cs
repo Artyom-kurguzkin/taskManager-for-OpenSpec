@@ -5,7 +5,6 @@ using WorkItems;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class KeepingNotesTests
 {
     private const string NoteFile = "openspec/changes/add-health-check/notes/n123.md";

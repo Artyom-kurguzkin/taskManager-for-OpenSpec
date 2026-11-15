@@ -24,9 +24,10 @@ internal static class IdAllocator
     }
 
     // ponytail: poll with doubling backoff on a plain file lock instead of a named mutex: the file lives in the shared git dir, so it works across worktrees and processes.
-    private static FileStream Lock(string path)
+    internal static FileStream Lock(string path, string what = "the id lock", TimeSpan? limit = null)
     {
-        DateTime until = DateTime.UtcNow.AddSeconds(5);
+        TimeSpan wait = limit ?? TimeSpan.FromSeconds(5);
+        DateTime until = DateTime.UtcNow + wait;
         for (int delay = 25; ; delay = Math.Min(delay * 2, 400))
         {
             try
@@ -39,7 +40,7 @@ internal static class IdAllocator
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)   // Windows reports a held file as either
             {
-                if (DateTime.UtcNow >= until) throw new TimeoutException($"Could not take the id lock {path} within 5 seconds; another process holds it", e);
+                if (DateTime.UtcNow >= until) throw new TimeoutException($"Could not take {what} ({path}) within {wait.TotalSeconds:0.#} seconds; another process holds it", e);
                 Thread.Sleep(delay);
             }
         }

@@ -1,22 +1,24 @@
 using System.Security.Cryptography;
+using BoardSync.PublicDTOs;
 using BoardSync.Storage;
 
 namespace BoardSync.Sync;
 
 /// <summary>
-/// A file the scan found: its hash and last-write time. A small file keeps its bytes from the scan (what is uploaded is exactly what was hashed, even when the app writes the file a moment later);
-/// a large one keeps none and is read again when something needs its bytes (an upload, a base copy), one file at a time. The re-read must still hash to <see cref="Hash"/>.
+/// A file the scan found: its hash and last-write time. No file keeps its bytes from the scan (nothing is held for the whole pass): they are read again when something needs them
+/// (an upload, a merge, a base copy), one file at a time, and the re-read must still hash to <see cref="Hash"/>, so what is uploaded is exactly what was hashed or nothing is.
+/// <see cref="Settling"/>: written so recently that the scan left it for the next pass (see <see cref="SyncOptions.SettleWindow"/>).
 /// </summary>
-internal sealed class LocalFile(string relative, string full, string hash, byte[]? bytes, DateTime lastWriteUtc)
+internal sealed class LocalFile(string relative, string full, string hash, DateTime lastWriteUtc, bool settling = false)
 {
     internal string Hash { get; } = hash;
     internal DateTime LastWriteUtc { get; } = lastWriteUtc;
+    internal bool Settling { get; } = settling;
 
     internal byte[] Bytes
     {
         get
         {
-            if (bytes is not null) return bytes;
             byte[] read = LocalTree.ReadOrNull(full) ?? throw new SyncFailure($"\"{relative}\" disappeared while it was being synced. Sync again.");
             if (SyncModels.HashOf(read) != Hash) throw new SyncFailure($"\"{relative}\" changed while it was being synced, so nothing was synced. Sync again in a moment.");
             return read;
@@ -33,7 +35,7 @@ internal static class LocalTree
     /// Every file under <paramref name="root"/> (full path, board-relative path) without following links: a junction or symlink, to a file or to a folder, is not entered and not listed as a file;
     /// its board-relative path goes into <paramref name="links"/>.
     /// </summary>
-    internal static IEnumerable<(string Full, string Relative)> Walk(string root, List<string> links)
+    internal static IEnumerable<(string Full, string Relative, FileInfo Info)> Walk(string root, List<string> links)
     {
         if (!Directory.Exists(root)) yield break;
         Stack<DirectoryInfo> pending = new();
@@ -45,12 +47,24 @@ internal static class LocalTree
                 string relative = Path.GetRelativePath(root, entry.FullName).Replace(Path.DirectorySeparatorChar, '/');
                 if ((entry.Attributes & FileAttributes.ReparsePoint) != 0) links.Add(relative);
                 else if (entry is DirectoryInfo directory) pending.Push(directory);
-                else yield return (entry.FullName, relative);
+                else if (entry is FileInfo info && !IsIgnored(info.Name)) yield return (info.FullName, relative, info);     // size and time come with the listing: no second look
             }
         }
     }
 
-    /// <summary>Up to this size a file is read whole by the scan and kept; a larger one is hashed as a stream and read again only when its bytes are needed.</summary>
+    /// <summary>
+    /// Files that are never synced and never scanned: what editors and the app's own stores leave while they write (*.tmp, ~$*, *.swp, .#*, *~, .rtm-*). A fixed list, not a setting.
+    /// <paramref name="name"/> is the file name or a board-relative path (the last part counts).
+    /// </summary>
+    internal static bool IsIgnored(string name)
+    {
+        int slash = name.LastIndexOf('/');
+        if (slash >= 0) name = name[(slash + 1)..];
+        const StringComparison c = StringComparison.OrdinalIgnoreCase;
+        return name.EndsWith(".tmp", c) || name.StartsWith("~$", c) || name.EndsWith(".swp", c) || name.StartsWith(".#", c) || name.EndsWith('~') || name.StartsWith(".rtm-", c);
+    }
+
+    /// <summary>Up to this size a file is hashed from one read of its bytes; a larger one is hashed as a stream. Either way nothing is kept.</summary>
     internal const int SmallFileMax = 256 * 1024;
     private const int StreamBuffer = 80 * 1024;
 
@@ -58,33 +72,43 @@ internal static class LocalTree
 
     /// <summary>
     /// A file larger than the object cap (<see cref="StorageLimits.ObjectMax"/>) is not read: its path goes into <paramref name="tooLarge"/> and it is not in the result.
-    /// <paramref name="onBuffer"/> (a test seam) hears the size of every buffer the scan allocates for file content.
-    /// ponytail: the bytes of every file up to <see cref="SmallFileMax"/> stay in memory for the whole sync (a board is a few hundred small text files); larger files are streamed.
+    /// <paramref name="onBuffer"/> (a test seam) hears the size of every buffer the scan allocates for file content: one per file that is actually read.
+    /// With a <paramref name="cache"/> a file whose size and last write are the cached ones is not read at all (its cached hash is used); every file seen is recorded in it (the caller saves it).
+    /// A file written less than <paramref name="settle"/> before the scan began (and put off for less than five minutes) is in the result with <see cref="LocalFile.Settling"/> set.
     /// </summary>
-    internal static Dictionary<string, LocalFile> Scan(string root, List<string> links, List<string> tooLarge, Action<long>? onBuffer = null)
+    internal static Dictionary<string, LocalFile> Scan(string root, List<string> links, List<string> tooLarge, Action<long>? onBuffer = null, StatCache? cache = null, TimeSpan settle = default)
     {
         Dictionary<string, LocalFile> files = new(StringComparer.Ordinal);
         long cap = StorageLimits.ObjectMax;
-        foreach ((string file, string relative) in Walk(root, links))
+        cache?.BeginScan();
+        foreach ((string file, string relative, FileInfo info) in Walk(root, links))
         {
             if (file.EndsWith(TempSuffix, StringComparison.Ordinal)) continue;     // left by a crash in the middle of one of our own writes
             try
             {
-                long length = new FileInfo(file).Length;                            // looked at before anything is read
+                long length = info.Length;                                          // looked at before anything is read
                 if (length > cap) { tooLarge.Add(relative); continue; }
-                DateTime written = File.GetLastWriteTimeUtc(file);
-                if (length <= SmallFileMax)
+                DateTime written = info.LastWriteTimeUtc;
+                string? hash = cache?.Lookup(relative, length, written.Ticks);
+                if (hash is null)
                 {
-                    byte[] bytes = ReadShared(file);
-                    onBuffer?.Invoke(bytes.Length);
-                    if (bytes.Length > cap) { tooLarge.Add(relative); continue; }
-                    files[relative] = new LocalFile(relative, file, SyncModels.HashOf(bytes), bytes, written);
-                    continue;
+                    if (length <= SmallFileMax)
+                    {
+                        byte[] bytes = ReadShared(file);
+                        onBuffer?.Invoke(bytes.Length);
+                        if (bytes.Length > cap) { tooLarge.Add(relative); continue; }
+                        hash = SyncModels.HashOf(bytes);
+                    }
+                    else
+                    {
+                        onBuffer?.Invoke(StreamBuffer);
+                        (string streamed, long read) = HashStream(file, cap);
+                        if (read > cap) { tooLarge.Add(relative); continue; }       // it grew while it was read
+                        hash = streamed;
+                    }
                 }
-                onBuffer?.Invoke(StreamBuffer);
-                (string hash, long read) = HashStream(file, cap);
-                if (read > cap) tooLarge.Add(relative);                             // it grew while it was read
-                else files[relative] = new LocalFile(relative, file, hash, null, written);
+                cache?.Record(relative, length, written.Ticks, hash);
+                files[relative] = new LocalFile(relative, file, hash, written, cache?.Defer(relative, written, settle) == true);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {

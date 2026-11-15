@@ -33,6 +33,38 @@ public sealed class ArrangingTheBoardTests
 
     private static IReadOnlyList<BoardSection> Build(BoardOptions o) => BoardModel.Build(Items, Features, Lanes, o);
 
+    [Fact(DisplayName = "Grouped by none the board model has one unnamed column holding every shown item once, in sort order, and the list rows are those items without a group per status")]
+    public void GroupedByNoneIsOneColumn()
+    {
+        BoardOptions o = new(GroupBy: "none", SortBy: "id");
+        BoardSection section = Assert.Single(Build(o));
+        BoardColumn column = Assert.Single(section.Columns);
+        Assert.Equal("", column.Label);
+        Assert.Equal([1, 2, 3, 4], column.Items.Select(i => i.Id));
+        Assert.Equal("none:", BoardModel.ColumnKey(o, ""));   // hidden / order keys of the flat list stay apart from the status columns'
+        Assert.Null(BoardModel.GroupedColumn(o));              // so the list keeps its Status column
+
+        IReadOnlyList<GridRow> rows = BoardModel.Rows([section], new Dictionary<string, string>());
+        Assert.Equal([1, 2, 3, 4], rows.Select(r => r.Id));
+        Assert.Single(rows.Select(r => r.Group).Distinct());
+
+        // and with subgroups the one column is split by the row field only
+        BoardSection byLabel = Assert.Single(Build(o with { Swimlane = "label" }));
+        Assert.Single(byLabel.Columns);
+        Assert.Equal([1, 3], BoardModel.Swimlanes(byLabel).Single(r => r.Key == "feature").Items.Select(i => i.Id));
+    }
+
+    [Fact(DisplayName = "The list's groups and subgroups are its own options: none until chosen, and the board's columns and rows are left alone")]
+    public void ListOptionsAreItsOwn()
+    {
+        BoardOptions fresh = new();
+        Assert.Equal(("status", "none"), (fresh.GroupBy, fresh.Swimlane));
+        BoardOptions list = fresh.ForList();
+        Assert.Equal(("none", "none"), (list.GroupBy, list.Swimlane));
+        BoardOptions chosen = (fresh with { ListGroupBy = "label", ListSwimlane = "priority" }).ForList();
+        Assert.Equal(("label", "priority"), (chosen.GroupBy, chosen.Swimlane));
+    }
+
     [Fact(DisplayName = "Grouping by due date gives Overdue, Today, This week, Next week, Later and No due date; by start date, Earlier, This week, Next week, Later and Not started")]
     public void ByPeriod()
     {

@@ -4,6 +4,7 @@ using Bunit;
 using GitHistory;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Notes;
 using Notes.PublicDTOs;
 using Radzen;
@@ -16,7 +17,6 @@ using WorkItems.PublicDTOs;
 namespace TaskManager.Tests;
 
 /// <summary>The worklog view of a work item: a feed by day of notes, logged events and commits, with Shift-click menus on the dates and the entries.</summary>
-[Collection(nameof(ModuleStateCollection))]
 public sealed class UsingTheWorklogTests : IDisposable
 {
     private readonly TestRepo repo = new();
@@ -30,9 +30,10 @@ public sealed class UsingTheWorklogTests : IDisposable
         try { File.Delete(settingsFile); } catch (IOException) { }
     }
 
-    private BunitContext NewContext()
+    private BunitContext NewContext(TimeProvider? time = null)
     {
         BunitContext ctx = new();
+        if (time is not null) ctx.Services.AddSingleton(time);   // the pages' timers (reload coalescing, autosave) run on it: the test moves time by hand
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<UiService>();
         ctx.Services.AddRadzenComponents();
@@ -47,6 +48,19 @@ public sealed class UsingTheWorklogTests : IDisposable
     private IRenderedComponent<Worklog> Log(BunitContext ctx, int id = 123, Action? told = null) =>
         ctx.Render<Worklog>(p => p.Add(c => c.Item, WorkItemsApi.Get(id)!).Add(c => c.Root, repo.Root)
             .Add(c => c.OnChanged, Microsoft.AspNetCore.Components.EventCallback.Factory.Create(this, () => told?.Invoke())));
+
+    /// <summary>
+    /// Lets <paramref name="ms"/> milliseconds of the pages' clock pass, one coalescing window (50 ms) at a time, and after each step lets the
+    /// renderer finish what the timers queued: what real time would have done in that span, without waiting for it and in the same order every run.
+    /// </summary>
+    private static async Task Pass<T>(FakeTimeProvider time, IRenderedComponent<T> on, int ms) where T : Microsoft.AspNetCore.Components.IComponent
+    {
+        for (int passed = 0; passed < ms; passed += 50)
+        {
+            time.Advance(TimeSpan.FromMilliseconds(50));
+            await on.InvokeAsync(() => { });
+        }
+    }
 
     private static string Iso(DateTime d) => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     private static string Text(IElement e) => string.Join(' ', e.TextContent.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
@@ -576,7 +590,8 @@ public sealed class UsingTheWorklogTests : IDisposable
     [Fact(DisplayName = "One write from the worklog reloads the page once, not once per Changed event")]
     public async Task OneWriteReloadsOnce()
     {
-        await using BunitContext ctx = NewContext();
+        FakeTimeProvider time = new();
+        await using BunitContext ctx = NewContext(time);
         (IRenderedComponent<WorkItemPage> page, IRenderedComponent<Worklog> log) = OpenWorklogView(ctx);
         DateTime today = DateTime.Today;
         IElement input() => DayOf(log, today).QuerySelector(".wk-add-subtask input")!;
@@ -588,7 +603,7 @@ public sealed class UsingTheWorklogTests : IDisposable
         input().Input("Restrict permissions");
         input().KeyDown(new KeyboardEventArgs { Key = "Enter" });
         log.WaitForAssertion(() => Assert.Contains("added subtask 2.2 Restrict permissions", DayOf(log, today).QuerySelectorAll(".wk-ev .wk-line").Select(Text)));
-        await Task.Delay(300);   // anything queued behind the write has had its time
+        await Pass(time, page, 300);   // anything queued behind the write on the pages' clock has had its time
 
         Assert.Equal(pageLoads + 1, page.Instance.Loads);
         Assert.Equal(logLoads + 1, log.Instance.Loads);
@@ -598,13 +613,14 @@ public sealed class UsingTheWorklogTests : IDisposable
     [Fact(DisplayName = "Several Changed events in one frame reload a page once more, not once each")]
     public async Task ChangedEventsAreCoalesced()
     {
-        await using BunitContext ctx = NewContext();
+        FakeTimeProvider time = new();
+        await using BunitContext ctx = NewContext(time);
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         int before = page.Instance.Loads;
 
         Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
         for (int i = 0; i < 10; i++) workspace.Notify();   // a write and the file watcher's echo, and more
-        await Task.Delay(400);
+        await Pass(time, page, 400);
 
         Assert.InRange(page.Instance.Loads - before, 1, 2);   // the first at once, one more for what came after it
     }
@@ -612,14 +628,15 @@ public sealed class UsingTheWorklogTests : IDisposable
     [Fact(DisplayName = "A worklog of a folder that is not a git repository reads again without starting a git process")]
     public async Task NoGitProcessWithoutARepository()
     {
-        await using BunitContext ctx = NewContext();
+        FakeTimeProvider time = new();
+        await using BunitContext ctx = NewContext(time);
         IRenderedComponent<Worklog> log = Log(ctx);
         Assert.False(GitHistory.GitHistoryApi.IsRepository());   // the sample repo has no real .git (only an empty objects folder)
         int before = GitHistory.GitHistoryModule.Processes;
         int loads = log.Instance.Loads;
 
         ctx.Services.GetRequiredService<Workspace>().Notify();
-        await Task.Delay(300);
+        await Pass(time, log, 300);
 
         Assert.True(log.Instance.Loads > loads);
         Assert.Equal(before, GitHistory.GitHistoryModule.Processes);   // a process start costs 70 ms and more on a busy machine, per read

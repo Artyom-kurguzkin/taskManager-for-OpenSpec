@@ -24,6 +24,8 @@ public partial class BoardPage
     }
 
     private BoardOptions O = new();
+    /// <summary>The options as this view reads them: the list's own groups and subgroups (flat until chosen) stand in for the board's columns and rows.</summary>
+    private BoardOptions Opt => View == "list" ? O.ForList() : O;
 
     /// <summary>True when the layout shows this page as the left half of a split screen (an open work item on the right): always the list.</summary>
     [Parameter] public bool Embedded { get; set; }
@@ -54,7 +56,7 @@ public partial class BoardPage
     private readonly HashSet<string> selectedRows = [];   // swimlane headers Shift-clicked (BoardModel.RowKey), to move with the arrow keys
     private (IReadOnlyList<string> Siblings, IReadOnlyList<string> Moving)? draggingRow;   // a swimlane header being dragged, or every selected one
 
-    private List<string> RowKeys(BoardSection sec) => [.. BoardModel.Swimlanes(sec).Select(r => BoardModel.RowKey(O.Swimlane, r.Key))];
+    private List<string> RowKeys(BoardSection sec) => [.. BoardModel.Swimlanes(sec).Select(r => BoardModel.RowKey(Opt.Swimlane, r.Key))];
 
     /// <summary>Shift / Ctrl / ⌘-click on a swimlane header selects it, as on a project heading; the arrow keys then move it.</summary>
     private void RowClick(string key, MouseEventArgs e)
@@ -103,6 +105,7 @@ public partial class BoardPage
     // One field list for the three Organise options: columns take any of them, rows and colour also "none".
     internal static readonly IReadOnlyList<(string, string)> GroupBys = [("status", "status"), ("feature", "feature"), ("label", "label"), ("priority", "priority"), ("contributor", "contributor"), ("due", "due date"), ("started", "start date")];
     internal static readonly IReadOnlyList<(string, string)> Swimlanes = [("none", "none"), .. GroupBys];
+    internal static readonly IReadOnlyList<(string, string)> ListGroupBys = [("none", "none"), .. GroupBys];   // the list's groups and subgroups: none (flat) or any field
     internal static readonly IReadOnlyList<(string, string)> ColorBys = [.. GroupBys, ("none", "none")];
     internal static readonly IReadOnlyList<(string, string)> Periods =[("all", "any time"), ("overdue", "overdue"), ("today", "today"), ("week", "this week"), ("month", "this month"), ("none", "no due date")];
     internal static readonly IReadOnlyList<(string, string)> SortBys =
@@ -114,11 +117,12 @@ public partial class BoardPage
     private bool Multi => projects.Count > 1;
 
     /// <summary>Several projects with the same columns (grouped by status or label): one header row above serves them all.</summary>
-    private bool Aligned => Multi && O.Swimlane == BoardModel.NoSwimlane && projects.All(p => p.Sections.Count == 1)
+    private bool Aligned => Multi && Opt.Swimlane == BoardModel.NoSwimlane && projects.All(p => p.Sections.Count == 1)
         && projects.Select(p => string.Join("|", p.Sections[0].Columns.Select(c => c.Key))).Distinct().Count() == 1;
 
-    private IReadOnlyList<string> HeadKeys => projects[0].Sections[0].Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList();
+    private IReadOnlyList<string> HeadKeys => projects[0].Sections[0].Columns.Select(c => BoardModel.ColumnKey(Opt, c.Key)).ToList();
 
+    /// <summary>A project folded to its heading, on the board and in the list; "show all hidden" does not unfold it, and its items count in no column header.</summary>
     private bool Collapsed(Project p) => Settings.ProjectCollapsed(p.Root);
     private bool IsActive(Project p) => Workspace.Root is string r && SettingsStore.Key(r) == SettingsStore.Key(p.Root);
     /// <summary>The project a shared control (the header row's "+ Add work item") acts on: the active one, else the first shown.</summary>
@@ -128,7 +132,7 @@ public partial class BoardPage
     {
         base.OnInitialized();
         Settings.Changed += OnSettings;
-        if (Workspace.Root is string root) O = Settings.Board(root);
+        if (Workspace.ViewRoot is string root) O = Settings.Board(root);
         projectState = ProjectState;
     }
 
@@ -139,7 +143,7 @@ public partial class BoardPage
 
     private void OnSettings() => InvokeAsync(() =>
     {
-        BoardOptions o = Workspace.Root is string root ? Settings.Board(root) : O;
+        BoardOptions o = Workspace.ViewRoot is string root ? Settings.Board(root) : O;
         if (o == O && ProjectState == projectState) return;
         O = o;
         projectState = ProjectState;
@@ -152,11 +156,11 @@ public partial class BoardPage
 
     protected override void Load()
     {
-        projects = Workspace.Projects.Where(r => !Settings.ProjectHidden(r)).Select(r => Workspace.In(r, () =>
+        projects = Workspace.Projects.Where(r => O.ShowHidden || !Settings.ProjectHidden(r)).Select(r => Workspace.In(r, () =>
         {
             IReadOnlyList<WorkItem> items = WorkItemsApi.GetAll(includeHidden: O.ShowHidden);
             IReadOnlyList<Feature> features = FeaturesApi.GetAll();
-            return new Project(r, Path.GetFileName(r), items, features, Workspace.FeatureNames, BoardModel.Build(items, features, WorkItemsApi.GetLanes(), O), BoardModel.ColourMap(O.ColorBy, items, features));
+            return new Project(r, Path.GetFileName(r), items, features, Workspace.FeatureNames, BoardModel.Build(items, features, WorkItemsApi.GetLanes(), Opt), BoardModel.ColourMap(O.ColorBy, items, features));
         })).ToList();
         selected.RemoveWhere(s => !projects.Any(p => p.Root == s.Root && p.Items.Any(i => i.Id == s.Id)));
         selectedProjects.RemoveWhere(r => !Multi || !projects.Any(p => p.Root == r));
@@ -175,11 +179,12 @@ public partial class BoardPage
     private void FillGroups()
     {
         groupedMulti = Multi;
-        groupedSwim = O.Swimlane;
+        groupedSwim = Opt.Swimlane;
+        groupedCols = Opt.GroupBy != BoardModel.NoSwimlane;
         groupDescriptors.Clear();
         if (Multi) groupDescriptors.Add(new GroupDescriptor { Property = nameof(GridRow.Project), Title = "Project" });
-        groupDescriptors.Add(new GroupDescriptor { Property = nameof(GridRow.Group), Title = "Column" });
-        if (O.Swimlane != BoardModel.NoSwimlane) groupDescriptors.Add(new GroupDescriptor { Property = nameof(GridRow.Swim), Title = "Row" });
+        if (groupedCols) groupDescriptors.Add(new GroupDescriptor { Property = nameof(GridRow.Group), Title = "Column" });
+        if (Opt.Swimlane != BoardModel.NoSwimlane) groupDescriptors.Add(new GroupDescriptor { Property = nameof(GridRow.Swim), Title = "Row" });
     }
 
     private Project ProjectOf(string root) => projects.First(p => p.Root == root);
@@ -187,7 +192,7 @@ public partial class BoardPage
     private void Set(BoardOptions options)
     {
         O = options;
-        if (Workspace.Root is string root) Settings.SaveBoard(root, O);
+        if (Workspace.ViewRoot is string root) Settings.SaveBoard(root, O);
         Load();
     }
 
@@ -208,19 +213,20 @@ public partial class BoardPage
     private DataGridSettings? gridSettings;   // column widths, order, visibility, sort and filters, remembered per repository
     private readonly HashSet<string> shutGroups = [];   // collapsed groups, by project and column key (and row value, for a row-value group), kept across re-renders and data reloads
     private bool? groupedMulti;               // whether the grid's group descriptors include the project level
+    private bool groupedCols = true;          // ... and the column level (the list's groups; none = flat, or only projects and subgroups)
     private bool? subtasksApplied;            // the ShowSubtasks setting last pushed into the grid's expanded rows
 
     /// <summary>A column is shown unless hidden by the user, or it repeats what the rows are grouped by.</summary>
     private static string Day(DateTime? d) => d is { } v ? v.ToString("d MMM") : "";
 
-    private bool Shown(string column) => !BoardModel.IsHidden(O, BoardModel.ListColumnKey(column)) && column != BoardModel.GroupedColumn(O) && column != BoardModel.SwimColumn(O);
+    private bool Shown(string column) => !BoardModel.Concealed(O,BoardModel.ListColumnKey(column)) && column != BoardModel.GroupedColumn(Opt) && column != BoardModel.SwimColumn(Opt);
 
     // Asks what the grid is grouped by, not Multi: after the project list changes, the grid renders once with its old group
     // descriptors (OnAfterRenderAsync swaps them), and a group keyed by column read as a project group throws a cast in the render.
     private bool IsProjectGroup(Group g) => groupedMulti == true && g.Level == 0;
 
     /// <summary>With rows set the grid groups project (when several) → column → row value; this is the row-value level, inside a column.</summary>
-    private bool IsSwimGroup(Group g) => groupedSwim is not (null or BoardModel.NoSwimlane) && g.Level == (groupedMulti == true ? 2 : 1);
+    private bool IsSwimGroup(Group g) => groupedSwim is not (null or BoardModel.NoSwimlane) && g.Level == (groupedMulti == true ? 1 : 0) + (groupedCols ? 1 : 0);
 
     /// <summary>The last level of groups, the one that holds the item rows (and gets the "+ Add item" footer).</summary>
     private bool IsLeafGroup(Group g) => !IsProjectGroup(g) && (groupedSwim is null or BoardModel.NoSwimlane || IsSwimGroup(g));
@@ -301,7 +307,7 @@ public partial class BoardPage
         (BoardColumn col, _, string root) = GroupOf(args.Group!);
         args.Attributes["data-group"] = col.Key;
         args.Attributes["data-path-col"] = col.Label;
-        if (O.GroupBy == "status") args.Attributes["data-path-fill"] = $"var({Ui.Band(col.Label)})";   // the status pill's colour, as the group header wears it
+        if (Opt.GroupBy == "status") args.Attributes["data-path-fill"] = $"var({Ui.Band(col.Label)})";   // the status pill's colour, as the group header wears it
         args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(ProjectOf(root), col, null));   // the column's end; the item keeps its row value
         // only ever false: Radzen takes Expanded = true as "keep open" and ignores the chevron; the collapse/expand events keep shutGroups current
         if (shutGroups.Contains(ShutKey(args.Group!))) args.Expanded = false;
@@ -312,14 +318,14 @@ public partial class BoardPage
     /// <summary>The name menu's Collapse / Expand: the board's chevron setting, and the list's group row follows it.</summary>
     private void ToggleProjectCollapsed(Project p)
     {
-        if (Collapsed(p)) reopenProjects.Add(p.Root);
+        if (Settings.ProjectCollapsed(p.Root)) reopenProjects.Add(p.Root);
         Settings.ToggleProjectCollapsed(p.Root);
     }
 
     /// <summary>The list's project chevron keeps the same setting as the board's.</summary>
     private void SetProjectCollapsed(Group g, bool collapsed)
     {
-        if (projects.FirstOrDefault(p => p.Name == (string)g.Data.Key) is { } p && Collapsed(p) != collapsed) Settings.ToggleProjectCollapsed(p.Root);
+        if (projects.FirstOrDefault(p => p.Name == (string)g.Data.Key) is { } p && Settings.ProjectCollapsed(p.Root) != collapsed) Settings.ToggleProjectCollapsed(p.Root);
     }
 
     private async Task ToggleRow(GridRow row)
@@ -332,14 +338,15 @@ public partial class BoardPage
     {
         gridSettings = settings;
         O = O with { ListSettings = System.Text.Json.JsonSerializer.Serialize(settings) };
-        if (Workspace.Root is string root) Settings.SaveBoard(root, O);   // no Load: nothing on the board changed
+        if (Workspace.ViewRoot is string root) Settings.SaveBoard(root, O);   // no Load: nothing on the board changed
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         reopenProjects.Clear();   // the list has drawn them open once; from here Radzen's own state keeps them so
         if (grid is null) return;
-        if (grid.Groups.Count == 0 || groupedMulti != Multi || groupedSwim != O.Swimlane)   // grouped by project (when several), column, then row value (when set); the group panel stays hidden
+        bool grouping = Multi || Opt.GroupBy != BoardModel.NoSwimlane || Opt.Swimlane != BoardModel.NoSwimlane;   // nothing to group by: the flat list
+        if ((grouping && grid.Groups.Count == 0) || groupedMulti != Multi || groupedSwim != Opt.Swimlane || groupedCols != (Opt.GroupBy != BoardModel.NoSwimlane))   // grouped by project (when several), column, then row value (when set); the group panel stays hidden
         {
             FillGroups();
             await grid.Reload();
@@ -450,7 +457,7 @@ public partial class BoardPage
 
     private async Task DropBefore(Project p, BoardColumn col, WorkItem? before, string? swim)
     {
-        if (draggingColumn is (IReadOnlyList<string> siblings, _)) { DropColumn(siblings, BoardModel.ColumnKey(O, col.Key)); return; }
+        if (draggingColumn is (IReadOnlyList<string> siblings, _)) { DropColumn(siblings, BoardModel.ColumnKey(Opt, col.Key)); return; }
         if (dragging is not { } moving) return;
         dragging = null;
         if (moving.From.Root != p.Root)   // a change folder lives in one repository
@@ -499,11 +506,11 @@ public partial class BoardPage
     /// </summary>
     private async Task<bool> MoveInto(Project p, WorkItem it, string from, string? fromRow, BoardColumn col, string? swim)
     {
-        bool ok = from == col.Key || await SetField(p, it, O.GroupBy, from, col.Key);
+        bool ok = from == col.Key || await SetField(p, it, Opt.GroupBy, from, col.Key);
         if (ok && swim is not null && swim != fromRow)   // dropped into another row: the card takes that row's value too
         {
             string toValue = swim == BoardModel.NoRow ? BoardModel.Unassigned : swim;
-            if (!HasValue(it, O.Swimlane, toValue)) await SetField(p, it, O.Swimlane, fromRow is null or BoardModel.NoRow ? BoardModel.Unassigned : fromRow, toValue);
+            if (!HasValue(it, Opt.Swimlane, toValue)) await SetField(p, it, Opt.Swimlane, fromRow is null or BoardModel.NoRow ? BoardModel.Unassigned : fromRow, toValue);
         }
         return ok;
     }
@@ -547,9 +554,9 @@ public partial class BoardPage
             if (await Workspace.PickProject("New work item in…") is not string root) return;
             p = ProjectOf(root);
         }
-        string status = O.GroupBy == "status" && columnKey is not null ? columnKey : "Backlog";
-        string[]? feature = O.GroupBy == "feature" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
-        string[]? who = O.GroupBy == "contributor" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
+        string status = Opt.GroupBy == "status" && columnKey is not null ? columnKey : "Backlog";
+        string[]? feature = Opt.GroupBy == "feature" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
+        string[]? who = Opt.GroupBy == "contributor" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
         (bool ok, string message, int id) = Workspace.CreateItem(status, feature, who, p?.Root);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
         Popups.Toast($"Created #wi{id}", ToastKind.Success);

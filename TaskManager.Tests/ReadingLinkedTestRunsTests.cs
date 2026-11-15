@@ -4,7 +4,6 @@ using LinkedTestRuns.PublicDTOs;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class ReadingLinkedTestRunsTests
 {
     internal const string Trx = """

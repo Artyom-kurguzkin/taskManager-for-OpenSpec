@@ -207,6 +207,7 @@ internal static class DataFile
         for (int attempt = 0; ; attempt++)
         {
             try { File.Delete(file); return; }
+            catch (DirectoryNotFoundException) { return; }   // no folder, no file: nothing to delete (and nothing to wait for)
             catch (Exception e) when (e is IOException or UnauthorizedAccessException && attempt < Attempts - 1) { Pause(attempt); }
         }
     }

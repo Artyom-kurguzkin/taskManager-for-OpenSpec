@@ -11,7 +11,6 @@ namespace TaskManager.Tests;
 /// openspec/REPO-TASKS.md is the only thing an agent reads before it writes a work item, so its example has to be right:
 /// these tests write the example's files exactly as the guide shows them and hand them to the app and to the OpenSpec CLI.
 /// </summary>
-[Collection(nameof(ModuleStateCollection))]
 public sealed partial class GuidingAgentsTests
 {
     // A file of the example: its path in backticks on a line of its own, then a fenced block.

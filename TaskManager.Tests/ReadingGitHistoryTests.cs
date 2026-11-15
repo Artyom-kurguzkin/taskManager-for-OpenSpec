@@ -4,7 +4,6 @@ using GitHistory.PublicDTOs;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class ReadingGitHistoryTests : IDisposable
 {
     private readonly string root = Directory.CreateTempSubdirectory("rtm-git").FullName;

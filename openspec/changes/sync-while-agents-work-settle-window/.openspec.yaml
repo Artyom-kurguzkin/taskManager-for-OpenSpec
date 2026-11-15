@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-16
+x-rtm:
+  id: 170
+  title: 'Sync while agents work: settle window, postponement cap, store lock, no direct edits'
+  status: In Review
+  contributors: [Claude]
+  features: [integration-with-agents]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-16
+  plan: DevResources/plans/sync-cost-and-agent-safety-2026-11-16.md
+  tests: [{suite: WritingTheBoardConcurrentlyTests, test: Two writers with stale views of events.log both get their event appended}, {suite: WritingTheBoardConcurrentlyTests, test: A second writer of the same yaml is refused with the stale message and nothing is lost}, {suite: WritingTheBoardConcurrentlyTests, test: A write holds the change folder's lock from the check to the move}, {suite: WritingTheBoardConcurrentlyTests, test: A temp file left by a crash is removed by the next write}, {suite: WritingTheBoardConcurrentlyTests, test: Two writers never share a temp file name}, {suite: WritingTheBoardConcurrentlyTests, test: A worktree and the main repository lock the same file}, {suite: SyncingWithConnectedStorageTests, test: A change every minute for an hour still syncs fifteen minutes after the first change}, {suite: SyncingWithConnectedStorageTests, test: The quiet timer still waits two minutes after the last change when changes stop}, {suite: UsingTheBoardTests, test: 'A card whose agent wrote three minutes ago says so, and the badge disappears after a day or once reviewed'}, {suite: UsingTheBoardTests, test: The list row carries the same agent badge}, {suite: UsingTheBoardTests, test: The edit hook denies direct edits under openspec/changes unless RTM_ALLOW_DIRECT_EDIT is set}, {suite: ScanningWithAStatCacheTests, test: A file written less than ten seconds before the scan waits for the next pass and is reported as settling}, {suite: ScanningWithAStatCacheTests, test: A file that keeps changing for five minutes is taken anyway}, {suite: ScanningWithAStatCacheTests, test: Temp and editor files are never scanned}]
+  agentBy: Claude
+  agentAt: 2026-11-16T06:35:32

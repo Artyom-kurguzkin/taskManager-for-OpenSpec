@@ -11,7 +11,6 @@ using TaskManager.Services;
 namespace TaskManager.Tests;
 
 /// <summary>Opening and switching between several repositories as tabs in the side nav.</summary>
-[Collection(nameof(ModuleStateCollection))]
 public sealed class SwitchingProjectsTests : IDisposable
 {
     private readonly TestRepo repo1 = new();
@@ -79,17 +78,17 @@ public sealed class SwitchingProjectsTests : IDisposable
             workspace.TakeGuideNotice();
 
             IRenderedComponent<TaskManager.Components.Pages.SettingsPage> page = ctx.Render<TaskManager.Components.Pages.SettingsPage>();
-            page.Find("input[aria-label='Plans folder']").Change("local/plans");
+            page.Find("input[aria-label='Files folder']").Change("local/files");   // plans live in <files folder>/plans
 
-            page.WaitForAssertion(() => Assert.Contains("local/plans", File.ReadAllText(guide)));
+            page.WaitForAssertion(() => Assert.Contains("local/files/plans", File.ReadAllText(guide)));
             Assert.DoesNotContain("DevResources/plans", File.ReadAllText(guide));
-            Assert.Equal("local/plans", ctx.Services.GetRequiredService<SettingsStore>().PlansDir(repo1.Root));
+            Assert.Equal("local/files/plans", ctx.Services.GetRequiredService<SettingsStore>().PlansDir(repo1.Root));
             Assert.Contains("Updated", overlays!.Find(".toast").TextContent);   // the rewrite is announced like a version refresh
 
-            page.Find("input[aria-label='Plans folder']").Change("");   // back to the default, and the guide follows again
-            page.WaitForAssertion(() => Assert.Contains("DevResources/plans", File.ReadAllText(guide)));
-            page.Find("input[aria-label='Plans folder']").Change("other/plans");
-            page.WaitForAssertion(() => Assert.Contains("other/plans", File.ReadAllText(guide)));
+            page.Find("input[aria-label='Files folder']").Change("");   // empty is the default folder, and the guide follows again
+            page.WaitForAssertion(() => Assert.Contains("attachments/plans", File.ReadAllText(guide)));
+            page.Find("input[aria-label='Files folder']").Change("other/files");
+            page.WaitForAssertion(() => Assert.Contains("other/files/plans", File.ReadAllText(guide)));
         }
     }
 
@@ -129,7 +128,7 @@ public sealed class SwitchingProjectsTests : IDisposable
             workspace.OpenTab(repo2.Root);
             workspace.Open(repo1.Root);
             SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
-            settings.SaveBoard(repo1.Root, settings.Board(repo1.Root) with { View = "list" });   // the list is a grid, grouped by project only once there are two
+            settings.SaveBoard(workspace.ViewRoot!, settings.Board(workspace.ViewRoot!) with { View = "list" });   // the list is a grid, grouped by project only once there are two
             settings.ToggleProjectHidden(repo2.Root);
             IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
             string name2 = Path.GetFileName(repo2.Root);
@@ -374,35 +373,37 @@ public sealed class SwitchingProjectsTests : IDisposable
             Assert.Equal([Path.GetFileName(repo1.Root), Path.GetFileName(repo2.Root)], rows.Select(r => r.GetAttribute("data-project")));
             foreach (AngleSharp.Dom.IElement row in rows)
             {
-                Assert.Equal("DevResources/plans", row.QuerySelector("input[aria-label='Plans folder']")!.GetAttribute("placeholder"));
-                Assert.Equal("local/task-tracking", row.QuerySelector("input[aria-label='Attachments folder']")!.GetAttribute("placeholder"));
+                Assert.Equal("attachments", row.QuerySelector("input[aria-label='Files folder']")!.GetAttribute("placeholder"));
+                Assert.Equal("Images: local/task-tracking · Plans: DevResources/plans", row.QuerySelector(".files-now")!.TextContent.Trim());
             }
 
-            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Attachments folder']")!.Change("files/att");
-            page.FindAll("section[data-project]")[0].QuerySelector("input[aria-label='Plans folder']")!.Change("notes/plans");
+            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Files folder']")!.Change("files/att");
+            Assert.Equal(("files/att/images", "local/task-tracking"), (settings.AttachmentsDir(repo2.Root), settings.AttachmentsDir(repo1.Root)));   // the other project keeps its own, old, folders
+            Assert.Equal(("files/att/plans", "DevResources/plans"), (settings.PlansDir(repo2.Root), settings.PlansDir(repo1.Root)));
+            page.FindAll("section[data-project]")[0].QuerySelector("input[aria-label='Files folder']")!.Change("notes/files");
 
-            Assert.Equal(("files/att", "local/task-tracking"), (settings.AttachmentsDir(repo2.Root), settings.AttachmentsDir(repo1.Root)));
-            Assert.Equal(("notes/plans", "DevResources/plans"), (settings.PlansDir(repo1.Root), settings.PlansDir(repo2.Root)));
-            Assert.Equal("files/att", page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Attachments folder']")!.GetAttribute("value"));
+            Assert.Equal(("files/att/images", "notes/files/images"), (settings.AttachmentsDir(repo2.Root), settings.AttachmentsDir(repo1.Root)));
+            Assert.Equal(("notes/files/plans", "files/att/plans"), (settings.PlansDir(repo1.Root), settings.PlansDir(repo2.Root)));
+            Assert.Equal("files/att", page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Files folder']")!.GetAttribute("value"));
 
             // the guide of each project names its own folders; the other project's guide is not rewritten for it
-            Assert.Contains("attachments=files/att", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
-            Assert.Contains("`files/att/wi<item>/n<note>/`", repo2.Read("openspec/REPO-TASKS.md"));
-            Assert.Contains("attachments=local/task-tracking", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
-            Assert.Contains("plans=notes/plans", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
+            Assert.Contains("attachments=files/att/images", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
+            Assert.Contains("`files/att/images/wi<item>/n<note>/`", repo2.Read("openspec/REPO-TASKS.md"));
+            Assert.Contains("attachments=notes/files/images", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
+            Assert.Contains("plans=notes/files/plans", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
 
             // a note's attachment goes to the folder of the project the note is in
             byte[] png = [1, 2, 3];
             Assert.True(workspace.In(repo2.Root, () => Notes.NotesApi.AttachBytes(123, "x.png", png)).Success);
             Assert.True(workspace.In(repo1.Root, () => Notes.NotesApi.AttachBytes(123, "x.png", png)).Success);
-            Assert.True(File.Exists(repo2.PathOf("files/att/wi123/n123/x.png")));
-            Assert.True(File.Exists(repo1.PathOf("local/task-tracking/wi123/n123/x.png")));
-            Assert.False(File.Exists(repo1.PathOf("files/att/wi123/n123/x.png")));
+            Assert.True(File.Exists(repo2.PathOf("files/att/images/wi123/n123/x.png")));
+            Assert.True(File.Exists(repo1.PathOf("notes/files/images/wi123/n123/x.png")));
+            Assert.False(File.Exists(repo1.PathOf("files/att/images/wi123/n123/x.png")));
 
-            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Attachments folder']")!.Change("");   // empty = the default again; the folder holds the file attached above, so the page asks first
+            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Files folder']")!.Change("");   // empty = the default folder; the images folder holds the file attached above, so the page asks first
             page.Find(".att-keep").Click();
-            page.WaitForAssertion(() => Assert.Equal("local/task-tracking", settings.AttachmentsDir(repo2.Root)));
-            Assert.Contains("attachments=local/task-tracking", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
+            page.WaitForAssertion(() => Assert.Equal("attachments/images", settings.AttachmentsDir(repo2.Root)));
+            Assert.Contains("attachments=attachments/images", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
         }
     }
 
@@ -432,8 +433,7 @@ public sealed class SwitchingProjectsTests : IDisposable
                 Assert.Equal(row.GetAttribute("data-project"), row.QuerySelector("h3")!.TextContent.Trim());
                 Assert.Equal(row.QuerySelector(".set-path")!.TextContent.Trim(), row.QuerySelector(".set-path")!.GetAttribute("title"));
                 Assert.Equal("Show in folder", row.QuerySelector("button.show-folder")!.TextContent.Trim());
-                Assert.NotNull(row.QuerySelector("input[aria-label='Plans folder']"));
-                Assert.NotNull(row.QuerySelector("input[aria-label='Attachments folder']"));
+                Assert.NotNull(row.QuerySelector("input[aria-label='Files folder']"));
             }
 
             page.FindAll("section[data-project]")[1].QuerySelector("button.show-folder")!.Click();
@@ -461,7 +461,7 @@ public sealed class SwitchingProjectsTests : IDisposable
             SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
             // what the grid saved while one project was open: grouped by column only
             string oneProject = """{"Columns":[],"Groups":[{"Property":"Group","SortOrder":null,"Title":"Column","FormatString":"","ShowFooter":null}],"CurrentPage":0,"PageSize":10}""";
-            settings.SaveBoard(repo1.Root, settings.Board(repo1.Root) with { View = "list", ListSettings = oneProject });
+            settings.SaveBoard(workspace.ViewRoot!, settings.Board(workspace.ViewRoot!) with { View = "list", ListSettings = oneProject });
 
             IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();   // throws while it draws a project row from a column group
 
@@ -518,7 +518,7 @@ public sealed class SwitchingProjectsTests : IDisposable
             workspace.OpenTab(repo2.Root);
             workspace.Open(repo1.Root);
             SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
-            settings.SaveBoard(repo1.Root, settings.Board(repo1.Root) with { View = "list" });
+            settings.SaveBoard(workspace.ViewRoot!, settings.Board(workspace.ViewRoot!) with { View = "list" });
             IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
             board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-group^='proj:'] button.proj-name-btn").Count));
             int open = board.FindAll("tr[data-id]").Count;

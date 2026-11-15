@@ -9,6 +9,13 @@ internal static partial class FileMerge
     [GeneratedRegex(@"(^|/)notes/n\d+\.md$", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
     private static partial Regex NotePath();
 
+    /// <summary>Whether the path is a board file this assembly merges by field: events.log, a .openspec.yaml, tasks.md or a note.</summary>
+    internal static bool HasFieldRule(string path)
+    {
+        string name = path[(path.LastIndexOf('/') + 1)..];
+        return name is "events.log" or "tasks.md" || name.EndsWith(".openspec.yaml", StringComparison.Ordinal) || NotePath().IsMatch(path);
+    }
+
     internal static MergeResult Run(string path, string? baseText, string local, string remote, bool remoteIsNewer)
     {
         string nb = MergeText.Normalize(baseText ?? ""), nl = MergeText.Normalize(local), nr = MergeText.Normalize(remote);

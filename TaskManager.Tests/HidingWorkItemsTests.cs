@@ -3,7 +3,6 @@ using WorkItems;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class HidingWorkItemsTests
 {
     [Fact(DisplayName = "Deleting a work item only hides it: the change folder stays and x-rtm records hidden")]

@@ -25,7 +25,7 @@ internal static class Commands
             if (!keepOthers) Keep([root]);
             if (!OpenSpecStoreModule.Repos.TryGetValue(root, out Repo? repo))
             {
-                repo = new Repo(root) { Opened = ++opened };
+                repo = new Repo(root, OpenSpecStoreModule.State) { Opened = Interlocked.Increment(ref opened) };
                 OpenSpecStoreModule.Repos[root] = repo;
                 OpenSpecStoreModule.StartWatching(repo);
             }
@@ -73,19 +73,79 @@ internal static class Commands
         Directory.CreateDirectory(dir);
     }
 
+    /// <summary>
+    /// Moves the temp file over the target. A virus scanner, a search indexer or a sync client opens a file the moment it is written and holds it
+    /// for a few milliseconds, which makes the move fail with "access denied" or "in use": it is tried again for up to about a second, as the
+    /// board sync's own writes are (BoardSync's LocalTree.WriteAtomic); a file that stays locked throws as before.
+    /// </summary>
+    private static void MoveOver(string tmp, string full)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try { File.Move(tmp, full, overwrite: true); return; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException && attempt < 40 && File.Exists(tmp) && !Directory.Exists(full)) { Thread.Sleep(25); }
+        }
+    }
+
+    /// <summary>A temp name beside the file that no other writer uses: <c>&lt;file&gt;.&lt;8 hex&gt;.tmp</c> (the sync's scan ignores *.tmp).</summary>
+    internal static string TempName(string full) => $"{full}.{Guid.NewGuid().ToString("N")[..8]}.tmp";
+
+    /// <summary>Removes the temp files a crashed write left beside the file (its old fixed name and the unique ones); called under the folder's lock, so none of them is another writer's in-flight one.</summary>
+    private static void RemoveLeftoverTemps(string full)
+    {
+        string dir = Path.GetDirectoryName(full)!, name = Path.GetFileName(full);
+        if (!Directory.Exists(dir)) return;
+        foreach (string temp in Directory.EnumerateFiles(dir, name + "*.tmp"))
+        {
+            string tail = Path.GetFileName(temp)[name.Length..];   // ".tmp" or ".<8 hex>.tmp"
+            if (tail != ".tmp" && !(tail.Length == 13 && tail[0] == '.' && tail[1..9].All(Uri.IsHexDigit))) continue;
+            OpenSpecStoreModule.Own(temp);
+            try { File.Delete(temp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // still open somewhere: the next write tries again
+        }
+    }
+
+    /// <summary>Writes the file if what the app last read of it is still on disk. The change folder is locked from the check to the move, so another process cannot slip a write in between; a lock that is not released in time is a refusal with its reason.</summary>
     internal static (bool Success, string Message) WriteText(string path, string content)
     {
         string full = Path.GetFullPath(path);
-        string? onDisk = File.Exists(full) ? File.ReadAllText(full) : null;
+        try
+        {
+            using (FolderLock.ForPath(full)) return WriteLocked(full, content);
+        }
+        catch (TimeoutException e) { return (false, e.Message); }
+    }
+
+    /// <summary>
+    /// Reads the file as it is now (under the folder's lock), lets <paramref name="edit"/> change it and writes the result: no stale refusal, because the
+    /// view is fresh. For files that are only ever appended to (events.log), where a refused write would lose the event.
+    /// </summary>
+    internal static (bool Success, string Message) UpdateText(string path, Func<string, string> edit)
+    {
+        string full = Path.GetFullPath(path);
+        try
+        {
+            using (FolderLock.ForPath(full)) return WriteLocked(full, edit(Queries.ReadText(full)));
+        }
+        catch (TimeoutException e) { return (false, e.Message); }
+    }
+
+    private static (bool Success, string Message) WriteLocked(string full, string content)
+    {
+        string? onDisk = Queries.ReadShared(full);
         // Only files the app has read are guarded. A file that has since been moved or deleted (an archived change folder
         // whose name a new change reuses) is not a conflict: writing there overwrites nothing.
         if (OpenSpecStoreModule.LastSeen.TryGetValue(full, out string? seen) && onDisk is not null && seen != onDisk) return (false, StaleMessage);
         CreateOwnedDirectory(Path.GetDirectoryName(full)!);
         OpenSpecStoreModule.Own(full);
-        string tmp = full + ".tmp";   // write beside, then swap in: a reader or a crash never sees half a file
+        RemoveLeftoverTemps(full);
+        string tmp = TempName(full);   // write beside, then swap in: a reader or a crash never sees half a file
         OpenSpecStoreModule.Own(tmp);   // the watcher would report the temp file otherwise
-        File.WriteAllText(tmp, content);
-        File.Move(tmp, full, overwrite: true);
+        try
+        {
+            File.WriteAllText(tmp, content);
+            MoveOver(tmp, full);
+        }
+        catch { try { File.Delete(tmp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } throw; }
         OpenSpecStoreModule.LastSeen[full] = content;
         OpenSpecStoreModule.Touch(full);   // this write's one version bump, after it, so a cache rebuilt meanwhile still counts as stale
         return (true, "");
@@ -110,9 +170,16 @@ internal static class Commands
     {
         string full = Path.GetFullPath(path);
         if (!Directory.Exists(full)) return (true, "");
-        OpenSpecStoreModule.Own(full);
-        foreach (string entry in Directory.EnumerateFileSystemEntries(full, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.Own(entry);   // the watcher reports each file inside
-        Directory.Delete(full, recursive: true);
+        try
+        {
+            using (FolderLock.ForPath(full))
+            {
+                OpenSpecStoreModule.Own(full);
+                foreach (string entry in Directory.EnumerateFileSystemEntries(full, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.Own(entry);   // the watcher reports each file inside
+                Directory.Delete(full, recursive: true);
+            }
+        }
+        catch (TimeoutException e) { return (false, e.Message); }
         OpenSpecStoreModule.Touch(full);
         return (true, "");
     }

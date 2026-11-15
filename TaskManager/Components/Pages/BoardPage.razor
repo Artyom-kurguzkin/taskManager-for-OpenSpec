@@ -66,7 +66,7 @@ else if (View == "list")
                 else
                 {
                     (BoardColumn gcol, string? gcat, _) = GroupOf(context);
-                    <b class="gname" style="@(O.GroupBy == "status" ? $"--fill:var({Ui.Band(gcol.Label)})" : null)">@gcol.Label</b> <span class="count">@BoardModel.Count(gcol.Items, O.Unit)</span>@if (gcat is not null) { <span class="muted"> · @gcat</span> }
+                    <b class="gname" style="@(Opt.GroupBy == "status" ? $"--fill:var({Ui.Band(gcol.Label)})" : null)">@gcol.Label</b> <span class="count">@BoardModel.Count(gcol.Items, O.Unit)</span>@if (gcat is not null) { <span class="muted"> · @gcat</span> }
                 }
             </GroupHeaderTemplate>
             <Template Context="row">
@@ -102,6 +102,7 @@ else if (View == "list")
                                 }
                                 @* a modifier click is the row's (RowRender): it selects, as on a card; a plain click opens *@
                                 <button class="row-title" title="@it.Title" @onclick="e => { if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) OpenItem(ProjectOf(row.Root), it.Id); }">@it.Title</button>
+                                <AgentBadge Item="it" />
                             </span>
                         }
                         else { <span class="muted">No items</span> }
@@ -111,7 +112,7 @@ else if (View == "list")
                         {
                             GridRow? fgrow = IsSwimGroup(context) ? SwimRowsOf(context).FirstOrDefault() : null;
                             (BoardColumn fcol, _, string froot) = fgrow is null ? GroupOf(context) : (fgrow.Column, fgrow.Category, fgrow.Root);
-                            @if (!(O.GroupBy == "status" && fcol.Label == "Completed")) { <button class="add" @onclick="() => NewItem(ProjectOf(froot), fcol.Key)">+ Add item</button> }   @* completed = archived by the CLI, not created here *@
+                            @if (!(Opt.GroupBy == "status" && fcol.Label == "Completed")) { <button class="add" @onclick="() => NewItem(ProjectOf(froot), fcol.Key)">+ Add item</button> }   @* completed = archived by the CLI, not created here *@
                         }
                     </GroupFooterTemplate>
                 </RadzenDataGridColumn>
@@ -171,8 +172,8 @@ else
                                 <Activator>
                                     @* drag a header along the row to reorder columns, in every project at once *@
                                     <header class="col-h hov" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
-                                            @ondragstart="() => StartColumnDrag(HeadKeys, BoardModel.ColumnKey(O, col.Key))">
-                                        <h3>@col.Label</h3><span class="count">@projects.Sum(p => p.Sections[0].Columns.Where(c => c.Key == col.Key).Sum(c => BoardModel.Count(c.Items, O.Unit)))</span>
+                                            @ondragstart="() => StartColumnDrag(HeadKeys, BoardModel.ColumnKey(Opt, col.Key))">
+                                        <h3>@col.Label</h3><span class="count">@projects.Where(p => !Collapsed(p)).Sum(p => p.Sections[0].Columns.Where(c => c.Key == col.Key).Sum(c => BoardModel.Count(c.Items, O.Unit)))</span>
                                     </header>
                                 </Activator>
                                 <Items>
@@ -180,7 +181,7 @@ else
                                     <MenuItem OnClick="() => SelectAllProjects(col.Key)">Select all in column</MenuItem>
                                     @if (col.Key != BoardModel.Unassigned)
                                     {
-                                        <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
+                                        <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(Opt, col.Key)))">Hide column</MenuItem>
                                     }
                                 </Items>
                             </Menu>
@@ -206,10 +207,10 @@ else
                             @foreach (BoardSection sec in p.Sections)
                             {
                                 <div class="cat">
-                                    @if (O.Swimlane != BoardModel.NoSwimlane) { @Swim(p, sec) }
+                                    @if (Opt.Swimlane != BoardModel.NoSwimlane) { @Swim(p, sec) }
                                     else {
                                     @* a header dropped past the last column (the drag script sends that drop to the row) *@
-                                    <div class="cat-cols" @ondrop="() => DropColumn(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), null)">
+                                    <div class="cat-cols" @ondrop="() => DropColumn(sec.Columns.Select(c => BoardModel.ColumnKey(Opt, c.Key)).ToList(), null)">
                                         @foreach (BoardColumn col in sec.Columns)
                                         {
                                             @* data-drop / data-key: wwwroot/js/app.js drags with pointer events and sends synthetic dragstart / drop events to these handlers *@
@@ -220,16 +221,16 @@ else
                                                         <Activator>
                                                             @* drag a header along the row to reorder columns *@
                                                             <header class="col-h hov" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
-                                                                    @ondragstart="() => StartColumnDrag(sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList(), BoardModel.ColumnKey(O, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
+                                                                    @ondragstart="() => StartColumnDrag(sec.Columns.Select(c => BoardModel.ColumnKey(Opt, c.Key)).ToList(), BoardModel.ColumnKey(Opt, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
                                                         </Activator>
                                                         <Items>
                                                             <MenuItem OnClick="() => NewItem(p, col.Key)">+ Add work item here</MenuItem>
                                                             <MenuItem OnClick="() => SelectAll(p, col)">Select all in column</MenuItem>
                                                             @if (col.Key != BoardModel.Unassigned)
                                                             {
-                                                                <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
+                                                                <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(Opt, col.Key)))">Hide column</MenuItem>
                                                             }
-                                                            @if (O.GroupBy == "feature" && p.Features.FirstOrDefault(f => f.Path == col.Key) is { } feature)
+                                                            @if (Opt.GroupBy == "feature" && p.Features.FirstOrDefault(f => f.Path == col.Key) is { } feature)
                                                             {
                                                                 <MenuItem OnClick="() => RenameFeature(p, feature)">Rename feature…</MenuItem>
                                                                 <MenuItem OnClick="() => DeleteFeature(p, feature)">Delete feature…</MenuItem>
@@ -240,7 +241,7 @@ else
                                                 <div class="lane" data-drop>@Cards(p, col, col.Items, null)</div>
                                             </section>
                                         }
-                                        @if (O.GroupBy == "feature") { <button class="add add-col" @onclick="() => AddFeature(p)">+ feature</button> }   @* a new feature is a new column *@
+                                        @if (Opt.GroupBy == "feature") { <button class="add add-col" @onclick="() => AddFeature(p)">+ feature</button> }   @* a new feature is a new column *@
                                     </div>
                                     }
                                 </div>
@@ -278,7 +279,7 @@ else if (View != "analytics" && (View == "list" || O.Unit == "tasks"))
             <Activator><button type="button" class="proj-name-btn hov" aria-haspopup="menu">@p.Name</button></Activator>
             <Items>
                 <MenuItem OnClick="() => ToggleProjectCollapsed(p)">@(Collapsed(p) ? "Expand" : "Collapse")</MenuItem>
-                @if (!IsActive(p)) { <MenuItem OnClick="() => Workspace.Open(p.Root)">Make it the active project</MenuItem> }
+                @if (!IsActive(p)) { <MenuItem OnClick="() => Workspace.Switch(p.Root)">Make it the active project</MenuItem> }
                 <MenuItem OnClick="() => Settings.ToggleProjectHidden(p.Root)">Hide project</MenuItem>
             </Items>
         </Menu>
@@ -297,25 +298,25 @@ else if (View != "analytics" && (View == "list" || O.Unit == "tasks"))
     // the column's value and the swimlane's (Drop → MoveInto). A cell has no data-key (the drag script's FLIP animation keys columns by it).
     private RenderFragment Swim(Project p, BoardSection sec) => __builder =>
     {
-        List<string> keys = sec.Columns.Select(c => BoardModel.ColumnKey(O, c.Key)).ToList();
+        List<string> keys = sec.Columns.Select(c => BoardModel.ColumnKey(Opt, c.Key)).ToList();
         List<string> rowKeys = RowKeys(sec);
         <div class="head-row cat-cols swim-cols" @ondrop="() => DropColumn(keys, null)">
             @foreach (BoardColumn col in sec.Columns)
             {
-                <section class="col head-only" data-key="@col.Key" @ondrop="() => DropColumn(keys, BoardModel.ColumnKey(O, col.Key))" @ondrop:stopPropagation="true">
+                <section class="col head-only" data-key="@col.Key" @ondrop="() => DropColumn(keys, BoardModel.ColumnKey(Opt, col.Key))" @ondrop:stopPropagation="true">
                     <Menu Label="Column options">
                         <Activator>
                             <header class="col-h hov" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
-                                    @ondragstart="() => StartColumnDrag(keys, BoardModel.ColumnKey(O, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
+                                    @ondragstart="() => StartColumnDrag(keys, BoardModel.ColumnKey(Opt, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
                         </Activator>
                         <Items>
                             <MenuItem OnClick="() => NewItem(p, col.Key)">+ Add work item here</MenuItem>
                             <MenuItem OnClick="() => SelectAll(p, col)">Select all in column</MenuItem>
                             @if (col.Key != BoardModel.Unassigned)
                             {
-                                <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(O, col.Key)))">Hide column</MenuItem>
+                                <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(Opt, col.Key)))">Hide column</MenuItem>
                             }
-                            @if (O.GroupBy == "feature" && p.Features.FirstOrDefault(f => f.Path == col.Key) is { } feature)
+                            @if (Opt.GroupBy == "feature" && p.Features.FirstOrDefault(f => f.Path == col.Key) is { } feature)
                             {
                                 <MenuItem OnClick="() => RenameFeature(p, feature)">Rename feature…</MenuItem>
                                 <MenuItem OnClick="() => DeleteFeature(p, feature)">Delete feature…</MenuItem>
@@ -324,11 +325,11 @@ else if (View != "analytics" && (View == "list" || O.Unit == "tasks"))
                     </Menu>
                 </section>
             }
-            @if (O.GroupBy == "feature") { <button class="add add-col" @onclick="() => AddFeature(p)">+ feature</button> }
+            @if (Opt.GroupBy == "feature") { <button class="add add-col" @onclick="() => AddFeature(p)">+ feature</button> }
         </div>
         @foreach (SwimRow row in BoardModel.Swimlanes(sec))
         {
-            string rowKey = BoardModel.RowKey(O.Swimlane, row.Key);
+            string rowKey = BoardModel.RowKey(Opt.Swimlane, row.Key);
             @* Shift-click selects the row (the arrow keys then move it), a drag moves it (app.js, kind "swim"), the × hides it *@
             <div class="swim-h @(selectedRows.Contains(rowKey) ? "selected" : "")" data-swim="@row.Key" title="Shift-click to select · drag to reorder"
                  @onclick="e => RowClick(rowKey, e)" @ondragstart="() => StartRowDrag(rowKeys, rowKey)" @ondrop="() => DropRow(rowKey)" @ondrop:stopPropagation="true">

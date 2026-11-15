@@ -12,7 +12,7 @@ internal static partial class Commands
     private const string Archived = "Completed work items are archived and can't be moved back";
 
     /// <summary>Loads the item's x-rtm block, applies <paramref name="change"/>, and writes it back (stamping a provisional id).</summary>
-    internal static (bool Success, string Message) Update(int id, Action<Rtm> change)
+    internal static (bool Success, string Message) Update(int id, Action<Rtm> change, bool syncSkipSpecs = true)
     {
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
         string yaml = Queries.Yaml(item.Path);
@@ -22,7 +22,26 @@ internal static partial class Commands
         meta.Id ??= item.Id;
         change(meta);
         (bool ok, string message) = Metadata.Write(yaml, meta);
-        return ok ? SyncSkipSpecs(item.Path) : (ok, message);
+        return ok && syncSkipSpecs ? SyncSkipSpecs(item.Path) : (ok, message);
+    }
+
+    /// <summary>
+    /// Points the plan and the linked documents of every work item (open and archived) that <paramref name="newPath"/> answers for (null = leave it) to the path it gives.
+    /// Silent: no event, and nothing else in the item's files changes. Returns how many links changed.
+    /// </summary>
+    internal static int RewritePaths(Func<string, string?> newPath)
+    {
+        int count = 0;
+        foreach (WorkItem w in Queries.GetAll(includeHidden: true).ToList())
+        {
+            string? plan = w.Plan is { Length: > 0 } p ? newPath(p) : null;
+            List<string> docs = [.. (w.Docs ?? []).Select(d => newPath(d) ?? d)];
+            int docsChanged = docs.Where((d, i) => d != w.Docs![i]).Count();
+            if (plan is null && docsChanged == 0) continue;
+            (bool ok, string _) = Update(w.Id, m => { if (plan is not null) m.Plan = plan; if (docsChanged > 0) m.Docs = docs; }, syncSkipSpecs: false);
+            if (ok) count += (plan is null ? 0 : 1) + docsChanged;
+        }
+        return count;
     }
 
     /// <summary>

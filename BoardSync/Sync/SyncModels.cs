@@ -9,7 +9,7 @@ internal sealed class ManifestEntry
     public string Hash { get; set; } = "";
     public string Clock { get; set; } = "";
     public bool Deleted { get; set; }
-    /// <summary>The hashes of earlier versions of this path, newest first, at most <see cref="SyncModels.HistoryLimit"/>.</summary>
+    /// <summary>The hashes of earlier versions of this path, newest first, at most <see cref="SyncModels.ReadHistoryLimit"/> when read, <see cref="SyncModels.HistoryLimit"/> when this computer writes a new version.</summary>
     public List<string> History { get; set; } = [];
 
     internal ManifestEntry Copy() => new() { Hash = Hash, Clock = Clock, Deleted = Deleted, History = [.. History] };
@@ -30,9 +30,14 @@ internal sealed class SyncStateFile
 
 internal static class SyncModels
 {
-    internal const int HistoryLimit = 20;
+    /// <summary>How many earlier versions a path keeps when this computer writes the manifest (staleness is also covered by seen.json and the refused upload).</summary>
+    internal const int HistoryLimit = 3;
+    /// <summary>How many earlier versions the parser accepts: an older client wrote up to twenty.</summary>
+    internal const int ReadHistoryLimit = 20;
     internal const string ManifestPath = "manifest.json";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    /// <summary>The manifest is read by machines and put on every change: no indentation (the same members and names, so an older client reads it).</summary>
+    private static readonly JsonSerializerOptions Compact = new(JsonSerializerDefaults.Web) { WriteIndented = false };
 
     internal static string HashOf(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
@@ -53,7 +58,7 @@ internal static class SyncModels
     private static SortedDictionary<string, ManifestEntry> Sorted(Dictionary<string, ManifestEntry> entries) => new(entries, StringComparer.Ordinal);
 
     internal static byte[] Serialize(ManifestFile manifest) =>
-        JsonSerializer.SerializeToUtf8Bytes(new { manifest.Version, Entries = Sorted(manifest.Entries) }, Json);
+        JsonSerializer.SerializeToUtf8Bytes(new { manifest.Version, Entries = Sorted(manifest.Entries) }, Compact);
 
     internal static byte[] Serialize(SyncStateFile state) =>
         JsonSerializer.SerializeToUtf8Bytes(new { state.StorageVersion, Entries = Sorted(state.Entries) }, Json);
@@ -98,9 +103,9 @@ internal static class SyncModels
                 if (!IsHash(entry.Hash)) throw new SyncFailure($"The manifest in the storage has no valid content id for \"{path}\", so nothing was synced.");
                 if (!SyncClock.IsValid(entry.Clock)) throw new SyncFailure($"The manifest in the storage has no valid clock for \"{path}\", so nothing was synced.");
                 if (entry.History is null) throw new SyncFailure($"The manifest in the storage has no history for \"{path}\", so nothing was synced.");
-                // ponytail: only the newest HistoryLimit earlier versions are kept; a longer list is cut, not refused, so an older writer's long history still loads.
+                // ponytail: only the newest ReadHistoryLimit earlier versions are kept; a longer list is cut, not refused, so an older writer's long history still loads.
                 List<string> history = [];
-                foreach (string? h in entry.History.Take(HistoryLimit))
+                foreach (string? h in entry.History.Take(ReadHistoryLimit))
                 {
                     if (!IsHash(h)) throw new SyncFailure($"The manifest in the storage has an invalid earlier version of \"{path}\", so nothing was synced.");
                     history.Add(h!);

@@ -22,6 +22,8 @@ internal sealed class PrefixedStorage : IBoardStorage
 
     public async Task<StoredFile?> Get(string path, CancellationToken ct = default) => await _inner.Get(Inside(path), ct);
 
+    public async Task<bool> GetTo(string path, Stream destination, CancellationToken ct = default) => await _inner.GetTo(Inside(path), destination, ct);
+
     public async Task<StoredFile?> GetIfChanged(string path, string? version, CancellationToken ct = default) => await _inner.GetIfChanged(Inside(path), version, ct);
 
     public async Task<PutResult> Put(string path, byte[] bytes, PutCondition condition, CancellationToken ct = default) => await _inner.Put(Inside(path), bytes, condition, ct);

@@ -5,8 +5,7 @@ namespace TaskManager.Tests;
 
 /// <summary>
 /// A throw-away copy of Fixtures/sample-repo in the temp folder, so tests can write freely.
-/// Every module reads files through OpenSpecStore's static state, so all module tests share
-/// one non-parallel collection (<see cref="ModuleStateCollection"/>).
+/// Every test runs in its own module state (<see cref="IsolatedModuleState"/>), so tests in different classes run at the same time.
 /// The copy is made the first time the repository is used (a test class that builds a second repository in its constructor pays for it only in the tests that use it),
 /// is taken from a few copies that a background thread keeps ready (creating ~40 small files costs ~80 ms on this file system), and is deleted in the background.
 /// </summary>
@@ -116,9 +115,20 @@ internal static class RepoPool
 internal static class TestAssemblySetup
 {
     [ModuleInitializer]
-    internal static void Init() => GitHistory.Infrastructure.GitCli.AnswerWithoutSpawnWhenNoRepository = true;
+    internal static void Init()
+    {
+        GitHistory.Infrastructure.GitCli.AnswerWithoutSpawnWhenNoRepository = true;
+        // Tests never run a real timer: the sync service only records when its quiet wait and idle check are due (the test calls QuietElapsed and IdleElapsed itself), whatever the
+        // SyncSetup asks for, so no pass starts on a background thread while a test writes files. The tests write files and sync at once, so the settle window is off too unless a test sets one.
+        TaskManager.Services.SyncSetup.NoRealTimers = true;
+        TaskManager.Services.SyncSetup.DefaultSettleWindow = TimeSpan.Zero;
+        // A page's WaitForAssertion passes at the first render that satisfies it; the timeout only says how long a failing one waits. Classes run side by side,
+        // so a render can take longer than bUnit's default second on a busy machine: the bound is raised, no passing test waits any longer for it.
+        Bunit.BunitContext.DefaultWaitTimeout = TimeSpan.FromSeconds(15);
+    }
 }
 
-// One collection = one test at a time, which is all the modules need; it may overlap with the other collections, which touch no module state.
-[CollectionDefinition(nameof(ModuleStateCollection), DisableParallelization = true)]
-public sealed class ModuleStateCollection;
+// Classes whose tests wait on real time (the file watcher, an autosave timer, a measured duration) run here: one at a time, after the parallel classes, alone,
+// so a busy machine cannot stretch what they wait for. Module state needs no collection: every test has its own (IsolatedModuleState).
+[CollectionDefinition(nameof(RealTimeCollection), DisableParallelization = true)]
+public sealed class RealTimeCollection;

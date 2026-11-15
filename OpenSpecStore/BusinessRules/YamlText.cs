@@ -36,7 +36,10 @@ internal static partial class YamlText
     /// <summary>Quotes the words that would read as something else, and (when asked) puts lists, and mappings inside lists, on one line.</summary>
     private sealed class Quoting(IEventEmitter next, bool flowLists) : ChainedEventEmitter(next)
     {
-        private readonly Stack<bool> inFlow = new();   // for each collection we are in: is it, or is something around it, in flow style
+        // For each collection we are in: is it, or is something around it, in flow style. One serializer (and so this emitter) is shared by every
+        // thread that writes YAML, and a serialization runs on one thread from start to end: each thread keeps its own stack.
+        private readonly ThreadLocal<Stack<bool>> stacks = new(() => new());
+        private Stack<bool> inFlow => stacks.Value!;
         private bool Flow => inFlow.Count > 0 && inFlow.Peek();
 
         public override void Emit(SequenceStartEventInfo eventInfo, IEmitter emitter)

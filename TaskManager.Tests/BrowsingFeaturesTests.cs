@@ -6,7 +6,6 @@ using WorkItems.PublicDTOs;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class BrowsingFeaturesTests
 {
     [Fact(DisplayName = "Capabilities in two-level folders show as features under their group")]

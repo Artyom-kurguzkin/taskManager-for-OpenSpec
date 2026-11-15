@@ -87,6 +87,23 @@ public static class NotesApi
     /// </summary>
     public static AttachmentsMoveResult MoveAttachments(string repoRoot, string fromDir, string toDir) => AttachmentsFolder.Move(repoRoot, fromDir, toDir);
 
+    /// <summary>Whether a folder may be a project's files folder (images and plans go inside it): like <see cref="CheckAttachmentsDir"/>, but empty gives the default, <c>attachments</c>.</summary>
+    public static (bool Ok, string Dir, string Message) CheckFilesDir(string? dir) => AttachmentsFolder.CheckFiles(dir);
+
+    /// <summary>The project's files folder as openspec/config.yaml names it (<c>x-rtm.filesDir</c>, tidied), or null when the project has none (the old layout) or the value is not allowed.</summary>
+    public static string? ProjectFilesDir(string repoRoot) => AttachmentsFolder.ProjectFilesDir(repoRoot);
+
+    /// <summary>The plans (*.md files) and all the files (the drawings beside them too) below a repository-relative plans folder, not following links; (0, 0) when there is none.</summary>
+    public static (int Plans, int Files) CountPlanFiles(string repoRoot, string dir) => AttachmentsFolder.CountPlans(repoRoot, dir);
+
+    /// <summary>
+    /// Moves a folder of plans like <see cref="MoveAttachments"/> moves the attachments (same rules: nothing overwritten, a file with the same bytes dropped, another kept as name-2,
+    /// links not followed, refused for a folder that is or lies below a link, safe to repeat), and rewrites the references: every work item's plan (and linked documents), open or archived,
+    /// and the <c>[[doc]]</c> links and markdown link targets in note bodies and descriptions that name the old folder. Links inside a moved plan are not touched (what it links to beside
+    /// it moved with it). Nothing is git-ignored and git is not run: the files are moved as plain files.
+    /// </summary>
+    public static AttachmentsMoveResult MovePlans(string repoRoot, string fromDir, string toDir) => AttachmentsFolder.Move(repoRoot, fromDir, toDir, plans: true);
+
     /// <summary>Stores pasted data (e.g. a clipboard image) exactly like <see cref="AttachFile"/>.</summary>
     public static (bool Success, string Message) AttachBytes(int id, string fileName, byte[] bytes) => Commands.AttachBytes(id, fileName, bytes);
 

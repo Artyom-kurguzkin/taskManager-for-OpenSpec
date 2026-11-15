@@ -27,7 +27,6 @@ namespace TaskManager.Tests;
 /// repository or of the profile, another local process, whoever reads logs, toasts or the board, and a hostile storage. Temp folders and fake handlers only: no
 /// real network, no UNC path is ever opened.
 /// </summary>
-[Collection(nameof(ModuleStateCollection))]
 public sealed class SecurityOfConnectedStorageTests : IDisposable
 {
     private const string Item = "openspec/changes/add-health-check";

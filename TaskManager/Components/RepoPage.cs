@@ -13,6 +13,10 @@ public abstract class RepoPage : ComponentBase, IDisposable
     [Inject] protected Workspace Workspace { get; set; } = default!;
     [Inject] protected UiService Popups { get; set; } = default!;
     [Inject] protected NavigationManager Nav { get; set; } = default!;
+    [Inject] private IServiceProvider PageServices { get; set; } = default!;
+
+    /// <summary>The clock the page's timers run on: the system's, unless a <see cref="TimeProvider"/> is registered (a test moves time by hand with one).</summary>
+    protected TimeProvider Time => PageServices.GetService(typeof(TimeProvider)) as TimeProvider ?? TimeProvider.System;
 
     protected override void OnInitialized() => Workspace.Changed += OnChanged;
 
@@ -50,7 +54,7 @@ public abstract class RepoPage : ComponentBase, IDisposable
     // read at once, so an edit shows without waiting; the ones inside the window after it become one more reload when the window ends.
     private const int CoalesceMs = 50;
     private readonly object gate = new();
-    private Timer? window;
+    private ITimer? window;
     private bool windowOpen, dirty, disposed;
 
     protected virtual void OnChanged()
@@ -60,7 +64,7 @@ public abstract class RepoPage : ComponentBase, IDisposable
             if (disposed) return;
             if (windowOpen) { dirty = true; return; }
             windowOpen = true;
-            window = new Timer(_ => WindowEnded(), null, CoalesceMs, Timeout.Infinite);
+            window = Time.CreateTimer(_ => WindowEnded(), null, TimeSpan.FromMilliseconds(CoalesceMs), Timeout.InfiniteTimeSpan);
         }
         Reload();
     }
@@ -73,7 +77,7 @@ public abstract class RepoPage : ComponentBase, IDisposable
             // Nothing was written since the page read (the echo of its own write): another reload would only re-render an identical tree.
             if (!dirty || Stamp() == loadedStamp) { dirty = false; windowOpen = false; window?.Dispose(); window = null; return; }
             dirty = false;
-            window?.Change(CoalesceMs, Timeout.Infinite);
+            window?.Change(TimeSpan.FromMilliseconds(CoalesceMs), Timeout.InfiniteTimeSpan);
         }
         Reload();
     }

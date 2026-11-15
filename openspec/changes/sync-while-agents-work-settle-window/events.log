@@ -1,0 +1,34 @@
+2026-11-16T05:24:25 | Claude | created | Sync while agents work: settle window, postponement cap, store lock, no direct edits
+2026-11-16T05:24:25 | Claude | description-edited | proposal.md
+2026-11-16T05:24:25 | Claude | label | none -> enhancement
+2026-11-16T05:24:25 | Claude | plan-linked | DevResources/plans/sync-cost-and-agent-safety-2026-11-16.md
+2026-11-16T05:24:25 | Claude | subtask-added | 1.1 Settle window of 10 s with a 5 min deferral cap; ignore list for temp and editor files
+2026-11-16T05:24:25 | Claude | subtask-added | 1.2 Postponement cap: never past 15 min after the first unsynced change
+2026-11-16T05:24:25 | Claude | subtask-added | 2.1 Per-change-folder store lock across check, temp write and rename; unique temp names
+2026-11-16T05:24:25 | Claude | subtask-added | 2.2 events.log appended under the lock instead of refused when stale
+2026-11-16T05:24:25 | Claude | subtask-added | 3.1 PreToolUse hook denying direct edits under openspec/changes while board tools are loaded
+2026-11-16T05:24:25 | Claude | subtask-added | 3.2 Card badge from agentBy/agentAt; hidden-desktop shots light and dark
+2026-11-16T05:44:43 | Claude | status | Planned -> In Progress
+2026-11-16T05:50:40 | Claude chunk store-lock | test-linked | WritingTheBoardConcurrentlyTests / Two writers with stale views of events.log both get their event appended
+2026-11-16T05:50:40 | Claude chunk store-lock | test-linked | WritingTheBoardConcurrentlyTests / A second writer of the same yaml is refused with the stale message and nothing is lost
+2026-11-16T05:50:40 | Claude chunk store-lock | test-linked | WritingTheBoardConcurrentlyTests / A write holds the change folder's lock from the check to the move
+2026-11-16T05:50:40 | Claude chunk store-lock | test-linked | WritingTheBoardConcurrentlyTests / A temp file left by a crash is removed by the next write
+2026-11-16T05:50:40 | Claude chunk store-lock | test-linked | WritingTheBoardConcurrentlyTests / Two writers never share a temp file name
+2026-11-16T05:50:40 | Claude chunk store-lock | test-linked | WritingTheBoardConcurrentlyTests / A worktree and the main repository lock the same file
+2026-11-16T05:50:40 | Claude chunk store-lock | subtask-done | 2.1 Per-change-folder store lock across check, temp write and rename; unique temp names
+2026-11-16T05:50:41 | Claude chunk store-lock | subtask-done | 2.2 events.log appended under the lock instead of refused when stale
+2026-11-16T05:53:10 | Claude chunk service | test-linked | SyncingWithConnectedStorageTests / A change every minute for an hour still syncs fifteen minutes after the first change
+2026-11-16T05:53:10 | Claude chunk service | test-linked | SyncingWithConnectedStorageTests / The quiet timer still waits two minutes after the last change when changes stop
+2026-11-16T05:53:11 | Claude chunk service | subtask-done | 1.2 Postponement cap: never past 15 min after the first unsynced change
+2026-11-16T05:54:27 | Claude | log | Integrated the store-lock chunk into main (FolderLock.cs, IdAllocator.cs, Commands.cs, OpenSpecStoreApi.cs, EventLog.cs, WritingTheBoardConcurrentlyTests.cs). One suite run in main: Passed 982, Failed 0, 1 m 47 s; the ServingTheBoard failures in the worktree were concurrent-suite collisions.
+2026-11-16T05:57:27 | Claude chunk hook-badge | test-linked | UsingTheBoardTests / A card whose agent wrote three minutes ago says so, and the badge disappears after a day or once reviewed
+2026-11-16T05:57:27 | Claude chunk hook-badge | test-linked | UsingTheBoardTests / The list row carries the same agent badge
+2026-11-16T05:57:27 | Claude chunk hook-badge | test-linked | UsingTheBoardTests / The edit hook denies direct edits under openspec/changes unless RTM_ALLOW_DIRECT_EDIT is set
+2026-11-16T05:57:27 | Claude chunk hook-badge | subtask-done | 3.1 PreToolUse hook denying direct edits under openspec/changes while board tools are loaded
+2026-11-16T05:57:27 | Claude chunk hook-badge | subtask-done | 3.2 Card badge from agentBy/agentAt; hidden-desktop shots light and dark
+2026-11-16T06:02:10 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / A file written less than ten seconds before the scan waits for the next pass and is reported as settling
+2026-11-16T06:02:10 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / A file that keeps changing for five minutes is taken anyway
+2026-11-16T06:02:10 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / Temp and editor files are never scanned
+2026-11-16T06:02:10 | Claude chunk scan | subtask-done | 1.1 Settle window of 10 s with a 5 min deferral cap; ignore list for temp and editor files
+2026-11-16T06:25:24 | Claude | log | Integrated the timer-fix and read-share chunks into main (BoardSyncService.cs, TestRepo.cs, Queries.cs ReadShared, Commands.cs, tests). Clean rebuild, one suite run: Passed 1009, Failed 0. Settle window now 10 s in the app, zero under tests; no real timers run under the test assembly.
+2026-11-16T06:35:31 | Claude | status | In Progress -> In Review

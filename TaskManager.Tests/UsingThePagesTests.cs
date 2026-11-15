@@ -3,6 +3,7 @@ using Radzen;
 using AngleSharp.Dom;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Notes;
 using TaskManager.Components.Layout;
 using TaskManager.Components.Pages;
@@ -12,16 +13,16 @@ using WorkItems;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class UsingThePagesTests : IDisposable
 {
     private readonly TestRepo repo = new();
     private readonly string settingsFile = Path.Combine(Path.GetTempPath(), "rtm-ui-" + Guid.NewGuid().ToString("N") + ".json");
     private IRenderedComponent<Overlays>? overlays;
 
-    private BunitContext NewContext(EditorLauncher? launcher = null, WindowLauncher? windows = null, AppMode? mode = null, TaskManager.Hosting.McpServerControl? server = null)
+    private BunitContext NewContext(EditorLauncher? launcher = null, WindowLauncher? windows = null, AppMode? mode = null, TaskManager.Hosting.McpServerControl? server = null, TimeProvider? time = null)
     {
         BunitContext ctx = new();
+        if (time is not null) ctx.Services.AddSingleton(time);   // the pages' timers (autosave, reload coalescing) run on it: the test moves time by hand
         if (server is not null) ctx.Services.AddSingleton(server);
         if (windows is not null) ctx.Services.AddSingleton(windows);
         if (mode is not null) ctx.Services.AddSingleton(mode);
@@ -43,7 +44,7 @@ public sealed class UsingThePagesTests : IDisposable
 
     private static void View(IRenderedComponent<WorkItemPage> page, string view)
     {
-        page.Find($".item-views input[value='{view}']").Change(view);
+        page.InvokeAsync(() => page.Find($".item-views input[value='{view}']").ChangeAsync(view)).GetAwaiter().GetResult();   // find and trigger in one dispatcher step: a render in between would drop the handler
         page.WaitForAssertion(() => Assert.Equal(view, CurrentView(page)));
     }
 
@@ -165,31 +166,27 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
 
-        page.Find("#sub-1-3").Change(true);   // tick
+        await page.InvokeAsync(() => page.Find("#sub-1-3").ChangeAsync(true));   // tick; find and trigger in one dispatcher step
         page.WaitForAssertion(() => Assert.Contains("- [x] 1.3", repo.Read("openspec/changes/add-health-check/tasks.md")));
         page.WaitForAssertion(() => Assert.Empty(page.FindAll("#sub-1-3")));   // done: folded away
 
-        await page.InvokeAsync(() => { });
-        SubText(page, "Hide internals from anonymous callers").Click();   // edit in place
+        await page.InvokeAsync(() => SubText(page, "Hide internals from anonymous callers").ClickAsync());   // edit in place
         page.WaitForAssertion(() => Assert.Equal("Hide internals from anonymous callers", page.Find(".sub input.sub-edit").GetAttribute("value")));
-        page.Find(".sub input.sub-edit").Input("Hide internals from everyone");
-        page.Find(".sub input.sub-edit").KeyDown("Enter");
+        await page.InvokeAsync(() => page.Find(".sub input.sub-edit").InputAsync("Hide internals from everyone"));
+        await page.InvokeAsync(() => page.Find(".sub input.sub-edit").KeyDownAsync(Bunit.Key.Enter));
         page.WaitForAssertion(() => Assert.Contains("2.1 Hide internals from everyone", repo.Read("openspec/changes/add-health-check/tasks.md")));
         Assert.Empty(page.FindAll(".sub input.sub-edit"));
 
-        await page.InvokeAsync(() => { });
-        page.Find("input[aria-label='New subtask']").Change("A fresh step");   // add
-        page.Find("form.add-line").Submit();
+        await page.InvokeAsync(() => page.Find("input[aria-label='New subtask']").ChangeAsync("A fresh step"));   // add
+        await page.InvokeAsync(() => page.Find("form.add-line").SubmitAsync());
         page.WaitForAssertion(() => Assert.Contains(WorkItemsApi.Get(123)!.Subtasks, s => s.Text == "A fresh step"));
         page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".tile[data-tile='subtasks'] .sub:not(.done)").Count));   // the open ones: 2.1 and the new one
 
-        await page.InvokeAsync(() => { });
         Assert.Empty(page.FindAll(".actionbar"));   // select: Shift-click
-        page.FindAll(".sub .s-t")[0].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        await page.InvokeAsync(() => page.FindAll(".sub .s-t")[0].ClickAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
         page.WaitForAssertion(() => Assert.Equal("Make it a work item", page.Find(".actionbar button.primary").TextContent.Trim()));
         Assert.NotEmpty(page.FindAll(".actionbar button.dep"));   // "Make it a dependency"
-        await page.InvokeAsync(() => { });
-        page.FindAll(".sub .s-t")[1].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { CtrlKey = true });
+        await page.InvokeAsync(() => page.FindAll(".sub .s-t")[1].ClickAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { CtrlKey = true }));
         page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".sub.selected").Count));
         Assert.Equal("Move into a separate work item", page.Find(".actionbar button.primary").TextContent.Trim());
     }
@@ -704,17 +701,20 @@ public sealed class UsingThePagesTests : IDisposable
     [Fact(DisplayName = "A note's own autosave doesn't reload the page under your cursor, and says Saved once it is on disk")]
     public async Task AutosaveDoesNotReload()
     {
-        await using BunitContext ctx = NewContext();
+        FakeTimeProvider time = new();
+        await using BunitContext ctx = NewContext(time: time);
         int changes = 0;
         ctx.Services.GetRequiredService<Workspace>().Changed += () => changes++;
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
 
         await Type(page, "# Ping test\n\nfirst");
-        await Task.Delay(1200);   // autosave has run
+        time.Advance(TimeSpan.FromSeconds(1));   // typing stopped long enough: the autosave runs
+        overlays!.WaitForAssertion(() => Assert.Contains("Saved", overlays.Find(".toast.success").TextContent));
+        time.Advance(TimeSpan.FromSeconds(1));   // and anything the save scheduled on the page's clock has had its time
+        await page.InvokeAsync(() => { });
 
         Assert.Equal(0, changes);
         Assert.Contains("first", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
-        overlays!.WaitForAssertion(() => Assert.Contains("Saved", overlays.Find(".toast.success").TextContent));
     }
 
     [Fact(DisplayName = "Edit in <editor> opens the note's file in the already-configured external editor")]
@@ -905,11 +905,14 @@ public sealed class UsingThePagesTests : IDisposable
     [Fact(DisplayName = "A note is saved automatically shortly after typing stops")]
     public async Task NoteAutosave()
     {
-        await using BunitContext ctx = NewContext();
+        FakeTimeProvider time = new();
+        await using BunitContext ctx = NewContext(time: time);
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
         await Type(page, "# Ping test\n\nAutosaved text.\n");
+        Assert.DoesNotContain("Autosaved text.", repo.Read("openspec/changes/add-health-check/notes/n123.md"));   // not while typing
 
-        await Task.Delay(1500);
+        time.Advance(TimeSpan.FromSeconds(1));   // typing stopped: the autosave's pause ends
+        overlays!.WaitForAssertion(() => Assert.Contains("Saved", overlays.Find(".toast.success").TextContent));
 
         Assert.Contains("Autosaved text.", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
         Assert.Equal("# Ping test\n\nAutosaved text.\n", NotesApi.Get(123)!.Body);
@@ -1379,8 +1382,8 @@ public sealed class UsingThePagesTests : IDisposable
         string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
         string Rule(string selector) => System.Text.RegularExpressions.Regex.Matches(css, @"\n\s*" + System.Text.RegularExpressions.Regex.Escape(selector) + @"\s*\{([^}]*)\}").Last().Groups[1].Value;   // the last one wins the cascade
 
-        // the item, note (and doc) pages: the sheet loses the [data-sk] outline, radius, fill and shadow
-        string sheet = Rule(@".sheet[data-sk=""soft""]:not(.settings)");
+        // the item, note, doc and settings pages: the sheet loses the [data-sk] outline, radius, fill and shadow
+        string sheet = Rule(@".sheet[data-sk=""soft""]");
         Assert.Matches(@"border:\s*0\b", sheet);
         Assert.Matches(@"border-radius:\s*0\b", sheet);
         Assert.Matches(@"box-shadow:\s*none", sheet);

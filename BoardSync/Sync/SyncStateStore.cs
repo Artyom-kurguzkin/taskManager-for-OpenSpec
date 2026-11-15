@@ -6,27 +6,33 @@ internal sealed class SyncStateStore(string folder)
     private string StatePath => Path.Combine(folder, "state.json");
     private string BasePath(string hash) => Path.Combine(folder, "base", hash[..2], hash);
 
-    internal SyncStateFile? Load()
+    // Every read below opens the file shared (read, write and delete): a writer in another process (or a status line reading while a pass saves) never collides with it, and every write
+    // goes to a unique temp file next to the target and is renamed over it (LocalTree.WriteAtomic), so a reader sees the old file or the new one, never half of one.
+    internal SyncStateFile? Load() => LocalTree.ReadOrNull(StatePath) is { } bytes ? SyncModels.ParseState(bytes) : null;
+
+    internal byte[]? ReadBase(string hash) => LocalTree.ReadOrNull(BasePath(hash));
+
+    /// <summary>The file holding the base copy with this content hash, or null when there is none.</summary>
+    internal string? BaseFile(string hash)
     {
-        try { return SyncModels.ParseState(File.ReadAllBytes(StatePath)); }
-        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { return null; }
+        string file = BasePath(hash);
+        return File.Exists(file) ? file : null;
     }
 
-    internal byte[]? ReadBase(string hash)
-    {
-        try { return File.ReadAllBytes(BasePath(hash)); }
-        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { return null; }
-    }
-
-    /// <summary>Writes the base copies the new state needs, then the state itself, then drops base copies nothing refers to. Only called after a sync succeeded.</summary>
-    internal void Save(SyncStateFile state, IReadOnlyDictionary<string, Func<byte[]>> contentByPath)
+    /// <summary>
+    /// Writes the base copies the new state needs, then the state itself, then drops base copies nothing refers to. Only called after a sync succeeded.
+    /// A path in <paramref name="fileByPath"/> has its content in a file already (a download): that file is copied, never read whole into memory.
+    /// </summary>
+    internal void Save(SyncStateFile state, IReadOnlyDictionary<string, Func<byte[]>> contentByPath, IReadOnlyDictionary<string, string>? fileByPath = null)
     {
         HashSet<string> wanted = [];
         foreach ((string path, ManifestEntry entry) in state.Entries)
         {
             if (entry.Deleted) continue;
             wanted.Add(entry.Hash);
-            if (File.Exists(BasePath(entry.Hash)) || !contentByPath.TryGetValue(path, out Func<byte[]>? content) || LocalTree.ThroughLink(folder, BasePath(entry.Hash))) continue;
+            if (File.Exists(BasePath(entry.Hash)) || LocalTree.ThroughLink(folder, BasePath(entry.Hash))) continue;
+            if (fileByPath is not null && fileByPath.TryGetValue(path, out string? source)) { FileCopy.CopyVerified(source, BasePath(entry.Hash), entry.Hash); continue; }     // a mismatch leaves no base copy: it is only a help for merging
+            if (!contentByPath.TryGetValue(path, out Func<byte[]>? content)) continue;
             byte[] bytes = content();      // read only now, one file at a time
             if (SyncModels.HashOf(bytes) == entry.Hash) LocalTree.WriteAtomic(BasePath(entry.Hash), bytes);     // a base copy is only a help for merging: through a link it is left out
         }
@@ -48,6 +54,18 @@ internal sealed class SyncStateStore(string folder)
             if (!Directory.EnumerateFileSystemEntries(dir).Any()) try { Directory.Delete(dir); } catch (IOException) { }
         }
     }
+
+    private string ScanPath => Path.Combine(folder, "scan.json");
+
+    /// <summary>The stat cache the last walk left (see <see cref="StatCache"/>); a missing or damaged file is the same as none, and everything is read again.</summary>
+    internal StatCacheFile? LoadScan()
+    {
+        try { return ReadJson<StatCacheFile>(ScanPath); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    internal void SaveScan(StatCacheFile file) =>
+        LocalTree.WriteAtomic(ScanPath, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(file));
 
     private string SeenPath => Path.Combine(folder, "seen.json");
     private string PendingPath => Path.Combine(folder, "pending.json");
@@ -78,8 +96,8 @@ internal sealed class SyncStateStore(string folder)
 
     private static T? ReadJson<T>(string file) where T : class
     {
-        try { return System.Text.Json.JsonSerializer.Deserialize<T>(File.ReadAllBytes(file)); }
-        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException or System.Text.Json.JsonException) { return null; }   // damaged = none: the worst case is a stale file taken for an edit
+        try { return LocalTree.ReadOrNull(file) is { } bytes ? System.Text.Json.JsonSerializer.Deserialize<T>(bytes) : null; }
+        catch (System.Text.Json.JsonException) { return null; }   // damaged = none: the worst case is a stale file taken for an edit
     }
 
     /// <summary>How long a trash folder is kept. ponytail: a constant; make it a setting if anyone asks.</summary>

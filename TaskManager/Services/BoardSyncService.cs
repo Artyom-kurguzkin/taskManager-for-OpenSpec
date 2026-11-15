@@ -1,11 +1,16 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using BoardSync;
 using BoardSync.PublicDTOs;
+using GitHistory;
+using GitHistory.PublicDTOs;
 using Notes;
 using Notes.PublicDTOs;
 using OpenSpecStore;
 using WorkItems;
 using WorkItems.PublicDTOs;
+
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("TaskManager.Tests")]
 
 namespace TaskManager.Services;
 
@@ -15,7 +20,34 @@ namespace TaskManager.Services;
 /// </summary>
 public sealed record SyncSetup(TimeSpan Quiet, Func<SyncOptions, Task<SyncReport>>? Run = null, Func<DateTime>? UtcNow = null)
 {
-    public static SyncSetup Default { get; } = new(TimeSpan.FromMinutes(2));
+    public static SyncSetup Default => new(TimeSpan.FromMinutes(2));
+
+    /// <summary>Test seam (the test assembly sets it once at load): no timer of any kind is ever created, whatever a setup says; the waits only record when they are due.</summary>
+    internal static bool NoRealTimers { get; set; }
+
+    /// <summary>Test seam: what <see cref="SettleWindow"/> is unless a setup says otherwise (the test assembly writes its files and syncs at once, so it turns the window off).</summary>
+    internal static TimeSpan DefaultSettleWindow { get; set; } = SyncOptions.DefaultSettleWindow;
+
+    /// <summary>How recently a file must have been written for a pass to leave it alone (see <see cref="SyncOptions.SettleWindow"/>); a pass that left files settling is followed by another after this wait.</summary>
+    public TimeSpan SettleWindow { get; init; } = DefaultSettleWindow;
+
+    /// <summary>The wait may be restarted by every change, but never ends later than this after the first change that no sync has taken yet: an agent that writes every minute still syncs.</summary>
+    public TimeSpan MaxWait { get; init; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>How often an idle computer asks the storage whether its manifest moved (one conditional request) while the window has focus; a full pass runs only when it did. Infinite or zero: no check.</summary>
+    public TimeSpan Idle { get; init; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>The same while the window does not have focus.</summary>
+    public TimeSpan IdleUnfocused { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>Whether the window has focus now (the host wires its window; a service without one counts as focused).</summary>
+    public Func<bool> Focused { get; init; } = () => true;
+
+    /// <summary>A number from -1 to 1 that moves each idle interval by up to a quarter either way, so computers that started together do not ask together.</summary>
+    public Func<double> Jitter { get; init; } = () => Random.Shared.NextDouble() * 2 - 1;
+
+    /// <summary>False: no timer runs (the quiet wait and the idle check only record when they are due; a test calls QuietElapsed and IdleElapsed itself).</summary>
+    public bool RealTimers { get; init; } = true;
 }
 
 /// <summary>What the Settings page shows for a project: one plain line, and whether a paused sync can be allowed.</summary>
@@ -26,8 +58,9 @@ public sealed record SyncStatus(bool Connected, string Line, bool CanAllow, bool
 
 /// <summary>
 /// Syncs each connected project's board (openspec/changes) with its storage in the background, one sync at a time per project, never on the UI
-/// thread: when the project opens, once the board has been quiet for two minutes after a change, when the app closes and on request. Nothing syncs on a
-/// timer by itself. A project set to "this folder only" has nothing here: no timer, no task, no file. What a sync brings in is told in a toast; what it had to drop in a conflict is kept on the work item.
+/// thread: when the project opens, once the board has been quiet for two minutes after a change (never later than fifteen minutes after the first change), when the app closes and on request.
+/// Nothing syncs on a timer by itself: an idle computer only asks the storage, with one conditional request a minute (five when the window has no focus), whether the manifest moved, and syncs when it did.
+/// The sync's own writes are not changes: they do not start a wait. A project set to "this folder only" has nothing here: no timer, no task, no file. What a sync brings in is told in a toast; what it had to drop in a conflict is kept on the work item.
 /// </summary>
 public sealed class BoardSyncService : IDisposable
 {
@@ -36,6 +69,10 @@ public sealed class BoardSyncService : IDisposable
         public readonly string Root = root;
         public Timer? Quiet;                // the one wait: restarted by every change, a sync when it elapses
         public DateTime? QuietDue;          // when it ends, by the service's clock; null = no wait pending
+        public DateTime? FirstChangeAt;     // the first change no pass has taken yet: the wait never ends later than MaxWait after it
+        public Timer? Idle;                 // the idle check: a conditional request for the manifest, a pass only when it moved
+        public DateTime? IdleDue;
+        public Dictionary<string, (long Length, long Ticks)>? Echo;   // the board's files (size, time) as the last pass that wrote files left them: a change report that finds them as they are was caused by that pass
         public bool Running, Allow, Dropped;
         public TaskCompletionSource<SyncReport?>? Again;   // a trigger arrived while a pass ran: the one more pass that follows, and who waits for it
         public Task Pass = Task.CompletedTask;             // the last pass started (it also covers the "again" pass that follows it)
@@ -54,6 +91,7 @@ public sealed class BoardSyncService : IDisposable
         public string EditedFile = "";          // where Edited is kept between runs of the app
         public string? SeenDir;                 // the attachments folder (repository-relative) this computer last had in effect for the project; kept in attachments-dir.txt
         public readonly object SaveLock = new();
+        public string? LastPause;               // what the status last showed as the git pause: shown again when the sync state cannot be read at that moment
     }
 
     private readonly BoardStorageSettings settings;
@@ -187,7 +225,11 @@ public sealed class BoardSyncService : IDisposable
         {
             l.Dropped = true;
             l.Quiet?.Dispose();
+            l.Idle?.Dispose();
             l.QuietDue = null;
+            l.FirstChangeAt = null;
+            l.IdleDue = null;
+            l.Echo = null;
             l.Again?.TrySetResult(null);
             l.Again = null;
         }
@@ -208,6 +250,21 @@ public sealed class BoardSyncService : IDisposable
 
     private DateTime UtcNow() => setup.UtcNow?.Invoke() ?? DateTime.UtcNow;
 
+    private bool RealTimers => setup.RealTimers && !SyncSetup.NoRealTimers;
+
+    /// <summary>How many timer objects exist now (the quiet wait's and the idle check's, over every project); none while <see cref="SyncSetup.RealTimers"/> is off or the test seam is on.</summary>
+    internal int LiveTimers
+    {
+        get
+        {
+            List<Link> all;
+            lock (gate) all = [.. links.Values];
+            int n = 0;
+            foreach (Link l in all) lock (l) n += (l.Quiet is null ? 0 : 1) + (l.Idle is null ? 0 : 1);
+            return n;
+        }
+    }
+
     /// <summary>The board's content changed (the app's own save, the board server's write or an outside edit): the two-minute wait starts again.</summary>
     public void BoardChanged()
     {
@@ -221,19 +278,147 @@ public sealed class BoardSyncService : IDisposable
         if (Interlocked.Exchange(ref seenVersion, version) == version) return;   // only a page redrawing: no content moved
         List<Link> all;
         lock (gate) all = [.. links.Values];
-        foreach (Link l in all) { Absorb(l); Schedule(l); }
+        foreach (Link l in all)
+        {
+            bool wroteByApp = Absorb(l);
+            if (!wroteByApp && IsEchoOfTheSync(l)) continue;   // the watcher saw the sync's own writes: nothing here is unsynced, so no second pass (the pages still redraw, the workspace does that itself)
+            Schedule(l);
+        }
     }
 
-    /// <summary>(Re)starts the quiet wait: one timer per project, one sync when it elapses.</summary>
-    private void Schedule(Link l)
+    /// <summary>
+    /// (Re)starts the quiet wait: one timer per project, one sync when it elapses. The wait restarts with every change but never ends later than
+    /// <see cref="SyncSetup.MaxWait"/> after the first change that no pass has taken yet.
+    /// </summary>
+    private void Schedule(Link l, TimeSpan? wait = null)
     {
         lock (l)
         {
             if (l.Dropped) return;
-            l.QuietDue = UtcNow() + setup.Quiet;
+            DateTime now = UtcNow();
+            l.FirstChangeAt ??= now;
+            DateTime due = now + (wait ?? setup.Quiet), cap = l.FirstChangeAt.Value + setup.MaxWait;
+            if (wait is not null && l.QuietDue is { } pending && pending < due) due = pending;   // a shorter wait never pushes a pending one back
+            if (due > cap) due = cap;
+            l.QuietDue = due;
+            if (!RealTimers) return;
             l.Quiet ??= new Timer(_ => QuietElapsed(l.Root));
-            l.Quiet.Change(setup.Quiet, Timeout.InfiniteTimeSpan);
+            l.Quiet.Change(due > now ? due - now : TimeSpan.Zero, Timeout.InfiniteTimeSpan);
         }
+    }
+
+    // ── the sync's own writes are not changes to sync ──
+
+    /// <summary>
+    /// After a pass that wrote files here (downloads, merges, deletions, replaced copies) the board's files are noted as that pass left them. The watcher reports those writes a moment later
+    /// (the store's version moves after its debounce, so it cannot be read at the end of the pass); a report that finds every file as noted, with nothing the app wrote itself, has no news.
+    /// Nothing is noted while the app has unsent edits: those need their pass anyway.
+    /// </summary>
+    private void NoteSyncWrites(Link l, SyncReport report)
+    {
+        bool wrote = report.Downloaded.Count + report.Merged.Count + report.DeletedHere.Count + report.Replaced.Count > 0;
+        lock (l)
+        {
+            if (l.Dropped) return;
+            if (l.Edited.Count > 0) { l.Echo = null; return; }
+            if (wrote) l.Echo = StampOf(Path.Combine(l.Root, "openspec", "changes"));
+        }
+    }
+
+    private static bool IsEchoOfTheSync(Link l)
+    {
+        lock (l)
+        {
+            if (l.Echo is not { } noted) return false;
+            Dictionary<string, (long Length, long Ticks)>? now = StampOf(Path.Combine(l.Root, "openspec", "changes"));
+            if (now is not null && now.Count == noted.Count && now.All(f => noted.TryGetValue(f.Key, out var was) && was == f.Value)) return true;
+            l.Echo = null;   // something else changed: the next pass that writes notes the files again
+            return false;
+        }
+    }
+
+    /// <summary>Every file of the board with its size and write time: a stat walk, no bytes read; null when it could not be done.</summary>
+    private static Dictionary<string, (long Length, long Ticks)>? StampOf(string local)
+    {
+        try
+        {
+            Dictionary<string, (long Length, long Ticks)> stamp = new(StringComparer.Ordinal);
+            if (Directory.Exists(local))
+                foreach (FileInfo f in new DirectoryInfo(local).EnumerateFiles("*", SearchOption.AllDirectories)) stamp[f.FullName] = (f.Length, f.LastWriteTimeUtc.Ticks);
+            return stamp;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    // ── the idle check ──
+
+    /// <summary>(Re)starts the idle wait: every minute while the window has focus, every five when not, moved by up to a quarter either way.</summary>
+    private void ScheduleIdle(Link l)
+    {
+        lock (l)
+        {
+            if (l.Dropped) return;
+            TimeSpan every = setup.Focused() ? setup.Idle : setup.IdleUnfocused;
+            if (every <= TimeSpan.Zero || every == Timeout.InfiniteTimeSpan) { l.IdleDue = null; return; }
+            TimeSpan wait = TimeSpan.FromTicks((long)(every.Ticks * (1 + 0.25 * Math.Clamp(setup.Jitter(), -1, 1))));
+            l.IdleDue = UtcNow() + wait;
+            if (!RealTimers) return;
+            l.Idle ??= new Timer(_ => _ = IdleElapsed(l.Root));
+            l.Idle.Change(wait, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    /// <summary>When the next idle check is due, by the service's clock; null when there is none.</summary>
+    public DateTime? IdleDue(string root) => LinkOf(root) is { } l ? Locked(l, () => l.IdleDue) : null;
+
+    /// <summary>
+    /// The idle wait ended (the timer calls this): one conditional request for the manifest with the version saved by the last pass; a full pass only when the storage answers that it changed.
+    /// Nothing is asked while a pass runs or a wait for one is pending (that pass looks anyway). Never throws and shows nothing: a storage that cannot be reached is tried again next time.
+    /// </summary>
+    public async Task IdleElapsed(string root)
+    {
+        if (LinkOf(root) is not { } l) return;
+        try
+        {
+            bool busy;
+            lock (l) busy = l.Dropped || l.Running || l.QuietDue is not null;
+            if (!busy && await RemoteChanged(l)) await Request(l);
+        }
+        catch (Exception) { }
+        finally { ScheduleIdle(l); }
+    }
+
+    private async Task<bool> RemoteChanged(Link l)
+    {
+        (IBoardStorage? storage, _) = settings.Open(l.Root);
+        if (storage is null) return false;
+        try
+        {
+            string? version = SavedVersion(Path.Combine(settings.StateFolder(l.Root), "state.json"));
+            StoredFile? file = await storage.GetIfChanged("manifest.json", version);
+            return file is null ? version is not null : !file.IsNotModified;   // no manifest and none known: nothing to fetch; one that went away is news
+        }
+        finally { (storage as IDisposable)?.Dispose(); }
+    }
+
+    /// <summary>The storage version the last pass saved in state.json (its first property, so only the start of the file is read); null when there is none.</summary>
+    private static string? SavedVersion(string stateFile)
+    {
+        try
+        {
+            using FileStream stream = new(stateFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);   // a pass may be saving it
+            byte[] head = new byte[8192];
+            int n = stream.Read(head, 0, head.Length);
+            Utf8JsonReader reader = new(head.AsSpan(0, n), isFinalBlock: false, default);
+            while (reader.Read())
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName || reader.CurrentDepth != 1) continue;
+                if (!reader.ValueTextEquals("storageVersion") && !reader.ValueTextEquals("StorageVersion")) return null;   // the version is written first: another property first means there is none
+                return reader.Read() && reader.TokenType == JsonTokenType.String ? reader.GetString() : null;
+            }
+            return null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return null; }
     }
 
     /// <summary>When the pending wait for this project ends, by the service's clock; null when nothing is pending.</summary>
@@ -281,6 +466,7 @@ public sealed class BoardSyncService : IDisposable
             }
             again.TrySetResult(await Once(l));
         }
+        ScheduleIdle(l);
         Changed?.Invoke();
         return first;
     }
@@ -293,6 +479,7 @@ public sealed class BoardSyncService : IDisposable
             allow = l.Allow;
             l.Allow = false;
             l.QuietDue = null;                                      // this pass takes what the wait was for; a change from here on starts it again
+            l.FirstChangeAt = null;
             l.Quiet?.Change(Timeout.Infinite, Timeout.Infinite);
         }
         try { return await RunOnce(l, allow); }
@@ -341,11 +528,12 @@ public sealed class BoardSyncService : IDisposable
         l.Problem = null;
         FollowAttachmentsFolder(l);               // before anything syncs: a folder that moved on another computer is moved here first, so the board brings notes that already say so
         settings.KeepStateForThisAddress(root);   // the sync's memory belongs to one storage: another address starts over, for the board and the attachments
-        HashSet<string> sent = GatherEdited(l);
         string? git = GitFolder(root);
+        RepairMarkers(l, git);                    // before the pause for markers is looked at: a file git left half merged is rebuilt here, the pause is for what cannot be
+        HashSet<string> sent = GatherEdited(l);
         bool allowAttachments = allow, allowBoard = allow;
         lock (l) if (allow && l.LastAtt is { Outcome: SyncOutcome.Blocked } && l.Last is not { Outcome: SyncOutcome.Blocked }) allowBoard = false;   // "Allow and sync" was for the attachments' pause: the board's brake is not lifted with it
-        SyncOptions options = new(Path.Combine(root, "openspec", "changes"), settings.StateFolder(root), storage, settings.DeviceId(), setup.UtcNow, allowBoard, sent, git);
+        SyncOptions options = new(Path.Combine(root, "openspec", "changes"), settings.StateFolder(root), storage, settings.DeviceId(), setup.UtcNow, allowBoard, sent, git, SettleWindow: setup.SettleWindow);
         Changed?.Invoke();
         string key = SettingsStore.Key(root);
         SyncReport report;
@@ -356,9 +544,65 @@ public sealed class BoardSyncService : IDisposable
             if (report.Message is { Length: > 0 } message) report = report with { Message = settings.Scrub(root, message) };   // a key id is only ever shown as its last four characters
             SyncReport? attachments = report.Outcome is SyncOutcome.Synced or SyncOutcome.NothingToDo ? await SyncAttachments(l, storage, allowAttachments) : null;   // after a board sync that did not fail or pause
             Handle(l, report, sent, attachments, attachmentsRan: report.Outcome is SyncOutcome.Synced or SyncOutcome.NothingToDo);
+            NoteSyncWrites(l, report);
+            if (setup.SettleWindow > TimeSpan.Zero && report.Settling.Count + (attachments?.Settling.Count ?? 0) > 0) Schedule(l, setup.SettleWindow);   // files were written too recently to take: one more pass once they have settled
         }
         finally { (storage as IDisposable)?.Dispose(); }
         return report;
+    }
+
+    // ── conflict markers a git merge left in board files ──
+
+    /// <summary>
+    /// A git merge that both branches touched can leave markers in .openspec.yaml, tasks.md, a note or events.log, and be committed that way. Each such file is rebuilt from the two sides of
+    /// the merge (git names them, see <see cref="GitHistoryApi.ConflictSides"/>; without them the hunks in the file are the sides) by the board's own merge, the newer side winning what
+    /// both changed. It writes the working tree only (never stages or commits), counts as an edit of the app so the sync uploads it, and puts one sync-conflict event per lost change on the item.
+    /// A file that cannot be rebuilt stays as it is and pauses the sync, as does a merge that is still open: git owns that state, the sync goes on when it is finished.
+    /// </summary>
+    private void RepairMarkers(Link l, string? git)
+    {
+        if (git is null) return;
+        string root = l.Root, local = Path.Combine(root, "openspec", "changes");
+        List<(string Path, MarkerRepair Repair)> repaired = [];
+        InProject(root, () =>
+        {
+            try
+            {
+                foreach (string rel in BoardSyncApi.MarkedFiles(local, settings.StateFolder(root)))
+                {
+                    if (!BoardSyncApi.CanRepairMarkers(rel)) continue;
+                    string full = Path.Combine(local, rel.Replace('/', Path.DirectorySeparatorChar));
+                    string? text = DataFile.ReadText(full);
+                    if (text is null) continue;
+                    ConflictSides? sides = GitHistoryApi.ConflictSides("openspec/changes/" + rel, text);
+                    if (BoardSyncApi.RepairMarkers(rel, text, sides?.Base, sides?.Ours, sides?.Theirs, sides?.TheirsIsNewer ?? false) is not { } repair) continue;
+                    DataFile.WriteAtomic(full, repair.Text);
+                    lock (l) if (AddEdited(l, [full])) ScheduleSave(l);
+                    repaired.Add((rel, repair));
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // what could not be written still has its markers: the sync pauses for it
+            if (repaired.Count == 0) return;
+            OpenSpecStoreApi.Refresh();       // files were rewritten: the store reads them again before anything is written beside them
+            foreach ((string path, MarkerRepair repair) in repaired)
+                foreach (MergeConflict c in repair.Conflicts)
+                {
+                    try { LogRepairedConflict(local, path, c, repair.FromGit); }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+                }
+        });
+        if (repaired.Count == 0) return;
+        ui.Toast(repaired.Count == 1
+            ? $"Repaired the conflict markers git left in {repaired[0].Path}: the newer side won what both sides changed (see the work item's worklog)"
+            : $"Repaired the conflict markers git left in {repaired.Count} board files: the newer side won what both sides changed. {string.Join(", ", repaired.Take(3).Select(r => r.Path))}{(repaired.Count > 3 ? "…" : "")}", ToastKind.Info);
+        Touched?.Invoke();
+    }
+
+    private static void LogRepairedConflict(string local, string path, MergeConflict c, bool fromGit)
+    {
+        if (ItemOf(local, path) is not { } found) return;
+        string how = fromGit ? "the commit that is newer won" : "git's sides were not available, so the first side won";
+        WorkItemsApi.LogEvent(found.Item.Id, "sync-conflict", $"{(c.What == path ? found.File : c.What)}: kept \"{Clip(c.Kept)}\", dropped \"{Clip(c.Dropped)}\" (conflict markers from a git merge were repaired; {how})");
     }
 
     private Task<SyncReport> Engine(SyncOptions options) => setup.Run is { } run ? run(options) : BoardSyncApi.Sync(options);
@@ -382,7 +626,7 @@ public sealed class BoardSyncService : IDisposable
         {
             // The folder was never made, or was moved or deleted. The engine would refuse a known folder that is gone (and delete nothing), and would make state for an unknown one: say nothing.
             if (!Directory.Exists(dir) && (File.Exists(Path.Combine(state, "state.json")) || await view.Get("manifest.json") is null)) return null;
-            SyncOptions options = new(dir, state, view, settings.DeviceId(), setup.UtcNow, allow, null, null, WholeFilesOnly: true);
+            SyncOptions options = new(dir, state, view, settings.DeviceId(), setup.UtcNow, allow, null, null, WholeFilesOnly: true, SettleWindow: setup.SettleWindow);
             report = await Engine(options);
         }
         catch (BoardStorageException e) { report = new SyncReport(SyncOutcome.Failed, e.Message, [], [], [], [], [], [], []); }
@@ -492,13 +736,15 @@ public sealed class BoardSyncService : IDisposable
     }
 
     /// <summary>Takes what the store recorded since the last look into the set (the app wrote it) and keeps the set on disk.</summary>
-    private static void Absorb(Link l)
+    private static bool Absorb(Link l)
     {
         lock (l)
         {
             (IReadOnlyList<string> paths, long cursor) = OpenSpecStoreApi.ChangesSince(l.Cursor);
             l.Cursor = cursor;
-            if (AddEdited(l, paths)) ScheduleSave(l);
+            bool grew = AddEdited(l, paths);
+            if (grew) ScheduleSave(l);
+            return grew;
         }
     }
 
@@ -817,16 +1063,23 @@ public sealed class BoardSyncService : IDisposable
         return one.Length <= 120 ? one : one[..117] + "...";
     }
 
-    /// <summary>Puts one conflict on its work item (an event for a changed field, a note for lost text); false when there is no such item.</summary>
-    private static bool OnItem(string local, SyncConflict c)
+    /// <summary>The work item whose folder holds the board-relative path (an archived one too) and the path inside that folder; null when there is none.</summary>
+    private static (WorkItem Item, string File)? ItemOf(string local, string path)
     {
-        string[] segments = c.Path.Split('/');
+        string[] segments = path.Split('/');
         int depth = segments[0] == "archive" && segments.Length > 2 ? 2 : 1;
         string folder = Path.GetFullPath(Path.Combine(local, string.Join('/', segments.Take(depth))));
         string file = string.Join('/', segments.Skip(depth));
-        if (file.Length == 0) return false;
+        if (file.Length == 0) return null;
         WorkItem? item = WorkItemsApi.GetAll(includeHidden: true).FirstOrDefault(w => string.Equals(Path.GetFullPath(w.Path).TrimEnd('\\', '/'), folder.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase));
-        if (item is null || !Directory.Exists(item.Path)) return false;
+        return item is null || !Directory.Exists(item.Path) ? null : (item, file);
+    }
+
+    /// <summary>Puts one conflict on its work item (an event for a changed field, a note for lost text); false when there is no such item.</summary>
+    private static bool OnItem(string local, SyncConflict c)
+    {
+        if (ItemOf(local, c.Path) is not { } found) return false;
+        (WorkItem item, string file) = found;
 
         bool field = file is ".openspec.yaml" or "tasks.md" && c.Kept != "deleted";
         if (field)
@@ -880,7 +1133,9 @@ public sealed class BoardSyncService : IDisposable
         if (settings.Proposal(root) is { } proposal) return new(true, proposal.Line, false, false, 0, null, proposal);   // asked, not allowed: nothing runs, whatever a link still remembers
         if (LinkOf(root) is not { } l) return new(true, settings.Problem(root) ?? "Not syncing", false, false, 0);
         string local = Path.Combine(root, "openspec", "changes");
-        string? paused = BoardSyncApi.GitPause(local, GitFolder(root), settings.StateFolder(root));   // git in the middle of a merge: shown now, not only after the next sync
+        string? paused;
+        try { paused = l.LastPause = BoardSyncApi.GitPause(local, GitFolder(root), settings.StateFolder(root)); }   // git in the middle of a merge: shown now, not only after the next sync
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { paused = l.LastPause; }   // a pass is saving the state right now: what the last render showed
         string boardTrash = Path.Combine(settings.StateFolder(root), "trash"), attachmentsTrash = Path.Combine(settings.AttachmentsStateFolder(root), "trash");
         // One link for both syncs' trash: the folder that is there, or the sync folder that holds both when both are.
         string? trash = Directory.Exists(boardTrash) ? Directory.Exists(attachmentsTrash) ? settings.ProjectFolder(root) : boardTrash : Directory.Exists(attachmentsTrash) ? attachmentsTrash : null;

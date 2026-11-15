@@ -20,7 +20,6 @@ namespace TaskManager.Tests;
 /// "Two computers" are two temporary repositories, two app-data folders and two services over one Folder storage; the services are plain
 /// classes, so two of them live in one process (the module state is shared, and each service enters its project the way the workspace does).
 /// </summary>
-[Collection(nameof(ModuleStateCollection))]
 public sealed class SyncingWithConnectedStorageTests : IDisposable
 {
     private const string Item = "openspec/changes/add-health-check";
@@ -49,12 +48,21 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         public BoardStorageSettings Settings { get; private set; }
         public BoardSyncService Sync { get; private set; }
         public readonly List<SyncOptions> Seen = [];
+        /// <summary>The engine call a test substitutes. Null: the real engine, except for an S3 project, which answers "offline" so that no test reaches a network by accident.</summary>
         public Func<SyncOptions, Task<SyncReport>>? Engine;
+        /// <summary>
+        /// True (the default): every change of the settings (connect, a value, the switch for attachments, the approval, a disconnect) and the page's opening of the project
+        /// return only after the pass they started has ended, so a test never reads this computer's data folder or the repository while a pass writes there (a read with
+        /// File.ReadAllText cannot open a file a pass has open for writing). A test that wants the pass to be still running (an engine it holds back) sets it to false first.
+        /// </summary>
+        public bool AwaitPasses = true;
         private readonly IReadOnlyList<StorageProvider>? providers;
         private readonly Func<DateTime>? clock;
+        private readonly Func<SyncSetup, SyncSetup>? tune;
 
-        public Computer(string temp, string name, IReadOnlyList<StorageProvider>? providers = null, Func<DateTime>? clock = null)
+        public Computer(string temp, string name, IReadOnlyList<StorageProvider>? providers = null, Func<DateTime>? clock = null, Func<SyncSetup, SyncSetup>? tune = null)
         {
+            this.tune = tune;
             Data = Path.Combine(temp, "data-" + name);
             App = new SettingsStore(Path.Combine(temp, "app-" + name + ".json"));
             this.providers = providers;
@@ -66,10 +74,17 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         private (BoardStorageSettings, BoardSyncService) Start()
         {
             BoardStorageSettings settings = new(Data, providers ?? StorageProviders.Builtin);
-            BoardSyncService sync = new(settings, Ui, new SyncSetup(
+            SyncSetup timing = new SyncSetup(
                 TimeSpan.FromMinutes(2),
-                async o => { Seen.Add(o); return Engine is null ? await BoardSyncApi.Sync(o) : await Engine(o); },
-                clock), App);
+                async o =>
+                {
+                    Seen.Add(o);
+                    if (Engine is not null) return await Engine(o);
+                    return Settings.Config(Repo.Root)?.Provider == "s3" ? Offline() : await BoardSyncApi.Sync(o);   // an S3 address in a test names no real storage
+                },
+                clock) { RealTimers = false, Jitter = () => 0 };   // the tests call QuietElapsed and IdleElapsed themselves: no timer runs in the background
+            BoardSyncService sync = new(settings, Ui, tune is null ? timing : tune(timing), App);
+            settings.Changed += () => { if (AwaitPasses) sync.LastPass(Repo.Root).GetAwaiter().GetResult(); };   // after the service's own handler (it subscribed first), which is the one that starts the pass
             sync.InProject = In;
             sync.Attach(Repo.Root);
             return (settings, sync);
@@ -133,9 +148,9 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         }
     }
 
-    private Computer NewComputer(string name, IReadOnlyList<StorageProvider>? providers = null, Func<DateTime>? clock = null)
+    private Computer NewComputer(string name, IReadOnlyList<StorageProvider>? providers = null, Func<DateTime>? clock = null, Func<SyncSetup, SyncSetup>? tune = null)
     {
-        Computer c = new(temp, name, providers, clock);
+        Computer c = new(temp, name, providers, clock, tune);
         disposables.Add(c);
         return c;
     }
@@ -173,7 +188,8 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         ctx.Services.AddSingleton(c.Sync);
         if (opener is not null) ctx.Services.AddSingleton(opener);
         ctx.Services.AddSingleton<Workspace>();
-        Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(c.Root).Success);
+        Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(c.Root).Success);   // opening attaches the project to the sync service: one pass
+        if (c.AwaitPasses) c.Pass().GetAwaiter().GetResult();
         return ctx;
     }
 
@@ -1440,10 +1456,12 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         string before = a.Settings.AddressHash(a.Root)!;
 
         Assert.True(a.Settings.SetSyncAttachments(a.Root, false).Success);
+        await a.Pass();                                                // every setting saved starts a pass that reads config.yaml: it ends before the test writes the file itself
         Assert.Null(a.Settings.Proposal(a.Root));
         Assert.Equal(before, a.Settings.AddressHash(a.Root));
 
         Assert.True(a.Settings.SetSyncAttachments(a.Root, true).Success);
+        await a.Pass();
         Assert.Null(a.Settings.Proposal(a.Root));
 
         // another computer's repository says "off" for a storage this computer allowed: still allowed, and off
@@ -1776,10 +1794,10 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         await using BunitContext ctx = PageContext(b);
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
 
-        await page.InvokeAsync(() => page.Find("input[aria-label='Attachments folder']").Change(NewDir));
+        await page.InvokeAsync(() => page.Find("input[aria-label='Files folder']").Change("media"));   // the images folder becomes media/images
         page.WaitForAssertion(() => Assert.NotNull(page.Find(".att-ask .att-keep")));
         await page.InvokeAsync(() => page.Find(".att-ask .att-keep").Click());
-        page.WaitForAssertion(() => Assert.Equal(NewDir, b.App.AttachmentsDir(b.Root)));
+        page.WaitForAssertion(() => Assert.Equal("media/images", b.App.AttachmentsDir(b.Root)));
         b.Sync.BoardChanged();
         await b.Sync.QuietElapsed(b.Root);
         await b.Sync.SyncNow(b.Root);
@@ -1790,5 +1808,264 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.Equal(before.Length, StoredSnapshot().Length);                            // nothing in the storage was deleted because the watched folder changed
         Assert.DoesNotContain(b.AttachmentRuns, o => o.LocalRoot == b.AttachDir && o.AllowMassDelete);
         Assert.Equal(Png, b.ReadAttachment("wi1/n1/pic.png"));                           // the new folder is a first connection: what the storage holds comes down
+    }
+
+    // ---- service chunk ----
+
+    private async Task<(Computer A, Computer B)> TwoOnTheTestClock(Func<SyncSetup, SyncSetup>? tune = null)
+    {
+        Computer a = NewComputer("a", clock: () => now, tune: tune), b = NewComputer("b", clock: () => now);
+        a.ConnectFolder(Storage);
+        await a.Pass();
+        b.ConnectFolder(Storage);
+        await b.Pass();
+        return (a, b);
+    }
+
+    /// <summary>The other computer changed the title and synced; this one synced and so wrote the file itself (a download).</summary>
+    private async Task<Computer> ReceivedAChangeFromTheOtherComputer()
+    {
+        (Computer a, Computer b) = await TwoOnTheTestClock();
+        Assert.True(b.Do(() => WorkItemsApi.SetTitle(123, "From b")).Success);
+        await b.Sync.SyncNow(b.Root);
+        SyncReport? report = await a.Sync.SyncNow(a.Root);
+        Assert.Contains("title: From b", a.Read(Yaml));
+        Assert.NotEmpty(report!.Downloaded.Concat(report.Merged));
+        return a;
+    }
+
+    /// <summary>What the file watcher does a moment after files were written: the store's version moves and the workspace reports the change.</summary>
+    private static void TheWatcherReports(Computer c)
+    {
+        c.Do(() => OpenSpecStoreApi.Refresh());
+        c.Sync.BoardChanged();
+    }
+
+    [Fact(DisplayName = "A pass that downloads files does not schedule a second pass for its own writes")]
+    public async Task APassThatDownloadsDoesNotScheduleASecondPassForItsOwnWrites()
+    {
+        Computer a = await ReceivedAChangeFromTheOtherComputer();
+        Assert.Null(a.Sync.QuietDue(a.Root));
+        int runs = a.Sync.Runs(a.Root);
+
+        TheWatcherReports(a);                                          // the watcher saw the sync's own download
+        TheWatcherReports(a);                                          // and may report it more than once
+
+        Assert.Null(a.Sync.QuietDue(a.Root));                          // no wait for an idle pass
+        Assert.Equal(runs, a.Sync.Runs(a.Root));
+        Assert.StartsWith("Synced at", a.Line);                        // the line is still the sync's
+    }
+
+    [Fact(DisplayName = "A change after the sync's own writes still schedules a pass")]
+    public async Task AChangeAfterTheSyncsOwnWritesStillSchedulesAPass()
+    {
+        Computer a = await ReceivedAChangeFromTheOtherComputer();
+        TheWatcherReports(a);
+        Assert.Null(a.Sync.QuietDue(a.Root));                          // the echo of the download: nothing
+
+        ChangeTitle(a, "Mine");                                        // the user edits in the app
+        Assert.Equal(now.AddMinutes(2), a.Sync.QuietDue(a.Root));
+    }
+
+    [Fact(DisplayName = "An outside edit after the sync's own writes still schedules a pass")]
+    public async Task AnOutsideEditAfterTheSyncsOwnWritesStillSchedulesAPass()
+    {
+        Computer a = await ReceivedAChangeFromTheOtherComputer();
+        TheWatcherReports(a);
+        Assert.Null(a.Sync.QuietDue(a.Root));
+
+        File.AppendAllText(Path.Combine(a.Root, Proposal.Replace('/', Path.DirectorySeparatorChar)), "\nEdited in an editor.\n");   // not the app's write, not the sync's
+        TheWatcherReports(a);
+
+        Assert.Equal(now.AddMinutes(2), a.Sync.QuietDue(a.Root));
+    }
+
+    [Fact(DisplayName = "An idle computer checks the manifest every minute while focused and every five minutes when not, and runs a pass only when it changed")]
+    public async Task AnIdleComputerChecksTheManifestAndRunsAPassOnlyWhenItChanged()
+    {
+        bool focused = true;
+        (Computer a, Computer b) = await TwoOnTheTestClock(t => t with { Focused = () => focused });
+        Assert.Equal(now.AddMinutes(1), a.Sync.IdleDue(a.Root));       // armed by the pass that connected it
+        int runs = a.Sync.Runs(a.Root);
+
+        Tick(1);
+        await a.Sync.IdleElapsed(a.Root);                              // what the idle timer calls: nothing changed in the storage
+        Assert.Equal(runs, a.Sync.Runs(a.Root));
+        Assert.Equal(now.AddMinutes(1), a.Sync.IdleDue(a.Root));       // focused: again in a minute
+
+        focused = false;
+        Tick(1);
+        await a.Sync.IdleElapsed(a.Root);
+        Assert.Equal(runs, a.Sync.Runs(a.Root));
+        Assert.Equal(now.AddMinutes(5), a.Sync.IdleDue(a.Root));       // the window lost focus: every five minutes
+
+        Assert.True(b.Do(() => WorkItemsApi.SetTitle(123, "From b")).Success);
+        await b.Sync.SyncNow(b.Root);                                  // the other computer sent a change
+        Tick(5);
+        await a.Sync.IdleElapsed(a.Root);
+
+        Assert.Equal(runs + 1, a.Sync.Runs(a.Root));                   // a full pass, because the manifest answered changed
+        Assert.Contains("title: From b", a.Read(Yaml));
+        Assert.Equal(now.AddMinutes(5), a.Sync.IdleDue(a.Root));
+    }
+
+    [Fact(DisplayName = "The idle interval is jittered by up to a quarter either way")]
+    public async Task TheIdleIntervalIsJittered()
+    {
+        double jitter = 1;
+        Computer a = NewComputer("a", clock: () => now, tune: t => t with { Jitter = () => jitter });
+        a.ConnectFolder(Storage);
+        await a.Pass();
+        Assert.Equal(now.AddSeconds(75), a.Sync.IdleDue(a.Root));
+
+        jitter = -1;
+        await a.Sync.IdleElapsed(a.Root);
+        Assert.Equal(now.AddSeconds(45), a.Sync.IdleDue(a.Root));
+    }
+
+    [Fact(DisplayName = "The idle check costs one conditional request when nothing changed")]
+    public async Task TheIdleCheckCostsOneConditionalRequestWhenNothingChanged()
+    {
+        List<string> calls = [];
+        StorageProvider counting = new("counting", "Counting", "Counts what the idle check asks of the storage.", [], _ => new CountingStorage(BoardSyncApi.FolderStorage(Storage), calls));
+        Computer a = NewComputer("a", [.. StorageProviders.Builtin, counting], () => now);
+        Assert.True(a.Settings.Connect(a.Root, "counting").Success);
+        await a.Pass();
+        await a.Sync.SyncNow(a.Root);                                  // the saved state now holds the manifest's version
+        int runs = a.Sync.Runs(a.Root);
+        string line = a.Line;
+        calls.Clear();
+
+        Tick(1);
+        await a.Sync.IdleElapsed(a.Root);
+
+        Assert.Equal(["GetIfChanged manifest.json with a version"], calls);   // no download, no upload, no list, no second request
+        Assert.Equal(runs, a.Sync.Runs(a.Root));
+        Assert.Equal(line, a.Line);                                    // "Synced at ..." is not touched by a check that found nothing
+    }
+
+    private sealed class CountingStorage(IBoardStorage inner, List<string> calls) : IBoardStorage
+    {
+        private void Count(string what) { lock (calls) calls.Add(what); }
+        public bool ConditionalWrites => inner.ConditionalWrites;
+        public Task<StoredFile?> Get(string path, CancellationToken ct = default) { Count("Get " + path); return inner.Get(path, ct); }
+        public Task<StoredFile?> GetIfChanged(string path, string? version, CancellationToken ct = default) { Count($"GetIfChanged {path} " + (version is null ? "without a version" : "with a version")); return inner.GetIfChanged(path, version, ct); }
+        public Task<PutResult> Put(string path, byte[] bytes, PutCondition condition, CancellationToken ct = default) { Count("Put " + path); return inner.Put(path, bytes, condition, ct); }
+        public Task Delete(string path, CancellationToken ct = default) { Count("Delete " + path); return inner.Delete(path, ct); }
+        public Task<IReadOnlyList<StoredEntry>> List(string prefix, CancellationToken ct = default) { Count("List " + prefix); return inner.List(prefix, ct); }
+    }
+
+    [Fact(DisplayName = "A change every minute for an hour still syncs fifteen minutes after the first change")]
+    public async Task AChangeEveryMinuteForAnHourStillSyncsFifteenMinutesAfterTheFirstChange()
+    {
+        Computer a = NewComputer("a", clock: () => now);
+        a.ConnectFolder(Storage);
+        await a.Pass();
+        int runs = a.Sync.Runs(a.Root);
+        DateTime? first = null;
+        List<TimeSpan> waited = [];
+
+        for (int minute = 0; minute < 60; minute++)
+        {
+            ChangeTitle(a, "Title " + minute);
+            first ??= now;
+            DateTime due = a.Sync.QuietDue(a.Root)!.Value;
+            Assert.True(due <= first.Value.AddMinutes(15), $"minute {minute}: the wait ends {due - first.Value} after the first change");
+            if (due <= now)                                            // what the timer does when the wait ends
+            {
+                await a.Sync.QuietElapsed(a.Root);
+                waited.Add(now - first.Value);
+                first = null;
+            }
+            Tick(1);
+        }
+
+        Assert.Equal([TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15)], waited);
+        Assert.Equal(runs + 3, a.Sync.Runs(a.Root));
+        Assert.Equal(TimeSpan.FromMinutes(15), SyncSetup.Default.MaxWait);
+    }
+
+    [Fact(DisplayName = "The quiet timer still waits two minutes after the last change when changes stop")]
+    public async Task TheQuietTimerStillWaitsTwoMinutesAfterTheLastChangeWhenChangesStop()
+    {
+        Computer a = NewComputer("a", clock: () => now);
+        a.ConnectFolder(Storage);
+        await a.Pass();
+
+        for (int minute = 0; minute < 10; minute++) { ChangeTitle(a, "Title " + minute); Tick(1); }   // a burst of ten minutes, then it stops
+        Tick(-1);                                                      // the clock stands at the last change
+        Assert.Equal(now.AddMinutes(2), a.Sync.QuietDue(a.Root));
+    }
+
+    // ---- no timer runs for real under the tests ----
+
+    [Fact(DisplayName = "No sync timer runs for real under the test assembly")]
+    public async Task NoSyncTimerRunsForRealUnderTheTestAssembly()
+    {
+        Assert.True(SyncSetup.NoRealTimers);                           // the assembly's one switch (TestAssemblySetup)
+        Computer a = NewComputer("a", clock: () => now, tune: t => t with { RealTimers = true });   // a setup that asks for real timers, as the app's does
+        a.ConnectFolder(Storage);
+        await a.Pass();
+        Assert.Equal(now.AddMinutes(1), a.Sync.IdleDue(a.Root));       // the idle check is due, by the injected clock
+        Assert.Equal(0, a.Sync.LiveTimers);                            // and no timer object exists to fire it
+
+        ChangeTitle(a, "A change");
+        Assert.Equal(now.AddMinutes(2), a.Sync.QuietDue(a.Root));      // the quiet wait is due
+        Assert.Equal(0, a.Sync.LiveTimers);
+    }
+
+    // ---- the settle window ----
+
+    [Fact(DisplayName = "The service syncs with the ten second settle window")]
+    public async Task TheServiceSyncsWithTheTenSecondSettleWindow()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(10), SyncOptions.DefaultSettleWindow);
+        Computer a = NewComputer("a", clock: () => now, tune: t => t with { SettleWindow = SyncOptions.DefaultSettleWindow });   // what the app's own setup says
+        a.ConnectFolder(Storage);
+        await a.Pass();
+        a.WriteAttachment("wi123/n1/pic.png", [1, 2, 3]);
+        await a.Sync.SyncNow(a.Root);
+
+        Assert.Contains(a.Seen, o => !o.WholeFilesOnly);
+        Assert.Contains(a.Seen, o => o.WholeFilesOnly);
+        Assert.All(a.Seen, o => Assert.Equal(TimeSpan.FromSeconds(10), o.SettleWindow));   // the board's passes and the attachments'
+    }
+
+    [Fact(DisplayName = "A pass that left files settling schedules another pass after the settle window")]
+    public async Task APassThatLeftFilesSettlingSchedulesAnotherPassAfterTheSettleWindow()
+    {
+        Computer a = NewComputer("a", clock: () => now, tune: t => t with { SettleWindow = TimeSpan.FromSeconds(10) });
+        a.ConnectFolder(Storage);
+        await a.Pass();
+        Assert.Null(a.Sync.QuietDue(a.Root));
+        int runs = a.Sync.Runs(a.Root);
+
+        a.Engine = o => Task.FromResult(new SyncReport(SyncOutcome.Synced, null, [], [], [], [], [], [], [], settling: ["add-health-check/proposal.md"]));
+        await a.Sync.SyncNow(a.Root);                                  // the engine says a file was written too recently to take
+        Assert.Equal(now.AddSeconds(10), a.Sync.QuietDue(a.Root));     // one more pass, by the quiet wait, after the window (not after two minutes)
+        Assert.Equal(0, a.Sync.LiveTimers);
+
+        a.Engine = o => Task.FromResult(new SyncReport(SyncOutcome.NothingToDo, null, [], [], [], [], [], [], []));
+        now = now.AddSeconds(10);
+        await a.Sync.QuietElapsed(a.Root);                             // what the timer calls
+        Assert.Equal(runs + 2, a.Sync.Runs(a.Root));
+        Assert.Null(a.Sync.QuietDue(a.Root));                          // nothing settling any more: nothing more scheduled
+    }
+
+    // ---- read-share chunk ----
+
+    [Fact(DisplayName = "The status line reads the sync state while a pass holds it open for writing")]
+    public async Task TheStatusLineReadsTheSyncStateWhileAPassHoldsItOpenForWriting()
+    {
+        Computer a = NewComputer("a");
+        a.ConnectFolder(Storage);
+        await a.Pass();
+        string state = Path.Combine(a.Settings.StateFolder(a.Root), "state.json");
+        Assert.True(File.Exists(state));
+        string before = a.Line;
+
+        using FileStream pass = new(state, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);   // a pass saving its state
+
+        Assert.Equal(before, a.Line);   // the render does not throw; it shows what it last knew
     }
 }

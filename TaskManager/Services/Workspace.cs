@@ -50,8 +50,8 @@ public sealed class Workspace : IDisposable
     }
 
     private string plansSeen;
-    /// <summary>What the guides and the Notes module are configured from: the plans folders (this computer's) and every open project's attachments folder (the project's own setting, which a pull can change).</summary>
-    private string PlansState => string.Join(";", (settings.Current.PlansDirs ?? []).Select(kv => kv.Key + "=" + kv.Value)) + "|" + string.Join(";", ConfiguredRoots().Select(r => r + "=" + settings.AttachmentsDir(r)));
+    /// <summary>What the guides and the Notes module are configured from: every open project's plans folder and attachments (images) folder (the project's files folder, which a pull can change, or the old per-computer values).</summary>
+    private string PlansState => string.Join(";", ConfiguredRoots().Select(r => r + "=" + settings.PlansDir(r) + "|" + settings.AttachmentsDir(r)));
 
     private readonly HashSet<string> configured = new(StringComparer.OrdinalIgnoreCase);   // the open projects ConfigureProject has been through: a project is configured when it opens, not when its folder is first read
 
@@ -90,6 +90,15 @@ public sealed class Workspace : IDisposable
     /// <summary>The active repository: the one pages read and write, and the side menu names.</summary>
     public string? Root => OpenSpecStoreApi.RepoRoot;
 
+    private string? viewRoot;
+
+    /// <summary>
+    /// The project whose saved view (<see cref="SettingsStore.Board"/>) the board and the side menu show and change. It is the project the user switched to by its tab;
+    /// opening a card or adding an item in another project makes that one the active <see cref="Root"/> (its page reads it) but does not swap the arrangement the user made
+    /// on the board. Unlike <see cref="Root"/> it does not move while another project is read in passing (<see cref="In{T}"/>).
+    /// </summary>
+    public string? ViewRoot => viewRoot is string v && OpenRepos.Any(r => SettingsStore.Key(r) == SettingsStore.Key(v)) ? viewRoot : Root;
+
     /// <summary>The repositories open as tabs that exist on disk, in display order: what the board and list show together.</summary>
     public IReadOnlyList<string> Projects
     {
@@ -105,6 +114,7 @@ public sealed class Workspace : IDisposable
         bool fresh = !OpenSpecStoreApi.OpenRoots.Any(r => SettingsStore.Key(r) == SettingsStore.Key(root));
         (bool ok, string message) = OpenSpecStoreApi.Open(root, keepOthers: true);
         if (!ok) return (ok, message);
+        if (viewRoot is null || !OpenSpecStoreApi.OpenRoots.Any(r => SettingsStore.Key(r) == SettingsStore.Key(viewRoot))) viewRoot = root;   // the first project, or the one the view was on being gone
         if (message.Length > 0) guideNotice = message;   // openspec/ was just set up here: said together with the guide notice
         scanned.Remove(Path.GetFullPath(root));   // a project being opened is scanned for duplicate numbers once
         GitHistoryApi.Configure(root, reset: fresh);
@@ -118,6 +128,16 @@ public sealed class Workspace : IDisposable
         KeepTabs();
         Notify();
         return (true, "");
+    }
+
+    /// <summary>Makes an open project the active one and the one whose arrangement the board shows, keeping the tabs in their order ("Make it the active project").</summary>
+    public (bool Success, string Message) Switch(string root)
+    {
+        string? viewBefore = viewRoot;
+        viewRoot = root;
+        (bool ok, string message) = Open(root);
+        if (!ok) viewRoot = viewBefore;
+        return (ok, message);
     }
 
     /// <summary>The other tabs open in the store too (the board shows them all); one whose folder is gone is skipped.</summary>
@@ -159,9 +179,11 @@ public sealed class Workspace : IDisposable
     public (bool Success, string Message) OpenTab(string root)
     {
         List<string> before = OpenRepos.ToList();   // snapshot before Open() switches Root, which OpenRepos falls back on
+        string? viewBefore = viewRoot;
+        viewRoot = root;   // switching to a tab is choosing its view; set first, so the board that settings.Update tells reads the right project's
         settings.Update(s => s with { OpenRepos = [.. before.Where(p => SettingsStore.Key(p) != SettingsStore.Key(root)), root] });   // first, so Open keeps every tab
         (bool ok, string message) = Open(root);
-        if (!ok) settings.Update(s => s with { OpenRepos = before });
+        if (!ok) { viewRoot = viewBefore; settings.Update(s => s with { OpenRepos = before }); }
         return (ok, message);
     }
 
@@ -189,6 +211,7 @@ public sealed class Workspace : IDisposable
     {
         if (OpenRepos.Count <= 1) return;
         List<string> remaining = OpenRepos.Where(p => SettingsStore.Key(p) != SettingsStore.Key(repo)).ToList();
+        if (viewRoot is string v && SettingsStore.Key(v) == SettingsStore.Key(repo)) viewRoot = null;   // Open below (or the fallback to Root) picks the next
         settings.Update(s => s with { OpenRepos = remaining });
         if (Root is string r && SettingsStore.Key(r) == SettingsStore.Key(repo)) Open(remaining[^1]);
         else KeepTabs();

@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-13
+x-rtm:
+  id: 168
+  title: Repair conflict markers that a git merge left in board files
+  status: In Review
+  contributors: [Claude]
+  features: [track-work-items]
+  label: feature
+  started: 2026-11-13
+  moved: 2026-11-13
+  tests: [{suite: RepairingMergeMarkersTests, test: Conflict markers committed in a work item's yaml are repaired from the merge's two parents and the newer side wins each field}, {suite: RepairingMergeMarkersTests, test: "The real case: HEAD's Blocked and high, committed later, beat Planned and low and no marker line is left"}, {suite: RepairingMergeMarkersTests, test: A field changed on one side only keeps that change and lists combine}, {suite: RepairingMergeMarkersTests, test: The repair writes the working tree only and logs what was kept and dropped on the item}, {suite: RepairingMergeMarkersTests, test: Markers in tasks.md are repaired per subtask}, {suite: RepairingMergeMarkersTests, test: A merge in progress is repaired but the sync stays paused until git finishes it}, {suite: RepairingMergeMarkersTests, test: Markers in a file the board has no merge rule for still pause the sync}, {suite: RepairingMergeMarkersTests, test: A merge result that is not valid yaml is left alone and the sync stays paused}, {suite: RepairingMergeMarkersTests, test: When git cannot name the sides the hunks in the file are merged and the first side wins what both changed}]
+  agentBy: Claude chunk repair-markers
+  agentAt: 2026-11-13T16:26:33

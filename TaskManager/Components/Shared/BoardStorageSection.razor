@@ -9,7 +9,7 @@
     StorageProposal? ask = status.Proposal;   // the repository names a storage this computer has not allowed: shown, never opened
     string project = System.IO.Path.GetFileName(Root.TrimEnd('\\', '/'));
     string id = new string([.. project.Select(c => char.IsLetterOrDigit(c) ? c : '-')]);
-    <section class="set-row" data-storage data-project="@project">
+    <section class="set-row set-sub" data-storage data-project="@project">
         <div>
             <h3>Board storage</h3>
             <p class="muted">Keeps @project's board in step between your computers without a commit and a pull. The board stays in the repository and in git either way. It syncs when the app starts and closes, and two minutes after your last change; Sync now does it at once.</p>

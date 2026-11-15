@@ -5,6 +5,7 @@ using Radzen;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.Extensions.Time.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using TaskManager.Board;
 using TaskManager.Components.Layout;
@@ -19,7 +20,6 @@ namespace TaskManager.Tests;
 /// Renders the real pages against a temp copy of the fixture repo. Each test owns its bUnit context and disposes
 /// it asynchronously.
 /// </summary>
-[Collection(nameof(ModuleStateCollection))]
 public sealed class UsingTheBoardTests : IDisposable
 {
     private readonly TestRepo repo = new();
@@ -29,9 +29,10 @@ public sealed class UsingTheBoardTests : IDisposable
     private IRenderedComponent<Overlays>? overlays;
     private IRenderedComponent<SideNav>? nav;
 
-    private BunitContext NewContext()
+    private BunitContext NewContext(TimeProvider? time = null)
     {
         BunitContext ctx = new();
+        if (time is not null) ctx.Services.AddSingleton(time);   // the clock of the pages: a test moves it by hand
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<UiService>();
         ctx.Services.AddRadzenComponents();   // Radzen components ask for its services (the markdown editor wants DialogService)
@@ -56,7 +57,7 @@ public sealed class UsingTheBoardTests : IDisposable
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         foreach ((string by, string column) in new[] { ("label", "Label"), ("feature", "Feature"), ("contributor", "Contributors") })
         {
-            settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = by });
+            settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ListGroupBy = by });
             board.WaitForAssertion(() => Assert.DoesNotContain(column, Heads()));
             Assert.Contains("Status", Heads());
         }
@@ -154,6 +155,116 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains(board.FindAll("thead th"), h => h.QuerySelector("[class*=filter]") is not null);   // and a filter control per column
     }
 
+    // The side menu's Organise block: the label of each option and what it shows now.
+    private List<string> OrganiseLabels()
+    {
+        if (nav!.FindAll(".nav-view").Count == 0) nav.Find("button.nav-toggle").Click();
+        return nav.FindAll(".organise .field label").Select(l => l.TextContent.Trim()).ToList();
+    }
+
+    private string OrganiseValue(string field) =>
+        nav!.FindAll(".organise .field").Single(f => f.QuerySelector("label")!.TextContent.Trim() == field).QuerySelector(".rz-dropdown-label")!.TextContent.Trim();
+
+    private List<string> OrganiseChoices(string field)
+    {
+        AngleSharp.Dom.IElement Field() => nav!.FindAll(".organise .field").Single(f => f.QuerySelector("label")!.TextContent.Trim() == field);
+        Field().QuerySelector(".dd")!.Click();
+        nav!.WaitForAssertion(() => Assert.NotEmpty(Field().QuerySelectorAll(".rz-dropdown-item")));
+        return Field().QuerySelectorAll(".rz-dropdown-item").Select(i => i.TextContent.Trim()).ToList();
+    }
+
+    [Fact(DisplayName = "In the list view the organise options read groups and subgroups and both offer none first")]
+    public async Task ListOrganiseOptionsAreGroupsAndSubgroups()
+    {
+        await using BunitContext ctx = NewContext();
+        ctx.Render<BoardPage>();
+        OpenFreshList();
+
+        List<string> labels = OrganiseLabels();
+        Assert.Equal(["sort by", "groups", "subgroups", "colour"], labels);
+        Assert.Equal(("none", "none"), (OrganiseValue("groups"), OrganiseValue("subgroups")));
+        List<string> fields = ["status", "feature", "label", "priority", "contributor", "due date", "start date"];
+        Assert.Equal(["none", .. fields], OrganiseChoices("groups"));
+        Assert.Equal(["none", .. fields], OrganiseChoices("subgroups"));
+    }
+
+    [Fact(DisplayName = "The board view keeps columns and rows, with status as the default columns and no rows")]
+    public async Task BoardOrganiseOptionsStayColumnsAndRows()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        Assert.Equal(["sort by", "columns", "rows", "colour"], OrganiseLabels());
+        Assert.Equal(("status", "none"), (OrganiseValue("columns"), OrganiseValue("rows")));
+        Assert.Equal(["status", "feature", "label", "priority", "contributor", "due date", "start date"], OrganiseChoices("columns"));   // the board's columns have no "none"
+        Assert.Equal(7, board.FindAll("section.col").Count);
+    }
+
+    [Fact(DisplayName = "A fresh list view is flat: no group headers, every item once in sort order, and the Status column shows")]
+    public async Task FreshListIsFlat()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        OpenFreshList();
+
+        List<int> expected = [.. BoardModel.Sort(WorkItemsApi.GetAll(), new BoardOptions()).Select(i => i.Id)];
+        board.WaitForAssertion(() => Assert.Equal(expected, board.FindAll("tr[data-id]").Select(r => int.Parse(r.GetAttribute("data-id")!))));
+        Assert.Empty(board.FindAll("tr[data-group]"));
+        Assert.Contains("Status", board.FindAll("thead th .th-l").Select(h => h.TextContent.Trim()));
+
+        // sorted another way, the same rows follow it
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { SortBy = "id" });
+        board.WaitForAssertion(() => Assert.Equal(expected.Order(), board.FindAll("tr[data-id]").Select(r => int.Parse(r.GetAttribute("data-id")!))));
+        Assert.Empty(board.FindAll("tr[data-group]"));
+    }
+
+    [Fact(DisplayName = "Choosing a group in the list view groups the rows, a subgroup splits each group, a saved choice is kept, and the board's columns are not touched")]
+    public async Task ChoosingListGroups()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        OpenFreshList();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
+        Assert.Empty(board.FindAll("tr[data-group]"));
+        string status = WorkItemsApi.Get(123)!.Status;
+
+        PickField("groups", "status");
+        board.WaitForAssertion(() => Assert.Contains(status, board.FindAll("tr[data-group]").Select(g => g.GetAttribute("data-group"))));
+        Assert.Contains("123", GroupRows(board, status).Select(r => r.GetAttribute("data-id")));
+        Assert.DoesNotContain("Status", board.FindAll("thead th .th-l").Select(h => h.TextContent.Trim()));   // the group says it
+
+        PickField("subgroups", "priority");
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-group^='swim:']")));
+
+        PickField("subgroups", "none");
+        PickField("groups", "none");
+        board.WaitForAssertion(() => Assert.Empty(board.FindAll("tr[data-group]")));
+        Assert.NotEmpty(board.FindAll("tr[data-id]"));
+
+        PickField("groups", "label");
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-group]")));
+        SettingsStore reopened = new(settingsFile);
+        BoardOptions saved = reopened.Board(repo.Root);
+        Assert.Equal(("label", "none", "status", "none"), (saved.ListGroupBy, saved.ListSwimlane, saved.GroupBy, saved.Swimlane));   // the board's columns stay status
+
+        // the board still has its status columns
+        ctx.Services.GetRequiredService<SettingsStore>().SaveBoard(repo.Root, saved with { View = "board" });
+        board.WaitForAssertion(() => Assert.Equal(7, board.FindAll("section.col").Count));
+    }
+
+    [Fact(DisplayName = "A list saved with groups before the list had its own keeps them when the app opens it")]
+    public async Task SavedListKeepsItsGroups()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        settings.SaveBoard(repo.Root, new BoardOptions(GroupBy: "status", View: "list"));
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        string status = WorkItemsApi.Get(123)!.Status;
+        board.WaitForAssertion(() => Assert.Contains(status, board.FindAll("tr[data-group]").Select(g => g.GetAttribute("data-group"))));
+    }
+
     // The list is a Radzen DataGrid: one tbody, where each group row (tr[data-group]) is followed by its item rows (tr[data-id]).
     private static AngleSharp.Dom.IElement Group(IRenderedComponent<BoardPage> board, string key) => board.Find($"tr[data-group='{key}']");
 
@@ -186,11 +297,8 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Empty(board.FindAll(".grip"));   // no handle: the script grabs the row itself
         string js = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
         Assert.DoesNotContain(".grip", js);
-        Assert.Contains("const HOLD = 250", js);                 // a press held this long (ms) lifts the row...
-        Assert.Contains("kind: \"row\"", js);                     // ...a press anywhere on a row (tr[data-id]) is one
-        Assert.Contains("_press.hold = setTimeout", js);         // the lift happens when the time passes, not on the next move
-        Assert.Contains("_liftRow", js);
-        Assert.Contains("HOLD_SLOP", js);                        // moving before that cancels the hold: the press selects cells instead
+        Assert.DoesNotContain("HOLD", js);                       // no hold-to-lift any more: a selected row drags after a few pixels
+        Assert.Contains("kind: \"row\"", js);                     // a press on a (selected) row is one
 
         // A render between finding a row and sending it the event drops the event's handler: find the row again until the event lands.
         board.WaitForAssertion(() => GroupRows(board, "Planned")[2].DragStart());
@@ -203,6 +311,149 @@ public sealed class UsingTheBoardTests : IDisposable
         board.WaitForAssertion(() => Group(board, "In Progress").Drop());   // the group row stands for the group's end
         board.WaitForAssertion(() => Assert.Equal([before[0], before[1]], RowsIn(board, "Planned")), TimeSpan.FromSeconds(5));
         Assert.Equal("In Progress", WorkItemsApi.GetAll().Single(i => i.Title == before[2]).Status);
+    }
+
+    private static string AppJs() => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
+
+    /// <summary>The text of one function in app.js (from "function name(" to the next top-level "function" or listener).</summary>
+    private static string JsFunction(string js, string name)
+    {
+        int start = js.IndexOf("function " + name + "(", StringComparison.Ordinal);
+        Assert.True(start >= 0, $"app.js has no function {name}");
+        int end = js.IndexOf("\n}", start, StringComparison.Ordinal);
+        return js[start..(end < 0 ? js.Length : end)];
+    }
+
+    [Fact(DisplayName = "In the list view only a Shift-click selected row is a drag handle: it drags after a few pixels wherever the press lands")]
+    public async Task ListRowIsItsOwnDragHandle()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
+
+        // the row itself is what the script grabs: it carries the id and the key the script finds it by, and no handle column or grip
+        foreach (AngleSharp.Dom.IElement row in board.FindAll("tr[data-id]"))
+        {
+            Assert.True(row.HasAttribute("data-row"));
+            Assert.Empty(row.QuerySelectorAll(".grip"));
+            Assert.False(row.HasAttribute("data-selected"));
+        }
+        board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true });
+        board.WaitForAssertion(() => Assert.True(board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).HasAttribute("data-selected")));   // what the script reads
+
+        string js = AppJs();
+        // text no longer decides and nothing is held: the selection does
+        Assert.DoesNotContain("_overText", js);
+        Assert.DoesNotContain("_pressOnText", js);
+        Assert.DoesNotContain("_liftRow", js);
+        string down = js[js.IndexOf("const tr = !(e.shiftKey", StringComparison.Ordinal)..];
+        down = down[..down.IndexOf("if (e.target.closest(\"input, button", StringComparison.Ordinal)];
+        Assert.Contains("hasAttribute(\"data-selected\")", down);   // only a selected row is pressed as a row
+        Assert.DoesNotContain("setTimeout", down);
+        string move = js[js.IndexOf("document.addEventListener(\"pointermove\"", StringComparison.Ordinal)..];
+        move = move[..move.IndexOf("const d = _drag;", StringComparison.Ordinal)];
+        Assert.Contains("moved >= GRAB", move);
+        Assert.Contains("_startDrag(e)", move);
+        // every selected row goes along: list rows carry data-selected, not the board's "selected" class
+        string start = JsFunction(js, "_startDrag");
+        Assert.Contains("tr[data-id][data-selected]", start);
+        Assert.Contains("p.el.matches(sel)", start);
+        // a pill is no control here: a press on it that moves drags the selected row, a still click opens its dropdown
+        Assert.DoesNotContain(".dd, .menu-wrap", JsFunction(js, "_rowAt"));
+        // over a group's own header row means that group (its end), not the group above it
+        Assert.Contains("target = head;", JsFunction(js, "_findSpot"));
+    }
+
+    [Fact(DisplayName = "Dragging a selected list row moves every selected row to the drop group in their order")]
+    public async Task DraggingASelectedListRowMovesEverySelectedRow()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.Equal(3, RowsIn(board, "Planned").Count));
+        List<int> ids = GroupRows(board, "Planned").Select(r => int.Parse(r.GetAttribute("data-id")!)).ToList();
+
+        board.WaitForAssertion(() => GroupRows(board, "Planned")[0].QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
+        board.WaitForAssertion(() => Assert.True(GroupRows(board, "Planned")[0].HasAttribute("data-selected")));
+        await board.InvokeAsync(() => { });
+        board.WaitForAssertion(() => GroupRows(board, "Planned")[2].QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
+        board.WaitForAssertion(() => Assert.True(GroupRows(board, "Planned")[2].HasAttribute("data-selected")));
+        Assert.False(GroupRows(board, "Planned")[1].HasAttribute("data-selected"));
+
+        board.WaitForAssertion(() => GroupRows(board, "Planned")[2].DragStart());   // the press is on the last selected row; the first one goes with it
+        await board.InvokeAsync(() => { });
+        board.WaitForAssertion(() => Group(board, "Confirmed").Drop());
+
+        List<int> Ids(string group) => GroupRows(board, group).Select(r => int.Parse(r.GetAttribute("data-id")!)).ToList();   // the new items share a title
+        board.WaitForAssertion(() => Assert.Equal([ids[1]], Ids("Planned")), TimeSpan.FromSeconds(5));
+        board.WaitForAssertion(() => Assert.Contains(ids[0], Ids("Confirmed")), TimeSpan.FromSeconds(5));
+        List<int> confirmed = Ids("Confirmed");
+        Assert.Contains(ids[2], confirmed);
+        Assert.True(confirmed.IndexOf(ids[0]) < confirmed.IndexOf(ids[2]));   // in the order they had
+        Assert.All(new[] { ids[0], ids[2] }, id => Assert.Equal("Confirmed", WorkItemsApi.GetAll().Single(i => i.Id == id).Status));
+        Assert.Equal("Planned", WorkItemsApi.GetAll().Single(i => i.Id == ids[1]).Status);
+    }
+
+    [Fact(DisplayName = "A press on an unselected list row selects cells and never starts a drag")]
+    public async Task APressOnAnUnselectedListRowSelectsCells()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
+        Assert.Empty(board.FindAll("tr[data-id][data-selected]"));   // nothing is selected: every press is a cell selection's
+
+        string js = AppJs();
+        // the row press is for selected rows only, so an unselected row's press never reaches _startDrag
+        string down = js[js.IndexOf("const tr = !(e.shiftKey", StringComparison.Ordinal)..];
+        down = down[..down.IndexOf("if (e.target.closest(\"input, button", StringComparison.Ordinal)];
+        Assert.Contains("hasAttribute(\"data-selected\")", down);
+        // the cell selection starts from any press on an unselected row, over text or not, as the grid did before
+        string cell = js[js.IndexOf("const cell = _cellAt(e.target);", StringComparison.Ordinal)..];
+        cell = cell[..cell.IndexOf("_cells.dragging = true;", StringComparison.Ordinal)];
+        Assert.DoesNotContain("_pressOnText", cell);
+        Assert.Contains("tr[data-selected]", cell);   // a selected row's press is the drag's: it ends a selection instead
+    }
+
+    [Fact(DisplayName = "Dropping a list row on another group moves the work item there")]
+    public async Task DroppingAListRowOnAnotherGroupMovesIt()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.Equal(2, RowsIn(board, "Planned").Count));
+        List<string> before = RowsIn(board, "Planned");
+
+        board.WaitForAssertion(() => GroupRows(board, "Planned")[1].DragStart());
+        await board.InvokeAsync(() => { });
+        board.WaitForAssertion(() => Group(board, "Confirmed").Drop());
+        board.WaitForAssertion(() => Assert.Equal([before[0]], RowsIn(board, "Planned")), TimeSpan.FromSeconds(5));
+        board.WaitForAssertion(() => Assert.Contains(before[1], RowsIn(board, "Confirmed")), TimeSpan.FromSeconds(5));
+        Assert.Equal("Confirmed", WorkItemsApi.GetAll().Single(i => i.Title == before[1]).Status);
+    }
+
+    [Fact(DisplayName = "Dropping a list row above another row in my order reorders them")]
+    public async Task DroppingAListRowAboveAnotherReordersThem()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.CreateItem("Planned").Ok);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.Equal(2, RowsIn(board, "Planned").Count));
+        List<string> before = RowsIn(board, "Planned");
+
+        board.WaitForAssertion(() => GroupRows(board, "Planned")[1].DragStart());
+        await board.InvokeAsync(() => { });
+        board.WaitForAssertion(() => GroupRows(board, "Planned")[0].Drop());   // dropped on a row: in front of it
+        board.WaitForAssertion(() => Assert.Equal([before[1], before[0]], RowsIn(board, "Planned")), TimeSpan.FromSeconds(5));
+        Assert.Equal("Planned", WorkItemsApi.GetAll().Single(i => i.Title == before[1]).Status);   // still in the same group
     }
 
     [Fact(DisplayName = "The list has no grip column, and a title lines up under the Title header whether or not its row has subtasks")]
@@ -474,7 +725,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         // grouped by label the Status column shows: a completed row's status is a read-only pill, its priority stays editable
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
-        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = "label" });
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ListGroupBy = "label" });
         board.WaitForAssertion(() => Assert.Contains(board.FindAll("tr[data-id]"), r => r.TextContent.Contains("#wi124") && r.TextContent.Contains("Completed")));
         AngleSharp.Dom.IElement row = board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi124"));
         Assert.NotEmpty(row.QuerySelectorAll(".dd"));   // priority dropdown
@@ -969,11 +1220,20 @@ public sealed class UsingTheBoardTests : IDisposable
         board.WaitForAssertion(() => Assert.Contains("Exports", Columns(board)));
     }
 
-    // The layout dropdown in the side menu switches the board to the list.
-    private void ShowList()
+    // The layout dropdown in the side menu switches the board to the list, as it opens on a fresh repository: flat.
+    private void OpenFreshList()
     {
         nav!.Find("button[aria-label=Layout]").Click();
         nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "List").Click();
+    }
+
+    // The list grouped like the board is: the list's groups and subgroups take the board's columns and rows (most list tests are about grouped rows).
+    private void ShowList()
+    {
+        OpenFreshList();
+        SettingsStore settings = nav!.Services.GetRequiredService<SettingsStore>();
+        BoardOptions o = settings.Board(repo.Root);
+        settings.SaveBoard(repo.Root, o with { ListGroupBy = o.GroupBy, ListSwimlane = o.Swimlane });
     }
 
     private void GroupByFeature()
@@ -996,7 +1256,7 @@ public sealed class UsingTheBoardTests : IDisposable
     {
         Workspace ws = ctx.Services.GetRequiredService<Workspace>();
         Assert.True(ws.OpenTab(repo2.Root).Success);
-        Assert.True(ws.Open(repo.Root).Success);
+        Assert.True(ws.Switch(repo.Root).Success);   // back to the first project, as its name's menu does: its arrangement is shown, the tabs keep their order
     }
 
     private static string NameOf(TestRepo r) => Path.GetFileName(r.Root);
@@ -1630,16 +1890,18 @@ public sealed class UsingTheBoardTests : IDisposable
         (bool _, string _, int pay) = WorkItemsApi.Create("Pay run", features: ["functional/banking"]);
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         AngleSharp.Dom.IElement Cell(string row, string column) => board.Find($".swim[data-swim='{row}'] section.col[data-cell='{column}']");
-        void Drag(AngleSharp.Dom.IElement from, int id, AngleSharp.Dom.IElement to)
+        // Found and fired on the renderer's thread: a render from elsewhere (the board reloading after the settings or the drop) cannot come between
+        // finding a cell and firing its event and leave the event without a handler.
+        Task Drag((string Row, string Column) from, int id, (string Row, string Column) to) => board.InvokeAsync(() =>
         {
-            from.QuerySelectorAll("article.card").First(c => c.TextContent.Contains($"#wi{id}")).DragStart();
-            to.QuerySelector(".lane")!.Drop();
-        }
+            Cell(from.Row, from.Column).QuerySelectorAll("article.card").First(c => c.TextContent.Contains($"#wi{id}")).DragStart();
+            Cell(to.Row, to.Column).QuerySelector(".lane")!.Drop();
+        });
 
         // columns by status, rows by feature (a field with several values: the card leaves its old feature for the new one)
         PickField("rows", "feature");
         board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell("functional/banking", "Backlog").TextContent));
-        Drag(Cell("functional/banking", "Backlog"), pay, Cell("non-functional/availability", "In Progress"));
+        await Drag(("functional/banking", "Backlog"), pay, ("non-functional/availability", "In Progress"));
         board.WaitForAssertion(() => Assert.Equal("In Progress", WorkItemsApi.Get(pay)!.Status));
         board.WaitForAssertion(() => Assert.Equal(["non-functional/availability"], WorkItemsApi.Get(pay)!.Features.Select(f => f.Path)));
         board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell("non-functional/availability", "In Progress").TextContent));
@@ -1647,7 +1909,7 @@ public sealed class UsingTheBoardTests : IDisposable
         // columns by priority, rows by label: two single-valued fields
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = "priority", Swimlane = "label" });
         board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell(BoardModel.NoRow, "low").TextContent));
-        Drag(Cell(BoardModel.NoRow, "low"), pay, Cell("bug", "high"));
+        await Drag((BoardModel.NoRow, "low"), pay, ("bug", "high"));
         board.WaitForAssertion(() => Assert.Equal("high", WorkItemsApi.Get(pay)!.Priority));
         board.WaitForAssertion(() => Assert.Equal("bug", WorkItemsApi.Get(pay)!.Label));
         Assert.Equal("In Progress", WorkItemsApi.Get(pay)!.Status);   // the status was not a dimension this time
@@ -1655,7 +1917,7 @@ public sealed class UsingTheBoardTests : IDisposable
         // a field a drop cannot set (due dates) stays read-only: the other dimension still applies
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = "status", Swimlane = "due" });
         board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell("none", "In Progress").TextContent));
-        Drag(Cell("none", "In Progress"), pay, Cell("overdue", "Blocked"));
+        await Drag(("none", "In Progress"), pay, ("overdue", "Blocked"));
         board.WaitForAssertion(() => Assert.Equal("Blocked", WorkItemsApi.Get(pay)!.Status));
         Assert.Null(WorkItemsApi.Get(pay)!.Due);
     }
@@ -1670,7 +1932,7 @@ public sealed class UsingTheBoardTests : IDisposable
         WorkItemsApi.SetStarted(123, today);
         WorkItemsApi.SetDue(123, today.AddDays(1));
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Swimlane = "label", ColorBy = "label", View = "list" });
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Swimlane = "label", ListSwimlane = "label", ListGroupBy = "status", ColorBy = "label", View = "list" });
 
         // the list: a group per column, the row-value groups inside it, a colour stripe per row
         board.WaitForAssertion(() => Assert.Contains("swim:bug", board.FindAll("tr[data-group]").Select(g => g.GetAttribute("data-group"))));
@@ -2170,6 +2432,291 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Equal("true", nav.Find(".nav-hidden button#f-hidden").GetAttribute("aria-pressed"));
     }
 
+    // The dropdown of an Organise or filter field in the expanded side menu, by its label.
+    private IElement NavDropdown(string field) => nav!.FindAll(".nav-view .field").First(f => f.QuerySelector("label")!.TextContent.Trim() == field).QuerySelector(".dd")!;
+
+    [Fact(DisplayName = "Side menu dropdown values are pills: grey for none or the neutral choice, yellow for any other value")]
+    public async Task SideMenuDropdownValuesArePills()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        BoardOptions o = settings.Board(repo.Root);
+        settings.SaveBoard(repo.Root, o with { View = "list", ListGroupBy = "none", ListSwimlane = "status", ColorBy = "none", Who = "all", Period = "all" });
+        nav!.Find("button.nav-toggle").Click();
+
+        void Is(string field, string look)
+        {
+            IElement dd = NavDropdown(field);
+            Assert.Contains(look, dd.ClassList);
+            Assert.DoesNotContain(look == "is-on" ? "is-off" : "is-on", dd.ClassList);
+        }
+        nav.WaitForAssertion(() => Is("groups", "is-off"));
+        Is("subgroups", "is-on");
+        Is("colour", "is-off");
+        Is("contributor", "is-off");
+        Is("period", "is-off");
+        Is("sort by", "is-on");   // a sort order is always a choice: nothing in it is neutral
+
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ListGroupBy = "label", ColorBy = "priority", Period = "overdue", Who = "Alice" });
+        nav.WaitForAssertion(() => Is("groups", "is-on"));
+        Is("colour", "is-on");
+        Is("period", "is-on");
+        Is("contributor", "is-on");
+        Assert.Contains("nav-dd", NavDropdown("groups").ClassList);
+
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css"));
+        Assert.Matches(@"nav\.side \.dd\.is-on\s*\{[^}]*var\(--sun\)", css);
+        Assert.Matches(@"nav\.side \.dd\.is-off\s*\{[^}]*var\(--stone\)", css);
+    }
+
+    [Fact(DisplayName = "The changed selector is a grey pill at any time and yellow once a range is set")]
+    public async Task ChangedSelectorIsAPill()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        nav!.Find("button.nav-toggle").Click();
+        IElement Btn() => nav.Find(".field.changed .dates-btn");
+        Assert.Equal("any time", Btn().TextContent.Trim());
+        Assert.Contains("is-off", Btn().ClassList);
+        Assert.DoesNotContain("is-on", Btn().ClassList);
+
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ChangedFrom = new DateOnly(2026, 11, 2), ChangedTo = new DateOnly(2026, 11, 8), ChangedFromTime = new TimeOnly(9, 30) });
+        nav.WaitForAssertion(() => Assert.Contains("is-on", Btn().ClassList));
+        Assert.DoesNotContain("is-off", Btn().ClassList);
+        Assert.Contains("09:30", Btn().TextContent);
+    }
+
+    [Fact(DisplayName = "Show all hidden brings the hidden columns, rows and projects back on the board and the list")]
+    public async Task ShowAllHiddenBringsEverythingBack()
+    {
+        await using BunitContext ctx = NewContext();
+        TwoProjects(ctx);
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj").Count));
+        nav!.Find("button.nav-toggle").Click();
+        IElement Switch() => nav.Find("button#f-hidden");
+        Assert.Equal("show all hidden", Switch().TextContent.Trim());
+
+        // a hidden column and a hidden project
+        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
+        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Hide column").Click();
+        settings.ToggleProjectHidden(repo2.Root);
+        board.WaitForAssertion(() => Assert.Single(board.FindAll(".proj")));
+        Assert.DoesNotContain("Blocked", Columns(board));
+        Assert.Equal("show all hidden", Switch().TextContent.Trim());   // the label is the same in every state
+
+        Switch().Click();
+        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj").Count));
+        Assert.Contains("Blocked", Columns(board));
+        Assert.Equal("true", Switch().GetAttribute("aria-pressed"));
+        Assert.Equal("show all hidden", Switch().TextContent.Trim());
+        Assert.True(settings.Board(repo.Root).ShowHidden);   // remembered
+
+        // a hidden row
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ShowHidden = false, Swimlane = "label", Hidden = [.. settings.Board(repo.Root).Hidden!, "row:label:bug"] });
+        List<string> Rows() => board.FindAll(".swim-h").Select(h => h.GetAttribute("data-swim")!).ToList();
+        board.WaitForAssertion(() => Assert.DoesNotContain("bug", Rows()));
+        Switch().Click();
+        board.WaitForAssertion(() => Assert.Contains("bug", Rows()));
+
+        // the list: a hidden grid column
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ShowHidden = false, Swimlane = "none", View = "list", Hidden = [.. settings.Board(repo.Root).Hidden!, BoardModel.ListColumnKey("Progress")] });
+        List<string> Heads() => board.FindAll("thead th .th-l").Select(h => h.TextContent.Trim()).ToList();
+        board.WaitForAssertion(() => Assert.DoesNotContain("Progress", Heads()));
+        Switch().Click();
+        board.WaitForAssertion(() => Assert.Contains("Progress", Heads()));
+    }
+
+    /// <summary>Two projects, each with its work item 107 "deleted" (hidden in the app), so show all hidden has an item of its own to bring back in each.</summary>
+    private (Workspace Ws, SettingsStore Settings) HiddenSetup(BunitContext ctx)
+    {
+        TwoProjects(ctx);
+        Workspace ws = ctx.Services.GetRequiredService<Workspace>();
+        foreach (string root in new[] { repo.Root, repo2.Root }) Assert.True(ws.In(root, () => WorkItemsApi.Hide(107)).Item1);
+        return (ws, ctx.Services.GetRequiredService<SettingsStore>());
+    }
+
+    private static List<string> CardTitles(IRenderedComponent<BoardPage> board, string project) =>
+        [.. board.FindAll($".proj[data-proj='{project}'] article.card .band").Select(b => b.TextContent.Trim()).Order()];
+
+    [Fact(DisplayName = "With show all hidden on every work item of a hidden project renders as a card and the column count equals the cards shown")]
+    public async Task ShowAllHiddenRendersEveryCardAndCountsMatch()
+    {
+        await using BunitContext ctx = NewContext();
+        (Workspace ws, SettingsStore settings) = HiddenSetup(ctx);
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Hidden = ["status:Planned", "status:Confirmed"], ShowHidden = true });   // a hidden column
+        settings.ToggleProjectHidden(repo2.Root);                                                                                          // a hidden project
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj").Count));
+
+        foreach (TestRepo r in new[] { repo, repo2 })
+        {
+            List<string> every = ws.In(r.Root, () => WorkItemsApi.GetAll(includeHidden: true).Select(i => i.Title).Order().ToList());
+            Assert.Contains(every, t => t.Length > 0);
+            Assert.Equal(every, CardTitles(board, NameOf(r)));   // the deleted item, the hidden column's and the hidden project's included
+        }
+        Assert.Contains("Planned", Columns(board));
+        // the header's number is the number of cards under it, across the projects
+        foreach (IElement head in board.FindAll(".head-row section.col"))
+        {
+            string key = head.GetAttribute("data-key")!;
+            int shown = board.FindAll($".proj section.col[data-key='{key}'] article.card").Count;
+            Assert.Equal(shown, int.Parse(head.QuerySelector(".count")!.TextContent));
+        }
+    }
+
+    [Fact(DisplayName = "With show all hidden on only contributor, period, changed and a project's collapse can leave a work item out")]
+    public async Task ShowAllHiddenOnlyContributorPeriodAndChangedLeaveItemsOut()
+    {
+        await using BunitContext ctx = NewContext();
+        (Workspace ws, SettingsStore settings) = HiddenSetup(ctx);
+        // everything that can be put aside: a column, a row (the unlabeled one holds every fixture item), a project that is also folded (the only one that stays aside)
+        settings.ToggleProjectHidden(repo2.Root);
+        settings.ToggleProjectCollapsed(repo2.Root);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        BoardOptions all = settings.Board(repo.Root) with { ShowHidden = true, Swimlane = "label", Hidden = ["status:Planned", $"row:label:{BoardModel.NoRow}"] };
+        settings.SaveBoard(repo.Root, all);
+        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj").Count));
+
+        List<string> Expected(Func<WorkItem, bool> allowed) =>
+            [.. new[] { repo }.SelectMany(r => ws.In(r.Root, () => WorkItemsApi.GetAll(includeHidden: true).Where(allowed).Select(i => NameOf(r) + ":" + i.Title))).Order()];
+        List<string> Shown() => [.. new[] { repo, repo2 }.SelectMany(r => CardTitles(board, NameOf(r)).Select(t => NameOf(r) + ":" + t)).Order()];
+
+        board.WaitForAssertion(() => Assert.Equal(Expected(_ => true), Shown()));   // no filter: everything, hidden or not
+
+        foreach ((BoardOptions o, Func<WorkItem, bool> allowed) in new (BoardOptions, Func<WorkItem, bool>)[]
+        {
+            (all with { Who = "Tom" }, i => i.Contributors.Contains("Tom")),                      // contributor
+            (all with { Period = "none" }, i => i.Due is null),                                  // period
+            (all with { Who = "Artyom", Period = "none" }, i => i.Contributors.Contains("Artyom") && i.Due is null),
+            (all with { ChangedFrom = new DateOnly(2000, 1, 1), ChangedTo = new DateOnly(2000, 1, 2) }, _ => false),   // changed: nothing changed in 2000
+        })
+        {
+            settings.SaveBoard(repo.Root, o);
+            board.WaitForAssertion(() => Assert.Equal(Expected(allowed), Shown()));
+        }
+    }
+
+    [Fact(DisplayName = "A collapsed project stays collapsed while show all hidden is on")]
+    public async Task CollapsedProjectStaysCollapsedWhileShowAllHiddenIsOn()
+    {
+        await using BunitContext ctx = NewContext();
+        (Workspace ws, SettingsStore settings) = HiddenSetup(ctx);
+        settings.ToggleProjectCollapsed(repo2.Root);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj").Count));
+        Assert.Empty(CardTitles(board, NameOf(repo2)));   // folded: its heading only
+        Assert.NotEmpty(CardTitles(board, NameOf(repo)));
+
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ShowHidden = true });
+        board.WaitForAssertion(() => Assert.Equal(ws.In(repo.Root, () => WorkItemsApi.GetAll(includeHidden: true).Select(i => i.Title).Order().ToList()), CardTitles(board, NameOf(repo))));   // the open project got its deleted item back
+        Assert.Empty(CardTitles(board, NameOf(repo2)));   // the folded one did not unfold
+        Assert.Equal("false", board.Find($".proj[data-proj='{NameOf(repo2)}'] .proj-h .chev").GetAttribute("aria-expanded"));
+        Assert.True(settings.ProjectCollapsed(repo2.Root));   // and the setting is untouched
+
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ShowHidden = false });
+        board.WaitForAssertion(() => Assert.Equal(3, CardTitles(board, NameOf(repo)).Count));
+        Assert.Empty(CardTitles(board, NameOf(repo2)));
+        Assert.Equal("false", board.Find($".proj[data-proj='{NameOf(repo2)}'] .proj-h .chev").GetAttribute("aria-expanded"));
+    }
+
+    [Fact(DisplayName = "In the list a collapsed project's rows stay folded while show all hidden is on")]
+    public async Task CollapsedProjectKeepsItsRowsFoldedInTheListWhileShowAllHiddenIsOn()
+    {
+        await using BunitContext ctx = NewContext();
+        (Workspace ws, SettingsStore settings) = HiddenSetup(ctx);
+        settings.ToggleProjectCollapsed(repo2.Root);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-group^='proj:']").Count));
+        int others = board.FindAll("tr[data-id]").Count;
+
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ShowHidden = true });
+        board.WaitForAssertion(() => Assert.True(board.FindAll("tr[data-id]").Count > others));   // the open project's deleted item is back
+        Assert.Equal(ws.In(repo.Root, () => WorkItemsApi.GetAll(includeHidden: true).Count), board.FindAll("tr[data-id]").Count);   // the folded project's rows are not
+        Assert.True(settings.ProjectCollapsed(repo2.Root));
+    }
+
+    [Fact(DisplayName = "A collapsed project's work items count in no column header, with show all hidden on or off")]
+    public async Task CollapsedProjectCountsInNoColumnHeader()
+    {
+        await using BunitContext ctx = NewContext();
+        (Workspace ws, SettingsStore settings) = HiddenSetup(ctx);
+        settings.ToggleProjectCollapsed(repo2.Root);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj").Count));
+
+        void HeadersCountTheCardsDrawn(bool showAll)
+        {
+            int total = 0;
+            foreach (IElement head in board.FindAll(".head-row section.col"))
+            {
+                string key = head.GetAttribute("data-key")!;
+                int shown = board.FindAll($".proj section.col[data-key='{key}'] article.card").Count;
+                Assert.Equal(shown, int.Parse(head.QuerySelector(".count")!.TextContent));
+                total += shown;
+            }
+            Assert.Equal(ws.In(repo.Root, () => WorkItemsApi.GetAll(includeHidden: showAll).Count), total);   // the open project's items only
+        }
+        HeadersCountTheCardsDrawn(showAll: false);
+
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ShowHidden = true });
+        board.WaitForAssertion(() => Assert.Equal(ws.In(repo.Root, () => WorkItemsApi.GetAll(includeHidden: true).Count), board.FindAll(".proj article.card").Count));
+        HeadersCountTheCardsDrawn(showAll: true);
+
+        settings.ToggleProjectCollapsed(repo2.Root);   // unfolded: its items count again
+        board.WaitForAssertion(() => Assert.Equal(ws.In(repo.Root, () => WorkItemsApi.GetAll(includeHidden: true).Count) + ws.In(repo2.Root, () => WorkItemsApi.GetAll(includeHidden: true).Count), board.FindAll(".proj article.card").Count));
+        foreach (IElement head in board.FindAll(".head-row section.col"))
+            Assert.Equal(board.FindAll($".proj section.col[data-key='{head.GetAttribute("data-key")}'] article.card").Count, int.Parse(head.QuerySelector(".count")!.TextContent));
+    }
+
+    [Fact(DisplayName = "A collapsed project's work items count in no side menu Hidden count, with show all hidden on or off")]
+    public async Task CollapsedProjectCountsInNoSideMenuHiddenCount()
+    {
+        await using BunitContext ctx = NewContext();
+        (_, SettingsStore settings) = HiddenSetup(ctx);
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Hidden = ["status:In Progress"] });
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj").Count));
+        nav!.Find("button.nav-toggle").Click();
+        int Held() => int.Parse(nav.Find(".nav-hidden .grp-row .count").TextContent.Trim());
+        nav.WaitForAssertion(() => Assert.True(Held() > 0));   // the open project's In Progress items
+
+        settings.ToggleProjectCollapsed(repo.Root);
+        nav.WaitForAssertion(() => Assert.Equal(0, Held()));   // folded: counted nowhere
+
+        nav.Find("button#f-hidden").Click();
+        nav.WaitForAssertion(() => Assert.Equal("true", nav.Find("button#f-hidden").GetAttribute("aria-pressed")));
+        Assert.Equal(0, Held());
+
+        settings.ToggleProjectCollapsed(repo.Root);
+        nav.WaitForAssertion(() => Assert.True(Held() > 0));
+    }
+
+    [Fact(DisplayName = "The collapsed menu has a show all hidden button that is pressed when on")]
+    public async Task CollapsedMenuShowAllHidden()
+    {
+        await using BunitContext ctx = NewContext();
+        WorkItemsApi.Hide(107);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        IElement Btn() => nav!.Find("button.hidden-btn");
+        Assert.Equal("Show all hidden", Btn().GetAttribute("aria-label"));
+        Assert.Equal("false", Btn().GetAttribute("aria-pressed"));
+        Assert.DoesNotContain("is-sel", Btn().ClassList);
+        Assert.NotNull(Btn().QuerySelector("svg"));
+        Assert.Equal(3, board.FindAll("article.card").Count);
+
+        Btn().Click();
+        board.WaitForAssertion(() => Assert.Equal(4, board.FindAll("article.card").Count));
+        Assert.Equal("true", Btn().GetAttribute("aria-pressed"));
+        Assert.Contains("is-sel", Btn().ClassList);
+
+        nav!.Find("button.nav-toggle").Click();   // expanded, the same switch is the pill under Hidden
+        Assert.Equal("true", nav.Find("button#f-hidden").GetAttribute("aria-pressed"));
+        Assert.Empty(nav.FindAll("button.hidden-btn"));
+    }
+
     [Fact(DisplayName = "The Worklog block has one Add entry button whose menu offers note, decision, bug, subtask and the three links")]
     public async Task WorklogHasOneAddEntryMenu()
     {
@@ -2273,5 +2820,73 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Single(nav.FindAll(".nav-worklog > .nav-h:first-child > button.nav-toggle"));
         nav.Find("button.nav-toggle").Click();   // it still collapses
         nav.WaitForAssertion(() => Assert.Single(nav.FindAll("nav.side > button.nav-toggle:first-child")));
+    }
+    // ---- hook-badge chunk ----
+
+    private static readonly DateTime AgentWrote = new(2026, 10, 30, 9, 0, 0);
+
+    private static FakeTimeProvider ClockAt(TimeSpan after) => new(new DateTimeOffset(AgentWrote + after, TimeSpan.Zero));
+
+    [Fact(DisplayName = "A card whose agent wrote three minutes ago says so, and the badge disappears after a day or once reviewed")]
+    public async Task CardCarriesTheAgentBadge()
+    {
+        FakeTimeProvider time = ClockAt(TimeSpan.FromMinutes(3));
+        await using BunitContext ctx = NewContext(time);
+        WorkItem item = WorkItemsApi.Get(123)! with { AgentBy = "Claude", AgentAt = AgentWrote, ReviewedAt = null };
+        IRenderedComponent<WorkItemCard> Card(WorkItem i) => ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, i).Add(c => c.Options, new BoardOptions()));
+
+        Assert.Equal("Claude, 3 min ago", Card(item).Find(".agent-badge").TextContent.Trim());
+        time.Advance(TimeSpan.FromMinutes(117));
+        Assert.Equal("Claude, 2 h ago", Card(item).Find(".agent-badge").TextContent.Trim());
+        Assert.Empty(Card(item with { ReviewedAt = AgentWrote.AddMinutes(30) }).FindAll(".agent-badge"));   // the user has looked at it since
+        Assert.Empty(Card(item with { AgentBy = null, AgentAt = null }).FindAll(".agent-badge"));          // nobody stamped it
+        time.Advance(TimeSpan.FromHours(23));
+        Assert.Empty(Card(item).FindAll(".agent-badge"));   // a day on: the stamp is history, not "working now"
+    }
+
+    [Fact(DisplayName = "The list row carries the same agent badge")]
+    public async Task ListRowCarriesTheAgentBadge()
+    {
+        EditingWorkItemsTests.StampAgent(repo);
+        await using BunitContext ctx = NewContext(ClockAt(TimeSpan.FromMinutes(3)));
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+
+        board.WaitForAssertion(() => Assert.Equal("Claude, 3 min ago", board.Find("tr[data-id='123'] .agent-badge").TextContent.Trim()));
+    }
+
+    // Runs the repository's PreToolUse hook (.claude/hooks/deny-board-edits.js) on a sample tool call, as Claude Code does: JSON on stdin.
+    private static string RunHook(string json, bool allowDirect = false)
+    {
+        string dir = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(dir, ".claude", "hooks", "deny-board-edits.js"))) dir = Path.GetDirectoryName(dir) ?? throw new FileNotFoundException("deny-board-edits.js");
+        System.Diagnostics.ProcessStartInfo start = new("node") { RedirectStandardInput = true, RedirectStandardOutput = true, UseShellExecute = false, WorkingDirectory = dir };
+        start.ArgumentList.Add(Path.Combine(dir, ".claude", "hooks", "deny-board-edits.js"));
+        if (allowDirect) start.Environment["RTM_ALLOW_DIRECT_EDIT"] = "1"; else start.Environment.Remove("RTM_ALLOW_DIRECT_EDIT");
+        using System.Diagnostics.Process hook = System.Diagnostics.Process.Start(start)!;
+        hook.StandardInput.Write(json);
+        hook.StandardInput.Close();
+        string output = hook.StandardOutput.ReadToEnd();
+        Assert.True(hook.WaitForExit(10_000));
+        Assert.Equal(0, hook.ExitCode);
+        return output;
+    }
+
+    [Fact(DisplayName = "The edit hook denies direct edits under openspec/changes unless RTM_ALLOW_DIRECT_EDIT is set")]
+    public void EditHookDeniesDirectBoardEdits()
+    {
+        string inChange = """{"tool_name":"Edit","tool_input":{"file_path":"openspec/changes/some-item/proposal.md"}}""";
+        string elsewhere = """{"tool_name":"Edit","tool_input":{"file_path":"TaskManager/Components/Pages/BoardPage.razor"}}""";
+        string redirect = """{"tool_name":"Bash","tool_input":{"command":"echo done >> openspec/changes/some-item/tasks.md"}}""";
+        string reading = """{"tool_name":"Bash","tool_input":{"command":"cat openspec/changes/some-item/tasks.md 2>&1 | head"}}""";
+
+        string denied = RunHook(inChange);
+        Assert.Contains("\"permissionDecision\":\"deny\"", denied);
+        Assert.Contains("Board files are written through the board_* tools (repo-tasks MCP), not edited directly.", denied);
+        Assert.Contains("deny", RunHook(redirect));
+        Assert.Contains("deny", RunHook(inChange.Replace("Edit", "Write")));
+        Assert.Equal("", RunHook(elsewhere));
+        Assert.Equal("", RunHook(reading));
+        Assert.Equal("", RunHook(inChange, allowDirect: true));   // the user's escape hatch
     }
 }

@@ -21,7 +21,7 @@ internal static class GitGuard
     /// null = not paused, else the message to show. <paramref name="synced"/> is what the last sync ended with: a file that is byte-identical to it was written by the sync itself
     /// (it may have come from the storage), so it is never looked at for markers; only what git or the user changed since is.
     /// </summary>
-    internal static string? Pause(string localRoot, string? gitFolder, IReadOnlyDictionary<string, ManifestEntry>? synced = null, bool checkMarkers = true)
+    internal static string? Pause(string localRoot, string? gitFolder, IReadOnlyDictionary<string, ManifestEntry>? synced = null, bool checkMarkers = true, StatCache? cache = null)
     {
         string? git = Resolve(gitFolder);
         if (git is null) return null;
@@ -34,7 +34,7 @@ internal static class GitGuard
         }
 
         if (!checkMarkers) return null;       // a folder of whole files (attachments): text that looks like a conflict is just text
-        List<string> conflicted = ConflictedFiles(localRoot, synced);
+        List<string> conflicted = ConflictedFiles(localRoot, synced, cache);
         if (conflicted.Count == 0) return null;
         return conflicted.Count == 1
             ? $"Sync is paused: {conflicted[0]} still has merge conflict markers."
@@ -59,25 +59,39 @@ internal static class GitGuard
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return null; }
     }
 
-    /// <summary>Board files (relative paths, ordinal order) changed since the last sync with a "&lt;&lt;&lt;&lt;&lt;&lt;&lt; " line, later a "=======" line, later a "&gt;&gt;&gt;&gt;&gt;&gt;&gt; " line, outside fenced code blocks. Links are not followed.</summary>
-    private static List<string> ConflictedFiles(string localRoot, IReadOnlyDictionary<string, ManifestEntry>? synced)
+    /// <summary>Board files (relative paths, ordinal order) changed since the last sync with a "&lt;&lt;&lt;&lt;&lt;&lt;&lt; " line, later a "=======" line, later a "&gt;&gt;&gt;&gt;&gt;&gt;&gt; " line, outside fenced code blocks. Links are not followed.
+    /// With a <paramref name="cache"/> (the stat cache the scan uses) a file whose size and last write are the cached ones has its hash without being opened, and is read only when that hash differs from the last synced one;
+    /// every file looked at is recorded in the cache (the caller saves it). <paramref name="onRead"/> (a test seam) hears the path of every file that is opened.</summary>
+    internal static List<string> ConflictedFiles(string localRoot, IReadOnlyDictionary<string, ManifestEntry>? synced, StatCache? cache = null, Action<string>? onRead = null)
     {
         List<string> found = [];
-        // ponytail: every changed file is read in full on each sync; a board is a few hundred small files. Skip by size when large files appear.
-        IEnumerator<(string Full, string Relative)> files;
+        IEnumerator<(string Full, string Relative, FileInfo Info)> files;
         try { files = LocalTree.Walk(localRoot, []).GetEnumerator(); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return found; }
         while (true)
         {
             try { if (!files.MoveNext()) break; }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { break; }   // unreadable: the sync itself reports it
-            (string file, string relative) = files.Current;
+            (string file, string relative, FileInfo info) = files.Current;
             if (file.EndsWith(LocalTree.TempSuffix, StringComparison.Ordinal)) continue;
             try
             {
-                if (new FileInfo(file).Length > StorageLimits.ObjectMax) continue;      // never synced, so never spread by the sync; and not read into memory
+                long length = info.Length;                                              // size and time before anything is read, as the scan does
+                if (length > StorageLimits.ObjectMax) continue;                         // never synced, so never spread by the sync; and not read into memory
+                long written = info.LastWriteTimeUtc.Ticks;
+                ManifestEntry? known = null;
+                bool isKnown = synced is not null && synced.TryGetValue(relative, out known) && !known.Deleted;
+                string? hash = cache?.Lookup(relative, length, written);
+                if (hash is not null)
+                {
+                    cache!.Record(relative, length, written, hash);
+                    if (isKnown && known!.Hash == hash) continue;                       // what the last sync wrote: not opened
+                }
+                onRead?.Invoke(relative);
                 byte[] bytes = File.ReadAllBytes(file);
-                if (synced is not null && synced.TryGetValue(relative, out ManifestEntry? known) && !known.Deleted && known.Hash == SyncModels.HashOf(bytes)) continue;
+                hash = SyncModels.HashOf(bytes);
+                cache?.Record(relative, length, written, hash);
+                if (isKnown && known!.Hash == hash) continue;
                 if (HasMarkers(System.Text.Encoding.UTF8.GetString(bytes).Split('\n'))) found.Add(relative);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
@@ -86,7 +100,7 @@ internal static class GitGuard
         return found;
     }
 
-    private static bool HasMarkers(IEnumerable<string> lines)
+    internal static bool HasMarkers(IEnumerable<string> lines)
     {
         int stage = 0;      // 0 looking for the opener, 1 for the divider, 2 for the closer
         string? fence = null;   // inside a fenced code block: what closes it

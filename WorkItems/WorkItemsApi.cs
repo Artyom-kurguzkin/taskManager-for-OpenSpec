@@ -82,6 +82,11 @@ public static class WorkItemsApi
         if (Path.IsPathRooted(path) || path.StartsWith('/') || path.Split('/').Contains("..")) return (false, "A plan is a path inside the repository, like DevResources/plans/name.md");
         return Commands.SetPlan(id, path);
     }
+    /// <summary>
+    /// Points the plan and the linked documents of every work item, archived ones included, to the path <paramref name="newPath"/> gives for them (null = leave it as it is),
+    /// for when a folder of plans moves. Records no event and touches nothing else in the item. Returns how many links changed.
+    /// </summary>
+    public static int RewritePlanLinks(Func<string, string?> newPath) => Commands.RewritePaths(newPath);
     /// <summary>Puts the item in one feature (null = none); a work item has one feature at most.</summary>
     public static (bool Success, string Message) MoveFeature(int id, string? to) => Commands.MoveFeature(id, to);
 

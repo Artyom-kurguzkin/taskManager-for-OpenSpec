@@ -1,0 +1,45 @@
+2026-11-16T05:24:10 | Claude | created | Sync passes: one scan with a stat cache, pooled connection, no echo pass, idle check
+2026-11-16T05:24:10 | Claude | description-edited | proposal.md
+2026-11-16T05:24:10 | Claude | label | none -> enhancement
+2026-11-16T05:24:10 | Claude | plan-linked | DevResources/plans/sync-cost-and-agent-safety-2026-11-16.md
+2026-11-16T05:24:10 | Claude | subtask-added | 1.1 Pooled connection; S3Storage disposable, cached per address
+2026-11-16T05:24:10 | Claude | subtask-added | 1.2 Stat cache shared by scan, git guard, marker repair and status line; no bytes held
+2026-11-16T05:24:10 | Claude | subtask-added | 2.1 No second pass after the sync's own writes (engine reports written paths)
+2026-11-16T05:24:10 | Claude | subtask-added | 2.2 Idle check: conditional manifest GET, 60 s focused / 5 min unfocused, jitter
+2026-11-16T05:24:10 | Claude | subtask-added | 3.1 Parallel transfer, streamed downloads, base reuse before GET
+2026-11-16T05:24:10 | Claude | subtask-added | 3.2 Compact manifest JSON, history 20 to 3
+2026-11-16T05:44:40 | Claude | status | Planned -> In Progress
+2026-11-16T05:52:43 | Claude chunk service | test-linked | SyncingWithConnectedStorageTests / A pass that downloads files does not schedule a second pass for its own writes
+2026-11-16T05:52:43 | Claude chunk service | test-linked | SyncingWithConnectedStorageTests / A change after the sync's own writes still schedules a pass
+2026-11-16T05:52:43 | Claude chunk service | test-linked | SyncingWithConnectedStorageTests / An outside edit after the sync's own writes still schedules a pass
+2026-11-16T05:52:43 | Claude chunk service | test-linked | SyncingWithConnectedStorageTests / An idle computer checks the manifest every minute while focused and every five minutes when not, and runs a pass only when it changed
+2026-11-16T05:52:43 | Claude chunk service | test-linked | SyncingWithConnectedStorageTests / The idle interval is jittered by up to a quarter either way
+2026-11-16T05:52:43 | Claude chunk service | test-linked | SyncingWithConnectedStorageTests / The idle check costs one conditional request when nothing changed
+2026-11-16T05:52:43 | Claude chunk service | subtask-done | 2.1 No second pass after the sync's own writes (engine reports written paths)
+2026-11-16T05:52:43 | Claude chunk service | subtask-done | 2.2 Idle check: conditional manifest GET, 60 s focused / 5 min unfocused, jitter
+2026-11-16T06:00:30 | Claude | log | Integrated the service chunk into main (BoardSyncService.cs, Program.cs, SyncingWithConnectedStorageTests.cs). Clean rebuild, one suite run: Passed 990, Failed 0, 1 m 37 s. Copy-Item kept the worktree's older timestamp and the incremental build skipped the file once; copies now get a fresh time.
+2026-11-16T06:01:58 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / A second scan hashes only files whose size or last write changed
+2026-11-16T06:01:58 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / A file written in the same second as the cache is hashed again (racy rule)
+2026-11-16T06:01:58 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / A file edited to the same length with a new time is hashed and its new hash is seen
+2026-11-16T06:01:58 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / A missing or damaged cache means everything is hashed
+2026-11-16T06:01:58 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / The git guard and the marker repair read only files whose hash differs from the last synced one
+2026-11-16T06:01:58 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / The marker list and the status line use the cache the pass made
+2026-11-16T06:01:58 | Claude chunk scan | test-linked | ScanningWithAStatCacheTests / Two passes share one HTTP connection handler
+2026-11-16T06:01:58 | Claude chunk scan | subtask-done | 1.1 Pooled connection; S3Storage disposable, cached per address
+2026-11-16T06:01:58 | Claude chunk scan | subtask-done | 1.2 Stat cache shared by scan, git guard, marker repair and status line; no bytes held
+2026-11-16T06:06:34 | Claude | log | Integrated the scan chunk into main (StatCache, LocalTree, GitGuard, engine scan lines, SyncOptions/SyncReport, S3Storage, ScanningWithAStatCacheTests). Clean rebuild, one suite run: Passed 1003, Failed 0, 1 m 7 s. Settle window stays off until the service passes it.
+2026-11-16T06:15:36 | Claude | log | Main run with the timer fix: 1005 passed, 1 failed: the status line read state.json while a pass saved it (sharing IOException). Structural fix in flight: state files written by rename and read with ReadWrite|Delete sharing (transfer chunk), status-line read tolerant (read-share chunk).
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | TransferringObjectsTests / Six objects are fetched at once, not one after another
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | TransferringObjectsTests / Uploads run in parallel but the manifest is put last
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | TransferringObjectsTests / A downloaded object is streamed to a temp file and never held whole in memory
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | TransferringObjectsTests / An object whose hash the base folder already holds is not fetched
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | TransferringObjectsTests / The manifest is written compact with three history hashes and an old twenty-entry manifest still reads
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | TransferringObjectsTests / A manifest entry with a base and a local edit but no remote entry fails clearly instead of crashing
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | TransferringObjectsTests / A stream of known length is read into one exact buffer, not buffered twice
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | TransferringObjectsTests / A folder storage streams a file into a stream and still refuses one over the cap
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | TransferringObjectsTests / State files are read while another handle holds them open for writing, and written by rename
+2026-11-16T06:21:39 | Claude chunk transfer | test-linked | SyncingTheBoardTests / Every path in the manifest keeps the hashes of its earlier versions, newest first
+2026-11-16T06:21:39 | Claude chunk transfer | subtask-done | 3.1 Parallel transfer, streamed downloads, base reuse before GET
+2026-11-16T06:21:39 | Claude chunk transfer | subtask-done | 3.2 Compact manifest JSON, history 20 to 3
+2026-11-16T06:32:19 | Claude | log | Integrated the transfer chunk with S3 streaming into main (ObjectTransfer.cs, engine, planner, models, state store, storages, 3 test files). Clean rebuild, one run: 1020 passed, 1 failed, the S3-secret test whose await fix is still in the secret-race worktree; total 1021 as expected.
+2026-11-16T06:35:12 | Claude | status | In Progress -> In Review

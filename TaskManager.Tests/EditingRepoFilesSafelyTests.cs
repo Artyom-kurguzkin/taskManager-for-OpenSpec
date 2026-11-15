@@ -3,7 +3,7 @@ using WorkItems;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
+[Collection(nameof(RealTimeCollection))]
 public sealed class EditingRepoFilesSafelyTests
 {
     private const string Yaml = "openspec/changes/add-health-check/.openspec.yaml";

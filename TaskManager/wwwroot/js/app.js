@@ -247,7 +247,7 @@ new MutationObserver(_queueFades).observe(document.documentElement, { childList:
 // the outcome; they get synthetic events, the drop sent to what sits right after the gap: a card or column means
 // "in front of this one", the lane / column / row itself (all marked data-drop) means "at the end".
 const EASE = "cubic-bezier(.2,0,0,1)", MS = 200, GRAB = 6;
-let _press = null;    // pointer is down on a card, column header, row header or list row; becomes a drag after GRAB px (a list row: after HOLD ms)
+let _press = null;    // pointer is down on a card, column header, row header or list row; becomes a drag after GRAB px (a list row: only a selected one)
 let _drag = null;     // the drag in progress: see _startDrag
 let _settling = null; // a dropped drag kept frozen until Blazor re-renders
 let _flip = null;     // last frame's rects of every card and column, by data-id / data-key, while a re-render is expected
@@ -278,28 +278,18 @@ function _armFlip() {
 }
 function _synthetic(type) { return new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }); }
 
-// A list row has no handle: a press anywhere on it (but on a control: input, select, button, link, chevron, pill dropdown) is a click
-// when released without moving; pressed and held HOLD ms without moving more than HOLD_SLOP px it is lifted (_liftRow) and then
-// follows the pointer like a card; moved at once, before the hold time, it is not a drag at all and selects cells instead (List cells,
-// below). A touch screen follows the same rule, the hold being what tells a drag from a scroll.
-const HOLD = 250, HOLD_SLOP = 4;
+// A list row has no handle: Shift-click marks it selected (data-selected, BoardPage), and a press on a selected row (anywhere on it but on a
+// control: input, select, button, link, chevron, open dropdown) drags it once the pointer has moved GRAB px, with every other selected row, as
+// cards drag. A press on a row that is not selected never drags: it selects cells (List cells, below). Released without moving, either is a click.
 function _rowAt(target) {
   const tr = target.closest?.("tr[data-id]");
-  return tr && !target.closest("input, select, textarea, a, .chev, .pop, .dd, .menu-wrap, button:not(.row-title)") ? tr : null;
+  return tr && !target.closest("input, select, textarea, a, .chev, .pop, .menu-wrap, .rz-dropdown-panel, button:not(.row-title)") ? tr : null;   // a pill (.dd) is no control here: a press that moves on it drags
 }
-function _endPress() { if (_press) clearTimeout(_press.hold); _press = null; }
-/** The hold time has passed: the row lifts where it stands (the cursor turns to a grabbing hand, the cells select no more) and may now move. */
-function _liftRow() {
-  const p = _press;
-  if (!p || p.kind !== "row" || !p.el.isConnected) { _press = null; return; }
-  _clearCells();   // the press had started a one-cell selection
-  _cells.moved = false;
-  _startDrag(null);
-}
+function _endPress() { _press = null; }
 document.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
   const tr = !(e.shiftKey || e.ctrlKey || e.metaKey) && _rowAt(e.target);   // a modifier click is the row's select click
-  if (tr) { _endPress(); _press = { handle: tr, el: tr, kind: "row", x: e.clientX, y: e.clientY, pointer: e.pointerId }; _press.hold = setTimeout(_liftRow, HOLD); return; }
+  if (tr?.hasAttribute("data-selected")) { _press = { handle: tr, el: tr, kind: "row", x: e.clientX, y: e.clientY, pointer: e.pointerId }; return; }   // only a selected row is pressed as a row
   if (e.target.closest("input, button, a, select, textarea, .pop")) return;
   const card = e.target.closest(".lane > .card:not(.subcard)"), head = !card && e.target.closest(".col-h[data-drag-col]");   // Blazor renders a true bool as a bare attribute
   const swim = !card && !head && e.target.closest(".swim-h");   // a swimlane header drags whole (its cells follow in the re-render)
@@ -310,8 +300,7 @@ document.addEventListener("pointerdown", (e) => {
 document.addEventListener("pointermove", (e) => {
   if (_press && !_drag && e.pointerId === _press.pointer) {
     const moved = Math.hypot(e.clientX - _press.x, e.clientY - _press.y);
-    if (_press.kind === "row") { if (moved >= HOLD_SLOP) _endPress(); }   // moved before the hold time: not a drag, the cell selection takes over
-    else if (moved >= GRAB) _startDrag(e);
+    if (moved >= GRAB) _startDrag(e);
   }
   const d = _drag;
   if (!d || e.pointerId !== d.pointer) return;
@@ -328,7 +317,8 @@ function _startDrag(e) {
   const p = _press; _press = null;
   if (p.kind === "swim") { _startSwimDrag(p, e); return; }
   const box = p.el.parentElement, scroller = p.el.closest(".board-wrap, .tbl-wrap");
-  const picked = p.kind !== "col" && p.el.classList.contains("selected") ? [...document.querySelectorAll(p.kind === "card" ? ".lane > .card.selected" : "tr[data-id][data-selected]")] : [];
+  const sel = p.kind === "card" ? ".lane > .card.selected" : "tr[data-id][data-selected]";   // list rows carry data-selected, cards the class
+  const picked = p.el.matches(sel) ? [...document.querySelectorAll(sel)] : [];
   const r = _rect(p.el), axis = p.kind === "col" ? "X" : "Y";
   const d = _drag = {
     ...p, box, scroller, sx: scroller.scrollLeft, sy: scroller.scrollTop, axis, spot: null, shifted: new Map(),
@@ -337,7 +327,7 @@ function _startDrag(e) {
   };
   d.i0 = _items(d, box).findIndex(c => p.el.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING);   // its place among the others
   if (d.i0 < 0) d.i0 = _items(d, box).length;
-  p.el.setPointerCapture?.(p.pointer);   // e is null for a row lifted by the hold timer, which has no event
+  p.el.setPointerCapture?.(p.pointer);
   p.handle.dispatchEvent(_synthetic("dragstart"));   // BoardPage records what is moving
   Object.assign(p.el.style, { transition: "none", zIndex: "5", pointerEvents: "none", boxShadow: p.kind === "card" ? "6px 6px 0 var(--shadow)" : "" });
   if (p.kind === "row") { p.el.style.position = "relative"; p.el.classList.add("lifted"); for (const td of p.el.cells) td.style.background = "var(--card)"; }   // z-index needs position; cells are see-through
@@ -387,6 +377,12 @@ function _findSpot(d, e) {
     // the drop goes to the row it lands in front of; at the end of a group (before the next group's row, or the table's end) to that group's row
     target = before?.matches("tr[data-id], tr[data-empty]") ? before
       : items.slice(0, before ? items.indexOf(before) : items.length).reverse().find(el => el.matches("tr[data-group]")) ?? before;
+    // the pointer over a group's own header row means that group, not the one above it: the row lands at the group's end (BoardPage.GroupRowRender)
+    const head = under?.closest("tr[data-group]"), g = head?.dataset.group, i = head ? items.indexOf(head) : -1;
+    if (i >= 0 && g !== "" && !g.startsWith("proj:")) {
+      before = items.slice(i + 1).find(el => el.matches("tr[data-group]") && el.dataset.group !== "" && (g.startsWith("swim:") || !el.dataset.group.startsWith("swim:"))) ?? null;
+      target = head;
+    }
   }
   return { box, items, before, target };
 }
@@ -452,7 +448,7 @@ document.addEventListener("pointerup", (e) => {
 document.addEventListener("pointercancel", () => { if (_drag) { _restore(_drag, true); _drag = null; } _endPress(); });
 // Touch: once a row is lifted the finger drags it and the list must not scroll under it; a long press must not open the context menu.
 document.addEventListener("touchmove", (e) => { if (_drag) e.preventDefault(); }, { passive: false });
-document.addEventListener("contextmenu", (e) => { if (_drag || (_press && _press.kind === "row")) e.preventDefault(); });
+document.addEventListener("contextmenu", (e) => { if (_drag) e.preventDefault(); });
 document.addEventListener("click", (e) => { if (_swallowClick) { e.stopPropagation(); e.preventDefault(); } }, true);
 
 // Holding Shift is select mode: the board shows its hint bar and cards show they can be picked (css: body.shift-held).
@@ -497,10 +493,9 @@ new MutationObserver((records) => {
 // ── List cells: select a rectangle of cells, as in a spreadsheet, and copy it ──
 // Drag across cells to select the rectangle between the first and the last; Ctrl+C copies it as
 // tab-separated text, one line per row. Rows are the work items (tr[data-id]); group and subtask rows are skipped.
-// A row drag needs the press held HOLD ms first (see the board drag above), a selection a press that moves at once, so the two
-// never compete for the same pointer (the hold lifting the row clears the cell it began). A selection can start on any cell, a
-// dropdown or the title included: only a press that moves to another cell selects, and that press's click is swallowed, so
-// a still click still works the cell's control.
+// A selection starts from a press on any cell of a row that is not selected; a selected row's press is the row drag's (see the board drag
+// above), so the two never compete for the same pointer. A selection can start on a dropdown or the title: only a press that moves to
+// another cell selects, and that press's click is swallowed, so a still click still works the cell's control.
 const _cells = { anchor: null, focus: null, dragging: false, moved: false };   // { row, col, table }
 
 function _cellAt(target) {
@@ -541,6 +536,7 @@ document.addEventListener("pointerdown", (e) => {
   if (!cell) { if (!e.target.closest?.(".tbl-wrap")) _clearCells(); return; }
   _cells.moved = false;
   if (e.shiftKey || e.ctrlKey || e.metaKey) return;   // the board's select click (BoardPage), as on a card
+  if (e.target.closest("tr[data-selected]")) { _clearCells(); return; }   // a selected row: that press is its drag's, and it ends a selection
   _cells.anchor = _cells.focus = cell;
   _cells.dragging = true;
   if (!e.target.closest("button, .dd, .menu-wrap")) _paintCells();   // a press on a control paints nothing until it moves

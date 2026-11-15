@@ -51,6 +51,12 @@ public static class GitHistoryApi
     /// <summary>Changes whenever a commit is made (read from .git files, no process); "" when there is no commit.</summary>
     public static string HeadToken() => Queries.HeadToken();
 
+    /// <summary>
+    /// The sides of a board file that a git merge left conflict markers in, with the text of the file as it is now (<paramref name="markedText"/>): taken from the open merge (HEAD and MERGE_HEAD) or from the merge commit that committed the markers
+    /// (its two parents), with their merge base as the common ancestor. null when this is not a repository, another operation is open (rebase, cherry-pick, revert), the merge has more than two sides, or the markers did not come from one merge commit.
+    /// </summary>
+    public static ConflictSides? ConflictSides(string repoRelativePath, string markedText) => ConflictSidesReader.Read(repoRelativePath, markedText);
+
     /// <summary>Stages and commits only the given repo-relative paths.</summary>
     public static (bool Success, string Message) Commit(IReadOnlyList<string> paths, string message) => Commands.Commit(paths, message);
 }

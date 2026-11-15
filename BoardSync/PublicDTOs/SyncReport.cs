@@ -18,8 +18,12 @@ public sealed record SyncReport(
     string? backupFolder = null,
     IReadOnlyList<string>? replaced = null,
     IReadOnlyList<string>? skippedLinks = null,
-    IReadOnlyList<string>? tooLarge = null)
+    IReadOnlyList<string>? tooLarge = null,
+    IReadOnlyList<string>? settling = null)
 {
+    /// <summary>Paths of files written so recently (<see cref="SyncOptions.SettleWindow"/>) that this sync left them for the next one, like links: nothing was uploaded, overwritten or deleted for them. A file put off for 5 minutes is taken anyway.</summary>
+    public IReadOnlyList<string> Settling { get; init; } = settling ?? [];
+
     /// <summary>Why the sync was <see cref="SyncOutcome.Blocked"/> (<see cref="SyncBlock.None"/> for every other outcome).</summary>
     public SyncBlock Blocked { get; init; } = blocked;
 

@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-13
+x-rtm:
+  id: 164
+  title: 'One files folder per project: images and plans together, simpler settings'
+  status: In Review
+  contributors: [Claude]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-13
+  moved: 2026-11-13
+  tests: [{suite: KeepingFilesInOneFolderTests, test: 'The settings have no default board view any more, and old settings files still load'}, {suite: KeepingFilesInOneFolderTests, test: A project's folders and its board storage are one group with no line between them}, {suite: KeepingFilesInOneFolderTests, test: A project with a files folder keeps images in its images folder and plans in its plans folder}, {suite: KeepingFilesInOneFolderTests, test: Only the images folder is kept out of git; plans stay tracked}, {suite: KeepingFilesInOneFolderTests, test: 'The files folder is saved with the project, and a project without one keeps its old plans and attachments folders'}, {suite: KeepingFilesInOneFolderTests, test: Choosing a files folder when nothing exists yet saves it at once}, {suite: KeepingFilesInOneFolderTests, test: 'Choosing a files folder asks before moving, and Move takes images and plans to the new places'}, {suite: KeepingFilesInOneFolderTests, test: 'After the move, notes show their images, work items open their plans, and doc links in notes still resolve'}, {suite: KeepingFilesInOneFolderTests, test: Keep them where they are only changes where new images and new plans go}, {suite: KeepingFilesInOneFolderTests, test: 'A plan is moved with the drawings beside it, and the links inside the plan are left as they are'}, {suite: KeepingFilesInOneFolderTests, test: 'Moving plans never overwrites: an identical file is dropped and a different one is kept beside it'}, {suite: KeepingFilesInOneFolderTests, test: The agent guide names the new plans and images folders after the change}, {suite: KeepingFilesInOneFolderTests, test: The board tools use the project's plans folder}, {suite: KeepingFilesInOneFolderTests, test: 'The sync uses the images folder, and a files folder changed on another computer is followed'}, {suite: KeepingFilesInOneFolderTests, test: Put both in one folder fills the field and asks the same question}]
+  dependsOn: [163]
+  agentBy: Claude wi164 close
+  agentAt: 2026-11-13T08:19:44

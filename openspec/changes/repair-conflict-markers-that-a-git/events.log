@@ -1,0 +1,23 @@
+2026-11-13T16:05:16 | Claude | created | Repair conflict markers that a git merge left in board files
+2026-11-13T16:05:16 | Claude | status | Planned -> In Progress
+2026-11-13T16:05:16 | Claude | description-edited | proposal.md
+2026-11-13T16:05:16 | Claude | label | none -> feature
+2026-11-13T16:05:16 | Claude | subtask-added | 1.1 Find the sides: the merge commit's parents (committed markers) or HEAD and MERGE_HEAD (merge in progress), and their merge-base
+2026-11-13T16:05:16 | Claude | subtask-added | 1.2 Rebuild the file with the board's field-wise merge; newer commit wins per field; conflict note on the item
+2026-11-13T16:05:17 | Claude | subtask-added | 1.3 Run it where sync detects markers, before the pause; unrepairable files still pause
+2026-11-13T16:05:17 | Claude | subtask-added | 1.4 Tests with real git repositories in temp folders; hidden-desktop check
+2026-11-13T16:26:13 | Claude chunk repair-markers | status | In Progress -> In Review
+2026-11-13T16:26:13 | Claude chunk repair-markers | test-linked | RepairingMergeMarkersTests / Conflict markers committed in a work item's yaml are repaired from the merge's two parents and the newer side wins each field
+2026-11-13T16:26:13 | Claude chunk repair-markers | test-linked | RepairingMergeMarkersTests / The real case: HEAD's Blocked and high, committed later, beat Planned and low and no marker line is left
+2026-11-13T16:26:13 | Claude chunk repair-markers | test-linked | RepairingMergeMarkersTests / A field changed on one side only keeps that change and lists combine
+2026-11-13T16:26:13 | Claude chunk repair-markers | test-linked | RepairingMergeMarkersTests / The repair writes the working tree only and logs what was kept and dropped on the item
+2026-11-13T16:26:13 | Claude chunk repair-markers | test-linked | RepairingMergeMarkersTests / Markers in tasks.md are repaired per subtask
+2026-11-13T16:26:13 | Claude chunk repair-markers | test-linked | RepairingMergeMarkersTests / A merge in progress is repaired but the sync stays paused until git finishes it
+2026-11-13T16:26:13 | Claude chunk repair-markers | test-linked | RepairingMergeMarkersTests / Markers in a file the board has no merge rule for still pause the sync
+2026-11-13T16:26:13 | Claude chunk repair-markers | test-linked | RepairingMergeMarkersTests / A merge result that is not valid yaml is left alone and the sync stays paused
+2026-11-13T16:26:13 | Claude chunk repair-markers | test-linked | RepairingMergeMarkersTests / When git cannot name the sides the hunks in the file are merged and the first side wins what both changed
+2026-11-13T16:26:13 | Claude chunk repair-markers | subtask-done | 1.1 Find the sides: the merge commit's parents (committed markers) or HEAD and MERGE_HEAD (merge in progress), and their merge-base
+2026-11-13T16:26:13 | Claude chunk repair-markers | subtask-done | 1.2 Rebuild the file with the board's field-wise merge; newer commit wins per field; conflict note on the item
+2026-11-13T16:26:13 | Claude chunk repair-markers | subtask-done | 1.3 Run it where sync detects markers, before the pause; unrepairable files still pause
+2026-11-13T16:26:13 | Claude chunk repair-markers | subtask-done | 1.4 Tests with real git repositories in temp folders; hidden-desktop check
+2026-11-13T16:31:05 | Claude | log | Integrated into main (10 files). One suite run: Passed 976, Failed 0, 2 m 35 s. All 9 RepairingMergeMarkersTests pass in latest.trx. Shots tests/out/shots/repair-markers-*.png. Nothing committed.

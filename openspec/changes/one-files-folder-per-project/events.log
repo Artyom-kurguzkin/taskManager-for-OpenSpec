@@ -1,0 +1,30 @@
+2026-11-13T07:34:40 | Claude | created | One files folder per project: images and plans together, simpler settings
+2026-11-13T07:34:40 | Claude | status | Planned -> In Progress
+2026-11-13T07:34:40 | Claude | description-edited | proposal.md
+2026-11-13T07:34:40 | Claude | label | none -> enhancement
+2026-11-13T07:34:41 | Claude | dependency-added | #wi163
+2026-11-13T07:34:41 | Claude | subtask-added | 1.1 Remove the Default board view setting
+2026-11-13T07:34:41 | Claude | subtask-added | 1.2 Remove the line between a project's folders and its Board storage
+2026-11-13T07:34:41 | Claude | subtask-added | 1.3 One files folder with images and plans; the move with link rewriting; legacy layout kept until chosen
+2026-11-13T07:34:41 | Claude | subtask-added | 1.4 After integration: full suite once, hidden-desktop check in light and dark, spec delta
+2026-11-13T08:19:20 | Claude wi164 close | status | In Progress -> In Review
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / The settings have no default board view any more, and old settings files still load
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / A project's folders and its board storage are one group with no line between them
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / A project with a files folder keeps images in its images folder and plans in its plans folder
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / Only the images folder is kept out of git; plans stay tracked
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / The files folder is saved with the project, and a project without one keeps its old plans and attachments folders
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / Choosing a files folder when nothing exists yet saves it at once
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / Choosing a files folder asks before moving, and Move takes images and plans to the new places
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / After the move, notes show their images, work items open their plans, and doc links in notes still resolve
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / Keep them where they are only changes where new images and new plans go
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / A plan is moved with the drawings beside it, and the links inside the plan are left as they are
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / Moving plans never overwrites: an identical file is dropped and a different one is kept beside it
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / The agent guide names the new plans and images folders after the change
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / The board tools use the project's plans folder
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / The sync uses the images folder, and a files folder changed on another computer is followed
+2026-11-13T08:19:20 | Claude wi164 close | test-linked | KeepingFilesInOneFolderTests / Put both in one folder fills the field and asks the same question
+2026-11-13T08:19:20 | Claude wi164 close | subtask-done | 1.1 Remove the Default board view setting
+2026-11-13T08:19:20 | Claude wi164 close | subtask-done | 1.2 Remove the line between a project's folders and its Board storage
+2026-11-13T08:19:20 | Claude wi164 close | subtask-done | 1.3 One files folder with images and plans; the move with link rewriting; legacy layout kept until chosen
+2026-11-13T08:19:20 | Claude wi164 close | subtask-done | 1.4 After integration: full suite once, hidden-desktop check in light and dark, spec delta
+2026-11-13T08:20:44 | Claude | log | Fixed the open point from #n324: the note page's Attachments caption now says "kept out of git, synced with the board storage" (NotePage.razor); no test pins that text, UI-text only, no new suite run.

@@ -1,0 +1,13 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-13
+x-rtm:
+  id: 165
+  title: 'Fast test suite: one full run under two minutes'
+  status: In Review
+  contributors: [Claude]
+  label: enhancement
+  started: 2026-11-13
+  moved: 2026-11-13
+  agentBy: Claude
+  agentAt: 2026-11-13T09:10:09

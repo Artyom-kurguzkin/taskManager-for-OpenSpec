@@ -4,7 +4,6 @@ using WorkItems;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class ArchivingNeverStopsTests
 {
     private const string Reason = "Validation failed: spec.md has no requirements";

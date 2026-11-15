@@ -8,3 +8,16 @@
 2026-11-11T08:00:58 | Artyom-kurguzkin | priority | low -> high
 2026-11-11T08:11:27 | Artyom-kurguzkin | description-edited | proposal.md
 2026-11-11T08:12:58 | Artyom-kurguzkin | status | Planned -> Blocked
+2026-11-13T12:11:13 | Claude chunk user-settings | plan-linked | DevResources/plans/user-settings-per-machine-2026-11-13.md
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | KeepingMyArrangementsTests / Hidden columns stay hidden after adding a work item and visiting the list, the calendar and a work item page
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | KeepingMyArrangementsTests / A hidden list column stays hidden after adding a work item and coming back to the list
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | KeepingMyArrangementsTests / Opening or adding a work item in another project leaves the board's arrangement as it is, instead of showing that project's (empty) hidden list
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | KeepingMyArrangementsTests / Switching to a project's tab shows the arrangement saved for that project, and switching back restores the first one's
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | KeepingMyArrangementsTests / Making a project the active one from its name's menu shows that project's arrangement and leaves the tabs in their order
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | KeepingMyArrangementsTests / Column order and widths are kept per project
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | ChoosingWhereUserSettingsLiveTests / The settings file can be moved to a chosen folder and is read from there after a restart
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | ChoosingWhereUserSettingsLiveTests / Moving the settings back to the default folder removes the pointer, and a folder that cannot take them leaves everything where it was
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | ChoosingWhereUserSettingsLiveTests / A missing or unreadable location pointer falls back to the default file and the Settings page says so
+2026-11-13T12:23:16 | Claude chunk user-settings | test-linked | ChoosingWhereUserSettingsLiveTests / The Settings page shows where the user settings are, and Browse then Move puts them in the chosen folder
+2026-11-13T12:25:25 | Claude | status | Blocked -> In Review
+2026-11-13T12:25:25 | Claude | doc-linked | DevResources/plans/user-settings-per-machine.excalidraw.svg

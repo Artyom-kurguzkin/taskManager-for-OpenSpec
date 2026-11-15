@@ -10,7 +10,6 @@ namespace TaskManager.Tests;
 /// Runs the real OpenSpec CLI (via npx) against a repo the app has edited. Slow (~10 s) and needs Node.js;
 /// exclude with <c>dotnet test --filter Category!=OpenSpecCli</c> when offline.
 /// </summary>
-[Collection(nameof(ModuleStateCollection))]
 [Trait("Category", "OpenSpecCli")]
 public sealed class KeepingTheRepoValidForOpenSpecTests
 {

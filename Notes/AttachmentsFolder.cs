@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Notes.BusinessRules;
 using Notes.PublicDTOs;
 using OpenSpecStore;
+using WorkItems;
 
 namespace Notes;
 
@@ -32,6 +33,26 @@ internal static partial class AttachmentsFolder
         if (parts.Any(p => p.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || p.EndsWith('.') || p.EndsWith(' '))) return (false, "", $"\"{raw}\" has a name a folder cannot have");
         string clean = string.Join('/', parts);
         return (true, clean.Equals(Commands.DefaultAttachmentsDir, Cmp) ? Commands.DefaultAttachmentsDir : clean, "");
+    }
+
+    /// <summary>The default files folder of a project: <c>images</c> and <c>plans</c> go inside it.</summary>
+    internal const string DefaultFilesDir = "attachments";
+
+    /// <summary>A project's files folder: the same rules as <see cref="Check"/>, but empty means <see cref="DefaultFilesDir"/>.</summary>
+    internal static (bool Ok, string Dir, string Message) CheckFiles(string? dir) =>
+        string.IsNullOrWhiteSpace(dir) ? (true, DefaultFilesDir, "") : Check(dir);
+
+    /// <summary>The project's files folder: <c>x-rtm.filesDir</c> in its openspec/config.yaml, tidied; null when the key is missing, empty, not allowed or the file cannot be read (the old layout then).</summary>
+    internal static string? ProjectFilesDir(string repoRoot)
+    {
+        string file = Path.Combine(repoRoot, "openspec", "config.yaml");
+        try
+        {
+            if (!File.Exists(file) || OpenSpecStoreApi.ReadRtmSection(file, "filesDir") is not { } yaml) return null;
+            string value = new YamlDotNet.Serialization.DeserializerBuilder().Build().Deserialize<string?>(yaml) ?? "";
+            return value.Trim().Length > 0 && Check(value) is { Ok: true } c ? c.Dir : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or YamlDotNet.Core.YamlException) { return null; }
     }
 
     private static string Abs(string root, string dir) => Path.Combine(root, dir.Replace('/', Path.DirectorySeparatorChar));
@@ -79,13 +100,25 @@ internal static partial class AttachmentsFolder
         return files.Count;
     }
 
+    /// <summary>The plans (*.md) and all the files (drawings beside them included) below a plans folder; (0, 0) when it is missing, not allowed or a link.</summary>
+    internal static (int Plans, int Files) CountPlans(string repoRoot, string dir)
+    {
+        (bool ok, string clean, string _) = Check(dir);
+        string root = Root(repoRoot), path = Abs(root, clean);
+        if (!ok || !Directory.Exists(path) || LinkOnTheWay(root, clean) is not null) return (0, 0);
+        List<(string Full, string Rel)> files = [];
+        try { Walk(path, "", files, []); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        return (files.Count(f => f.Rel.EndsWith(".md", StringComparison.OrdinalIgnoreCase)), files.Count);
+    }
+
     // ── moving ──
 
     private static AttachmentsMoveResult Refused(string why) => new(false, why);
 
     private static bool Inside(string inner, string outer) => inner.StartsWith(outer + "/", Cmp);
 
-    internal static AttachmentsMoveResult Move(string repoRoot, string fromDir, string toDir)
+    /// <param name="plans">A folder of plans, not of images: the plans stay tracked by git (nothing is ignored), and the work items' plan links follow the files.</param>
+    internal static AttachmentsMoveResult Move(string repoRoot, string fromDir, string toDir, bool plans = false)
     {
         (bool okFrom, string from, string whyFrom) = Check(fromDir);
         (bool okTo, string to, string whyTo) = Check(toDir);
@@ -93,7 +126,7 @@ internal static partial class AttachmentsFolder
         if (!okTo) return Refused($"The folder to move to is not allowed: {whyTo}");
         string root = Root(repoRoot);
         if (!Directory.Exists(root)) return Refused("The repository folder does not exist");
-        if (from.Equals(to, Cmp)) return Refused($"{to} is already the attachments folder: nothing to move");
+        if (from.Equals(to, Cmp)) return Refused($"{to} is already the {(plans ? "plans" : "attachments")} folder: nothing to move");
         if (Inside(to, from) || Inside(from, to)) return Refused($"{from} and {to} lie one inside the other: pick a folder beside it");
         foreach (string dir in new[] { from, to })
             if (LinkOnTheWay(root, dir) is string link) return Refused($"{link} is a link (a junction or symlink): it is not followed, nothing was moved");
@@ -122,9 +155,9 @@ internal static partial class AttachmentsFolder
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { left.Add(oldRel); }
         }
 
-        (int rewritten, List<string> unreadable) = Rewrite(root, from, to, mapped, left);
+        (int rewritten, List<string> unreadable) = Rewrite(root, from, to, mapped, left, plans);
         Prune(src);
-        if (moved + duplicates > 0) Commands.IgnoreFolder(root, to);
+        if (moved + duplicates > 0 && !plans) Commands.IgnoreFolder(root, to);
         return new(true, Describe(from, to, moved, renamed, duplicates, left, rewritten, unreadable), moved, renamed, duplicates, left.Count, rewritten);
     }
 
@@ -199,15 +232,19 @@ internal static partial class AttachmentsFolder
     /// Points the notes' attachments entries and the link targets in note bodies and in every description (proposal.md) that name the old folder to the new one.
     /// Silent: no event is recorded. Returns the number of references changed and the notes that could not be read (and so were not touched).
     /// </summary>
-    private static (int Count, List<string> Unreadable) Rewrite(string root, string from, string to, Dictionary<string, string> mapped, List<string> kept)
+    private static (int Count, List<string> Unreadable) Rewrite(string root, string from, string to, Dictionary<string, string> mapped, List<string> kept, bool plans)
     {
         int count = 0;
         List<string> unreadable = [];
         string? NewPath(string decoded)
         {
             if (!decoded.StartsWith(from + "/", Cmp) || kept.Any(k => decoded.Equals(k, Cmp) || decoded.StartsWith(k + "/", Cmp))) return null;
-            return mapped.TryGetValue(decoded, out string? m) ? m : to + decoded[from.Length..];
+            if (mapped.TryGetValue(decoded, out string? m)) return m;
+            if (mapped.TryGetValue(decoded + ".md", out string? md)) return md[..^3];   // [[folder/plan]] names a plan without its extension
+            return to + decoded[from.Length..];
         }
+
+        if (plans) count += WorkItemsApi.RewritePlanLinks(NewPath);   // x-rtm.plan and x-rtm.docs of every item, archived ones too
 
         foreach (string change in ChangeFolders(root))
         {
@@ -247,6 +284,9 @@ internal static partial class AttachmentsFolder
     [GeneratedRegex(@"(?<=\]\(\s*)(?<t><[^>\r\n]*>|[^\s)]+)")]
     private static partial Regex InlineTarget();
 
+    [GeneratedRegex(@"(?<=\[\[)(?<t>[^\]\r\n]+)(?=\]\])")]
+    private static partial Regex WikiTarget();
+
     [GeneratedRegex(@"^(?<pre>\s{0,3}\[[^\]\r\n]+\]:\s*)(?<t><[^>\r\n]*>|\S+)")]
     private static partial Regex DefinitionTarget();
 
@@ -257,6 +297,7 @@ internal static partial class AttachmentsFolder
     private static string Links(string text, Func<string, string?> newPath, ref int count)
     {
         int n = 0;
+        string Count(string written) { n++; return written; }
         string Replace(string target)
         {
             bool angle = target.Length >= 2 && target[0] == '<' && target[^1] == '>';
@@ -275,9 +316,10 @@ internal static partial class AttachmentsFolder
         {
             string trimmed = lines[i].TrimStart();
             if (trimmed.StartsWith("```") || trimmed.StartsWith("~~~")) { fenced = !fenced; continue; }
-            if (fenced || !lines[i].Contains('(') && !lines[i].Contains("]:")) continue;
+            if (fenced || !lines[i].Contains('(') && !lines[i].Contains("]:") && !lines[i].Contains("[[")) continue;
             lines[i] = InlineTarget().Replace(lines[i], m => Replace(m.Groups["t"].Value));
             lines[i] = DefinitionTarget().Replace(lines[i], m => m.Groups["pre"].Value + Replace(m.Groups["t"].Value));
+            lines[i] = WikiTarget().Replace(lines[i], m => m.Groups["t"].Value.Trim() is { Length: > 0 } t && newPath(t) is string np ? Count(np) : m.Value);   // [[doc]] links
         }
         count += n;
         return n == 0 ? text : string.Join('\n', lines);

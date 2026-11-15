@@ -4,7 +4,6 @@ using WorkItems.PublicDTOs;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(ModuleStateCollection))]
 public sealed class EditingWorkItemsTests
 {
     private const string HealthYaml = "openspec/changes/add-health-check/.openspec.yaml";
