@@ -30,7 +30,8 @@ public sealed record BoardOptions(
     TimeOnly? ChangedFromTime = null,       // the changed period's time within its first day (null = from 00:00) ...
     TimeOnly? ChangedToTime = null,         // ... and within its last day (null = to the end of it)
     string? ListGroupBy = null,             // the list's groups: none or any column field; null = never chosen, which the list shows as none (SettingsStore.Board fills it in)
-    string? ListSwimlane = null)            // the list's subgroups, the same
+    string? ListSwimlane = null,            // the list's subgroups, the same
+    IReadOnlyList<StatusMerge>? Merges = null)   // status columns the user said mean the same thing, shown as one column when several projects are open (never written into a project)
 {
     /// <summary>The options as the list view reads them: its groups and subgroups in place of the board's columns and rows (none until chosen).</summary>
     public BoardOptions ForList() => this with { GroupBy = ListGroupBy ?? BoardModel.NoSwimlane, Swimlane = ListSwimlane ?? BoardModel.NoSwimlane };
@@ -39,6 +40,9 @@ public sealed record BoardOptions(
     [System.Text.Json.Serialization.JsonIgnore]
     public bool ChangedOn => ChangedFrom is not null && ChangedTo is not null;
 }
+
+/// <summary>Statuses of different projects that mean the same thing ("completed", "Completed", "Done"): shown as one column called <see cref="Name"/>. A view setting, matched by exact status text.</summary>
+public sealed record StatusMerge(string Name, IReadOnlyList<string> Statuses);
 
 public sealed record BoardColumn(string Key, string Label, IReadOnlyList<WorkItem> Items, IReadOnlyList<string> Lanes);
 
@@ -86,7 +90,8 @@ public static class BoardModel
     public const string NoRow = "~";
 
     public static IReadOnlyList<BoardSection> Build(
-        IReadOnlyList<WorkItem> items, IReadOnlyList<Feature> features, IReadOnlyDictionary<string, IReadOnlyList<string>> lanes, BoardOptions o, DateOnly? today = null)
+        IReadOnlyList<WorkItem> items, IReadOnlyList<Feature> features, IReadOnlyDictionary<string, IReadOnlyList<string>> lanes, BoardOptions o, DateOnly? today = null,
+        IReadOnlyList<FieldValue>? statusColumns = null)
     {
         DateOnly now = today ?? DateOnly.FromDateTime(DateTime.Today);
         List<WorkItem> visible = Visible(items, o, now);
@@ -94,7 +99,7 @@ public static class BoardModel
             new(v.Key, v.Label, visible.Where(v.Match).ToList(), lanes.TryGetValue(v.Key, out IReadOnlyList<string>? l) ? l : []);
 
         // columns: the items without a value first (never hidden or reordered), then the values in the user's order
-        IReadOnlyList<FieldValue> values = Values(o.GroupBy, items, visible, features, now);
+        IReadOnlyList<FieldValue> values = Values(o.GroupBy, items, visible, features, now, statusColumns);
         List<BoardColumn> columns =
         [
             .. values.Where(v => v.Key == Unassigned).Select(Col),
@@ -104,7 +109,7 @@ public static class BoardModel
         // rows: the same values for the row field, in the user's order without the hidden ones, each a copy of every column holding only the row's items
         List<SwimRow>? rows = o.Swimlane == NoSwimlane ? null :
         [
-            .. Arrange(Values(o.Swimlane, items, visible, features, now), v => RowKey(o.Swimlane, v.Key == Unassigned ? NoRow : v.Key), o).Select(v =>
+            .. Arrange(Values(o.Swimlane, items, visible, features, now, statusColumns), v => RowKey(o.Swimlane, v.Key == Unassigned ? NoRow : v.Key), o).Select(v =>
                 new SwimRow(v.Key == Unassigned ? NoRow : v.Key, v.Label, [.. columns.Select(c => c with { Items = [.. c.Items.Where(v.Match)] })])),
         ];
         return [new(null, columns, rows)];
@@ -124,7 +129,8 @@ public static class BoardModel
     /// The values of a field, as columns and rows both show them: the items without a value first (only when some visible item has none),
     /// then the field's values. A multi-valued field (feature, contributor) matches an item against each of its values.
     /// </summary>
-    public static IReadOnlyList<FieldValue> Values(string field, IReadOnlyList<WorkItem> all, IReadOnlyList<WorkItem> visible, IReadOnlyList<Feature> features, DateOnly now)
+    public static IReadOnlyList<FieldValue> Values(string field, IReadOnlyList<WorkItem> all, IReadOnlyList<WorkItem> visible, IReadOnlyList<Feature> features, DateOnly now,
+        IReadOnlyList<FieldValue>? statusColumns = null)
     {
         List<FieldValue> values = [];
         void Loose(bool any, string label, Func<WorkItem, bool> none) { if (any) values.Add(new(Unassigned, label, none)); }
@@ -157,10 +163,83 @@ public static class BoardModel
                 values.AddRange(StartPeriods.Select(p => new FieldValue(p.Key, p.Label, i => StartPeriod(i.Started, now) == p.Key)));
                 break;
             default:
-                values.AddRange(WorkItemsApi.Statuses.Select(s => new FieldValue(s, s, i => i.Status == s)));
+                // the project's own columns when given (BoardPage: its list, or several projects' merged); else the built-in list and any other status an item has
+                values.AddRange(statusColumns ?? WorkItemsApi.Statuses.Concat(all.Select(i => i.Status)).Distinct().Select(s => new FieldValue(s, s, i => i.Status == s)).ToList());
                 break;
         }
         return values;
+    }
+
+    // ── Status columns of several projects, and merging look-alikes ──
+    /// <summary>
+    /// The status columns for the projects shown together, in board order: every status of every project once (a status another project adds goes after the one before it in its own
+    /// list), then each merge collapsed into one column called after the merge, at the place of its first status. Only the statuses a merge names (exactly) are folded into it.
+    /// </summary>
+    public static IReadOnlyList<FieldValue> StatusColumns(IEnumerable<IReadOnlyList<string>> projects, IReadOnlyList<StatusMerge>? merges = null)
+    {
+        List<string> order = [];
+        foreach (IReadOnlyList<string> list in projects)
+            for (int i = 0; i < list.Count; i++)
+                if (!order.Contains(list[i])) order.Insert(i == 0 ? 0 : order.IndexOf(list[i - 1]) + 1, list[i]);
+
+        List<FieldValue> columns = [];
+        HashSet<string> taken = [];
+        foreach (string status in order)
+        {
+            if (taken.Contains(status)) continue;
+            if ((merges ?? []).FirstOrDefault(m => m.Statuses.Contains(status)) is StatusMerge merge)
+            {
+                HashSet<string> members = [.. merge.Statuses.Where(order.Contains)];
+                taken.UnionWith(members);
+                if (columns.All(c => c.Key != merge.Name)) columns.Add(new FieldValue(merge.Name, merge.Name, i => members.Contains(i.Status)));
+            }
+            else
+            {
+                taken.Add(status);
+                if (columns.All(c => c.Key != status)) columns.Add(new FieldValue(status, status, i => i.Status == status));
+            }
+        }
+        return columns;
+    }
+
+    /// <summary>The merge a status column stands for (by its name), or null for a plain status.</summary>
+    public static StatusMerge? MergeOf(BoardOptions o, string columnKey) => o.Merges?.FirstOrDefault(m => m.Name == columnKey);
+
+    /// <summary>The merges after the columns (keys) are folded into one called <paramref name="name"/>; a column that is itself a merge brings its statuses along.</summary>
+    public static BoardOptions Merge(BoardOptions o, IReadOnlyCollection<string> columns, string name)
+    {
+        name = name.Trim();
+        List<string> statuses = [.. columns.SelectMany(c => MergeOf(o, c)?.Statuses ?? [c]).Distinct()];
+        List<StatusMerge> kept = [.. (o.Merges ?? []).Where(m => !columns.Contains(m.Name) && m.Name != name)];
+        return o with { Merges = [.. kept, new StatusMerge(name, statuses)] };
+    }
+
+    /// <summary>The merge called <paramref name="name"/> taken apart: its statuses are columns of their own again.</summary>
+    public static BoardOptions Unmerge(BoardOptions o, string name)
+    {
+        List<StatusMerge> left = [.. (o.Merges ?? []).Where(m => m.Name != name)];
+        return o with { Merges = left.Count == 0 ? null : left };
+    }
+
+    /// <summary>
+    /// The statuses a card dropped into a column can get in its own project: the column's key when it is a plain status the project has, else the merge's statuses that project has
+    /// (<paramref name="projectStatuses"/>). One is the answer, several are for the user to pick from, none means the project cannot take the card there.
+    /// </summary>
+    public static IReadOnlyList<string> StatusesFor(BoardOptions o, IReadOnlyList<string> projectStatuses, string columnKey) =>
+        MergeOf(o, columnKey) is StatusMerge m ? [.. projectStatuses.Where(m.Statuses.Contains)] : projectStatuses.Contains(columnKey) ? [columnKey] : [];
+
+    /// <summary>
+    /// What a status column's menu suggests: the fixed status the column is or looks like ("completed" and "Completed"), and every column among <paramref name="columns"/> that is it or looks
+    /// like it, to merge in one click. Null when no other column looks like it.
+    /// </summary>
+    public static (string Fixed, IReadOnlyList<string> Columns)? LookAlikes(IEnumerable<string> columns, string column)
+    {
+        List<string> keys = [.. columns];
+        string? target = WorkItemsApi.FixedStatuses.Contains(column) ? column : WorkItemsApi.LookAlikeOf(column);
+        if (target is null) return null;
+        List<string> same = [.. keys.Where(k => k != target && WorkItemsApi.LookAlikeOf(k) == target)];
+        if (same.Count == 0) return null;
+        return (target, [target, .. same]);
     }
 
     /// <summary>A section's rows: one row across all its columns when the options ask for none.</summary>
@@ -472,6 +551,23 @@ public static class BoardModel
         return block.Count == 0 ? o : Insert(o, siblings, block, StepBefore(siblings, block, dir));
     }
 
+    /// <summary>
+    /// Arrow key on selected list rows (<paramref name="moving"/>, ids in <paramref name="from"/>): when they sit together at the group's edge
+    /// in the key's direction (the top going up, the bottom going down) they leave it, into the end of the group above (up) or the start of the one
+    /// below (down), as a drop there would put them: the neighbouring group and the item to land in front of (null = last). Null when they only step
+    /// (inside the group, or scattered: the step gathers them first) or when there is no group beyond.
+    /// </summary>
+    public static (BoardColumn Column, int? Before)? EdgeMove(IReadOnlyList<BoardColumn> columns, BoardColumn from, IReadOnlyList<int> moving, int dir)
+    {
+        List<int> ids = [.. from.Items.Select(i => i.Id)];
+        List<int> at = [.. ids.Select((id, n) => (id, n)).Where(x => moving.Contains(x.id)).Select(x => x.n)];
+        if (at.Count == 0 || at[^1] - at[0] + 1 != at.Count) return null;
+        if (dir < 0 ? at[0] != 0 : at[^1] != ids.Count - 1) return null;
+        int here = columns.ToList().FindIndex(c => c.Key == from.Key), to = here + Math.Sign(dir);
+        if (here < 0 || to < 0 || to >= columns.Count) return null;
+        return (columns[to], dir < 0 ? null : columns[to].Items.FirstOrDefault()?.Id);
+    }
+
     /// <summary>The key a block (in <paramref name="all"/>'s order) lands in front of after one step up (-1) or down (+1), null for the end.</summary>
     private static string? StepBefore(IReadOnlyList<string> all, IReadOnlyList<string> block, int dir)
     {
@@ -514,5 +610,5 @@ public static class BoardModel
         return list;
     }
 
-    private static int IndexOf(string status) => WorkItemsApi.Statuses is IReadOnlyList<string> s ? s.ToList().IndexOf(status) : 0;
+    private static int IndexOf(string status) => WorkItemsApi.Statuses.ToList().IndexOf(status) is var at and >= 0 ? at : WorkItemsApi.Statuses.Count;   // a project's own statuses follow the built-in ones
 }

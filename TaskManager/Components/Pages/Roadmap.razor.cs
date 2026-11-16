@@ -18,6 +18,10 @@ public partial class Roadmap
 
     /// <summary>A row or bar was clicked: the project's root and the work item's id.</summary>
     [Parameter] public EventCallback<(string Root, int Id)> OnOpen { get; set; }
+    /// <summary>A click that did not come from an item (the board lets go of the examined one).</summary>
+    [Parameter] public EventCallback OnBackground { get; set; }
+    /// <summary>The examine mark of an item (ex-on, ex-waits, ex-needs) or null, as the board's cards wear it.</summary>
+    [Parameter] public Func<string, int, string?>? ExamineOf { get; set; }
 
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
     private DateOnly anchor = Today;

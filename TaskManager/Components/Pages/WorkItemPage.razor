@@ -86,7 +86,7 @@
     @if (view == "worklog")
     {
         @* the worklog reads again on its own, from the workspace's Changed event, like this page: no callback up to Load() *@
-        <Worklog Item="item" Root="@ItemRoot" />
+        <Worklog Item="item" Root="@ItemRoot" FocusNote="focusNote" OnOpenSubtask="OpenSubtask" />
     }
     else
     {
@@ -231,7 +231,29 @@
     {
         if (view == next) return;
         if (next != "linked") subSel.Clear();
-        view = next;
+        (view, focusNote, flashSub) = (next, null, null);
+    }
+
+    // A subtask made from a note ends in its #nN: the row links to the note, and the worklog opens at it. A converted entry in the worklog links the
+    // other way, to the subtask. Both mark the target with the "flash" class, a CSS fade: nothing here waits.
+    private int? focusNote;
+    private string? flashSub;
+    private bool scrollToSub;
+
+    private int? NoteOf(Subtask s) => NotesApi.SubtaskReference(s.Text).Note is int id && notes.Any(n => n.Id == id) ? id : null;
+    private string ShownText(Subtask s) => NoteOf(s) is null ? s.Text : NotesApi.SubtaskReference(s.Text).Text;
+
+    private void OpenNote(int note)
+    {
+        subSel.Clear();
+        (view, focusNote, flashSub) = ("worklog", note, null);
+    }
+
+    private void OpenSubtask(string number)
+    {
+        if (item?.Subtasks.FirstOrDefault(s => s.Number == number) is not Subtask s) return;
+        if (s.Done) subUnfolded.Add(s.Group);   // a done subtask sits in its group's folded "N done"
+        (view, focusNote, flashSub, scrollToSub) = ("linked", null, number, true);
     }
 
     // What the markup shows that is worked out from the repository is worked out once per Load (null until first asked for), never once per render.
@@ -337,7 +359,7 @@
     private void ToggleFold(string group) { if (!subUnfolded.Remove(group)) subUnfolded.Add(group); }
 
     /// <summary>One subtask row: its box, its text (click edits it, Shift-click selects it) and its number at the end of the line.</summary>
-    private RenderFragment SubRow(Subtask s) => @<div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "")" data-sk>
+    private RenderFragment SubRow(Subtask s) => @<div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "") @(flashSub == s.Number ? "flash" : "")" data-sk data-sub="@s.Number">
         <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
                @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item!.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
         @if (editingSub == s.Number)
@@ -348,7 +370,8 @@
         }
         else
         {
-            <span class="s-t" title="Click to edit · Shift-click to select, then make it a work item" @onclick="e => SubClick(e, s)">@s.Text</span>
+            <span class="s-t" title="Click to edit · Shift-click to select, then make it a work item" @onclick="e => SubClick(e, s)">@ShownText(s)</span>
+            @if (NoteOf(s) is int from) { <button type="button" class="sub-from" title="Open the note in the worklog" @onclick="() => OpenNote(from)">from #n@(from)</button> }
         }
         @if (s.Agent is not null) { <AgentChip By="@s.Agent" OnReview="() => Run(WorkItemsApi.MarkSubtaskReviewed(item!.Id, s.Number))" /> }
         <span class="mono">@s.Number</span>
@@ -358,6 +381,11 @@
     {
         if (firstRender && await IsNarrow()) { narrow = true; StateHasChanged(); }
         if (focusSub) { focusSub = false; try { await subBox.FocusAsync(); } catch (InvalidOperationException) { } }
+        if (scrollToSub && flashSub is not null)
+        {
+            scrollToSub = false;
+            try { await Js.InvokeVoidAsync("rtm.scrollToDay", $".sub[data-sub='{flashSub}']"); } catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException) { }
+        }
     }
 
     /// <summary>The open repository a work item lives in, by its own folder (a switch of the active project meanwhile cannot send its files elsewhere); the active one when none matches.</summary>

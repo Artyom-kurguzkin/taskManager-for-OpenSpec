@@ -15,13 +15,12 @@ public static class Ui
         "Blocked" => "--peach",
         "In Review" => "--mint",
         "Completed" => "--sage",
-        _ => "--stone",
+        _ => WorkItemsApi.LookAlikeOf(status) is string fixedStatus ? Band(fixedStatus) : "--stone",   // "completed" and "in progress" wear the fixed status's colour
     };
 
     public static string PriorityColor(string priority) => priority == "high" ? "--peach" : "--stone";
 
     /// <summary>The choices a Pill / Dropdown offers for each work item field, as (value, label).</summary>
-    public static readonly IReadOnlyList<(string Value, string Label)> StatusOptions = WorkItemsApi.Statuses.Select(s => (s, s)).ToList();
     public static readonly IReadOnlyList<(string Value, string Label)> PriorityOptions = [("high", "high"), ("low", "lower")];
     public static readonly IReadOnlyList<(string Value, string Label)> LabelOptions = [("", "none"), .. WorkItemsApi.Labels.Select(l => (l, l))];
 

@@ -33,13 +33,15 @@ internal static partial class Queries
 
             // Changes without a stored number get a provisional one, written on their first edit.
             int next = c.Ordered.Select(e => e.Meta.Id ?? 0).DefaultIfEmpty(0).Max();
+            IReadOnlyList<string> statuses = GetStatuses();   // the project's list: an item with a status outside it (a pull brought it) shows in Backlog
             List<WorkItem> items = [];
             foreach (FolderEntry e in c.Ordered)
             {
                 int id = e.Meta.Id ?? ++next;
                 if (e.Item.Id != id) e.Item = e.Item with { Id = id };
                 // Commit authors only stand in until someone edits the list in the app (x-rtm.contributors, possibly []).
-                items.Add(e.WithAuthors(git, token, epoch));
+                WorkItem shown = e.WithAuthors(git, token, epoch);
+                items.Add(statuses.Contains(shown.Status) ? shown : shown with { Status = "Backlog" });
             }
             (c.Version, c.Git, c.GitEpoch, c.Cursor, c.Items) = (version, token, epoch, cursor, items);
             WorkItemsModule.Loads++;
@@ -184,6 +186,29 @@ internal static partial class Queries
         catch (MetadataException) { return new Dictionary<string, IReadOnlyList<string>>(); }   // lanes that do not parse: the board shows none until the file is fixed
     }
 
+    /// <summary>
+    /// The project's statuses in board order: <c>x-rtm.statuses</c> in openspec/config.yaml, else the built-in list. Backlog, In Progress and Completed are always in it
+    /// (put back where a hand edit left them out); names are trimmed and a name listed twice counts once.
+    /// </summary>
+    internal static IReadOnlyList<string> GetStatuses()
+    {
+        if (OpenSpecStoreApi.OpenSpecRoot is not string root) return WorkItemsApi.Statuses;
+        List<string>? saved;
+        try { saved = Metadata.ReadSection<List<string>>(Path.Combine(root, "config.yaml"), "statuses"); }
+        catch (MetadataException) { return WorkItemsApi.Statuses; }   // a list that does not parse: the built-in one until the file is fixed
+        return Normalise(saved);
+    }
+
+    internal static IReadOnlyList<string> Normalise(IEnumerable<string?>? saved)
+    {
+        List<string> list = [.. (saved ?? []).Select(s => (s ?? "").Trim()).Where(s => s.Length > 0).Distinct()];
+        if (list.Count == 0) return WorkItemsApi.Statuses;
+        if (!list.Contains("Backlog")) list.Insert(0, "Backlog");
+        if (!list.Contains("In Progress")) list.Insert(Math.Min(1, list.Count), "In Progress");
+        if (!list.Contains("Completed")) list.Add("Completed");
+        return list;
+    }
+
     internal static string Yaml(string dir) => Path.Combine(dir, ".openspec.yaml");
 
     /// <summary>Capability paths this change has delta specs for (specs/&lt;path&gt;/spec.md inside the change).</summary>
@@ -203,7 +228,6 @@ internal static partial class Queries
         string? warning = problem;
         string status = archived ? "Completed" : meta.Status ?? "Backlog";
         if (!archived && status == "Completed") (status, warning) = ("Blocked", "Marked Completed but not archived");
-        if (!WorkItemsApi.Statuses.Contains(status)) status = "Backlog";
 
         List<string> derived = DeltaCapabilities(dir).ToList();
         List<string> unlinked = [.. (meta.UnlinkedFeatures ?? []).Intersect(derived)];
@@ -212,7 +236,7 @@ internal static partial class Queries
         features = features.Take(1).ToList();
 
         DateTime created = CreatedLine().Match(yaml) is { Success: true } c && DateTime.TryParse(c.Groups["d"].Value, out DateTime d) ? d : Directory.GetCreationTime(dir);
-        DateTime modified = files.Select(f => f.LastWriteTime).DefaultIfEmpty(created).Max();
+        DateTime modified = WorklogChange(dir, files) ?? files.Select(f => f.LastWriteTime).DefaultIfEmpty(created).Max();   // the worklog's last change; a checkout or sync rewrites every file, so file times only stand in when there is no worklog
 
         return new WorkItem(
             id, folder, dir,
@@ -244,6 +268,25 @@ internal static partial class Queries
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return ""; }
     }
+
+    /// <summary>When the worklog last changed: the newest line of events.log or note's <c>created</c> time; null when the change has neither.</summary>
+    private static DateTime? WorklogChange(string dir, IReadOnlyList<FileInfo> files)
+    {
+        DateTime? last = EventLog.Read(dir).Select(e => (DateTime?)e.At).Max();
+        foreach (FileInfo f in files.Where(f => f.Extension == ".md" && f.Directory?.Name == "notes"))
+        {
+            try
+            {
+                string head = string.Join(Environment.NewLine, File.ReadLines(f.FullName).Take(10));
+                if (NoteCreated().Match(head) is { Success: true } m && DateTime.TryParse(m.Groups["d"].Value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime at) && at > (last ?? DateTime.MinValue)) last = at;
+            }
+            catch (IOException) { }
+        }
+        return last;
+    }
+
+    [GeneratedRegex(@"^created:\s*(?<d>\S+)", RegexOptions.Multiline)]
+    private static partial Regex NoteCreated();
 
     private static DateOnly? Day(string? text) => DateOnly.TryParseExact(text, "yyyy-MM-dd", out DateOnly d) ? d : null;
 

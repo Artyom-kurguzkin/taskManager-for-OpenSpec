@@ -3,13 +3,14 @@ created: 2026-11-10
 x-rtm:
   id: 148
   title: patch menu
-  status: In Review
+  status: In Progress
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [general-ux]
+  label: enhancement
   started: 2026-11-10
   due: 2026-11-16
-  moved: 2026-11-12
-  tests: [{suite: UsingTheBoardTests, test: 'The side menu has no checkboxes: filters and options are pills, filled when on and underlined when off'}, {suite: UsingTheBoardTests, test: 'Sort by is the first field under Organise, and show all hidden sits under the Hidden header'}, {suite: UsingTheBoardTests, test: 'The Worklog block has one Add entry button whose menu offers note, decision, bug, subtask and the three links'}, {suite: UsingTheBoardTests, test: 'With a work item filling the window the menu hides the projects, layout and new item rows, and shows them again in split view'}, {suite: UsingTheBoardTests, test: 'The expanded side menu has no row of its own for the collapse icon: it sits at the end of the first row, and the collapsed rail keeps it on top'}]
-  agentBy: Claude
-  agentAt: 2026-11-12T05:11:58
+  moved: 2026-11-16
+  tests: [{suite: UsingTheBoardTests, test: 'The side menu has no checkboxes: filters and options are pills, filled when on and underlined when off'}, {suite: UsingTheBoardTests, test: 'Sort by is the first field under Organise, and show all hidden sits under the Hidden header'}, {suite: UsingTheBoardTests, test: 'The Worklog block has one Add entry button whose menu offers note, decision, bug, subtask and the three links'}, {suite: UsingTheBoardTests, test: 'With a work item filling the window the menu hides the projects, layout and new item rows, and shows them again in split view'}, {suite: UsingTheBoardTests, test: 'The expanded side menu has no row of its own for the collapse icon: it sits at the end of the first row, and the collapsed rail keeps it on top'}, {suite: UsingTheBoardTests, test: "The menu's Organise, Filters and Hidden sections are collapsed by default and remember being opened", note: 405}, {suite: UsingTheBoardTests, test: A collapsed section's header summarises a filter that is not neutral, note: 405}, {suite: UsingTheBoardTests, test: Shift-clicking days in the Worklog block filters the feed to those days and Show all days clears it, note: 409}, {suite: UsingTheBoardTests, test: 'The collapsed rail has a New work item button, and the expanded one is red while the view switcher is plain', note: 411}, {suite: UsingTheBoardTests, test: 'With the menu expanded one click examines a card and shows its metadata and counts in the menu, the second click opens it', note: 410}, {suite: UsingTheBoardTests, test: 'An examined item has the yellow mark, its dependents red and its dependencies blue, and only one item is examined at a time', note: 410}, {suite: UsingTheBoardTests, test: Clicking outside any work item clears the examined state and the menu's blocks come back, note: 410}, {suite: UsingTheBoardTests, test: With the menu collapsed one click opens the item as before, note: 410}, {suite: UsingTheBoardTests, test: "In the list a click on a row's title examines it with the menu expanded, a second click opens it, and Shift-click still selects", note: 410}]
+  agentBy: Claude chunk examine
+  agentAt: 2026-11-16T08:32:48

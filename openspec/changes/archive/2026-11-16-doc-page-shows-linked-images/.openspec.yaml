@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-12
+x-rtm:
+  id: 161
+  title: Images linked from a document do not show on the document page
+  status: In Review
+  contributors: [Claude]
+  features: [work-item-details]
+  label: bug
+  started: 2026-11-12
+  moved: 2026-11-16
+  tests: [{suite: UsingThePagesTests, test: 'An image a document links to shows on the doc page: a file beside the document or a path from the repository root, an .svg too'}]
+  agentBy: Claude
+  agentAt: 2026-11-12T06:06:51

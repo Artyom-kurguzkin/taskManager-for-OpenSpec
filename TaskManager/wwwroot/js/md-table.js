@@ -79,9 +79,15 @@
     n.rows.splice(below ? r + 1 : r, 0, Array(t.rows[0].length).fill(""));
     return n;
   }
+  // The header of a new column: "Column N", N one more than the highest "Column <number>" in the header row, else the column count + 1. Never a copy of a neighbour.
+  function freshHeader(header) {
+    const nums = header.map(h => /^Column (\d+)$/.exec(h)).filter(Boolean).map(m => +m[1]);
+    return "Column " + (nums.length ? Math.max(...nums) + 1 : header.length + 1);
+  }
   function insertColumn(t, c, right) {
     const n = copy(t), at = right ? c + 1 : c;
-    n.rows.forEach((r, i) => r.splice(at, 0, i === 0 ? "Column " + (at + 1) : ""));
+    const head = freshHeader(n.rows[0]);
+    n.rows.forEach((r, i) => r.splice(at, 0, i === 0 ? head : ""));
     n.align.splice(at, 0, "");
     return n;
   }
@@ -153,7 +159,7 @@
       case "insertColumnLeft":
       case "insertColumnRight": {
         const at = op === "insertColumnLeft" ? c0 : c1 + 1;
-        for (let k = 0; k < nc; k++) n.rows.forEach((r, i) => r.splice(at + k, 0, i === 0 ? "Column " + (at + k + 1) : ""));
+        for (let k = 0; k < nc; k++) { const head = freshHeader(n.rows[0]); n.rows.forEach((r, i) => r.splice(at + k, 0, i === 0 ? head : "")); }
         n.align.splice(at, 0, ...Array(nc).fill(""));
         return { table: n, sel: sel(r0, at, r1, at + nc - 1) };
       }
@@ -206,6 +212,22 @@
       default: return null;
     }
   }
+
+  // The ribbon's buttons: [op, label, title, icon?]; "|" starts a new group. The moves (moveRowUp ...) are not buttons: the grid maps Alt+arrow to them (altMove).
+  const ICON = {
+    left: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 3h12M2 6.5h8M2 10h12M2 13.5h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>',
+    center: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 3h12M4 6.5h8M2 10h12M4 13.5h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>',
+    right: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 3h12M6 6.5h8M2 10h12M6 13.5h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>',
+  };
+  const ribbon = [
+    ["insertRowAbove", "Row above", "Insert row(s) above the selection"], ["insertRowBelow", "Row below", "Insert row(s) below the selection"],
+    ["insertColumnLeft", "Column left", "Insert column(s) left of the selection"], ["insertColumnRight", "Column right", "Insert column(s) right of the selection"],
+    ["deleteRow", "Delete row", "Delete the selected row(s)"], ["deleteColumn", "Delete column", "Delete the selected column(s)"], "|",
+    ["align:left", null, "Align column(s) left", ICON.left], ["align:center", null, "Centre column(s)", ICON.center], ["align:right", null, "Align column(s) right", ICON.right], "|",
+    ["sortAsc", "Sort A–Z", "Sort the rows by this column, ascending (the header stays)"], ["sortDesc", "Sort Z–A", "Sort the rows by this column, descending (the header stays)"], "|",
+    ["mode", "Edit as text", "Edit the table as markdown"],
+  ];
+  const altMove = (key) => ({ ArrowUp: "moveRowUp", ArrowDown: "moveRowDown", ArrowLeft: "moveColumnLeft", ArrowRight: "moveColumnRight" })[key] ?? null;
 
   // ── tables in a document ──
 
@@ -359,5 +381,5 @@
       start: range.start + lead.length + first.start, end: range.start + lead.length + first.end };
   }
 
-  return { parse, format, insertRow, insertColumn, deleteRow, deleteColumn, setAlign, find, apply, applyOp, setCell, toTsv, pasteRange, cellOffset, rewrite: replace, unescapeCell, nextCell, prevCell, enter, navigate, leave, create, slashAt, insertAt };
+  return { parse, format, insertRow, insertColumn, deleteRow, deleteColumn, setAlign, find, apply, applyOp, setCell, toTsv, pasteRange, cellOffset, rewrite: replace, unescapeCell, nextCell, prevCell, enter, navigate, leave, create, slashAt, insertAt, ribbon, altMove };
 });

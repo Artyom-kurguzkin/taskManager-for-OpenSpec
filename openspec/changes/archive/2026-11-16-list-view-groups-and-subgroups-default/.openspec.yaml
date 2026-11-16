@@ -1,0 +1,13 @@
+schema: spec-driven
+created: 2026-11-13
+x-rtm:
+  id: 166
+  title: List view groups and subgroups default to none; Settings page loses its frame
+  status: In Review
+  contributors: [Claude]
+  label: enhancement
+  started: 2026-11-13
+  moved: 2026-11-16
+  tests: [{suite: UsingTheBoardTests, test: In the list view the organise options read groups and subgroups and both offer none first}, {suite: UsingTheBoardTests, test: 'The board view keeps columns and rows, with status as the default columns and no rows'}, {suite: UsingTheBoardTests, test: 'A fresh list view is flat: no group headers, every item once in sort order, and the Status column shows'}, {suite: UsingTheBoardTests, test: "Choosing a group in the list view groups the rows, a subgroup splits each group, a saved choice is kept, and the board's columns are not touched"}, {suite: UsingTheBoardTests, test: A list saved with groups before the list had its own keeps them when the app opens it}, {suite: ArrangingTheBoardTests, test: 'Grouped by none the board model has one unnamed column holding every shown item once, in sort order, and the list rows are those items without a group per status'}, {suite: ArrangingTheBoardTests, test: "The list's groups and subgroups are its own options: none until chosen, and the board's columns and rows are left alone"}, {suite: RememberingSettingsTests, test: "A saved list keeps the groups it had, a saved board or a fresh repository gets a flat list, and a choice made for the list is kept apart from the board's columns"}]
+  agentBy: Claude
+  agentAt: 2026-11-13T10:10:43

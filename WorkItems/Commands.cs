@@ -186,7 +186,7 @@ internal static partial class Commands
 
     internal static (bool Success, string Message) SetStatus(int id, string status)
     {
-        if (!WorkItemsApi.Statuses.Contains(status)) return (false, $"Unknown status \"{status}\"");
+        if (!Queries.GetStatuses().Contains(status)) return (false, $"Unknown status \"{status}\": this project's statuses are {string.Join(", ", Queries.GetStatuses())}");
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
         if (item.Archived) return item.Status == status ? (true, "") : (false, Archived);
         if (status != "Blocked" && (item.DependsOn ?? []).Select(Queries.Get).OfType<WorkItem>().FirstOrDefault(d => !WorkItemsApi.IsResolved(d)) is WorkItem dep)
@@ -543,6 +543,12 @@ internal static partial class Commands
             $"## Why\n\nSplit out of #wi{id} {item.Title}.\n\n## What Changes\n\n- {string.Join("\n- ", moved.Select(s => s.Text))}\n", TasksFile.Create(moved), deltas: new Dictionary<string, string>());
         if (!ok) return (ok, message, 0);
         (ok, message) = EditTasks(id, text => TasksFile.Remove(text, numbers));
+        if (ok)
+        {
+            // one entry per subtask in each feed, by its number before the move, so a person reading either feed can find it again
+            Log(id, [.. moved.Select(s => ("subtask-moved", $"{s.Number} -> #wi{newId}"))]);
+            Log(newId, [.. moved.Select(s => ("made-from-subtask", $"{s.Number} of #wi{id}"))]);
+        }
         return (ok, message, newId);
     }
 
@@ -767,6 +773,71 @@ internal static partial class Commands
         if (lanes.Count == 0) all.Remove(column);
         return Metadata.WriteSection(yaml, "lanes", all.Count == 0 ? null : all);
     }
+
+    // ── The project's statuses (x-rtm.statuses in openspec/config.yaml) ──
+
+    private const int MaxStatusLength = 40;
+
+    /// <summary>Reads the project's list, lets <paramref name="edit"/> change it (returning a reason to refuse, or null) and saves it; the built-in list is saved as no line at all.</summary>
+    private static (bool Success, string Message) EditStatuses(Func<List<string>, string?> edit)
+    {
+        if (OpenSpecStoreApi.OpenSpecRoot is not string root) return (false, "No repository is open");
+        string yaml = Path.Combine(root, "config.yaml");
+        List<string> list;
+        try { list = [.. Queries.Normalise(Metadata.ReadSection<List<string>>(yaml, "statuses"))]; }
+        catch (MetadataException e) { return (false, e.Message); }   // not written over
+        if (edit(list) is string refusal) return (false, refusal);
+        IReadOnlyList<string> saved = Queries.Normalise(list);
+        return Metadata.WriteSection(yaml, "statuses", saved.SequenceEqual(WorkItemsApi.Statuses) ? null : saved.ToList());
+    }
+
+    internal static (bool Success, string Message) AddStatus(string name)
+    {
+        name = (name ?? "").Trim();
+        if (name.Length == 0) return (false, "Type a name first");
+        if (name.Length > MaxStatusLength) return (false, $"A status name is at most {MaxStatusLength} characters");
+        if (name.Any(char.IsControl)) return (false, "A status name is one line of plain text");
+        return EditStatuses(l =>
+        {
+            if (l.Contains(name)) return $"This project has a status \"{name}\" already";
+            l.Add(name);
+            return null;
+        });
+    }
+
+    internal static int CountWithStatus(string status) => Queries.GetAll(includeHidden: true).Count(w => w.Status == status);
+
+    /// <summary>Takes a status out of the project's list: not a fixed one, and only when no work item (hidden ones included) has it.</summary>
+    internal static (bool Success, string Message) RemoveStatus(string name)
+    {
+        if (WorkItemsApi.FixedStatuses.Contains(name)) return (false, $"{name} stays: Backlog, In Progress and Completed are in every project");
+        if (CountWithStatus(name) is int n and > 0) return (false, $"{n} work item{(n == 1 ? " has" : "s have")} the status \"{name}\": move {(n == 1 ? "it" : "them")} first");
+        return EditStatuses(l => l.Remove(name) ? null : $"This project has no status \"{name}\"");
+    }
+
+    /// <summary>Moves every work item that has <paramref name="name"/> to <paramref name="to"/>, then removes the status. Stops at the first item that cannot move (nothing is removed then).</summary>
+    internal static (bool Success, string Message) RemoveStatusMoving(string name, string to)
+    {
+        if (WorkItemsApi.FixedStatuses.Contains(name)) return (false, $"{name} stays: Backlog, In Progress and Completed are in every project");
+        IReadOnlyList<string> statuses = Queries.GetStatuses();
+        if (!statuses.Contains(name)) return (false, $"This project has no status \"{name}\"");
+        if (to == name || !statuses.Contains(to)) return (false, "Pick another of this project's statuses to move the work items to");
+        if (to == "Completed") return (false, "Completed means archived: move them to another status");
+        foreach (WorkItem item in Queries.GetAll(includeHidden: true).Where(w => w.Status == name).ToList())
+            if (SetStatus(item.Id, to) is { Success: false } failed) return (false, $"#wi{item.Id} did not move: {failed.Message}");
+        return RemoveStatus(name);
+    }
+
+    /// <summary>Moves a status up (<paramref name="by"/> -1) or down (+1) in the project's order; any status, the fixed ones too.</summary>
+    internal static (bool Success, string Message) MoveStatus(string name, int by) =>
+        EditStatuses(l =>
+        {
+            int at = l.IndexOf(name), to = Math.Clamp(at + by, 0, l.Count - 1);
+            if (at < 0) return $"This project has no status \"{name}\"";
+            l.RemoveAt(at);
+            l.Insert(to, name);
+            return null;
+        });
 
     internal static (bool Success, string Message) StampAgent(int id, string agent) =>
         Update(id, m => { m.AgentBy = agent; m.AgentAt = DateTime.Now.ToString("s", System.Globalization.CultureInfo.InvariantCulture); });

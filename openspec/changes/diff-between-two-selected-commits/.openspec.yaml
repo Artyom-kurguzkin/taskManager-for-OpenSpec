@@ -1,0 +1,9 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-16
+x-rtm:
+  id: 173
+  title: diff between two selected commits
+  status: Planned
+  contributors: [Artyom-kurguzkin, Claude]
+  features: [work-item-details]

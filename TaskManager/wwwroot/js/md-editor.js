@@ -137,22 +137,6 @@
 
   // ── the ribbon ──
 
-  const ICON = {
-    left: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 3h12M2 6.5h8M2 10h12M2 13.5h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>',
-    center: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 3h12M4 6.5h8M2 10h12M4 13.5h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>',
-    right: '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 3h12M6 6.5h8M2 10h12M6 13.5h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>',
-  };
-  const BUTTONS = [
-    ["insertRowAbove", "Row above", "Insert row(s) above the selection"], ["insertRowBelow", "Row below", "Insert row(s) below the selection"],
-    ["insertColumnLeft", "Column left", "Insert column(s) left of the selection"], ["insertColumnRight", "Column right", "Insert column(s) right of the selection"],
-    ["deleteRow", "Delete row", "Delete the selected row(s)"], ["deleteColumn", "Delete column", "Delete the selected column(s)"], "|",
-    ["moveRowUp", "Row ↑", "Move the selected row(s) up"], ["moveRowDown", "Row ↓", "Move the selected row(s) down"],
-    ["moveColumnLeft", "Column ←", "Move the selected column(s) left"], ["moveColumnRight", "Column →", "Move the selected column(s) right"], "|",
-    ["align:left", null, "Align column(s) left", ICON.left], ["align:center", null, "Centre column(s)", ICON.center], ["align:right", null, "Align column(s) right", ICON.right], "|",
-    ["sortAsc", "Sort A–Z", "Sort the rows by this column, ascending (the header stays)"], ["sortDesc", "Sort Z–A", "Sort the rows by this column, descending (the header stays)"], "|",
-    ["mode", "Edit as text", "Edit the table as markdown"],
-  ];
-
   function closeBar() { barEl?.remove(); barEl = null; barFor = null; }
 
   function openBar(ta) {
@@ -165,7 +149,7 @@
     barEl.setAttribute("aria-label", "Table");
     const btn = (b) => `<button type="button" class="md-b${b[3] ? " ic" : ""}" data-op="${b[0]}" title="${b[2]}" aria-label="${b[2]}">${b[3] ?? b[1]}</button>`;
     const groups = [[]];
-    for (const b of BUTTONS) b === "|" ? groups.push([]) : groups.at(-1).push(b);
+    for (const b of T.ribbon) b === "|" ? groups.push([]) : groups.at(-1).push(b);
     barEl.innerHTML = groups.map(g => `<span class="md-grp">${g.map(btn).join("")}</span>`).join('<span class="md-sep"></span>');   // a group wraps as a whole
     barEl.style.maxWidth = Math.max(420, Math.min(innerWidth - 8, ta.clientWidth)) + "px";   // wraps inside the editor's width, not the window's
     barEl.addEventListener("mousedown", (e) => e.preventDefault());
@@ -503,6 +487,8 @@
 
   function gridKey(ta, e) {
     const mod = e.ctrlKey || e.metaKey;
+    const move = e.altKey && !mod && !e.shiftKey ? T.altMove(e.key) : null;   // Alt+arrow moves the selected rows / columns (no ribbon buttons for it)
+    if (move) { endEdit(); const res = T.applyOp(G.model, rect(), move); if (res) write(res.table, res.sel); return true; }
     if (mod) {
       if (!e.altKey && (e.key === "a" || e.key === "A")) { G.an = { r: 0, c: 0 }; G.fo = { r: rows() - 1, c: cols() - 1 }; paintSel(); return true; }
       if (e.altKey || (e.key !== "Home" && e.key !== "End")) return false;   // Ctrl+C / X / V come as clipboard events; Ctrl+Z is the textarea's

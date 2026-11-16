@@ -11,7 +11,10 @@ public static class WorkItemsApi
 {
     /// <summary>The pinned OpenSpec CLI the app archives with; the agent guide tells agents to validate with the same one.</summary>
     public const string OpenSpecCliVersion = Infrastructure.OpenSpecCli.Version;
+    /// <summary>The built-in statuses: the list of a project whose openspec/config.yaml has no <c>x-rtm.statuses</c>. A project's own list is <see cref="GetStatuses"/>.</summary>
     public static readonly IReadOnlyList<string> Statuses = ["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"];
+    /// <summary>The statuses no project is without: they cannot be removed or renamed (Completed also means archived).</summary>
+    public static readonly IReadOnlyList<string> FixedStatuses = ["Backlog", "In Progress", "Completed"];
     public static readonly IReadOnlyList<string> Labels = ["bug", "feature", "enhancement"];
 
     /// <summary>Git commit authors stand in as contributors until the list is edited. The token must change on each commit so the cache refreshes.</summary>
@@ -63,6 +66,29 @@ public static class WorkItemsApi
     public static string FolderStamp() => Queries.FolderStamp();
     /// <summary>Sub-categories per board column, from openspec/config.yaml x-rtm.lanes.</summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> GetLanes() => Queries.GetLanes();
+
+    // ── Statuses of the open project ──
+    /// <summary>The open project's statuses in board order: <c>x-rtm.statuses</c> in its openspec/config.yaml, else <see cref="Statuses"/>; the fixed three are always in it.</summary>
+    public static IReadOnlyList<string> GetStatuses() => Queries.GetStatuses();
+    /// <summary>Adds a status at the end of the list. A name the project has already is refused (spelling counts: "completed" is not "Completed").</summary>
+    public static (bool Success, string Message) AddStatus(string name) => Commands.AddStatus(name);
+    /// <summary>Removes a status that is not a fixed one and that no work item (hidden ones included) has.</summary>
+    public static (bool Success, string Message) RemoveStatus(string name) => Commands.RemoveStatus(name);
+    /// <summary>Moves the work items that have the status to another, then removes it.</summary>
+    public static (bool Success, string Message) RemoveStatus(string name, string moveItemsTo) => Commands.RemoveStatusMoving(name, moveItemsTo);
+    /// <summary>Moves a status one place up (-1) or down (+1) in the project's order.</summary>
+    public static (bool Success, string Message) MoveStatus(string name, int by) => Commands.MoveStatus(name, by);
+    /// <summary>How many work items of the open project (hidden ones included) have the status.</summary>
+    public static int CountWithStatus(string status) => Commands.CountWithStatus(status);
+
+    /// <summary>
+    /// The fixed status a name stands for when it is spelled differently (case, spaces, dashes and underscores ignored: "completed", "InProgress", "in progress"), or null for
+    /// a name that is a fixed status itself or looks like none.
+    /// </summary>
+    public static string? LookAlikeOf(string status) =>
+        FixedStatuses.FirstOrDefault(f => f != status && Squash(f) == Squash(status));
+
+    private static string Squash(string s) => new([.. s.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
 
     // ── Header fields ──
     public static (bool Success, string Message) SetStatus(int id, string status) => Commands.SetStatus(id, status);

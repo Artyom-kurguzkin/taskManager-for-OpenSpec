@@ -46,7 +46,9 @@ public static class NotesApi
     /// the subtask stays, and a <c>converted</c> event is recorded. Id is the new note's.
     /// </summary>
     public static (bool Success, string Message, int Id) ConvertSubtask(int workItemId, string number, string? kind, string by) => Conversions.ConvertSubtask(workItemId, number, kind, by);
-    /// <summary>The notes of the work item that were promoted to a subtask (a <c>converted</c> event names it) which still exists.</summary>
+    /// <summary>A subtask line made from a note ends in its <c>#nN</c>: the text without it, and the note's id (null when the line has no such ending).</summary>
+    public static (string Text, int? Note) SubtaskReference(string subtaskText) => Conversions.SubtaskReference(subtaskText);
+    /// <summary>The notes of the work item that were promoted to a subtask which still exists (a subtask line ending in the note's <c>#nN</c>, or a <c>converted</c> event naming it).</summary>
     public static IReadOnlyList<int> PromotedNotes(int workItemId) => Conversions.PromotedNotes(workItemId);
     /// <summary>
     /// Turns the note's unticked checkboxes (<c>- [ ] text</c>, outside code blocks) into subtasks of its work item, each once: the line stays in the

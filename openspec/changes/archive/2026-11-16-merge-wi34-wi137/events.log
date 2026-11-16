@@ -1,0 +1,150 @@
+2026-11-10T10:49:14 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-10T11:07:46 | Artyom-kurguzkin | status | Planned -> In Review
+2026-11-10T11:08:01 | Artyom-kurguzkin | created | work item details rework
+2026-11-10T15:10:10 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-10T15:38:41 | Claude | test-linked | ArrangingTheBoardTests / An item counts as changed in a period when an event, a note, its creation or a file write falls in it
+2026-11-10T15:38:41 | Claude | test-linked | ArrangingTheBoardTests / With a changed period set, items outside it are neutral on board, list and roadmap and items inside keep their colour; without it nothing changes
+2026-11-10T15:38:41 | Claude | test-linked | UsingTheBoardTests / The side menu's changed picker sets the period, the legend names it, and × clears it; the choice is remembered per board
+2026-11-10T16:01:10 | Claude | status | In Progress -> In Review
+2026-11-10T16:01:10 | Claude | test-unlinked | UsingThePagesTests / In a narrow window the three linked-tasks columns stack and nothing is minimised
+2026-11-10T16:01:10 | Claude | test-unlinked | UsingThePagesTests / The description view lists what is attached to the item beside the description: the plan, documents and attachments of its notes, and images, each once
+2026-11-10T16:01:10 | Claude | test-unlinked | UsingThePagesTests / The item page opens on the description, with Description, Worklog and Linked tasks to switch between, the current one marked
+2026-11-10T16:01:10 | Claude | test-unlinked | UsingThePagesTests / The linked tasks view shows subtasks, what the item waits on and what waits on it in three columns
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / In a narrow window the four linked-tasks columns stack and nothing is minimised
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The linked tasks view lists what is attached to the item in a Related column: the plan, documents and attachments of its notes, and images, each once
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The item page opens on the worklog, with Worklog and Linked tasks to switch between, the current one marked, and the description is the worklog's first entry
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The linked tasks view shows subtasks, what the item waits on, what waits on it and what is related to it in four columns
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The description is the first entry of the worklog, above today, and Shift-click Edit changes it in place
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The description shows formatted text in the worklog until you Shift-click it and choose Edit
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / The note editor fills its tile and the worklog's description editor sits in the feed, both with no border of their own while editing
+2026-11-10T16:01:10 | Claude | test-linked | UsingThePagesTests / Pasting an image into the worklog's description editor inserts a link to the saved file at the caret, and the description entry renders the image
+2026-11-10T16:01:10 | Claude | test-linked | UsingTheWorklogTests / The worklog filters hide notes, events, links or subtask events, and who narrows the feed to one person
+2026-11-10T16:01:10 | Claude | test-linked | UsingTheBoardTests / While a worklog is open the side menu shows a Worklog block with its filters and actions first, and the block goes when the worklog closes
+2026-11-10T16:01:10 | Claude | test-linked | UsingTheBoardTests / In split view the Worklog block comes before the list's organise, sort and display blocks
+2026-11-10T16:01:36 | Claude | test-unlinked | UsingThePagesTests / The description is the first entry of the worklog, above today, and Shift-click Edit changes it in place
+2026-11-10T16:01:36 | Claude | test-linked | UsingTheWorklogTests / The description is the first entry of the worklog, above today, and Shift-click Edit changes it in place
+2026-11-10T17:24:51 | Claude | test-unlinked | UsingThePagesTests / The item page opens on the worklog, with Worklog and Linked tasks to switch between, the current one marked, and the description is the worklog's first entry
+2026-11-10T17:24:51 | Claude | test-unlinked | UsingTheWorklogTests / The description is the first entry of the worklog, above today, and Shift-click Edit changes it in place
+2026-11-10T17:24:51 | Claude | test-linked | UsingThePagesTests / The item page opens on the worklog, with Worklog and Linked tasks to switch between, the current one marked, and the description is the worklog's last entry
+2026-11-10T17:24:51 | Claude | test-linked | UsingTheWorklogTests / The description is the last entry of the worklog, at the bottom as the item's first post, has no hover effect, and Shift-click Edit changes it in place
+2026-11-10T17:24:51 | Claude | test-linked | UsingTheBoardTests / The Worklog block lists the feed's days newest first with their entry counts, and clicking a day jumps the feed to it
+2026-11-10T17:24:51 | Claude | test-linked | UsingTheWorklogTests / The worklog publishes its days to the side menu and updates them when the filters change
+2026-11-10T17:24:51 | Claude | test-linked | UsingTheWorklogTests / An Unlink menu stays on the entry it was opened on when the feed changes under it: a new entry above does not move the menu to another test, and Unlink removes the test that was clicked
+2026-11-10T17:24:51 | Claude | subtask-added | 6.5 6.5 The description is the worklog's last entry (the item's first post) with no hover effect; Shift-click → Edit stays
+2026-11-10T17:24:51 | Claude | subtask-added | 6.6 6.6 Shift-click Unlink on a test: the menu is keyed to its row, so a feed change under an open menu no longer unlinks another test; Linked earlier rows de-duplicated
+2026-11-10T17:24:51 | Claude | subtask-added | 6.7 6.7 Days list in the WORKLOG block (newest first, entry counts, Linked earlier); a click unfolds the day and scrolls it into view
+2026-11-10T18:49:00 | Claude | plan-unlinked | DevResources/plans/in-progress-items-2026-11-10.md
+2026-11-10T18:49:00 | Claude | plan-linked | DevResources/plans/in-progress-items-2-2026-11-10.md
+2026-11-10T19:24:27 | Claude | test-linked | UsingTheBoardTests / A changed period that covers nearly every item still shows the picker working: the legend counts how many of the shown items changed in it
+2026-11-10T19:24:27 | Claude | test-linked | SwitchingProjectsTests / Opening the list with two projects open still groups by project when the saved list settings were made with one project, so the page stays alive and the side menu's pickers keep working
+2026-11-10T19:55:15 | Claude chunk A | log | chunk A started: hide items outside changed period, Show all in picker, remove agent filter.
+2026-11-10T20:05:42 | Claude chunk A | log | chunk A: code and tests done, suite Passed! 544 (baseline 543: -1 AgentOnly test, +NoAgentFilter, +DateRangeClearLabel). Next: real-app check on hidden desktop.
+2026-11-10T20:07:16 | Claude | log | Chunk A applied to the main tree (12 files, all clean); its run: 544 passed. Main-tree build and suite wait for chunk B, which shares BoardPage.
+2026-11-10T20:13:15 | Claude | test-unlinked | ArrangingTheBoardTests / With a changed period set, items outside it are neutral on board, list and roadmap and items inside keep their colour; without it nothing changes
+2026-11-10T20:13:15 | Claude | test-unlinked | UsingTheBoardTests / The side menu's changed picker sets the period, the legend names it, and × clears it; the choice is remembered per board
+2026-11-10T20:13:15 | Claude | test-unlinked | UsingTheBoardTests / A changed period that covers nearly every item still shows the picker working: the legend counts how many of the shown items changed in it
+2026-11-10T20:13:15 | Claude | test-linked | ArrangingTheBoardTests / With a changed period set, items outside it are hidden on board, list and roadmap and items inside stay; without it nothing changes
+2026-11-10T20:13:15 | Claude | test-linked | UsingTheBoardTests / The side menu's changed picker sets the period, the legend names it and counts what is shown, and Show all in the picker clears it; the choice is remembered per board
+2026-11-10T20:13:15 | Claude | test-linked | UsingTheBoardTests / A changed period that covers nearly every item still shows the picker working: the legend counts how many items are shown of those the other filters leave
+2026-11-10T20:13:15 | Claude | test-linked | UsingThePagesTests / The date range picker offers its clear button only when a ClearLabel is given and a range is set; without a ClearLabel it keeps the plain Clear
+2026-11-10T20:29:11 | Artyom-kurguzkin | feature | integration-with-agents -> work-item-details
+2026-11-10T20:29:27 | Artyom-kurguzkin | status | In Review -> Planned
+2026-11-10T20:30:25 | Artyom-kurguzkin | status | In Progress -> Planned
+2026-11-10T20:30:34 | Artyom-kurguzkin | created | work item details rework
+2026-11-10T20:30:34 | Artyom-kurguzkin | merged-from | #wi34 see work item deltas
+2026-11-10T20:30:48 | Artyom-kurguzkin | feature | integration-with-agents -> work-item-details
+2026-11-10T20:46:15 | Artyom-kurguzkin | subtask-added | 7.8 Still need to rework the Linked tasks
+2026-11-10T20:47:15 | Artyom-kurguzkin | subtask-added | 7.9 I want to be able to convert logs btw note - Decision - Subtask by selecting log entry (extra option on top of edit)
+2026-11-10T20:51:25 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-10T20:51:25 | Artyom-kurguzkin | priority | low -> high
+2026-11-10T20:52:08 | Artyom-kurguzkin | subtask-added | 7.10 Still need to rework the Linked tasks (created subtask) - layout should be nicer
+2026-11-10T20:52:51 | Artyom-kurguzkin | subtask-added | 7.11 editing already created subtask within a feed created yet another subtask -bug
+2026-11-10T21:18:59 | Claude | plan-linked | DevResources/plans/in-progress-items-3-2026-11-10.md
+2026-11-10T21:18:59 | Claude | subtask-done | 7.5 6.5 The description is the worklog's last entry (the item's first post) with no hover effect; Shift-click → Edit stays
+2026-11-10T21:18:59 | Claude | subtask-done | 7.6 6.6 Shift-click Unlink on a test: the menu is keyed to its row, so a feed change under an open menu no longer unlinks another test; Linked earlier rows de-duplicated
+2026-11-10T21:18:59 | Claude | subtask-done | 7.7 6.7 Days list in the WORKLOG block (newest first, entry counts, Linked earlier); a click unfolds the day and scrolls it into view
+2026-11-10T21:20:43 | Claude chunk D | log | 7.9 convert entries: started (chunk D); worktree reset to 31c8db7.
+2026-11-10T21:20:44 | Claude chunk C | log | Chunk C started (subtask 7.11): worktree reset to 31c8db7, reading PromoteSubtasks.
+2026-11-10T21:26:03 | Claude chunk C | log | Chunk C: baseline 549 passed, 1 failed (bUnit, pre-existing) of 550. Two new tests written in KeepingNotesTests, red: 2 failed.
+2026-11-10T21:26:49 | Claude chunk C | log | Chunk C: fix in Notes/Commands.cs, KeepingNotesTests 25/25 green (2 new). Full suite running.
+2026-11-10T21:30:07 | Claude chunk C | log | Chunk C done: suite Passed! 552/552 (baseline 549 passed + 1 flaky bUnit failure, now green). Uncommitted in worktree agent-acccb8c023324f544.
+2026-11-10T21:30:13 | Claude chunk D | log | 7.9 convert entries: baseline 547 passed, 3 failed (pre-existing, ServingTheBoard etc). Tests written; module tests (RemoveSubtask, Delete, ConvertKind/ToSubtask/Subtask) green; worklog tests red: 4 (3 new + updated Edit-only menu assertion).
+2026-11-10T21:30:28 | Claude | log | 7.11 fix (chunk C) applied to the main tree: an edited "(created subtask)" line retexts its subtask, never promotes again. Its run: 552 passed. Suite on the main tree after all chunks.
+2026-11-11T05:00:14 | Claude chunk D | log | 7.9 convert entries: Worklog menu + Notes/WorkItems commands done. Suite: Passed! - Failed: 0, Passed: 560, Skipped: 0, Total: 560. Next: real-app check on the hidden desktop.
+2026-11-11T05:01:45 | Claude chunk D | log | 7.9 convert entries finished: real-app check on hidden desktop OK (note -> decision -> subtask, converted lines in the feed, light and dark). Suite Passed! 560/560. Left uncommitted.
+2026-11-11T05:02:20 | Claude | log | 7.9 convert entries (chunk D) applied to the main tree, 11 files clean; its run: 560 passed, but that run took 7 h 28 m, which needs looking into. Not built in the main tree yet.
+2026-11-11T05:19:36 | Claude | test-linked | KeepingNotesTests / Editing a note line that already made a subtask retexts that subtask instead of creating another, and the line keeps one marker at its end
+2026-11-11T05:19:36 | Claude | test-linked | KeepingNotesTests / A line with the marker anywhere is never promoted again, and no subtask text ever contains the marker
+2026-11-11T05:19:36 | Claude | test-linked | UsingTheWorklogTests / A note's menu offers Make it a decision and Make it a subtask, and a decision's offers Make it a note and Make it a subtask, under Edit
+2026-11-11T05:19:36 | Claude | test-linked | UsingTheWorklogTests / A subtask that is ticked has no convert menu in the feed
+2026-11-11T05:19:36 | Claude | test-linked | UsingTheWorklogTests / Making a note a subtask adds the subtask from its title, removes the note and logs the conversion
+2026-11-11T05:19:36 | Claude | test-linked | UsingTheWorklogTests / Making a subtask a decision creates the decision from its text, removes the subtask and logs the conversion
+2026-11-11T05:19:36 | Claude | test-linked | EditingWorkItemsTests / Removing a subtask drops its line, renumbers the rest of its group and records subtask-removed with its text
+2026-11-11T05:19:36 | Claude | test-linked | EditingWorkItemsTests / Removing a subtask that is not there is refused and writes nothing
+2026-11-11T05:19:36 | Claude | test-linked | KeepingNotesTests / Deleting a note removes its file and the attachment files copied for it, and refuses a note that is gone
+2026-11-11T05:19:36 | Claude | test-linked | KeepingNotesTests / Converting a note to a decision and back changes only its kind and records a converted event each time
+2026-11-11T05:19:36 | Claude | test-linked | KeepingNotesTests / Converting a note to a subtask uses its title, or the first line of its text when the title is the default, then deletes the note
+2026-11-11T05:19:36 | Claude | test-linked | KeepingNotesTests / Converting a subtask to a note or a decision creates it from the subtask's text, dated now and by the given person, and removes the subtask
+2026-11-11T05:19:36 | Claude | subtask-done | 7.9 I want to be able to convert logs btw note - Decision - Subtask by selecting log entry (extra option on top of edit)
+2026-11-11T05:19:36 | Claude | subtask-done | 7.11 editing already created subtask within a feed created yet another subtask -bug
+2026-11-11T05:46:33 | Claude chunk M | log | Chunk started: fixing doubled group headings after merge (GroupHeading in WorkItems/Commands.cs + tasks.md parser).
+2026-11-11T05:48:45 | Claude chunk M | log | Reproduced: a merge of a merge of a merge gives "Rework · Rework · Rework · Events". Tests red: 2 (EditingWorkItemsTests, merge keeps group names clean).
+2026-11-11T05:50:20 | Claude chunk L | log | Chunk L started: Linked tasks view rework to main list + rail (subtasks 7.8/7.10). Base patch applied cleanly.
+2026-11-11T05:53:42 | Claude chunk M | log | Suite: Passed! - Failed: 0, Passed: 572, Skipped: 0, Total: 572 (both new tests green). Chunk M done, uncommitted in worktree.
+2026-11-11T05:59:11 | Claude | log | Merge-heading fix (chunk M) integrated: merges never repeat the title; doubled headings read clean and are written clean on the next save. Full fast suite on the merged tree: 573 passed.
+2026-11-11T05:59:28 | Claude chunk L | log | Chunk L: tests rewritten to the main list + rail layout (renamed 6, new 2) and view/CSS implemented; first full run in progress (red step was skipped by mistake, implemented in the same pass).
+2026-11-11T06:03:32 | Claude chunk L | log | Chunk L shots (hidden desktop, demoL1): tests/out/shots/linked1-light, linked1-expanded-light, linked1-dark, linked1-dark-expanded, linked1-narrow-light .png; first suite run 571 passed, 1 CSS rule test failed (fixed).
+2026-11-11T06:06:21 | Claude chunk L | log | Chunk L finished: Passed! - Failed: 0, Passed: 572, Skipped: 0, Total: 572 (fast suite, worktree with base-wl12 patch). Linked tasks view is main list + rail.
+2026-11-11T06:14:03 | Claude | test-unlinked | UsingThePagesTests / Dependencies are listed in the Waiting on column: a done one struck through, and × removes it
+2026-11-11T06:14:03 | Claude | test-unlinked | UsingThePagesTests / In a narrow window the four linked-tasks columns stack and nothing is minimised
+2026-11-11T06:14:03 | Claude | test-unlinked | UsingThePagesTests / The linked tasks view lists what is attached to the item in a Related column: the plan, documents and attachments of its notes, and images, each once
+2026-11-11T06:14:03 | Claude | test-unlinked | UsingThePagesTests / The linked tasks view shows subtasks, what the item waits on, what waits on it and what is related to it in four columns
+2026-11-11T06:14:03 | Claude | test-unlinked | UsingThePagesTests / The subtasks column lists every subtask and counts how many are done
+2026-11-11T06:14:03 | Claude | test-unlinked | UsingThePagesTests / The Subtasks column shows each task group as a collapsible header with its progress
+2026-11-11T06:14:03 | Claude | test-unlinked | UsingThePagesTests / The Waiting on column has a picker of existing work items to wait on; choosing one makes it a dependency
+2026-11-11T06:14:03 | Claude | test-unlinked | UsingTheWorklogTests / Shift-clicking a day opens a menu to add a note, link a document, link a test, link a commit or add a subtask
+2026-11-11T06:14:03 | Claude | test-unlinked | UsingThePagesTests / The item page's views have no frames: the description, the Related list, the linked-tasks columns and rows, and the worklog's notes sit straight on the page
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / Dependencies are listed in the rail's Waiting on list: a done one struck through, and × removes it
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / In a narrow window the linked tasks rail drops below the main list and nothing is minimised
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / The linked tasks view lists what is attached to the item in the rail's Related list: the plan, documents and attachments of its notes, and images, each once
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / The linked tasks view shows the subtasks as the main list with their progress, open first, done ones folded per group, and the rail beside it with waiting on, waiting on this and related
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / The main list counts every subtask in its progress line and lists the open ones; the done ones are folded
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / In the main list each task group is a header with its progress; groups with open subtasks come first in file order, fully done groups after them
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / The rail's Waiting on list has a picker of existing work items to wait on; choosing one makes it a dependency
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / The linked tasks rail lists what the item waits on and what waits on it, each with its status pill, and says so when a list is empty
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / A folded group's done subtasks open in place from its N done button
+2026-11-11T06:14:03 | Claude | test-linked | UsingTheWorklogTests / Shift-clicking a day opens a menu to add a note or a decision, link a document, link a test, link a commit or add a subtask
+2026-11-11T06:14:03 | Claude | test-linked | UsingThePagesTests / The item page's views have no frames: the description, the Related list, the linked-tasks main list, rail and rows, and the worklog's notes sit straight on the page
+2026-11-11T06:14:03 | Claude | test-linked | EditingWorkItemsTests / Merging an item that was itself a merge keeps its group headings without repeating the title, even three merges deep
+2026-11-11T06:14:03 | Claude | test-linked | EditingWorkItemsTests / A group heading with a segment repeated back to back reads with it once, and is written clean on the next save
+2026-11-11T06:14:03 | Claude | subtask-done | 7.8 Still need to rework the Linked tasks - layout should be nicer
+2026-11-11T07:41:58 | Claude | plan-unlinked | DevResources/plans/in-progress-items-3-2026-11-10.md
+2026-11-11T07:41:58 | Claude | plan-linked | DevResources/plans/in-progress-items-4-2026-11-11.md
+2026-11-11T07:41:58 | Claude | subtask-removed | 7.10 Still need to rework the Linked tasks (created subtask) - layout should be nicer
+2026-11-11T07:49:59 | Claude feed | log | Tests red (9+ in KeepingNotes/UsingTheWorklog: keep-the-note conversions, bug kind, Add bug, Report a bug); Conversions.cs and the MCP kind check done, Worklog.razor next.
+2026-11-11T08:00:28 | Claude feed | log | Suite: Passed! Failed: 0, Passed: 582, Total: 582 (bugs kind, Add bug, Report a bug, keep-the-note conversions). Real-app check on the hidden desktop next.
+2026-11-11T08:14:14 | Claude | test-linked | UsingTheWorklogTests / A bug report shows with its Bug tag, is hidden by the Bugs filter and not by Notes, and Add bug from the day menu opens one in place
+2026-11-11T08:14:14 | Claude | test-linked | UsingTheWorklogTests / Every entry can become a bug: notes, decisions and subtasks convert, and an event offers Report a bug from this
+2026-11-11T08:39:37 | Artyom-kurguzkin | status | In Progress -> Planned
+2026-11-16T07:57:37 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-16T07:57:44 | Artyom-kurguzkin | subtask-added | 7.11 cr
+2026-11-16T07:57:44 | Artyom-kurguzkin | converted | note #n412 -> subtask 7.11
+2026-11-16T07:58:35 | Artyom-kurguzkin | attachment-added | n413: pasted-20261116-075835.png
+2026-11-16T08:15:14 | Claude chunk convert | log | convert: tests written (4 new/changed), code in Conversions, Commands.MoveSubtasksToNew, Worklog, WorkItemPage, app.css; build 0 errors. Running the fast suite once.
+2026-11-16T08:29:22 | Claude chunk convert | test-linked | KeepingNotesTests / Converting a note to a subtask keeps the note and its body, and the subtask line refers to it
+2026-11-16T08:29:22 | Claude chunk convert | test-linked | KeepingNotesTests / Converting a note to a subtask uses its title, or the first line of its text when the title is the default, and keeps the note
+2026-11-16T08:29:22 | Claude chunk convert | test-linked | EditingWorkItemsTests / Moving a subtask to a new work item logs the move in both feeds
+2026-11-16T08:29:22 | Claude chunk convert | test-linked | UsingThePagesTests / The Linked tasks view links a note-made subtask back to its note, and the click opens the worklog at that note
+2026-11-16T08:29:22 | Claude chunk convert | test-linked | UsingThePagesTests / A converted entry in the worklog links its subtask, and the click opens Linked tasks at that subtask
+2026-11-16T08:29:22 | Claude chunk convert | test-linked | UsingTheWorklogTests / Making a note a subtask adds the subtask from its title, keeps the note and logs the conversion
+2026-11-16T08:29:22 | Claude chunk convert | subtask-done | 7.11 cr
+2026-11-16T08:29:57 | Claude chunk convert | status | In Progress -> In Review
+2026-11-16T08:43:35 | Claude | log | Integrated the convert chunk into main (three-way merges with the menu chunk in Worklog.razor). Clean rebuild, one suite run with all six chunks: Passed 1059, Failed 0. Nothing committed.
+2026-11-16T09:21:58 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T09:21:58 | Artyom-kurguzkin | status | In Progress -> In Review
+2026-11-16T09:22:01 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T09:22:02 | Artyom-kurguzkin | status | In Progress -> In Review
+2026-11-16T09:30:47 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T09:31:53 | Artyom-kurguzkin | subtask-moved | 1.1 -> #wi174
+2026-11-16T09:32:05 | Artyom-kurguzkin | subtask-moved | 1.1 -> #wi175
+2026-11-16T09:32:19 | Artyom-kurguzkin | status | In Progress -> Completed

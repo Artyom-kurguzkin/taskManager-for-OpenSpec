@@ -39,11 +39,51 @@ test("insert row above puts an empty row before the caret row; above the header 
 
 test("insert column right of the caret column adds an empty column with a header placeholder; left goes before it", () => {
   const right = grid(T.format(T.insertColumn(base(), 0, true)));
-  assert.deepEqual(right[0], ["a", "Column 2", "b"]);
+  assert.deepEqual(right[0], ["a", "Column 3", "b"]);   // no "Column N" header yet: the column count + 1
   assert.deepEqual(right[2], ["1", "", "2"]);
   const left = T.insertColumn(base(), 0, false);
   assert.equal(left.rows[0][1], "a");
   assert.equal(left.rows[0].length, 3);
+});
+
+test("a new column's header is Column N, one more than the highest Column number in the header row; never a copy of its neighbour", () => {
+  const t = T.parse(L("| Column 1 | Column 2 | Column 3 | Column 4 |", "| --- | --- | --- | --- |", "| | | | |"));
+  assert.equal(T.insertColumn(t, 3, true).rows[0][4], "Column 5");
+  assert.equal(T.insertColumn(t, 0, false).rows[0][0], "Column 5");   // left of the first: still the next number
+  const twice = T.insertColumn(T.insertColumn(t, 3, true), 4, true);
+  assert.deepEqual(twice.rows[0].slice(3), ["Column 4", "Column 5", "Column 6"]);   // the screenshot of #n406: no second "Column 4"
+  const gap = T.parse(L("| Column 7 | x |", "| --- | --- |", "| | |"));
+  assert.equal(T.insertColumn(gap, 1, true).rows[0][2], "Column 8");
+  const named = T.parse(L("| name | qty | Column 2 |", "| --- | --- | --- |", "| | | |"));
+  assert.equal(T.insertColumn(named, 0, true).rows[0][1], "Column 3");
+  assert.equal(T.insertColumn(base(), 1, true).rows[0][2], "Column 3");   // a, b: the count + 1
+});
+
+test("applyOp and apply give every new column a fresh header, several selected columns get consecutive numbers", () => {
+  const t = T.parse(L("| Column 1 | Column 2 | Column 3 | Column 4 |", "| --- | --- | --- | --- |", "| | | | |"));
+  const one = T.applyOp(t, { r0: 1, c0: 3, r1: 1, c1: 3 }, "insertColumnRight");
+  assert.deepEqual(one.table.rows[0], ["Column 1", "Column 2", "Column 3", "Column 4", "Column 5"]);
+  const two = T.applyOp(t, { r0: 1, c0: 1, r1: 1, c1: 2 }, "insertColumnLeft");
+  assert.deepEqual(two.table.rows[0], ["Column 1", "Column 5", "Column 6", "Column 2", "Column 3", "Column 4"]);
+  const doc = T.format(t);
+  const r = T.apply(doc, doc.indexOf("Column 4"), "insertColumnRight");
+  assert.equal(r.text.split("\n")[0], "| Column 1 | Column 2 | Column 3 | Column 4 | Column 5 |");
+});
+
+test("the ribbon has no move buttons: its operations are insert, delete, align, sort and the mode switch", () => {
+  const ops = T.ribbon.filter(b => b !== "|").map(b => b[0]);
+  assert.deepEqual(ops, ["insertRowAbove", "insertRowBelow", "insertColumnLeft", "insertColumnRight", "deleteRow", "deleteColumn",
+    "align:left", "align:center", "align:right", "sortAsc", "sortDesc", "mode"]);
+  assert.equal(ops.some(o => o.startsWith("move")), false);
+  assert.equal(T.ribbon.some(b => b !== "|" && /[↑↓←→]/.test(b[1] ?? "")), false);
+});
+
+test("the moves stay as operations for the grid's Alt+arrow keys", () => {
+  assert.deepEqual(T.altMove("ArrowUp"), "moveRowUp");
+  assert.deepEqual(T.altMove("ArrowDown"), "moveRowDown");
+  assert.deepEqual(T.altMove("ArrowLeft"), "moveColumnLeft");
+  assert.deepEqual(T.altMove("ArrowRight"), "moveColumnRight");
+  assert.equal(T.altMove("a"), null);
 });
 
 test("delete row removes the caret row; the header cannot be deleted", () => {

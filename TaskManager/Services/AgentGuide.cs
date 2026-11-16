@@ -303,7 +303,7 @@ public static class AgentGuide
 
         - Validate before you stop: `npx -y @fission-ai/openspec@{{WorkItemsApi.OpenSpecCliVersion}} validate <change-name> --strict`.
         - A wrong heading (section 3) or a MODIFIED block that lacks a scenario the main spec has since gained makes the item invalid. The app repairs both when the user completes the item, but until then every reader of the item sees it wrong: get it right when you write it.
-        - Statuses: {{string.Join(", ", WorkItemsApi.Statuses)}}. `Completed` means archived: archive with the OpenSpec CLI (`openspec archive <change-name> --yes`), never set it by hand.
+        - Statuses: {{string.Join(", ", WorkItemsApi.Statuses)}} unless the project lists its own under `x-rtm.statuses` in `openspec/config.yaml` (Backlog, In Progress and Completed are always there; the tools' error names the project's list). `Completed` means archived: archive with the OpenSpec CLI (`openspec archive <change-name> --yes`), never set it by hand.
         - Keep `x-rtm` keys, comments and formatting you did not change. Lists stay on one line: `features: [a, b]`. A work item has one feature.
         - Quote a value that contains `:` or `#`, or that starts with a special character (`-`, `*`, `&`, `!`, `[`, `{`, `"`, `'`, `%`, `@`), or that is `yes`, `no`, `null` or a number: `title: "Fix: the thing"`. An unquoted one is not valid YAML; the app reads the common cases as text and quotes them on its next save, but the OpenSpec CLI does not.
         - Subtasks keep their `1.1`, `1.2`… numbers; add new ones at the end of their group.

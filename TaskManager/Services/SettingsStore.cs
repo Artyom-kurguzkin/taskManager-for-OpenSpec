@@ -16,7 +16,8 @@ public sealed record AppSettings(
     List<string>? CollapsedProjects = null,   // tabs folded to their heading on the board (by Key)
     Dictionary<string, string>? PlansDirs = null,   // old layout only: where plans live, per repository (by Key); missing = DevResources/plans. A project with a files folder keeps them in <filesDir>/plans
     Dictionary<string, string>? AttachmentsDirs = null,   // only what this computer had saved before the folder became a project setting (openspec/config.yaml); read until the project has one, cleared when it is saved there
-    bool Split = true);                // an open work item sits beside the list (half-screen) when the window is wide enough
+    bool Split = true,                 // an open work item sits beside the list (half-screen) when the window is wide enough
+    List<string>? OpenMenuSections = null);   // the side menu's Organise / Filters / Hidden sections the user opened (all folded until then); per user, not per project
 
 /// <summary>
 /// Per-user, per-computer settings in one JSON file (AppData/RepoTaskManager/settings.json by default): the theme, the name, and everything the user arranged for each project
@@ -154,6 +155,8 @@ public sealed class SettingsStore
     public bool ProjectHidden(string repo) => Current.HiddenProjects?.Contains(Key(repo)) ?? false;
     public bool ProjectCollapsed(string repo) => Current.CollapsedProjects?.Contains(Key(repo)) ?? false;
     public void ToggleProjectHidden(string repo) => Update(s => s with { HiddenProjects = Toggle(s.HiddenProjects, Key(repo)) });
+    public bool MenuSectionOpen(string section) => Current.OpenMenuSections?.Contains(section) ?? false;
+    public void ToggleMenuSection(string section) => Update(s => s with { OpenMenuSections = Toggle(s.OpenMenuSections, section) });
     public void ToggleProjectCollapsed(string repo) => Update(s => s with { CollapsedProjects = Toggle(s.CollapsedProjects, Key(repo)) });
     /// <summary>The repository-relative folder that holds plans, as it is written into the agent guide (forward slashes, no trailing slash).</summary>
     public const string DefaultPlansDir = "DevResources/plans";

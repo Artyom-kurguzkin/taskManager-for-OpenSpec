@@ -27,7 +27,8 @@ public sealed partial class BoardTools
     // ponytail: one global lock; per-repo locks if agents ever queue behind each other
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    private static readonly string[] CreateStatuses = ["Backlog", "Planned", "Confirmed", "In Progress"];
+    /// <summary>The statuses a new item can start in: the project's own, except the ones that mean blocked, in review or done.</summary>
+    private static string[] CreateStatuses => [.. WorkItemsApi.GetStatuses().Where(s => s is not ("Blocked" or "In Review" or "Completed"))];
     private static readonly string[] Priorities = ["high", "low"];
 
     private const string RepoHelp = "Any path inside the repository or a git worktree of it; the folder holding openspec/ is found by walking up. Default: the RTM_REPO environment variable, else the server's working directory.";
@@ -40,7 +41,7 @@ public sealed partial class BoardTools
     [McpServerTool(Name = "board_list", ReadOnly = true, UseStructuredContent = true)]
     [Description("List work items, filtered, ordered by id. Concise rows: id, title, status, feature, label, revision. Page with `after` (the last id of the previous page); `nextAfter` in the result says there is more.")]
     public Task<ListResult> BoardList(
-        [Description("Only these statuses (Backlog, Planned, Confirmed, In Progress, Blocked, In Review, Completed).")] string[]? status = null,
+        [Description("Only these statuses (by default Backlog, Planned, Confirmed, In Progress, Blocked, In Review, Completed; a project can have its own list).")] string[]? status = null,
         [Description("Only items in this feature (capability path, like functional/banking).")] string? feature = null,
         [Description("Only this label: bug, feature or enhancement.")] string? label = null,
         [Description("Only items this person or agent contributes to.")] string? contributor = null,
@@ -168,7 +169,7 @@ public sealed partial class BoardTools
         [Description("What changes, in markdown, usually a bullet list (the proposal's What Changes).")] string whatChanges,
         [Description("The feature (capability) this belongs to; see board_features. One per item.")] string? feature = null,
         [Description("bug, feature or enhancement.")] string? label = null,
-        [Description("Backlog (default), Planned, Confirmed or In Progress. Use In Progress when you start now.")] string status = "Backlog",
+        [Description("Backlog (default), Planned, Confirmed or In Progress, or another status of the project's own list. Use In Progress when you start now.")] string status = "Backlog",
         [Description("high or low (default low).")] string? priority = null,
         [Description("Repo-relative path of the plan file you wrote, in the project's plans folder (named in openspec/REPO-TASKS.md), like DevResources/plans/name-2026-11-09.md.")] string? plan = null,
         [Description("Ids of the work items this one waits for.")] int[]? dependsOn = null,
@@ -245,7 +246,7 @@ public sealed partial class BoardTools
         [Description("The work item number (the N of #wiN).")] int id,
         [Description(RevisionHelp)] string? revision = null,
         [Description("New title.")] string? title = null,
-        [Description("Backlog, Planned, Confirmed, In Progress, Blocked or In Review. Not Completed.")] string? status = null,
+        [Description("Backlog, Planned, Confirmed, In Progress, Blocked or In Review, or another status of the project's own list (an unknown one is refused with the list). Not Completed.")] string? status = null,
         [Description("high or low.")] string? priority = null,
         [Description("bug, feature or enhancement; empty string removes it.")] string? label = null,
         [Description("Move the item to this feature (capability path); empty string removes it from its feature.")] string? feature = null,
@@ -278,7 +279,7 @@ public sealed partial class BoardTools
             WorkItem item = Item(id);
             if (WorkItemsApi.CheckRevision(id, revision) is (false, string stale)) throw new McpException(stale);
             if (status == "Completed") throw new McpException("Completed means archived, and the user archives from the app: set In Review when the work is done.");
-            if (status is not null && !WorkItemsApi.Statuses.Contains(status)) throw new McpException($"Unknown status \"{status}\": use {string.Join(", ", WorkItemsApi.Statuses.Where(s => s != "Completed"))}.");
+            if (status is not null && !WorkItemsApi.GetStatuses().Contains(status)) throw new McpException($"Unknown status \"{status}\" in this project: use {string.Join(", ", WorkItemsApi.GetStatuses().Where(s => s != "Completed"))}.");
             CheckPriority(priority);
             CheckLabel(label);
             DateOnly? startedDay = Day(started, "started"), dueDay = Day(due, "due");

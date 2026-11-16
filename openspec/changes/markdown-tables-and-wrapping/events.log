@@ -42,3 +42,14 @@
 2026-11-11T10:23:50 | Claude grid | log | Suite after fix: 591 passed, 2 failed of 593 (DropSetsColumnAndRowFields + one more, board tests unrelated to the editor; machine under load, 6m24s). Re-running with a trx to name them.
 2026-11-11T10:28:04 | Claude grid | log | Done: results after fix all kept (8/8). Node 38 pass. Fast suite 592/593: "Several Changed events in one frame reload a page once more" fails (10 reloads vs 1-2), a C# coalescing test I did not touch; fails alone too. Shots gridfix-*.png in tests/out/shots.
 2026-11-12T05:11:57 | Claude | status | In Progress -> In Review
+2026-11-16T07:23:17 | Artyom-kurguzkin | attachment-added | n406: pasted-20261116-072317.png
+2026-11-16T07:25:21 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T08:15:36 | Claude chunk table | subtask-added | 1.4 Grid ribbon without the move group (Alt+arrow moves instead); a new column gets a fresh Column N header (from note n406)
+2026-11-16T08:16:29 | Claude chunk table | status | In Progress -> In Review
+2026-11-16T08:16:31 | Claude chunk table | subtask-done | 1.4 Grid ribbon without the move group (Alt+arrow moves instead); a new column gets a fresh Column N header (from note n406)
+2026-11-16T08:22:30 | Claude | log | Integrated the table chunk into main (md-table.js, md-editor.js, tests/md-table.test.mjs). Clean rebuild, one suite run: Passed 1021, Failed 0. Shots tests/out/shots/table-*.png.
+2026-11-16T10:41:49 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T10:41:50 | Artyom-kurguzkin | status | In Progress -> Blocked
+2026-11-16T10:41:51 | Artyom-kurguzkin | status | Blocked -> Planned
+2026-11-16T10:43:14 | Artyom-kurguzkin | subtask-added | 1.5 move feature to window manager app #n449
+2026-11-16T10:43:14 | Artyom-kurguzkin | converted | note #n449 -> subtask 1.5

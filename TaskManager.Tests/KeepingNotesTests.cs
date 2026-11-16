@@ -636,7 +636,7 @@ public sealed class KeepingNotesTests
         (bool ok, string message, string number) = NotesApi.ConvertToSubtask(123);
         Assert.True(ok, message);
         Assert.Equal("2.2", number);
-        Assert.Equal("Ping test", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
+        Assert.Equal("Ping test #n123", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
         Assert.NotNull(NotesApi.Get(123));
         Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == "note #n123 -> subtask 2.2");
 
@@ -645,18 +645,48 @@ public sealed class KeepingNotesTests
         Assert.True(NotesApi.SaveBody(plain, "\n\n## - [ ] " + new string('x', 300) + "\nsecond line\n").Success);
         (ok, message, number) = NotesApi.ConvertToSubtask(plain);
         Assert.True(ok, message);
-        Assert.Equal(new string('x', 200), WorkItemsApi.Get(123)!.Subtasks[^1].Text);
+        Assert.Equal(new string('x', 200) + $" #n{plain}", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
         Assert.NotNull(NotesApi.Get(plain));
 
         (bool _, string _, int decision) = NotesApi.Create(123, "Tom", DateTime.Now, NoteKinds.Decision);
         Assert.True(NotesApi.SaveBody(decision, "- Keep it simple\n").Success);
         Assert.True(NotesApi.ConvertToSubtask(decision).Success);
-        Assert.Equal("Keep it simple", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
+        Assert.Equal($"Keep it simple #n{decision}", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
 
         // nothing to make a subtask of: refused, and the note stays
         (bool _, string _, int empty) = NotesApi.Create(123, "Tom", DateTime.Now);
         Assert.False(NotesApi.ConvertToSubtask(empty).Success);
         Assert.NotNull(NotesApi.Get(empty));
+    }
+
+    [Fact(DisplayName = "Converting a note to a subtask keeps the note and its body, and the subtask line refers to it")]
+    public void ConvertingKeepsTheBodyAndRefersToIt()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int note) = NotesApi.Create(123, "Tom", DateTime.Now);
+        Assert.True(NotesApi.SetTitle(note, "cr").Success);
+        Assert.True(NotesApi.SaveBody(note, "When a subtask is being moved to a separate work item, add a log in the feed\n").Success);
+        string noteFile = $"openspec/changes/add-health-check/notes/n{note}.md";
+        string file = repo.Read(noteFile);
+
+        (bool ok, string message, string number) = NotesApi.ConvertToSubtask(note);
+
+        Assert.True(ok, message);
+        Assert.Equal(file, repo.Read(noteFile));   // the note, with its body, is not touched
+        Assert.Contains("add a log in the feed", NotesApi.Get(note)!.Body);
+        string line = WorkItemsApi.Get(123)!.Subtasks.Single(s => s.Number == number).Text;
+        Assert.Equal($"cr #n{note}", line);
+        Assert.Equal(("cr", (int?)note), NotesApi.SubtaskReference(line));
+        Assert.Equal(("plain text #n", (int?)null), NotesApi.SubtaskReference("plain text #n"));
+        Assert.Equal(("two #n1 refs", (int?)7), NotesApi.SubtaskReference("two #n1 refs #n7"));
+        Assert.Contains(note, NotesApi.PromotedNotes(123));
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"note #n{note} -> subtask {number}");
+
+        // the reference follows the subtask when the numbers move: the note is still promoted after the subtask above it goes
+        Assert.Equal("2.2", number);
+        Assert.True(WorkItemsApi.RemoveSubtask(123, "2.1").Success);   // the new subtask is 2.1 now, and the converted event still says 2.2
+        Assert.Contains(note, NotesApi.PromotedNotes(123));
     }
 
     [Fact(DisplayName = "Converting a subtask to a note or a decision creates it from the subtask's text, dated now and by the given person, and keeps the subtask")]
@@ -704,7 +734,7 @@ public sealed class KeepingNotesTests
         Assert.Equal(before, NotesApi.Get(123));
         Assert.True(File.Exists(Path.Combine(repo.Root, before.Attachments.Single(a => !a.StartsWith("http")))));
         Assert.Equal(subtasks + 1, WorkItemsApi.Get(123)!.Subtasks.Count);
-        Assert.Equal("Ping test", WorkItemsApi.Get(123)!.Subtasks.Single(s => s.Number == number).Text);
+        Assert.Equal("Ping test #n123", WorkItemsApi.Get(123)!.Subtasks.Single(s => s.Number == number).Text);
         Assert.Equal(["note #n123 -> subtask " + number], WorkItemsApi.GetEvents(123).Where(e => e.Kind == "converted").Select(e => e.Text));
         Assert.Equal([123], NotesApi.PromotedNotes(123));
         Assert.False(NotesApi.ConvertToSubtask(123).Success);   // already promoted: no second subtask

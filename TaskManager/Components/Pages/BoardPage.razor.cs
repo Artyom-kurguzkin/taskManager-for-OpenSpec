@@ -18,7 +18,7 @@ public partial class BoardPage
 
     /// <summary>One open repository on the board: its items and features, and the columns they fall into under the current options.</summary>
     private sealed record Project(string Root, string Name, IReadOnlyList<WorkItem> Items, IReadOnlyList<Feature> Features,
-        IReadOnlyDictionary<string, string> Names, IReadOnlyList<BoardSection> Sections, IReadOnlyDictionary<string, string> Colours)
+        IReadOnlyDictionary<string, string> Names, IReadOnlyList<BoardSection> Sections, IReadOnlyDictionary<string, string> Colours, IReadOnlyList<string> Statuses)
     {
         public IEnumerable<(string? Category, BoardColumn Column)> Flat => Sections.SelectMany(s => s.Columns.Select(c => (s.Category, c)));
     }
@@ -42,15 +42,58 @@ public partial class BoardPage
         if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) return;
         selected.Clear();   // projects, rows or cards, never mixed: the arrow keys move one kind
         selectedRows.Clear();
+        selectedColumns.Clear();
         Toggle(selectedProjects, root);
     }
 
     /// <summary>A plain click on the board or list (not on a project heading) lets go of the selected projects and rows.</summary>
     private void BackgroundClick(MouseEventArgs e)
     {
+        bool onItem = itemClicked;   // the click came up from a card or row: it examined or opened it, so it is not "somewhere else"
+        itemClicked = false;
         if (e.ShiftKey || e.CtrlKey || e.MetaKey) return;
         selectedProjects.Clear();
         selectedRows.Clear();
+        if (!onItem) Popups.Examine(null);
+        selectedColumns.Clear();
+    }
+
+    private readonly HashSet<string> selectedColumns = [];   // status column headers Shift-clicked in the shared header row (their keys), to merge
+
+    /// <summary>Shift / Ctrl / ⌘-click on a status column's header selects it (a plain click opens its menu); "Merge" in the menu then folds the selected ones into one column.</summary>
+    private void ColumnClick(string key, MouseEventArgs e)
+    {
+        if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) return;
+        selected.Clear();   // columns, projects, rows or cards, never mixed
+        selectedProjects.Clear();
+        selectedRows.Clear();
+        Toggle(selectedColumns, key);
+    }
+
+    /// <summary>The columns of the shared header row, in the order shown.</summary>
+    private List<string> HeadColumns => projects.Count == 0 ? [] : [.. projects[0].Sections[0].Columns.Select(c => c.Key)];
+
+    /// <summary>"Merge" on a selected header: the selected columns become one, called after the first of them unless another name is typed. Saved with the board, in the user's settings.</summary>
+    private async Task MergeSelected()
+    {
+        List<string> picked = [.. HeadColumns.Where(selectedColumns.Contains)];   // in column order; taken before the dialog, as a click elsewhere lets go of the selection
+        if (picked.Count < 2) return;
+        if (await Popups.Prompt("Merge columns", picked[0], "Merge", picked[0]) is not string name || name.Trim().Length == 0) return;
+        selectedColumns.Clear();
+        Set(BoardModel.Merge(O, picked, name));
+    }
+
+    /// <summary>"Merge with Completed": the column and every column that looks like it (case, spaces, dashes) in one click, named after the fixed status.</summary>
+    private void MergeLookAlikes((string Fixed, IReadOnlyList<string> Columns) look)
+    {
+        selectedColumns.Clear();
+        Set(BoardModel.Merge(O, look.Columns, look.Fixed));
+    }
+
+    private void Unmerge(string name)
+    {
+        selectedColumns.Remove(name);
+        Set(BoardModel.Unmerge(O, name));
     }
 
     private readonly HashSet<string> selectedRows = [];   // swimlane headers Shift-clicked (BoardModel.RowKey), to move with the arrow keys
@@ -64,6 +107,7 @@ public partial class BoardPage
         if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) return;   // a plain click is the board's (BackgroundClick): it lets go
         selected.Clear();
         selectedProjects.Clear();
+        selectedColumns.Clear();
         Toggle(selectedRows, key);
     }
 
@@ -132,6 +176,8 @@ public partial class BoardPage
     {
         base.OnInitialized();
         Settings.Changed += OnSettings;
+        Popups.ExamineChanged += OnExamineChanged;
+        Nav.LocationChanged += OnLocation;
         if (Workspace.ViewRoot is string root) O = Settings.Board(root);
         projectState = ProjectState;
     }
@@ -156,19 +202,23 @@ public partial class BoardPage
 
     protected override void Load()
     {
-        projects = Workspace.Projects.Where(r => O.ShowHidden || !Settings.ProjectHidden(r)).Select(r => Workspace.In(r, () =>
-        {
-            IReadOnlyList<WorkItem> items = WorkItemsApi.GetAll(includeHidden: O.ShowHidden);
-            IReadOnlyList<Feature> features = FeaturesApi.GetAll();
-            return new Project(r, Path.GetFileName(r), items, features, Workspace.FeatureNames, BoardModel.Build(items, features, WorkItemsApi.GetLanes(), Opt), BoardModel.ColourMap(O.ColorBy, items, features));
-        })).ToList();
+        List<string> roots = [.. Workspace.Projects.Where(r => O.ShowHidden || !Settings.ProjectHidden(r))];
+        var read = roots.Select(r => Workspace.In(r, () => (Items: WorkItemsApi.GetAll(includeHidden: O.ShowHidden), Features: FeaturesApi.GetAll(), Names: Workspace.FeatureNames,
+            Lanes: WorkItemsApi.GetLanes(), Statuses: WorkItemsApi.GetStatuses()))).ToList();
+        // the status columns: each project's own list, or with several projects the union of their lists with the user's merges folded in
+        IReadOnlyList<FieldValue> statusColumns = BoardModel.StatusColumns(read.Select(x => x.Statuses), roots.Count > 1 ? O.Merges : null);
+        projects = roots.Select((r, n) => new Project(r, Path.GetFileName(r), read[n].Items, read[n].Features, read[n].Names,
+            BoardModel.Build(read[n].Items, read[n].Features, read[n].Lanes, Opt, null, statusColumns), BoardModel.ColourMap(O.ColorBy, read[n].Items, read[n].Features), read[n].Statuses)).ToList();
+        selectedColumns.RemoveWhere(k => !HeadColumns.Contains(k));
         selected.RemoveWhere(s => !projects.Any(p => p.Root == s.Root && p.Items.Any(i => i.Id == s.Id)));
+        cachedFor = null;   // the examined item's neighbours are read again
+        if (!Embedded && Popups.Examined is (string xr, int xi) && !projects.Any(p => p.Root == xr && p.Items.Any(i => i.Id == xi))) Popups.Examine(null);
         selectedProjects.RemoveWhere(r => !Multi || !projects.Any(p => p.Root == r));
         selectedRows.RemoveWhere(k => !projects.Any(p => p.Sections.Any(s => RowKeys(s).Contains(k))));   // a hidden row, or another row field
         rows = [.. projects.SelectMany((p, n) => BoardModel.Rows(p.Sections, p.Names, p.Root, p.Name, n * 1000))];
         groups = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => (g.First().Column, g.First().Category, g.First().Root));
         if (gridSettings is null && O.ListSettings is string json)
-            try { gridSettings = System.Text.Json.JsonSerializer.Deserialize<DataGridSettings>(json); } catch (System.Text.Json.JsonException) { }
+            try { gridSettings = System.Text.Json.JsonSerializer.Deserialize<DataGridSettings>(json); ForgetVisibility(gridSettings); } catch (System.Text.Json.JsonException) { }
         if (grid is null) FillGroups();   // before the grid's first render: grouped from the start, not flat first and regrouped after it (a second pass over every row)
         if (grid is null && gridSettings is not null) gridSettings.Groups = [.. groupDescriptors];   // the grouping saved with the settings was made for the projects open then; the grid would apply it over this one (a column group where a project group is expected stops the page)
     }
@@ -198,7 +248,8 @@ public partial class BoardPage
 
     // ── Calendar view: the Roadmap component draws the board's columns as groups, or the rows with the columns inside them ──
     private IReadOnlyList<RoadmapSource> RoadmapProjects => projects.Select(p => new RoadmapSource(p.Root, p.Name, p.Sections, p.Colours)).ToList();
-    private void OpenFrom((string Root, int Id) at) => OpenItem(ProjectOf(at.Root), at.Id);
+    private void OpenFrom((string Root, int Id) at) => ItemClick(ProjectOf(at.Root), at.Id);
+    private void CalendarBackground() { if (!itemClicked) Popups.Examine(null); itemClicked = false; }
 
     // ── Analytics view: the Analytics component charts the active project's items (after the contributor, agent and period filters) ──
     private IReadOnlyList<WorkItem> AnalyticsItems => Active is { } p ? BoardModel.Filtered(p.Items, O) : [];
@@ -219,7 +270,7 @@ public partial class BoardPage
     /// <summary>A column is shown unless hidden by the user, or it repeats what the rows are grouped by.</summary>
     private static string Day(DateTime? d) => d is { } v ? v.ToString("d MMM") : "";
 
-    private bool Shown(string column) => !BoardModel.Concealed(O,BoardModel.ListColumnKey(column)) && column != BoardModel.GroupedColumn(Opt) && column != BoardModel.SwimColumn(Opt);
+    private bool Shown(string column) => !BoardModel.Concealed(O,BoardModel.ListColumnKey(column)) && (column == "Status" || (column != BoardModel.GroupedColumn(Opt) && column != BoardModel.SwimColumn(Opt)));   // Status always stays: the organising operators work on it
 
     // Asks what the grid is grouped by, not Multi: after the project list changes, the grid renders once with its old group
     // descriptors (OnAfterRenderAsync swaps them), and a group keyed by column read as a project group throws a cast in the render.
@@ -261,11 +312,13 @@ public partial class BoardPage
         }
         args.Attributes["data-id"] = it.Id;
         args.Attributes["data-row"] = row.Key;
-        args.Attributes["style"] = $"--band:var({BoardModel.ColourOf(it, O.ColorBy, null, p.Colours)})";   // the row's colour stripe (app.css), as a card's band
+        args.Attributes["style"] = $"--band:var({BoardModel.ColourOf(it, O.ColorBy, null, p.Colours)})";   // the row's colour (app.css), as a card's band
+        if (O.ColorBy != "none") args.Attributes["data-tint"] = "";   // a wash of it over the whole row
         if (Embedded && Current == it.Id && IsActive(p)) args.Attributes["class"] = "cur";
         if (selected.Contains((p.Root, it.Id))) args.Attributes["data-selected"] = "";
         if (it.Hidden) args.Attributes["data-hidden"] = "";
-        args.Attributes["onclick"] = EventCallback.Factory.Create<MouseEventArgs>(this, e => { if (e.ShiftKey || e.CtrlKey || e.MetaKey) ToggleSelect(p, it); });   // the board's select click, anywhere on the row
+        if (ExamineClass(p, it.Id) is string xc) { args.Attributes["class"] = (args.Attributes.TryGetValue("class", out object? cls) ? cls + " " : "") + xc; if (xc == "ex-on") args.Attributes["data-examined"] = ""; }
+        args.Attributes["onclick"] = EventCallback.Factory.Create<MouseEventArgs>(this, e => { if (e.ShiftKey || e.CtrlKey || e.MetaKey) ToggleSelect(p, it); else RowItemClick(p, it.Id); });   // the board's select click, anywhere on the row
         args.Attributes["ondragstart"] = EventCallback.Factory.Create<DragEventArgs>(this, () => StartCardDrag(p, it, row.Column.Key, SwimOf(row)));
         args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => DropBefore(p, row.Column, it, SwimOf(row)));
     }
@@ -334,8 +387,16 @@ public partial class BoardPage
         if (grid.IsRowExpanded(row)) await grid.CollapseRows([row]); else await grid.ExpandRow(row);
     }
 
+    /// <summary>Which columns show is the page's own (Shown, from the grouping and the user's hides): a visibility the grid saved with its layout would keep a column hidden after the grouping that dropped it is gone, so the saved one is brought to what Shown says now.</summary>
+    private void ForgetVisibility(DataGridSettings? settings)
+    {
+        foreach (DataGridColumnSettings c in settings?.Columns ?? [])
+            c.Visible = c.Property is not string prop || Shown(prop switch { "Id" => "ID", "Modified" => "Updated", "Moved" => "In status since", _ => prop });
+    }
+
     private void SaveGridSettings(DataGridSettings settings)
     {
+        ForgetVisibility(settings);
         gridSettings = settings;
         O = O with { ListSettings = System.Text.Json.JsonSerializer.Serialize(settings) };
         if (Workspace.ViewRoot is string root) Settings.SaveBoard(root, O);   // no Load: nothing on the board changed
@@ -377,8 +438,49 @@ public partial class BoardPage
     private void CardClick(Project p, WorkItem it, MouseEventArgs e)
     {
         if (e.ShiftKey || e.CtrlKey || e.MetaKey) ToggleSelect(p, it);
-        else OpenItem(p, it.Id);
+        else ItemClick(p, it.Id);
     }
+
+    // ── Examine: with the side menu expanded a click on a card or row looks at the item (its metadata fills the menu), a second click opens it ──
+
+    private bool itemClicked;   // a plain click on an item is on its way up to the board's BackgroundClick, which must not let go of it
+
+    /// <summary>A plain click on a work item: opens it, or with the menu expanded examines it first (the split view's list keeps opening at once).</summary>
+    private void ItemClick(Project p, int id)
+    {
+        itemClicked = true;
+        if (Embedded || !Popups.MenuExpanded || Popups.Examined == (p.Root, id)) OpenItem(p, id);
+        else Popups.Examine((p.Root, id));
+    }
+
+    /// <summary>A plain click anywhere on a list row that its title button did not take: examines the row's item when another one is examined.</summary>
+    private void RowItemClick(Project p, int id)
+    {
+        if (itemClicked) return;
+        itemClicked = true;
+        if (!Embedded && Popups.MenuExpanded && Popups.Examined != (p.Root, id)) Popups.Examine((p.Root, id));
+    }
+
+    private (string Root, int Id)? cachedFor;
+    private HashSet<int> waitingOnIt = [], itWaitsOn = [];
+
+    /// <summary>The look of an item while one is examined: ex-on (yellow shadow), ex-waits (red: it waits on the examined item), ex-needs (blue: the examined item waits on it).</summary>
+    private string? ExamineClass(Project p, int id)
+    {
+        if (Popups.Examined is not (string root, int examined) || root != p.Root) return null;
+        if (cachedFor != Popups.Examined)
+        {
+            cachedFor = Popups.Examined;
+            WorkItem? item = p.Items.FirstOrDefault(i => i.Id == examined);
+            itWaitsOn = [.. item?.DependsOn ?? []];
+            waitingOnIt = [.. p.Items.Where(i => i.DependsOn?.Contains(examined) == true).Select(i => i.Id)];
+        }
+        return id == examined ? "ex-on" : waitingOnIt.Contains(id) ? "ex-waits" : itWaitsOn.Contains(id) ? "ex-needs" : null;
+    }
+
+    private string? ExamineOf(string root, int id) => ExamineClass(ProjectOf(root), id);
+    private void OnExamineChanged() { cachedFor = null; InvokeAsync(StateHasChanged); }
+    private void OnLocation(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => Popups.Examine(null);   // navigating away lets go
 
     /// <summary>The agent chip on a card or row: the user has looked, so the item and its agent subtasks stop being flagged.</summary>
     private void ReviewItem(Project p, WorkItem it)
@@ -396,6 +498,7 @@ public partial class BoardPage
     {
         selectedProjects.Clear();
         selectedRows.Clear();
+        selectedColumns.Clear();
         Toggle(selected, (p.Root, it.Id));
     }
 
@@ -491,6 +594,11 @@ public partial class BoardPage
         if (p is null || col is null) { Popups.Toast("Select cards in one column to move them with the arrow keys", ToastKind.Info); return; }
         List<int> ids = col.Items.Select(i => i.Id).ToList();
         bool Picked(int id) => selected.Contains((p.Root, id));
+        if (Math.Abs(dir) == 1 && View == "list" && BoardModel.EdgeMove(columns, col, ids.Where(Picked).ToList(), dir) is { } edge)   // the list: at the group's edge the rows move on into the neighbouring group, as a drop there
+        {
+            await Land(p, col.Items.Where(i => Picked(i.Id)).Select(i => (i, col.Key, (string?)null)), edge.Column, edge.Before);
+            return;
+        }
         if (Math.Abs(dir) == 1) { Set(BoardModel.Step(O, ids, ids.Where(Picked).ToList(), dir)); return; }
 
         int to = columns.IndexOf(col) + Math.Sign(dir);
@@ -542,8 +650,27 @@ public partial class BoardPage
             case "due" or "started":
                 Popups.Toast("A due or start period can't be set by dropping; change the date on the work item", ToastKind.Info);
                 return false;
-            default: return await SetStatus(p, it, value);
+            default:
+                string? status = await StatusIn(p, value);
+                return status is not null && await SetStatus(p, it, status);
         }
+    }
+
+    /// <summary>
+    /// The status a status column stands for in a project: its own name, or for a merged column the one of the merge's statuses the project has (asked when it has
+    /// several). Null, with a message, when the project has none, or when the user backs out. Without a project (the open one) the column's name.
+    /// </summary>
+    private async Task<string?> StatusIn(Project? p, string columnKey)
+    {
+        if (p is null) return columnKey;
+        IReadOnlyList<string> options = BoardModel.StatusesFor(O, p.Statuses, columnKey);
+        if (options.Count == 1) return options[0];
+        if (options.Count == 0)
+        {
+            Popups.Toast($"{p.Name} has no \"{columnKey}\" status", ToastKind.Info);
+            return null;
+        }
+        return await Popups.Choose($"Which status in {p.Name}?", $"{p.Name} has {options.Count} of the merged statuses.", [.. options.Select(s => (s, s))]);
     }
 
     /// <summary>In a project's column, or (the shared header row) in the project the user picks.</summary>
@@ -554,7 +681,12 @@ public partial class BoardPage
             if (await Workspace.PickProject("New work item in…") is not string root) return;
             p = ProjectOf(root);
         }
-        string status = Opt.GroupBy == "status" && columnKey is not null ? columnKey : "Backlog";
+        string status = "Backlog";
+        if (Opt.GroupBy == "status" && columnKey is not null)
+        {
+            if (await StatusIn(p, columnKey) is not string chosen) return;
+            status = chosen;
+        }
         string[]? feature = Opt.GroupBy == "feature" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
         string[]? who = Opt.GroupBy == "contributor" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
         (bool ok, string message, int id) = Workspace.CreateItem(status, feature, who, p?.Root);
@@ -636,5 +768,7 @@ public partial class BoardPage
     {
         base.Dispose();
         Settings.Changed -= OnSettings;
+        Popups.ExamineChanged -= OnExamineChanged;
+        Nav.LocationChanged -= OnLocation;
     }
 }

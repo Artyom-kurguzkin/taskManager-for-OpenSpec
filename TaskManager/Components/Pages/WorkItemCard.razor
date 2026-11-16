@@ -4,7 +4,7 @@
 @inject TaskManager.Services.Workspace Workspace
 
 @* data-id: the drag script (wwwroot/js/app.js) animates cards from their old to their new place by it *@
-<article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @(Item.Hidden ? "hidden-item" : "")" data-sk data-id="@Item.Id"
+<article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @(Item.Hidden ? "hidden-item" : "") @Examine" data-sk data-id="@Item.Id" data-examined="@(Examine == "ex-on" ? "" : null)"
          @ondragstart="() => OnDragStart.InvokeAsync(Item)" @onclick="OnClick"
          @ondrop="() => OnDrop.InvokeAsync(Item)" @ondrop:stopPropagation="true">
     <span class="band" style="--band:var(@BoardModel.ColourOf(Item, Options.ColorBy, null, Colours))">@Item.Title</span>
@@ -40,6 +40,8 @@
     [Parameter, EditorRequired] public WorkItem Item { get; set; } = default!;
     [Parameter, EditorRequired] public BoardOptions Options { get; set; } = default!;
     [Parameter] public bool Selected { get; set; }
+    /// <summary>While an item is examined: ex-on (this one), ex-waits (it waits on the examined one), ex-needs (the examined one waits on it); the shadows are in app.css.</summary>
+    [Parameter] public string? Examine { get; set; }
     [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
     [Parameter] public EventCallback<WorkItem> OnDragStart { get; set; }
     [Parameter] public EventCallback<WorkItem> OnDrop { get; set; }   // another card dropped onto this one

@@ -15,9 +15,11 @@ else
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
     /// <summary>Shown but not editable (an archived item's status).</summary>
     [Parameter] public bool ReadOnly { get; set; }
+    /// <summary>The statuses to offer (a status pill): the project of the item shown. Without it the open project's own list.</summary>
+    [Parameter] public IReadOnlyList<string>? Statuses { get; set; }
 
     private Func<string, string> Colour => Kind switch { "label" => Ui.LabelColor, "priority" => Ui.PriorityColor, _ => Ui.Band };
-    private IReadOnlyList<(string Value, string Label)> Options => Kind switch { "label" => Ui.LabelOptions, "priority" => Ui.PriorityOptions, _ => Ui.StatusOptions };
+    private IReadOnlyList<(string Value, string Label)> Options => Kind switch { "label" => Ui.LabelOptions, "priority" => Ui.PriorityOptions, _ => (Statuses ?? WorkItems.WorkItemsApi.GetStatuses()).Select(s => (s, s)).ToList() };
     private string Fill => $"--fill:var({Colour(Value)})";
     private string Text => Options.FirstOrDefault(o => o.Value == Value).Label ?? Value;
 }

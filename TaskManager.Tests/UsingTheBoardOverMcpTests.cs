@@ -1006,4 +1006,33 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
         Assert.Contains("There is no subtask 9.9", unknownText);
         Assert.Equal(2, WorkItemsApi.Get(107)!.Subtasks.Count);
     }
+
+    [Fact(DisplayName = "The MCP tools use the project's statuses: board_update names them when it refuses one, and board_create and board_update accept one the project added")]
+    public async Task ToolsUseTheProjectsStatuses()
+    {
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.True(WorkItemsApi.AddStatus("Review ready").Success);
+        Assert.True(WorkItemsApi.RemoveStatus("Confirmed").Success);
+
+        await Ok("board_update", new() { ["id"] = 107, ["status"] = "Review ready", ["agent"] = "Codex" });
+        Assert.Equal("Review ready", WorkItemsApi.Get(107)!.Status);
+
+        (bool refused, JsonElement _, string text) = await Call("board_update", new() { ["id"] = 107, ["status"] = "Confirmed", ["agent"] = "Codex" });
+        Assert.True(refused);
+        Assert.Contains("Unknown status \"Confirmed\" in this project: use Backlog, Planned, In Progress, Blocked, In Review, Review ready.", text);
+        Assert.Equal("Review ready", WorkItemsApi.Get(107)!.Status);
+
+        JsonElement created = await Ok("board_create", new()
+        {
+            ["title"] = "Review the export", ["why"] = Why, ["whatChanges"] = "- The export is reviewed.", ["status"] = "Review ready", ["agent"] = "Codex",
+        });
+        Assert.Equal("Review ready", WorkItemsApi.Get(created.GetProperty("id").GetInt32())!.Status);
+
+        (bool notCreatable, JsonElement _, string createText) = await Call("board_create", new()
+        {
+            ["title"] = "Another one", ["why"] = Why, ["whatChanges"] = "- Another.", ["status"] = "Confirmed", ["agent"] = "Codex",
+        });
+        Assert.True(notCreatable);
+        Assert.Contains("use Backlog, Planned, In Progress, Review ready", createText);
+    }
 }

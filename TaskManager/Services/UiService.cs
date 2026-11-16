@@ -48,6 +48,32 @@ public sealed class UiService
         LayoutChanged?.Invoke();
     }
 
+    // ── Examine: with the menu expanded a click on a work item looks at it (its metadata fills the menu) instead of opening it ──
+
+    /// <summary>The side menu is expanded; set by the menu. Only then does a click on a card or row examine it.</summary>
+    public bool MenuExpanded { get; private set; }
+
+    /// <summary>The one work item being examined (its project and number), or null.</summary>
+    public (string Root, int Id)? Examined { get; private set; }
+
+    /// <summary>Fired when the examined item changes; the board redraws its marks. The menu follows <see cref="LayoutChanged"/>, fired with it.</summary>
+    public event Action? ExamineChanged;
+
+    public void SetMenuExpanded(bool expanded)
+    {
+        if (expanded == MenuExpanded) return;
+        MenuExpanded = expanded;
+        if (!expanded) Examine(null);   // no menu, nowhere to show the metadata
+    }
+
+    public void Examine((string Root, int Id)? item)
+    {
+        if (item == Examined) return;
+        Examined = item;
+        ExamineChanged?.Invoke();
+        LayoutChanged?.Invoke();
+    }
+
     public WorklogFilters WorklogFilter { get; private set; } = new();
 
     /// <summary>The people and agents seen in the feed, for the "who" filter.</summary>
@@ -55,6 +81,24 @@ public sealed class UiService
 
     /// <summary>The days the feed shows, newest first, for the side menu's Days list.</summary>
     public IReadOnlyList<WorklogDay> WorklogDays { get; private set; } = [];
+
+    /// <summary>The days picked with Shift-click in the side menu's Days list (DateTime.MinValue is "Linked earlier"); the feed shows only those. Empty = every day. Per open worklog, never saved.</summary>
+    public IReadOnlySet<DateTime> WorklogSelectedDays { get; private set; } = new HashSet<DateTime>();
+
+    public void ToggleWorklogDay(DateTime day)
+    {
+        HashSet<DateTime> next = [.. WorklogSelectedDays];
+        if (!next.Remove(day)) next.Add(day);
+        WorklogSelectedDays = next;
+        WorklogChanged?.Invoke();
+    }
+
+    public void ClearWorklogDays()
+    {
+        if (WorklogSelectedDays.Count == 0) return;
+        WorklogSelectedDays = new HashSet<DateTime>();
+        WorklogChanged?.Invoke();
+    }
 
     public void SetWorklogDays(IReadOnlyList<WorklogDay> days)
     {
@@ -67,6 +111,7 @@ public sealed class UiService
     public void OpenWorklog(WorklogActions actions)
     {
         if (WorklogOpen is null) WorklogFilter = new();
+        WorklogSelectedDays = new HashSet<DateTime>();   // days belong to one item's feed
         WorklogOpen = actions;
         WorklogChanged?.Invoke();
     }
@@ -75,7 +120,7 @@ public sealed class UiService
     public void CloseWorklog(WorklogActions actions)
     {
         if (!ReferenceEquals(WorklogOpen, actions)) return;
-        (WorklogOpen, WorklogFilter, WorklogPeople, WorklogDays) = (null, new(), [], []);
+        (WorklogOpen, WorklogFilter, WorklogPeople, WorklogDays, WorklogSelectedDays) = (null, new(), [], [], new HashSet<DateTime>());
         WorklogChanged?.Invoke();
     }
 

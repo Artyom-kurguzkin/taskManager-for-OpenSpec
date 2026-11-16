@@ -6,7 +6,7 @@
    card's band; a dashed end says it continues past the window. A group's bar spans its earliest start to its latest due date. Groups
    are the board's columns, or with rows set the rows, each holding the columns as sub-groups. Items with no dates keep their row but
    have no bar. Both panes scroll together; the date header and the item list stay in view. *@
-<div class="rm" data-sk>
+<div class="rm" data-sk @onclick="() => OnBackground.InvokeAsync()">
     <header class="rm-h">
         <h2 class="rm-range">@RangeLabel</h2>
         <span class="rm-spacer"></span>
@@ -105,7 +105,7 @@
         foreach (RoadmapRow r in rows)
         {
             RoadmapRow row = r;
-            <button type="button" class="rm-lrow rm-row @(deep ? "deep" : "")" data-id="@r.Item.Id" title="@Describe(r.Item)" style="--band:var(@Colour(r))" @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))">
+            <button type="button" class="rm-lrow rm-row @(deep ? "deep" : "") @ExamineOf?.Invoke(r.Root, r.Item.Id)" data-id="@r.Item.Id" title="@Describe(r.Item)" style="--band:var(@Colour(r))" @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))">
                 <span class="rm-n">@(++rowNo)</span>
                 <span class="rm-dot"></span>
                 <span class="rm-t">@r.Item.Title</span>
@@ -133,7 +133,7 @@
             <div class="rm-trow">
                 @if (RoadmapModel.Bar(r.Item, Window) is { } b)
                 {
-                    <button type="button" class="rm-bar @(b.StartsBefore ? "from" : "") @(b.EndsAfter ? "to" : "") @(b.Span * Cw < 150 ? "short" : "")"
+                    <button type="button" class="rm-bar @(b.StartsBefore ? "from" : "") @(b.EndsAfter ? "to" : "") @(b.Span * Cw < 150 ? "short" : "") @ExamineOf?.Invoke(r.Root, r.Item.Id)"
                             data-id="@r.Item.Id" style="--col:@b.Col; --span:@b.Span; --band:var(@Colour(r))" title="@Describe(r.Item)"
                             @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))"><span class="rm-bt">@r.Item.Title</span></button>
                 }

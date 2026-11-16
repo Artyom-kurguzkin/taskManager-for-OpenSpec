@@ -88,4 +88,20 @@ public sealed class RememberingSettingsTests
         Assert.Equal(new BoardOptions(ListGroupBy: "none", ListSwimlane: "none"), store.Board(@"C:\other"));   // the board starts as status columns, the list flat
         File.Delete(file);
     }
+
+    [Fact(DisplayName = "A board's merged status columns are saved with the board, per repository, and come back")]
+    public void MergesAreSavedPerBoard()
+    {
+        SettingsStore store = new(file);
+        store.SaveBoard(@"C:\a", BoardModel.Merge(new BoardOptions(), ["Completed", "completed"], "Completed"));
+        store.SaveBoard(@"C:\b", new BoardOptions());
+
+        SettingsStore reopened = new(file);
+
+        StatusMerge merge = Assert.Single(reopened.Board(@"C:\a").Merges!);
+        Assert.Equal("Completed", merge.Name);
+        Assert.Equal(["Completed", "completed"], merge.Statuses);
+        Assert.Null(reopened.Board(@"C:\b").Merges);
+        File.Delete(file);
+    }
 }

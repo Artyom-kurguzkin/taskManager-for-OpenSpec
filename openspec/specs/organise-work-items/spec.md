@@ -712,3 +712,39 @@ Shift-clicking (or Ctrl/⌘-clicking) a swimlane header SHALL select it. The up 
 #### Scenario: Hide a row
 - **WHEN** the user clicks × on the "bug" row
 - **THEN** the row is gone from the board and listed under Hidden in the side menu, whose eye brings it back
+
+### Requirement: The list has its own groups and subgroups
+The List view SHALL name its two Organise options "groups" and "subgroups", both offering "none" first and every field the board's columns offer, and both SHALL be none until the user chooses, so a fresh list is flat: no group headers, every item once, in the sort order. The board SHALL keep "columns" (status by default) and "rows" (none by default), and a choice made in one view SHALL NOT change the other.
+
+#### Scenario: A fresh list is flat
+- **WHEN** the user opens the List view on a repository with no saved list choice
+- **THEN** the options read "groups: none" and "subgroups: none", the grid has no group header rows and shows the Status column
+
+#### Scenario: Choosing a group
+- **WHEN** the user picks "status" as the list's groups
+- **THEN** the rows are grouped by status, the Status column is left out, the choice is saved, and the board's columns are still status
+
+#### Scenario: A saved list keeps its grouping
+- **WHEN** a repository's saved settings hold a list view grouped by columns and rows from before the list had its own
+- **THEN** the list opens grouped by them
+
+### Requirement: Show only what changed in a period
+The side menu SHALL offer a changed-in period (two days). While it is set, only work items created or changed in the period (an event in its log, a note, its creation day or a file write) SHALL be shown on the board, in the list, on the calendar and in Analytics. The choice SHALL be remembered per board.
+
+#### Scenario: A week of changes
+- **WHEN** the user picks 1 Nov to 5 Nov under changed
+- **THEN** only the items touched in those days remain in every view
+
+### Requirement: Period legend and Show all
+While a changed period is set, the legend SHALL name it and say how many items are shown of those the other filters leave, and the picker SHALL offer "Show all", which clears the period.
+
+#### Scenario: Show all
+- **WHEN** the legend reads "changed 1 Nov – 5 Nov" and "11 of 34 shown" and the user clicks Show all in the picker
+- **THEN** every item is back and the picker reads "any time"
+
+### Requirement: The list survives saved settings from another session
+The list SHALL open with the board's current grouping even when its saved list settings were made with a different number of projects open; saved settings SHALL never stop the page from responding.
+
+#### Scenario: A second project opened later
+- **WHEN** the list's settings were saved with one project open and the user opens the list with two
+- **THEN** the rows are grouped by project and the side menu keeps working

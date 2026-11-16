@@ -16,7 +16,7 @@
    commits that mention it; links made before the log existed show at their commit time or under "Linked earlier". Shift-click on a note edits it
    in place; on a link it unlinks it. A plain click on an entry does nothing, so text can be selected and links in it work. *@
 <div class="worklog">
-    @foreach (Day day in days.Where(d => d.Date == Today || d.Rows.Any(Visible)))
+    @foreach (Day day in days.Where(ShowsDay))
     {
         bool open = !folded.Contains(day.Date);
         List<Row> shown = [.. day.Rows.Where(Visible)];
@@ -115,6 +115,10 @@
     [Parameter] public string? Root { get; set; }
     /// <summary>Fired after this worklog changed the item (an entry added, a link made or removed, a note saved); the page reloads the item.</summary>
     [Parameter] public EventCallback OnChanged { get; set; }
+    /// <summary>A note to open the worklog at: its day unfolds, the feed scrolls to it and the entry is marked (the page's "from #nN" link in Linked tasks).</summary>
+    [Parameter] public int? FocusNote { get; set; }
+    /// <summary>A subtask number named by a converted entry was clicked: the page shows Linked tasks at that subtask.</summary>
+    [Parameter] public EventCallback<string> OnOpenSubtask { get; set; }
 
     private const string CommitPicker = "commit", TestPicker = "test";
 
@@ -177,6 +181,19 @@
 
     private WorklogActions actions = default!;
 
+    private int? handledFocus, flashNote;   // the note FocusNote last opened, and the entry marked with the "flash" class (its fade is CSS: nothing here waits or times)
+    private bool scrollToNote;
+
+    protected override void OnParametersSet()
+    {
+        base.OnParametersSet();
+        if (FocusNote is not int id || id == handledFocus) return;
+        handledFocus = id;
+        if (notes.FirstOrDefault(n => n.Id == id) is not Note n) return;   // gone meanwhile: nothing to show
+        folded.Remove(n.Created.Date);
+        (flashNote, scrollToNote) = (id, true);
+    }
+
     private void OnFilters()
     {
         if (publishing) return;
@@ -208,8 +225,9 @@
     private void PublishDays()
     {
         if (!ReferenceEquals(Popups.WorklogOpen, actions)) return;   // only the worklog the side menu shows (the last opened) speaks for it
-        List<WorklogDay> shown = [.. days.Where(d => d.Date == Today || d.Rows.Any(Visible)).Select(d => new WorklogDay(d.Date, DayLabel(d.Date), d.Rows.Count(Visible)))];
-        int linked = earlier.Count(Visible);
+        // the menu lists every day the kind filters leave, whichever days are picked: picking is done in this list
+        List<WorklogDay> shown = [.. days.Where(d => d.Date == Today || d.Rows.Any(VisibleKind)).Select(d => new WorklogDay(d.Date, DayLabel(d.Date), d.Rows.Count(VisibleKind)))];
+        int linked = earlier.Count(VisibleKind);
         if (linked > 0) shown.Add(new WorklogDay(DateTime.MinValue, "Linked earlier", linked));
         publishing = true;   // the event this raises is the feed's own: it draws nothing new
         try { Popups.SetWorklogDays(shown); }
@@ -237,11 +255,16 @@
         "converted" or "subtask-removed" => "edits",   // a note turned into a subtask or the other way round, and the subtask taken out: housekeeping
         "created" or "status" or "merged-from" or "renumbered" or "sync-conflict" => "events",
         "commit-linked" or "commit-unlinked" or "test-linked" or "test-unlinked" or "doc-linked" or "doc-unlinked" or "plan-linked" or "plan-unlinked" or "commit" or "mention" or "test" or "doc" => "links",
-        "subtask-done" or "subtask-reopened" or "subtask-added" or "dependency-added" or "dependency-removed" => "subtasks",
+        "subtask-done" or "subtask-reopened" or "subtask-added" or "subtask-moved" or "made-from-subtask" or "dependency-added" or "dependency-removed" => "subtasks",
         _ => "edits",   // title, priority, label, dates, feature, contributors, description, attachments, and any kind not known yet
     };
 
-    private bool Visible(Row r)
+    /// <summary>The feed shows only the days picked in the side menu (none picked = all); today stays while it is picked or nothing is.</summary>
+    private bool ShowsDay(Day d) => Popups.WorklogSelectedDays is { Count: > 0 } picked ? (d.Date == Today && picked.Contains(Today)) || d.Rows.Any(Visible) : d.Date == Today || d.Rows.Any(Visible);
+
+    private bool Visible(Row r) => VisibleKind(r) && (Popups.WorklogSelectedDays is { Count: 0 } || Popups.WorklogSelectedDays.Contains(r.At?.Date ?? DateTime.MinValue) || (r.Note is not null && r.Note.Id == editId));
+
+    private bool VisibleKind(Row r)
     {
         if (r.Note is not null && r.Note.Id == editId) return true;   // a note being written stays, whatever the filters say
         WorklogFilters f = Popups.WorklogFilter;
@@ -378,7 +401,7 @@
         }
     </text>;
 
-    private RenderFragment Line(Row r) => @<article class="wk-e @(r.Note is not null ? "wk-note " + NoteClass(r.Note) : Choices(r).Count > 0 ? "wk-ev hov" : "wk-ev")" data-kind="@(r.Note is not null ? NoteName(r.Note) : r.Kind)" tabindex="0" data-sk="@(Choices(r).Count == 0 ? null : "")"
+    private RenderFragment Line(Row r) => @<article class="wk-e @(r.Note is not null ? "wk-note " + NoteClass(r.Note) : Choices(r).Count > 0 ? "wk-ev hov" : "wk-ev") @(r.Note is not null && r.Note.Id == flashNote ? "flash" : null)" data-note="@r.Note?.Id" data-kind="@(r.Note is not null ? NoteName(r.Note) : r.Kind)" tabindex="0" data-sk="@(Choices(r).Count == 0 ? null : "")"
                  title="@(r.Note is not null ? "Shift-click to edit or convert" : r.Unlink is not null ? "Shift-click to unlink" : Choices(r).Count > 0 ? "Shift-click to convert" : null)" @onkeydown="e => EntryKey(e, r)">
         <span class="wk-mark" aria-hidden="true"></span>
         <div class="wk-main">
@@ -421,7 +444,9 @@
             case "subtask-reopened": <span>reopened @SubtaskText(r.Text)</span> break;
             case "subtask-added": <span>added subtask @SubtaskText(r.Text)</span> break;
             case "subtask-removed": <span>removed subtask @SubtaskText(r.Text)</span> break;
-            case "converted": <span>@ConvertedLine(r.Text)</span> break;
+            case "converted": <span>@Converted(r.Text)</span> break;
+            case "subtask-moved": <span>@MovedLine(r.Text)</span> break;
+            case "made-from-subtask": <span>@MadeFromLine(r.Text)</span> break;
             case "dependency-added": <span>waits on @Dependency(r.Text)</span> break;
             case "dependency-removed": <span>no longer waits on @Dependency(r.Text)</span> break;
             case "title" or "priority" or "label" or "dates" or "feature": <span>@r.Kind: @r.Text.Replace(" -> ", " → ")</span> break;
@@ -674,6 +699,11 @@
     {
         try
         {
+            if (scrollToNote && flashNote is int shown)
+            {
+                scrollToNote = false;
+                await Js.InvokeVoidAsync("rtm.scrollToDay", $".wk-e[data-note='{shown}']");
+            }
             // a clipboard image goes to the editor open now: a note takes it as an attachment, the description as a link at the caret
             string want = editDesc ? "desc" : editId is not null ? "note" : "";
             if (want != pasting)
@@ -769,6 +799,44 @@
         return parts[1].StartsWith("subtask") ? $"promoted {parts[0]} to {parts[1]}" : $"converted {parts[0]} to a {parts[1]}";
     }
 
+    /// <summary>A converted entry as a sentence; a subtask it names, while it is still there, is a link that opens Linked tasks at it.</summary>
+    private RenderFragment Converted(string text) => @<text>
+        @{
+            string[] p = text.Split(" -> ", 2);
+        }
+        @if (p.Length < 2) { <text>converted @text</text> }
+        else { <text>@(p[1].StartsWith("subtask") ? "promoted" : "converted") @SubtaskPart(p[0]) to @(p[1].StartsWith("subtask") ? "" : "a ")@SubtaskPart(p[1])</text> }
+    </text>;
+
+    private RenderFragment SubtaskPart(string part) => @<text>
+        @if (part.StartsWith("subtask ") && part[8..] is string number && item.Subtasks.Any(s => s.Number == number))
+        {
+            <button type="button" class="wk-jump" title="Show it in Linked tasks" @onclick="() => OnOpenSubtask.InvokeAsync(number)">@part</button>
+        }
+        else { @part }
+    </text>;
+
+    /// <summary>A <c>subtask-moved</c> entry, <c>1.3 -&gt; #wi12</c>, as "moved subtask 1.3 to #wi12".</summary>
+    private RenderFragment MovedLine(string text) => @<text>
+        @{
+            string[] p = text.Split(" -> ", 2);
+        }
+        moved subtask <span class="mono">@p[0]</span>@if (p.Length > 1) { <text> to </text>@ItemLink(p[1]) }
+    </text>;
+
+    /// <summary>A <c>made-from-subtask</c> entry, <c>1.3 of #wi12</c>, as "made from subtask 1.3 of #wi12".</summary>
+    private RenderFragment MadeFromLine(string text) => @<text>
+        @{
+            string[] p = text.Split(" of ", 2);
+        }
+        made from subtask <span class="mono">@p[0]</span>@if (p.Length > 1) { <text> of </text>@ItemLink(p[1]) }
+    </text>;
+
+    private static RenderFragment ItemLink(string text) => @<text>
+        @if (text.StartsWith("#wi") && int.TryParse(text[3..], out int other)) { <a class="wl" href="item/@other">@text</a> }
+        else { @text }
+    </text>;
+
     /// <summary>What an event line says, as plain text: the title of a bug reported from it.</summary>
     private string EventText(Row r)
     {
@@ -787,6 +855,8 @@
             "subtask-added" => "added subtask " + r.Text,
             "subtask-removed" => "removed subtask " + r.Text,
             "converted" => ConvertedLine(r.Text),
+            "subtask-moved" => "moved subtask " + r.Text,
+            "made-from-subtask" => "made from subtask " + r.Text,
             "dependency-added" => "waits on " + r.Text,
             "dependency-removed" => "no longer waits on " + r.Text,
             "title" or "priority" or "label" or "dates" or "feature" => r.Kind + ": " + r.Text.Replace(" -> ", " → "),

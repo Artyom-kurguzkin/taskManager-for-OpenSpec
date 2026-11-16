@@ -18,3 +18,17 @@
 2026-11-13T12:54:12 | Claude chunk list-select-drag | test-linked | UsingTheBoardTests / Dragging a selected list row moves every selected row to the drop group in their order
 2026-11-13T12:54:12 | Claude chunk list-select-drag | test-linked | UsingTheBoardTests / A press on an unselected list row selects cells and never starts a drag
 2026-11-13T12:56:22 | Claude | log | Integrated the selection-then-drag chunk into main (app.js, app.css, UsingTheBoardTests.cs) and ran the fast suite once: Passed 961, Failed 0, 1 m 7 s. The three linked tests pass in latest.trx. Shots tests/out/shots/list-select-drag-*.png. Still In Review.
+2026-11-16T07:14:41 | Artyom-kurguzkin | status | In Review -> Blocked
+2026-11-16T07:17:05 | Artyom-kurguzkin | status | Blocked -> In Progress
+2026-11-16T07:30:34 | Artyom-kurguzkin | attachment-added | n407: pasted-20261116-073034.png
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / The list always has a Status column, whatever the grouping
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / The colour-by value tints the whole list row and the text stays readable
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / Arrow keys move the selected list rows within their group and into the next group at the edge
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | ArrangingTheBoardTests / Arrow keys at a group's edge send the selected rows to the neighbouring group's end or start, and inside the group they only step
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / What the list is grouped by is not repeated, except the Status column: no Label column by label, no Features by bucket, no Contributors by contributor
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / List cells wear their colours: status, label and priority are filled pills, and a status group's name wears its band
+2026-11-16T08:31:52 | Claude chunk list-dates | status | In Progress -> In Review
+2026-11-16T08:43:35 | Claude | log | Integrated the list-dates chunk into main (Status column always shown, whole-row tint, arrow keys cross groups). Clean rebuild, one suite run with all six chunks: Passed 1059, Failed 0.
+2026-11-16T09:22:27 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T09:22:41 | Artyom-kurguzkin | attachment-added | n442: pasted-20261116-092241.png
+2026-11-16T09:24:52 | Claude chunk list-header | test-linked | UsingTheBoardTests / The list's sticky column headers paint the strip band above them over the whole table width, so no row shows above the headers when the table is scrolled sideways

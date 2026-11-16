@@ -645,4 +645,115 @@ public sealed class ArrangingTheBoardTests
         Assert.Equal([1, 2], In(new TimeOnly(0, 0), new TimeOnly(23, 59)).Order());  // the whole creation day inside the window: both
         Assert.Equal([2], In(new TimeOnly(0, 30), new TimeOnly(23, 59)).Order());    // 1's day starts before the window: out; 2's event is inside it
     }
+
+    // ---- list-dates chunk ----
+
+    [Fact(DisplayName = "Arrow keys at a group's edge send the selected rows to the neighbouring group's end or start, and inside the group they only step")]
+    public void ArrowAtTheEdgeCrossesIntoTheNeighbouringGroup()
+    {
+        IReadOnlyList<BoardColumn> groups = [.. Build(new BoardOptions(GroupBy: "status", SortBy: "id")).SelectMany(s => s.Columns)];
+        BoardColumn Group(string key) => groups.Single(c => c.Key == key);
+        BoardColumn inProgress = Group("In Progress");   // items 2 and 3; the group above it (Blocked / In Review order) is whatever comes before it in the list
+        int at = groups.ToList().IndexOf(inProgress);
+        Assert.True(at > 0 && at < groups.Count - 1);
+
+        // the top row going up lands at the end of the group above; the bottom row going down at the start of the one below
+        (BoardColumn Column, int? Before)? up = BoardModel.EdgeMove(groups, inProgress, [2], -1);
+        Assert.Equal((groups[at - 1], (int?)null), up);
+        (BoardColumn Column, int? Before)? down = BoardModel.EdgeMove(groups, inProgress, [3], +1);
+        Assert.Equal(groups[at + 1], down!.Value.Column);
+        Assert.Equal(groups[at + 1].Items.FirstOrDefault()?.Id, down.Value.Before);
+
+        // inside the group, or scattered (the step gathers them first): no crossing
+        Assert.Null(BoardModel.EdgeMove(groups, inProgress, [3], -1));
+        Assert.Null(BoardModel.EdgeMove(groups, inProgress, [2], +1));
+        BoardColumn wide = inProgress with { Items = [.. inProgress.Items, Items[0], Items[3]] };   // 2, 3, 1, 4: 2 and 1 are not together
+        Assert.Null(BoardModel.EdgeMove(groups, wide, [2, 1], -1));
+        Assert.Equal(groups[at - 1], BoardModel.EdgeMove(groups, wide, [2, 3], -1)!.Value.Column);   // together at the top: they cross
+
+        // no group beyond the first or the last: nothing to cross into
+        Assert.Null(BoardModel.EdgeMove(groups, groups[0], [.. groups[0].Items.Select(i => i.Id).Take(1)], -1));
+        Assert.Null(BoardModel.EdgeMove(groups, groups[^1], [.. groups[^1].Items.Select(i => i.Id).TakeLast(1)], +1));
+    }
+
+    // ── Statuses of several projects, and merging look-alikes ──
+
+    private static readonly string[] Standard = ["Backlog", "Planned", "In Progress", "Completed"];
+    private static readonly string[] Mine = ["Backlog", "Todo", "In Progress", "completed", "Completed"];
+
+    [Fact(DisplayName = "Several projects' status columns are the union of their lists, a status another project adds placed after the one before it in its own list")]
+    public void StatusColumnsAreTheUnionOfTheLists()
+    {
+        Assert.Equal(["Backlog", "Planned", "In Progress", "Completed"], BoardModel.StatusColumns([Standard]).Select(c => c.Key));
+        Assert.Equal(["Backlog", "Todo", "Planned", "In Progress", "completed", "Completed"], BoardModel.StatusColumns([Standard, Mine]).Select(c => c.Key));
+        Assert.Equal(["Backlog", "Planned", "In Progress", "Completed", "Todo", "completed"], BoardModel.StatusColumns([Standard, ["Backlog", "In Progress", "Completed", "Todo", "completed"]]).Select(c => c.Key));
+    }
+
+    [Fact(DisplayName = "A merge folds the statuses it names into one column, at the place of the first of them, matching items by exact status text")]
+    public void AMergeIsOneColumn()
+    {
+        StatusMerge merge = new("Completed", ["completed", "Completed"]);
+        IReadOnlyList<FieldValue> columns = BoardModel.StatusColumns([Standard, Mine], [merge]);
+        Assert.Equal(["Backlog", "Todo", "Planned", "In Progress", "Completed"], columns.Select(c => c.Key));
+
+        WorkItem[] items = [W(1, "completed", [], []), W(2, "Completed", [], []), W(3, "Completed ", [], []), W(4, "Todo", [], [])];
+        BoardColumn merged = BoardModel.Build(items, Features, Lanes, new BoardOptions(), statusColumns: columns).Single().Columns.Single(c => c.Key == "Completed");
+        Assert.Equal([1, 2], merged.Items.Select(i => i.Id).Order());   // "Completed " (a trailing space) is another status and is in no column
+        Assert.Equal("Completed", merged.Label);
+
+        Assert.Equal(["Backlog", "Planned", "Completed", "Todo", "In Progress", "completed"], BoardModel.StatusColumns([["Backlog", "Planned", "Completed", "Todo", "In Progress", "completed"]]).Select(c => c.Key));
+        Assert.Equal(["Backlog", "Planned", "Done", "In Progress"], BoardModel.StatusColumns([["Backlog", "Planned", "Completed", "Todo", "In Progress", "completed"]], [new("Done", ["Completed", "Todo", "completed"])]).Select(c => c.Key));   // named as typed, at the first one's place
+    }
+
+    [Fact(DisplayName = "Merging columns, merging into a merged column and unmerging change only the board's merges")]
+    public void MergeAndUnmerge()
+    {
+        BoardOptions o = new();
+        o = BoardModel.Merge(o, ["Completed", "completed"], "Completed");
+        Assert.Equal("Completed", o.Merges![0].Name);
+        Assert.Equal(["Completed", "completed"], o.Merges[0].Statuses);
+
+        o = BoardModel.Merge(o, ["Completed", "Done"], "Finished");   // the merged column brings its statuses along and goes
+        StatusMerge only = Assert.Single(o.Merges!);
+        Assert.Equal("Finished", only.Name);
+        Assert.Equal(["Completed", "completed", "Done"], only.Statuses);
+
+        Assert.Same(only, BoardModel.MergeOf(o, "Finished"));
+        Assert.Null(BoardModel.MergeOf(o, "Completed"));
+        Assert.Null(BoardModel.Unmerge(o, "Finished").Merges);
+        Assert.Equal(o with { Merges = null }, BoardModel.Unmerge(o, "Finished"));
+    }
+
+    [Fact(DisplayName = "A card dropped in a column gets the status its project has: the column's own, the one of a merge it has, or none")]
+    public void TheStatusAProjectHasInAMergedColumn()
+    {
+        BoardOptions o = BoardModel.Merge(new BoardOptions(), ["Completed", "completed"], "Completed");
+        Assert.Equal(["Completed"], BoardModel.StatusesFor(o, Standard, "Completed"));              // one of the merge's statuses: that one
+        Assert.Equal(["completed", "Completed"], BoardModel.StatusesFor(o, Mine, "Completed"));    // two: the user picks
+        Assert.Empty(BoardModel.StatusesFor(o, ["Backlog", "In Progress"], "Completed"));           // none
+        Assert.Equal(["Todo"], BoardModel.StatusesFor(o, Mine, "Todo"));                            // a plain column
+        Assert.Empty(BoardModel.StatusesFor(o, Standard, "Todo"));                                  // a status this project lacks
+    }
+
+    [Fact(DisplayName = "A column that looks like a fixed status offers to merge with it, with every look-alike; the fixed column offers the look-alikes; others offer nothing")]
+    public void LookAlikesAreSuggested()
+    {
+        string[] columns = ["Backlog", "Todo", "In Progress", "in progress", "InProgress", "completed", "Completed"];
+        static string Look(IEnumerable<string> cols, string column) => BoardModel.LookAlikes(cols, column) is { } l ? l.Fixed + ": " + string.Join(", ", l.Columns) : "none";
+        Assert.Equal("Completed: Completed, completed", Look(columns, "completed"));
+        Assert.Equal("Completed: Completed, completed", Look(columns, "Completed"));
+        Assert.Equal("In Progress: In Progress, in progress, InProgress", Look(columns, "InProgress"));
+        Assert.Equal("none", Look(columns, "Todo"));
+        Assert.Equal("none", Look(columns, "Backlog"));   // no look-alike of it among the columns
+        Assert.Equal("none", Look(["Backlog", "Completed"], "Completed"));
+        Assert.Equal("Completed: Completed, completed", Look(["completed", "Backlog"], "completed"));   // the fixed one is named even when it is not a column here
+    }
+
+    [Fact(DisplayName = "Without a project's list the status columns are the built-in ones and any other status an item has, and an unknown status sorts after the built-in ones")]
+    public void DefaultStatusColumnsKeepTheirItems()
+    {
+        WorkItem[] items = [W(1, "Review ready", [], []), W(2, "Backlog", [], [])];
+        Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed", "Review ready"], BoardModel.Build(items, Features, Lanes, new BoardOptions()).Single().Columns.Select(c => c.Key));
+        Assert.Equal([2, 1], BoardModel.Sort(items, new BoardOptions(SortBy: "status")).Select(i => i.Id));
+    }
 }

@@ -55,7 +55,17 @@ internal static partial class Conversions
     [GeneratedRegex(@"^(?:note|decision|bug) #n(?<id>\d+) -> subtask (?<number>\S+)$")]
     private static partial Regex PromotedEvent();
 
-    /// <summary>The notes of the work item that were promoted to a subtask which still exists: the last <c>converted</c> event of each says which.</summary>
+    [GeneratedRegex(@"^(?<text>.*?)\s+#n(?<id>\d+)$")]
+    private static partial Regex EndsInNoteReference();
+
+    /// <summary>A subtask line made from a note ends in <c>#nN</c>: the text without it, and the note's id (null when the line has no such ending).</summary>
+    internal static (string Text, int? Note) SubtaskReference(string text) =>
+        EndsInNoteReference().Match(text.TrimEnd()) is { Success: true } m && int.TryParse(m.Groups["id"].Value, out int id) ? (m.Groups["text"].Value, id) : (text, null);
+
+    /// <summary>
+    /// The notes of the work item that were promoted to a subtask which still exists: the subtask lines that end in the note's <c>#nN</c> (they survive renumbering),
+    /// and, for lines made before that, the last <c>converted</c> event of each note, which names the subtask's number then.
+    /// </summary>
     internal static IReadOnlyList<int> PromotedNotes(int workItemId)
     {
         if (WorkItemsApi.Get(workItemId) is not WorkItem item) return [];
@@ -63,7 +73,9 @@ internal static partial class Conversions
         Dictionary<int, string> last = [];
         foreach (WorkItemEvent e in WorkItemsApi.GetEvents(workItemId))
             if (e.Kind == "converted" && PromotedEvent().Match(e.Text) is { Success: true } m) last[int.Parse(m.Groups["id"].Value)] = m.Groups["number"].Value;
-        return [.. last.Where(p => numbers.Contains(p.Value)).Select(p => p.Key).Order()];
+        HashSet<int> own = [.. NotesApi.GetAll().Where(n => n.WorkItemId == workItemId).Select(n => n.Id)];
+        IEnumerable<int> referred = item.Subtasks.Select(s => SubtaskReference(s.Text).Note).OfType<int>().Where(own.Contains);
+        return [.. last.Where(p => numbers.Contains(p.Value)).Select(p => p.Key).Concat(referred).Distinct().Order()];
     }
 
     /// <summary>The subtask's text: the note's title, or when that is still the default the first line of its text without its markdown lead.</summary>
@@ -86,7 +98,7 @@ internal static partial class Conversions
         if (PromotedNotes(note.WorkItemId).Contains(id)) return (false, "That note is already a subtask", "");
         if (SubtaskText(note) is not string text) return (false, "Write something in the note first: its title or first line becomes the subtask", "");
         HashSet<string> had = [.. WorkItemsApi.Get(note.WorkItemId)?.Subtasks.Select(s => s.Number) ?? []];
-        (bool ok, string message) = WorkItemsApi.AddSubtask(note.WorkItemId, text);
+        (bool ok, string message) = WorkItemsApi.AddSubtask(note.WorkItemId, $"{text} #n{id}");   // the line refers to the note, which keeps the rest of what was written
         if (!ok) return (false, message, "");
         string number = WorkItemsApi.Get(note.WorkItemId)?.Subtasks.LastOrDefault(s => !had.Contains(s.Number))?.Number ?? "";
         WorkItemsApi.LogEvent(note.WorkItemId, "converted", $"{Noun(note.Kind)} #n{id} -> subtask {number}");

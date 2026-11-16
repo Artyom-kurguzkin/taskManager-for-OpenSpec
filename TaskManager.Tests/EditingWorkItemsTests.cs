@@ -331,6 +331,26 @@ public sealed class EditingWorkItemsTests
         Assert.Equal(Item(123).Contributors, Item(newId).Contributors);
     }
 
+    [Fact(DisplayName = "Moving a subtask to a new work item logs the move in both feeds")]
+    public void SplitLogsInBothFeeds()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        WorkItemsApi.ConfigureActor(() => "Tester");
+        try
+        {
+            (bool ok, string _, int newId) = WorkItemsApi.MoveSubtasksToNew(123, ["1.3", "2.1"]);
+            (bool _, string _, int dependency) = WorkItemsApi.MoveSubtasksToDependency(123, ["1.1"]);
+
+            Assert.True(ok);
+            (string, string, string)[] moved(int id, string kind) => [.. WorkItemsApi.GetEvents(id).Where(e => e.Kind == kind).Select(e => (e.Kind, e.Text, e.By))];
+            Assert.Equal([("subtask-moved", $"1.3 -> #wi{newId}", "Tester"), ("subtask-moved", $"2.1 -> #wi{newId}", "Tester"), ("subtask-moved", $"1.1 -> #wi{dependency}", "Tester")], moved(123, "subtask-moved"));
+            Assert.Equal([("made-from-subtask", "1.3 of #wi123", "Tester"), ("made-from-subtask", "2.1 of #wi123", "Tester")], moved(newId, "made-from-subtask"));
+            Assert.Equal([("made-from-subtask", "1.1 of #wi123", "Tester")], moved(dependency, "made-from-subtask"));
+        }
+        finally { WorkItemsApi.ConfigureActor(null); }
+    }
+
     [Fact(DisplayName = "Renaming a subtask rewrites only its text in tasks.md, keeping its box, number and the rest of the file")]
     public void RenameSubtask()
     {

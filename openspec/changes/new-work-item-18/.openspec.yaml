@@ -1,14 +1,16 @@
 schema: spec-driven
-skip_specs: true
 created: 2026-11-11
 x-rtm:
   id: 156
   title: dates display
-  status: Planned
+  status: In Progress
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [general-ux]
   label: enhancement
   started: 2026-11-09
   due: 2026-11-16
-  moved: 2026-11-11
+  moved: 2026-11-16
+  tests: [{suite: UsingTheBoardTests, test: 'An expanded card shows its due date and the list shows updated, started and due apart'}, {suite: ReadingWorkItemsTests, test: "A work item's updated time is the last change in its worklog (events and notes), not the time its files were written"}]
+  agentBy: Claude chunk list-dates
+  agentAt: 2026-11-16T08:31:52

@@ -6,7 +6,7 @@
 @implements IDisposable
 @* Left icon rail; ☰ expands it to labels, the board's view options and the list of hidden columns.
    On narrow windows the same markup lays out as a top header bar (see app.css "side menu"), where the view icon opens the options. *@
-<nav class="side @(expanded ? "expanded" : "")">
+<nav class="side @(expanded ? "expanded" : "")" @onclick="() => Popups.Examine(null)">
     @* The collapse icon is the rail's first row; expanded, it shares the first visible row instead (the projects row, or the Worklog header). *@
     @if (!ToggleInRow) { @Toggle(false) }
     @if (Workspace.Root is not null)
@@ -42,7 +42,7 @@
         </div>
         <Menu Label="Board, list or calendar">
             <Activator>
-                <button class="nav-btn @(OnBoard ? "is-sel" : "")" aria-label="Layout" title="Board, list or calendar" aria-haspopup="menu">
+                <button class="nav-btn" aria-label="Layout" title="Board, list or calendar" aria-haspopup="menu">
                     @Ui.Icon(ViewIcon)<span class="nav-l">@BoardPage.Views.First(v => v.Item1 == O.View).Item2</span><span class="nav-l nav-caret">@Ui.Icon("caret")</span>
                 </button>
             </Activator>
@@ -53,7 +53,7 @@
                 <MenuItem Class="@(O.View == "analytics" ? "cur" : "")" OnClick='() => Show("analytics")'>@Ui.Icon("chart") Analytics</MenuItem>
             </Items>
         </Menu>
-        <button class="nav-btn" aria-label="New work item" title="New work item" @onclick="NewItem">@Ui.Icon("plus")<span class="nav-l">New work item</span></button>
+        <button class="nav-btn nav-new" aria-label="New work item" title="New work item" @onclick="NewItem">@Ui.Icon("plus")<span class="nav-l">New work item</span></button>
         }
         @if (!expanded)
         {
@@ -105,20 +105,29 @@
                     <div class="nav-acts">
                         @foreach (WorklogDay day in Popups.WorklogDays)
                         {
-                            <button type="button" class="nav-day" @onclick="() => worklog.JumpTo?.Invoke(day.Date)">@day.Label<span class="count">@day.Count</span></button>
+                            bool picked = Popups.WorklogSelectedDays.Contains(day.Date);
+                            @* a plain click jumps to the day; Shift-click picks it: the feed then shows only the picked days *@
+                            <button type="button" class="nav-day @(picked ? "is-sel" : "")" aria-pressed="@(picked ? "true" : "false")" title="Click to jump · Shift-click to show only the picked days"
+                                    @onclick="e => DayClick(e, day.Date, worklog)">@day.Label<span class="count">@day.Count</span></button>
                         }
+                        @if (Popups.WorklogSelectedDays.Count > 0) { <button type="button" class="nav-days-all" @onclick="Popups.ClearWorklogDays">Show all days</button> }
                     </div>
                 }
             </div>
         }
-        @if (expanded && ListBlocks)
+        @if (expanded && ListBlocks && Popups.Examined is not null)
+        {
+            <ExaminePanel />   @* an examined work item: its metadata takes the place of Organise, Filters and Hidden *@
+        }
+        else if (expanded && ListBlocks)
         {
             <div class="nav-view">
                 @* three independent options over one field list, the same in the board, the list and the calendar *@
                 @if (!Analytics)
                 {
                 <div class="organise" role="group" aria-label="Organise">
-                    <div class="nav-h">Organise</div>
+                    @SectionHead("organise", "Organise", OrganiseSummary)
+                    <div class="nav-sec-body" id="sec-organise-body" hidden="@(!Settings.MenuSectionOpen("organise"))">
                     <div class="field"><label>sort by</label><Dropdown Label="sort by" Class="@Look(O.SortBy, "")" Options="BoardPage.SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
                     @if (ListView == "list")
                     {
@@ -144,9 +153,13 @@
                             @if (legend.Count > BoardModel.Palette.Count) { <span class="lg more">+@(legend.Count - BoardModel.Palette.Count) more</span> }
                         </div>
                     }
+                    </div>
                 </div>
                 <div class="nav-sep" role="separator"></div>
                 }
+                <div class="nav-filters" role="group" aria-label="Filters">
+                    @SectionHead("filters", "Filters", FiltersSummary)
+                    <div class="nav-sec-body" id="sec-filters-body" hidden="@(!Settings.MenuSectionOpen("filters"))">
                 <div class="field"><label>contributor</label><Dropdown Label="contributor" Class="@Look(O.Who, "all")" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
                 <div class="field"><label>period</label><Dropdown Label="period" Class="@Look(O.Period, "all")" Options="BoardPage.Periods" Value="@O.Period" ValueChanged="v => Set(O with { Period = v })" /></div>
                 @* the filter: only work that changed between two days is shown *@
@@ -158,15 +171,18 @@
                 @if (ListView == "board")
                 {
                     <Seg Name="unit" Options="BoardPage.Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />
-                    <div class="nav-sep" role="separator"></div>
                 }
+                    </div>
+                </div>
+                @if (!Analytics) { <div class="nav-sep" role="separator"></div> }
                 @if (ListView == "list") { @Pill("show subtasks", O.ShowSubtasks, v => Set(O with { ShowSubtasks = v }), opt: "subtasks") }
                 else if (!Analytics) { @Pill("compact cards", O.Compact, v => Set(O with { Compact = v }), opt: "compact") }
             </div>
             @* hide from a column header (or a project header) on the board; hidden ones are listed here, to bring back, under the switch that shows them all.
                The block is always there, so the switch can be reached before anything is hidden. *@
             <div class="nav-hidden">
-                <div class="nav-h">Hidden</div>
+                @SectionHead("hidden", "Hidden", HiddenSummary)
+                <div class="nav-sec-body" id="sec-hidden-body" hidden="@(!Settings.MenuSectionOpen("hidden"))">
                 @Pill("show all hidden", O.ShowHidden, v => Set(O with { ShowHidden = v }), id: "f-hidden")
                 @if (HiddenHere.Count > 0 || HiddenProjects.Count > 0 || HiddenRows.Count > 0)
                 {
@@ -189,6 +205,7 @@
                             <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(O, key))">@Ui.Icon("eye")</button></div>
                     }
                 }
+                </div>
             </div>
         }
     }
@@ -205,13 +222,72 @@
     [Inject] private IServiceProvider Services { get; set; } = default!;
     private FolderPicker? Picker => Services.GetService(typeof(FolderPicker)) as FolderPicker;
 
-    private bool expanded;
+    private bool expanded { get => Popups.MenuExpanded; set => Popups.SetMenuExpanded(value); }   // the board reads it: only an expanded menu examines
 
     /// <summary>Expanded, the collapse icon has no row of its own: it ends the projects row, or the Worklog header while a work item fills the window (no projects row then).</summary>
     private bool ToggleInRow => expanded && Workspace.Root is not null && (!ItemFillsWindow || Popups.WorklogOpen is not null);
     private RenderFragment Toggle(bool inRow) =>
         @<button class="@(inRow ? "ic nav-toggle" : "nav-btn nav-toggle")" aria-label="Menu" aria-expanded="@(expanded ? "true" : "false")" title="@(expanded ? "Collapse menu" : "Expand menu")"
                  @onclick="() => expanded = !expanded">@Ui.Icon("menu")</button>;
+
+    /// <summary>A section's header: a click target with a chevron that folds the block under it. Folded, it carries a short summary of what is set inside, so an active filter shows without opening it.</summary>
+    private RenderFragment SectionHead(string sec, string title, string? summary)
+    {
+        bool open = Settings.MenuSectionOpen(sec);
+        return @<button type="button" class="nav-h nav-sec-h @(open ? "is-open" : "")" data-sec="@sec" aria-expanded="@(open ? "true" : "false")" aria-controls="@($"sec-{sec}-body")"
+                        title="@(summary is null ? null : $"{title} · {summary}")" @onclick="() => Settings.ToggleMenuSection(sec)">
+                   <span class="nav-sec-chev" aria-hidden="true">@Ui.Icon("caret")</span><span class="nav-sec-t">@title</span>@if (!open && summary is not null) { <span class="nav-sec-sum">@(" · " + summary)</span> }
+               </button>;
+    }
+
+    private static string Label(IReadOnlyList<(string, string)> options, string value) => options.Where(o => o.Item1 == value).Select(o => o.Item2).FirstOrDefault() ?? value;
+
+    /// <summary>How the view is arranged, as the Organise dropdowns say it (the list's groups and subgroups for the list).</summary>
+    private string? OrganiseSummary
+    {
+        get
+        {
+            bool list = ListView == "list";
+            List<string> parts = [$"sort {Label(BoardPage.SortBys, O.SortBy)}"];
+            if (OV.GroupBy != "none") parts.Add($"{(list ? "groups" : "columns")} {Label(BoardPage.GroupBys, OV.GroupBy)}");
+            if (OV.Swimlane != "none") parts.Add($"{(list ? "subgroups" : "rows")} {Label(BoardPage.GroupBys, OV.Swimlane)}");
+            if (O.ColorBy != "none") parts.Add($"colour {Label(BoardPage.ColorBys, O.ColorBy)}");
+            return string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>The filters that are not neutral (everyone, any time, no changed period, work items); null when none is.</summary>
+    private string? FiltersSummary
+    {
+        get
+        {
+            List<string> parts = [];
+            if (O.Who != "all") parts.Add($"contributor: {O.Who}");
+            if (O.Period != "all") parts.Add($"period: {Label(BoardPage.Periods, O.Period)}");
+            if (O.ChangedOn) parts.Add(BoardModel.ChangedLabel(O));
+            if (ListView == "board" && O.Unit != "tasks") parts.Add($"unit: {Label(BoardPage.Units, O.Unit)}");
+            return parts.Count == 0 ? null : string.Join(" · ", parts);
+        }
+    }
+
+    private string? HiddenSummary
+    {
+        get
+        {
+            List<string> parts = [];
+            int n = HiddenHere.Count + HiddenProjects.Count + HiddenRows.Count;
+            if (n > 0) parts.Add($"{n} hidden");
+            if (O.ShowHidden) parts.Add("showing all");
+            return parts.Count == 0 ? null : string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>Shift-click picks the day for the feed's day filter; a plain click jumps the feed to it.</summary>
+    private void DayClick(MouseEventArgs e, DateTime day, WorklogActions worklog)
+    {
+        if (e.ShiftKey) Popups.ToggleWorklogDay(day);
+        else worklog.JumpTo?.Invoke(day);
+    }
 
     private string Path => Nav.ToBaseRelativePath(Nav.Uri);
     private bool OnBoard => Path.Length == 0;

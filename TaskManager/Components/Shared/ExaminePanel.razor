@@ -1,0 +1,82 @@
+@using Notes
+@using WorkItems
+@using WorkItems.PublicDTOs
+@implements IDisposable
+@inject Workspace Workspace
+@inject UiService Popups
+@inject NavigationManager Nav
+@* The side menu while a work item is examined (a click on a card or row with the menu expanded): its metadata and a count of what hangs on it, in
+   plain lines, in place of the Organise, Filters and Hidden blocks. "Open" opens the item (a second click on it does too), "Done" lets go. *@
+@if (view is { } v)
+{
+    <div class="examine" role="group" aria-label="Examined work item" @onclick:stopPropagation="true">
+        <div class="nav-h"><span>Examining</span></div>
+        <div class="ex-title"><span class="muted">#wi@(v.Item.Id)</span> @v.Item.Title</div>
+        @Line("feature", v.Features.Length > 0 ? v.Features : "none")
+        @Line("status", v.Item.Status)
+        @Line("priority", v.Item.Priority)
+        @Line("label", v.Item.Label ?? "none")
+        @Line("who", v.Item.Contributors.Count > 0 ? string.Join(", ", v.Item.Contributors) : "nobody")
+        @Line("started", Day(v.Item.Started))
+        @Line("due", Day(v.Item.Due))
+        @Line("updated", v.Item.Modified.ToString("d MMM yyyy"))
+        <div class="nav-h ex-sum">Summary</div>
+        @Line("notes", v.Notes.ToString())
+        @Line("bugs", v.Bugs.ToString())
+        @Line("subtasks", v.OpenSubtasks.ToString(), "open subtasks")
+        @Line("waiting", v.Waiting.ToString(), "waiting on it")
+        @Line("needs", v.Needs.ToString(), "it waits on")
+        <div class="ex-acts">
+            <button type="button" class="ex-link ex-open" @onclick="Open">Open</button>
+            <button type="button" class="ex-link ex-done" @onclick="() => Popups.Examine(null)">Done</button>
+        </div>
+    </div>
+}
+
+@code {
+    private sealed record View(WorkItem Item, string Features, int Notes, int Bugs, int OpenSubtasks, int Waiting, int Needs);
+
+    private View? view;
+
+    private RenderFragment Line(string key, string value, string? label = null) =>
+        @<div class="ex-line" data-line="@key"><span>@(label ?? key)</span><b>@value</b></div>;
+
+    private static string Day(DateOnly? d) => d is { } v ? v.ToString("d MMM yyyy") : "none";
+
+    protected override void OnInitialized()
+    {
+        Popups.ExamineChanged += OnExamined;
+        Workspace.Changed += OnExamined;
+        Read();
+    }
+
+    private void OnExamined() => InvokeAsync(() => { Read(); StateHasChanged(); });
+
+    private void Read()
+    {
+        view = null;
+        if (Popups.Examined is not (string root, int id)) return;
+        view = Workspace.In(root, () =>
+        {
+            if (WorkItemsApi.Get(id) is not { } item) return null;
+            IReadOnlyDictionary<string, string> names = Workspace.FeatureNames;
+            IReadOnlyList<Notes.PublicDTOs.Note> notes = NotesApi.GetForWorkItem(id);
+            return new View(item, string.Join(", ", item.Features.Select(f => names.GetValueOrDefault(f.Path, f.Path))), notes.Count, notes.Count(n => n.IsBug),
+                item.Subtasks.Count(s => !s.Done), WorkItemsApi.GetBlocking(id).Count(w => !w.Archived), item.DependsOn?.Count ?? 0);
+        });
+        if (view is null) Popups.Examine(null);   // the item is gone (archived, merged, hidden away): nothing left to look at
+    }
+
+    private void Open()
+    {
+        if (Popups.Examined is not (string root, int id)) return;
+        if (Workspace.Root is not string active || SettingsStore.Key(active) != SettingsStore.Key(root)) Workspace.Open(root);
+        Nav.NavigateTo($"item/{id}");
+    }
+
+    public void Dispose()
+    {
+        Popups.ExamineChanged -= OnExamined;
+        Workspace.Changed -= OnExamined;
+    }
+}

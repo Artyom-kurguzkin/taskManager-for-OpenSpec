@@ -464,6 +464,55 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal(["Tom", "Zed"], WorkItemsApi.Get(107)!.Contributors);
     }
 
+    [Fact(DisplayName = "The Linked tasks view links a note-made subtask back to its note, and the click opens the worklog at that note")]
+    public async Task LinkedTasksLinksBackToTheNote()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool ok, string message, string number) = NotesApi.ConvertToSubtask(123);
+        Assert.True(ok, message);
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        View(page, "linked");
+
+        // the row shows the subtask's text without the reference, and "from #n123" in its place
+        IElement row = SubText(page, "Ping test").ParentElement!;
+        Assert.Equal(number, row.QuerySelector(".mono:last-child")!.TextContent.Trim());
+        IElement from = row.QuerySelector("button.sub-from")!;
+        Assert.Equal("from #n123", from.TextContent.Trim());
+        Assert.DoesNotContain("#n123", SubText(page, "Ping test").TextContent);
+
+        from.Click();
+
+        page.WaitForAssertion(() => Assert.Equal("worklog", CurrentView(page)));
+        page.WaitForAssertion(() => Assert.Contains("flash", page.Find(".wk-e[data-note='123']").ClassList));   // the entry is marked, by a class: the fade is CSS
+        page.WaitForAssertion(() => Assert.Equal(".wk-e[data-note='123']", ctx.JSInterop.Invocations["rtm.scrollToDay"].Single().Arguments[0]));
+        Assert.Single(page.FindAll(".wk-e.flash"));
+
+        // a reference to a note the item does not have is plain text: there is nothing to open
+        Assert.True(WorkItemsApi.AddSubtask(123, "Orphan #n9999").Success);
+        ctx.Services.GetRequiredService<Workspace>().Notify();   // the page reads again
+        View(page, "linked");
+        page.WaitForAssertion(() => Assert.Empty(SubText(page, "Orphan #n9999").ParentElement!.QuerySelectorAll("button.sub-from")));
+    }
+
+    [Fact(DisplayName = "A converted entry in the worklog links its subtask, and the click opens Linked tasks at that subtask")]
+    public async Task WorklogLinksBackToTheSubtask()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool ok, string message, int bug) = NotesApi.ConvertSubtask(123, "1.3", Notes.PublicDTOs.NoteKinds.Bug, "Tom");
+        Assert.True(ok, message);
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+
+        IElement link = page.FindAll(".wk-e[data-kind='converted'] button.wk-jump").Single();
+        Assert.Equal("subtask 1.3", link.TextContent.Trim());
+        link.Click();
+
+        page.WaitForAssertion(() => Assert.Equal("linked", CurrentView(page)));
+        page.WaitForAssertion(() => Assert.Contains("flash", page.Find(".sub[data-sub='1.3']").ClassList));
+        page.WaitForAssertion(() => Assert.Equal(".sub[data-sub='1.3']", ctx.JSInterop.Invocations["rtm.scrollToDay"].Single().Arguments[0]));
+        Assert.Single(page.FindAll(".sub.flash"));
+        Assert.True(NotesApi.Get(bug)!.IsBug);
+    }
+
     [Fact(DisplayName = "Ticking a subtask on the work item page saves it to tasks.md")]
     public async Task TickOnPage()
     {

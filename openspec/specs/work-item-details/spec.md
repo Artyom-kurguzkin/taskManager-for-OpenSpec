@@ -6,15 +6,15 @@ Shows one work item with all of its parts and lets the user edit its header fiel
 ## Requirements
 
 ### Requirement: Work item page
-Opening a work item SHALL show its number as `#wi<id>`, title, linked features, contributors, status, priority and label, then its lists as tiles of equal rank: Description, Subtasks (with the items it waits on), Waiting on this (only when another item waits on it), Linked commits, Linked tests and Change log. Features from the change's specs/ folder SHALL show with a dashed outline and text readable in both themes.
+Opening a work item SHALL show its number as `#wi<id>`, title, linked features, contributors, status, priority and label, then two views with a button each, both always shown and the current one marked: Worklog (the default) and Linked tasks. There SHALL be no Description view: the description is the first entry of the worklog. Features from the change's specs/ folder SHALL show with a dashed outline and text readable in both themes.
 
 #### Scenario: Open from board
 - **WHEN** the user clicks card #wi123
-- **THEN** the work item page for #wi123 opens with the Description tile focused and the other tiles compact
+- **THEN** the work item page for #wi123 opens on the Worklog view, with the Linked tasks button beside it, and the description is the first thing in the feed
 
 #### Scenario: Waiting on this
 - **WHEN** #wi107 waits on #wi123
-- **THEN** #wi123's page has a "Waiting on this" tile listing #wi107, and an item nothing waits on has no such tile
+- **THEN** #wi123's Linked tasks view lists #wi107 in its "Waiting on this" column, and an item nothing waits on says so there
 
 ### Requirement: Edit header fields
 Title, features, contributors, status, priority and label SHALL be editable in place. Every linked feature SHALL have a remove control; removing one that comes from the change's specs/ folder SHALL record it in `x-rtm.unlinkedFeatures` and leave the spec files alone, and "+ add" SHALL offer it again. Each edit SHALL be saved when the control loses focus or a value is picked. The title SHALL be stored in `x-rtm.title` and the label in `x-rtm.label` (values: bug, feature, enhancement, or none). Contributors SHALL be stored in `x-rtm.contributors`; while that list is absent, the git commit authors of the change SHALL stand in for it. Every contributor SHALL be removable, and "+ add" SHALL offer everyone who has ever committed to the repository (any branch), people already on other items and the current user, and SHALL accept any typed name. Commit authors whose names differ only in case and `-`, `_` or `.`, or whose emails differ only in case, SHALL be listed once, under the name they committed with most.
@@ -74,7 +74,7 @@ The subtasks panel SHALL list tasks.md checkboxes with their numbers and group h
 - **THEN** the text and tasks.md stay as they were
 
 ### Requirement: Move subtasks to a new work item
-Selecting one or more subtasks by Shift-clicking (or Ctrl/⌘-clicking) their text SHALL offer to move them into a new work item ("Make it a work item" for one, "Move into a separate work item" for several). This SHALL create a new change holding those tasks (renumbered from 1.1), with the same features and contributors, remove them from the source, and renumber the tasks left in the source. A single moved subtask's text SHALL become the new item's title; several moved together SHALL be titled "Split from #wi<id>".
+Selecting one or more subtasks by Shift-clicking (or Ctrl/⌘-clicking) their text SHALL offer to move them into a new work item ("Make it a work item" for one, "Move into a separate work item" for several). This SHALL create a new change holding those tasks (renumbered from 1.1), with the same features and contributors, remove them from the source, and renumber the tasks left in the source. A single moved subtask's text SHALL become the new item's title; several moved together SHALL be titled "Split from #wi<id>". Each moved subtask SHALL be logged in both feeds, with the person who moved it: in the source item as `subtask-moved` ("moved subtask 1.4 to #wi130", the item a link) and in the new item as `made-from-subtask` ("made from subtask 1.4 of #wi123", the item a link). The same SHALL hold when the new item is made a dependency.
 
 #### Scenario: Split out
 - **WHEN** the user selects subtasks 1.4 and 1.5 of #wi123 and moves them
@@ -83,6 +83,10 @@ Selecting one or more subtasks by Shift-clicking (or Ctrl/⌘-clicking) their te
 #### Scenario: One subtask
 - **WHEN** the user selects only subtask 1.3 "Ping test in suite 543" of #wi123 and picks "Make it a work item" or "Make it a dependency"
 - **THEN** a new work item titled "Ping test in suite 543" holds that subtask as 1.1 and #wi123 keeps the rest
+
+#### Scenario: The move is in both feeds
+- **WHEN** Tom moves subtask 1.3 of #wi123 into the new work item #wi130
+- **THEN** the feed of #wi123 shows "moved subtask 1.3 to #wi130" by Tom, and the feed of #wi130 shows "made from subtask 1.3 of #wi123" by Tom
 
 ### Requirement: Archived item editing
 Archived (Completed) work items SHALL show editable controls for all metadata fields except status. The status SHALL display as a read-only "Completed" chip. Title, label, priority, features, contributors, description, subtasks, linked commits and linked tests SHALL all be editable in place, writing changes to the archived change's `x-rtm` block.
@@ -117,21 +121,6 @@ The work item page SHALL NOT offer a control to hide an item; hiding is only ava
 - **WHEN** the user opens a hidden item's page and clicks "Restore"
 - **THEN** `x-rtm.hidden` is cleared and the item shows on the board again
 
-### Requirement: Focus a tile
-On the desktop one tile SHALL always be focused: it fills the wide column and offers all its controls. The other tiles SHALL be compact previews stacked beside it, each showing its count and its last three entries. Clicking a compact tile SHALL focus it, and the tiles SHALL slide to their new places. In a narrow window (860 pixels or less) the tiles SHALL stack in one column and the page SHALL open with every tile minimised; tapping a tile expands it, and tapping its header minimises it again.
-
-#### Scenario: Focus subtasks
-- **WHEN** the user clicks the compact Subtasks tile
-- **THEN** it becomes the large tile listing every subtask with its checkbox, and the description becomes a compact preview
-
-#### Scenario: Compact preview
-- **WHEN** a work item has 25 subtasks and its Subtasks tile is compact
-- **THEN** the tile shows "/25" in its count and three entries
-
-#### Scenario: Narrow window opens minimised
-- **WHEN** the work item page opens 600 pixels wide
-- **THEN** every tile is a compact preview; tapping Subtasks expands it, and tapping its header minimises it again
-
 ### Requirement: Compact header in small windows
 The `#wi` number, the title and the back button SHALL share one row at every window width, with the back button at the right end. In windows 760 pixels wide or less, the header, its fields and the tile titles SHALL use a smaller type size and tighter spacing. The rendered description SHALL not show blank lines between its paragraphs, headings and lists beyond their normal spacing.
 
@@ -154,15 +143,15 @@ Selecting one or more subtasks SHALL also offer "Make it a dependency" (one) / "
 - **THEN** a new work item holds that subtask, #wi123's status becomes Blocked, and `x-rtm.dependsOn` in #wi123's `.openspec.yaml` lists the new item's id
 
 ### Requirement: Related work items under Subtasks
-The Subtasks panel SHALL list, after the subtasks, each work item this one waits on ("waits on", highlighted while unresolved, struck through once In Review or Completed, with a control to remove it) and each work item waiting on this one ("blocks"), with its current status. Each SHALL open the named item's page.
+The Linked tasks view SHALL show four columns: Subtasks, Waiting on (each work item this one waits on, highlighted while unresolved, struck through once In Review or Completed, with a control to remove it and a picker to add one), Waiting on this (each work item waiting on this one) and Related (everything attached to the item, see "Related list"), each work-item row with the item's current status. Each work-item row SHALL open the named item's page. In a narrow window the columns SHALL wrap to two per row, then one, and nothing is minimised.
 
 #### Scenario: Waits on
 - **WHEN** #wi123's `x-rtm.dependsOn` lists #wi124
-- **THEN** #wi123's Subtasks panel shows a highlighted "waits on" row for #wi124 with its status, and removing it clears it from `x-rtm.dependsOn`
+- **THEN** #wi123's Waiting on column shows a highlighted row for #wi124 with its status, and removing it clears it from `x-rtm.dependsOn`
 
 #### Scenario: Blocks
 - **WHEN** #wi123's `x-rtm.dependsOn` lists #wi124
-- **THEN** #wi124's Subtasks panel shows a "blocks" row for #wi123 with its status
+- **THEN** #wi124's Waiting on this column shows a row for #wi123 with its status
 
 ### Requirement: Status locked while a dependency is unresolved
 A dependency SHALL count as resolved once it is In Review or Completed (archived). A work item SHALL refuse to change status away from Blocked while any item in its `x-rtm.dependsOn` is unresolved; the refusal SHALL name the unresolved dependency. Picking Blocked again SHALL always be allowed. Once every dependency is resolved, status changes SHALL be allowed again.
@@ -227,10 +216,10 @@ The work item page SHALL show no agent chip in its title row, and cards and list
 - **THEN** the item is marked reviewed, the chip stays lilac but is no longer the review control, and the title row never had a chip
 
 ### Requirement: Plan link
-A work item MAY link a plan with `x-rtm.plan`, a repository-relative path. While no plan is linked, the work item page SHALL offer "+ link plan", listing the markdown files in the plans folder (newest first, filterable); picking one links it. A linked plan SHALL show as a chip with its file name that opens the plan rendered inside the app, and a × that unlinks it (the file stays). `x-rtm.plan` SHALL refuse a path outside the repository or with `..`.
+A work item MAY link a plan with `x-rtm.plan`, a repository-relative path. While no plan is linked, the Related column of the Linked tasks view SHALL offer "+ link plan", listing the markdown files in the plans folder (newest first, filterable); picking one links it. A linked plan SHALL show as a row of the Related list with its file name that opens the plan rendered inside the app, and a × that unlinks it (the file stays). The header SHALL not show the plan. `x-rtm.plan` SHALL refuse a path outside the repository or with `..`.
 
 #### Scenario: Link and open
-- **WHEN** the user picks `health-2026-11-05.md` from "+ link plan" and clicks the chip
+- **WHEN** the user picks `health-2026-11-05.md` from "+ link plan" in the Related list and clicks its row
 - **THEN** `x-rtm.plan` is `DevResources/plans/health-2026-11-05.md` and the plan opens rendered, headed by its path
 
 ### Requirement: Document page
@@ -336,3 +325,159 @@ The Worklog block SHALL offer six filters: Notes, Decisions, Events (created, st
 #### Scenario: Hide the housekeeping
 - **WHEN** the user unticks Edits
 - **THEN** field changes and attachments leave the feed while notes, decisions, status changes and links stay
+
+### Requirement: A document shows the images it links to
+
+The document page SHALL show an image that the document links to with a markdown image link when the link names an image file of the repository: a path relative to the document's folder is tried first, then a path from the repository root. A link to a file that does not exist, or to a path outside the repository, SHALL be left unchanged.
+
+#### Scenario: A drawing beside the plan
+
+- **WHEN** a plan in the plans folder contains `![loop](loop.excalidraw.svg)` and that file is in the same folder
+- **THEN** the document page shows the drawing
+
+#### Scenario: A path from the repository root
+
+- **WHEN** a document contains `![shot](docs/shot.svg)` and that file exists under the repository root
+- **THEN** the document page shows the image
+
+#### Scenario: A missing file
+
+- **WHEN** a document links to an image file that does not exist
+- **THEN** the link is left as written and nothing else on the page changes
+
+### Requirement: Notes edit in place
+A note's title is its first `#` heading and SHALL be editable in the note header; a blank title SHALL be refused. The note page SHALL have no Edit or Done button: clicking the rendered note SHALL open the editor, and clicking outside the editor SHALL save and show the rendered note again.
+
+#### Scenario: Retitle and edit
+- **WHEN** the user changes the title field to "Decided on X", clicks the note text, types, and clicks outside the editor
+- **THEN** the note file's first heading is "# Decided on X", the body holds the typed text, and the rendered note shows both
+
+### Requirement: Paste an image as an attachment
+While the note page is open, an image pasted from the clipboard SHALL become an attachment of the note, stored under `local/task-tracking/wi<item>/n<note>/` as `pasted-<timestamp>.<ext>`, with the same `.gitignore` handling as a picked file.
+
+#### Scenario: Paste a screenshot
+- **WHEN** the user presses Ctrl+V with a PNG on the clipboard
+- **THEN** the note lists a new image attachment and the file exists under `local/task-tracking/`
+
+### Requirement: Description last in the worklog
+The description SHALL be the last entry of the Worklog view, below every day and below "Linked earlier", as the item's first post, rendered as markdown, with no hover effect of its own. Shift-clicking it SHALL offer Edit, which turns it into an editor in place that saves when the user leaves it; a pasted image becomes an attachment linked at the caret. An item without a description SHALL say so in that entry and offer the same Edit.
+
+#### Scenario: Edit the description in the feed
+- **WHEN** the user Shift-clicks the description entry of #wi123, picks Edit, changes the text and clicks outside
+- **THEN** `proposal.md` of #wi123 holds the new text and the entry shows it rendered
+
+### Requirement: Worklog block in the side menu
+While a worklog is open the side menu SHALL show a Worklog block first, before the list's organise, sort and display blocks: filters for Notes, Events, Links and Subtasks, a who picker, and the actions Add note, Link document, Link test, Link commit and Add subtask. The block SHALL go when the worklog closes. Link test and Link commit SHALL be switched off, saying why, when there are no test runs or no git.
+
+#### Scenario: Filter the feed
+- **WHEN** the user unticks Events in the Worklog block
+- **THEN** status changes and link events leave the feed and the notes stay; ticking it brings them back
+
+#### Scenario: Split view
+- **WHEN** a work item is open beside the list
+- **THEN** the side menu shows the Worklog block above the list's blocks
+
+### Requirement: Days list in the Worklog block
+The Worklog block SHALL list the feed's days newest first, each with its entry count, and "Linked earlier" when that group is shown. Clicking a day SHALL unfold it and scroll its heading into view. The list SHALL follow the filters.
+
+#### Scenario: Jump to a day
+- **WHEN** the user clicks "9 Nov 2026" in the Days list while that day is folded
+- **THEN** the day unfolds and its heading scrolls to the top of the feed
+
+### Requirement: Related list
+The Related column of the Linked tasks view SHALL list everything attached to the work item: its plan, its linked documents, the documents and files its description and notes link to or attach, and their images, each once, each opening on a click. The list SHALL be the only place the page shows the plan and the linked documents: the header SHALL not repeat them. A plan or linked document SHALL have a × there that unlinks it (the file stays).
+
+#### Scenario: A plan and a pasted screenshot
+- **WHEN** #wi123 has a plan and a note with a pasted screenshot
+- **THEN** the Related list has a row for the plan and a row for the image, and an item with nothing attached says "Nothing attached yet."
+
+#### Scenario: Unlink a document
+- **WHEN** #wi123 lists `docs/guide.md` in `x-rtm.docs` and the user clicks the × on its row in the Related list
+- **THEN** `x-rtm.docs` no longer lists it, and a document the description merely mentions has no ×
+
+### Requirement: Worklog feed
+The Worklog view SHALL show the work item's notes and events in one feed grouped by day, the newest day first, each entry with the time it was created and who made it. A day SHALL fold and unfold on a click, and today's group SHALL always be present.
+
+#### Scenario: Notes and events together
+- **WHEN** #wi123 has a note written yesterday and its status was changed today
+- **THEN** the feed shows today with "status: Planned → In Progress" and its time, then yesterday with the note
+
+#### Scenario: Fold a day
+- **WHEN** the user clicks yesterday's date
+- **THEN** yesterday's entries are hidden until the date is clicked again
+
+### Requirement: Events are recorded
+The app SHALL record, in `events.log` in the change folder, when a work item is created, its status changes, a commit, test or document is linked or unlinked, a subtask is ticked, reopened or added, and a dependency is added or removed, each with the time and who did it. A commit, test or document linked before the log existed SHALL still show in the feed: a commit at its commit time, tests and documents in a last group "Linked earlier".
+
+#### Scenario: Status change
+- **WHEN** the user moves #wi123 from Planned to In Progress
+- **THEN** `events.log` of #wi123 gains a line with the time, the user's name, `status` and `Planned -> In Progress`
+
+#### Scenario: A test linked last week
+- **WHEN** #wi123 lists a test in `x-rtm.tests` and has no event for it
+- **THEN** the feed shows the test under "Linked earlier" with its latest result
+
+### Requirement: Add to the worklog from a date
+Shift-clicking a date in the feed SHALL open a menu with Add note, Link document, Link test and Link commit. Add note SHALL open an editor in place under that day (title, markdown text, pasted images become attachments) that saves when the user leaves it; a note added under an older day SHALL be dated that day. A link SHALL appear in the feed as an event.
+
+#### Scenario: Add a note
+- **WHEN** the user Shift-clicks today's date, picks Add note, types a title and text and clicks outside
+- **THEN** the note is saved and shows in today's group with the current time
+
+#### Scenario: Link a commit
+- **WHEN** the user Shift-clicks today's date, picks Link commit and chooses a commit
+- **THEN** the commit is stored in `x-rtm.commits` and today's group shows "linked a commit" with its hash and subject
+
+### Requirement: Edit and unlink from an entry
+Shift-clicking a note in the feed SHALL open a menu with Edit, which opens the note in place. Shift-clicking a commit, test or document entry that is still linked SHALL open a menu with Unlink, which removes the link and is itself recorded as an event. An open menu SHALL stay on the entry it was opened on when the feed changes under it (a new entry above it), so Unlink always removes the link that was clicked.
+
+#### Scenario: Edit a note
+- **WHEN** the user Shift-clicks a note and picks Edit
+- **THEN** the note becomes an editor where it stands, and clicking outside saves it
+
+#### Scenario: Unlink a test
+- **WHEN** the user Shift-clicks "linked a test" and picks Unlink
+- **THEN** the test is removed from `x-rtm.tests` and the feed gains "unlinked a test"
+
+### Requirement: Linked documents
+A work item SHALL keep its linked documents as repository-relative paths in `x-rtm.docs`; a path outside the repository SHALL be refused.
+
+#### Scenario: Link a document
+- **WHEN** the user links `docs/guide.md` to #wi123
+- **THEN** `x-rtm.docs` of #wi123 lists `docs/guide.md` and the Related list shows it
+
+### Requirement: Views without frames
+The two views of the work item page SHALL have no frames: the description entry, the Related list, the linked-tasks columns and their rows, and the notes in the worklog sit directly on the page, with a soft line between rows and between worklog entries. An editor in place SHALL show as a line beside or under the text, not as a box.
+
+#### Scenario: Open the linked tasks
+- **WHEN** the user opens the Linked tasks view of an item with subtasks
+- **THEN** the columns have plain headings and the subtasks are rows divided by lines, with no box around a column or a row
+
+### Requirement: A subtask made from a note refers to it
+Converting a note, decision or bug to a subtask SHALL keep the note as it is and SHALL end the new subtask line in the note's reference `#nN`. The Linked tasks view SHALL show that reference as a "from #nN" link.
+
+#### Scenario: A note with a body becomes a subtask
+- **WHEN** the user converts the note "cr", whose text says "When a subtask is being moved to a separate work item, add a log in the feed", to a subtask
+- **THEN** the subtask line reads "cr #n412" and its note is still in the feed with its full text
+
+#### Scenario: Renumbered
+- **WHEN** a subtask above a note-made subtask is removed
+- **THEN** the note-made subtask still refers to its note and the note still offers no second subtask
+
+### Requirement: Linked tasks and the worklog link to each other
+The "from #nN" link SHALL open the Worklog view at that note, marked for a moment. A converted entry that names a subtask still in the item SHALL link to it in the Linked tasks view, marked the same way.
+
+#### Scenario: From the subtask to the note
+- **WHEN** the user clicks "from #n412" on a subtask
+- **THEN** the Worklog view opens at the note #n412, its day unfolded and the entry marked
+
+#### Scenario: From the feed to the subtask
+- **WHEN** the user clicks "subtask 7.11" in "promoted note #n412 to subtask 7.11"
+- **THEN** the Linked tasks view opens at subtask 7.11, marked, and its group unfolded when the subtask is done
+
+### Requirement: A conversion keeps the original
+Converting a feed entry SHALL never remove it: promoting a note, decision or bug to a subtask keeps the note with its text and attachments and adds the subtask; converting a subtask to a note, decision or bug keeps the subtask. Each conversion SHALL be recorded as one event, and a note already promoted SHALL no longer offer the promotion.
+
+#### Scenario: Promote a note
+- **WHEN** the user Shift-clicks a note with text and picks Make it a subtask
+- **THEN** the subtask exists, the note is still in the feed with its text, and the feed gains "promoted note #nN to subtask X"

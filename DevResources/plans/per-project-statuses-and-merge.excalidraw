@@ -1,0 +1,276 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "id": "t1",
+   "type": "text",
+   "x": 40,
+   "y": 20,
+   "fontSize": 18,
+   "text": "Each project keeps its own status list (openspec/config.yaml, x-rtm.statuses)",
+   "width": 762.3000000000001,
+   "height": 22.5
+  },
+  {
+   "id": "pa",
+   "type": "rectangle",
+   "x": 40,
+   "y": 60,
+   "width": 300,
+   "height": 120,
+   "backgroundColor": "#fff3bf",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "pa-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "pa-label",
+   "containerId": "pa",
+   "text": "Project A\nBacklog · Planned · In Progress ·\nBlocked · In Review · Completed",
+   "originalText": "Project A\nBacklog · Planned · In Progress ·\nBlocked · In Review · Completed",
+   "fontSize": 13,
+   "x": 72.02499999999999,
+   "y": 95.625,
+   "width": 235.95000000000002,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "pb",
+   "type": "rectangle",
+   "x": 380,
+   "y": 60,
+   "width": 300,
+   "height": 120,
+   "backgroundColor": "#fff3bf",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "pb-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "pb-label",
+   "containerId": "pb",
+   "text": "Project B\nBacklog · Doing · InProgress ·\nQA · completed",
+   "originalText": "Project B\nBacklog · Doing · InProgress ·\nQA · completed",
+   "fontSize": 13,
+   "x": 422.75,
+   "y": 95.625,
+   "width": 214.50000000000003,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "fixed",
+   "type": "text",
+   "x": 40,
+   "y": 200,
+   "fontSize": 13,
+   "text": "Fixed in every project: Backlog, In Progress, Completed (never removed or renamed). Others: add, remove, reorder in Settings.",
+   "width": 893.7500000000001,
+   "height": 16.25
+  },
+  {
+   "id": "t2",
+   "type": "text",
+   "x": 40,
+   "y": 260,
+   "fontSize": 18,
+   "text": "Multi-project board: merge columns that mean the same (a view setting, per user, never written to a project)",
+   "width": 1069.2,
+   "height": 22.5
+  },
+  {
+   "id": "c1",
+   "type": "rectangle",
+   "x": 40,
+   "y": 300,
+   "width": 150,
+   "height": 60,
+   "backgroundColor": "#e9ecef",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "c1-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "c1-label",
+   "containerId": "c1",
+   "text": "In Progress (A)",
+   "originalText": "In Progress (A)",
+   "fontSize": 13,
+   "x": 61.37499999999999,
+   "y": 321.875,
+   "width": 107.25000000000001,
+   "height": 16.25,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "c2",
+   "type": "rectangle",
+   "x": 210,
+   "y": 300,
+   "width": 150,
+   "height": 60,
+   "backgroundColor": "#e9ecef",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "c2-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "c2-label",
+   "containerId": "c2",
+   "text": "InProgress (B)",
+   "originalText": "InProgress (B)",
+   "fontSize": 13,
+   "x": 234.95,
+   "y": 321.875,
+   "width": 100.10000000000001,
+   "height": 16.25,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "c3",
+   "type": "rectangle",
+   "x": 380,
+   "y": 300,
+   "width": 150,
+   "height": 60,
+   "backgroundColor": "#e9ecef",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "c3-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "c3-label",
+   "containerId": "c3",
+   "text": "Doing (B)",
+   "originalText": "Doing (B)",
+   "fontSize": 13,
+   "x": 422.825,
+   "y": 321.875,
+   "width": 64.35000000000001,
+   "height": 16.25,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "sel",
+   "type": "text",
+   "x": 40,
+   "y": 370,
+   "fontSize": 12,
+   "text": "Shift-select headers, header menu → Merge",
+   "width": 270.6,
+   "height": 15
+  },
+  {
+   "id": "ar",
+   "type": "arrow",
+   "x": 285,
+   "y": 390,
+   "width": 0,
+   "height": 40,
+   "strokeColor": "#1e1e1e",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     40
+    ]
+   ]
+  },
+  {
+   "id": "m",
+   "type": "rectangle",
+   "x": 40,
+   "y": 440,
+   "width": 490,
+   "height": 70,
+   "backgroundColor": "#d3f9d8",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "m-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "m-label",
+   "containerId": "m",
+   "text": "In Progress  (A: In Progress · B: InProgress, Doing)\nmerges: [{ name, statuses }] in the user's board settings · Unmerge from the header",
+   "originalText": "In Progress  (A: In Progress · B: InProgress, Doing)\nmerges: [{ name, statuses }] in the user's board settings · Unmerge from the header",
+   "fontSize": 13,
+   "x": -11.725000000000023,
+   "y": 458.75,
+   "width": 593.45,
+   "height": 32.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "drop",
+   "type": "text",
+   "x": 40,
+   "y": 530,
+   "fontSize": 12,
+   "text": "Drop into a merged column: the card takes the status its own project has in the merge; if its project has two, the app asks which.",
+   "width": 858.0000000000001,
+   "height": 15
+  },
+  {
+   "id": "look",
+   "type": "text",
+   "x": 40,
+   "y": 555,
+   "fontSize": 12,
+   "text": "Look-alikes of a fixed name (completed, InProgress, in progress) get a preselected \"Merge with <fixed>\" in the header menu.",
+   "width": 811.8000000000001,
+   "height": 15
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

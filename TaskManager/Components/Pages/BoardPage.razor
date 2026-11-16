@@ -23,7 +23,7 @@
 }
 else if (View == "calendar")
 {
-    <Roadmap Projects="RoadmapProjects" Multi="Multi" ColorBy="@O.ColorBy" OnOpen="OpenFrom" />
+    <Roadmap Projects="RoadmapProjects" Multi="Multi" ColorBy="@O.ColorBy" OnOpen="OpenFrom" OnBackground="CalendarBackground" ExamineOf="ExamineOf" />
 }
 else if (View == "analytics")
 {
@@ -101,7 +101,7 @@ else if (View == "list")
                                     <button class="chev @(open ? "open" : "")" @onclick="() => ToggleRow(row)" aria-expanded="@open" aria-label="Subtasks">@Ui.Icon("chev")</button>
                                 }
                                 @* a modifier click is the row's (RowRender): it selects, as on a card; a plain click opens *@
-                                <button class="row-title" title="@it.Title" @onclick="e => { if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) OpenItem(ProjectOf(row.Root), it.Id); }">@it.Title</button>
+                                <button class="row-title" title="@it.Title" @onclick="e => { if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) ItemClick(ProjectOf(row.Root), it.Id); }">@it.Title</button>
                                 <AgentBadge Item="it" />
                             </span>
                         }
@@ -120,7 +120,7 @@ else if (View == "list")
                     <Template Context="row">
                         @if (row.Item is WorkItem it)
                         {
-                            <Pill Kind="status" Value="@it.Status" ReadOnly="it.Archived" ValueChanged="v => SetStatus(ProjectOf(row.Root), it, v)" />
+                            <Pill Kind="status" Value="@it.Status" ReadOnly="it.Archived" Statuses="ProjectOf(row.Root).Statuses" ValueChanged="v => SetStatus(ProjectOf(row.Root), it, v)" />
                         }
                     </Template>
                 </RadzenDataGridColumn>
@@ -167,11 +167,12 @@ else
                 <div class="head-row cat-cols" data-proj="" @ondrop="() => DropColumn(HeadKeys, null)">
                     @foreach (BoardColumn col in projects[0].Sections[0].Columns)
                     {
-                        <section class="col head-only" data-key="@col.Key">
-                            <Menu Label="Column options">
+                        @* Shift-click selects a status column (the click stops here, so the board does not let go of it); the menu then offers Merge *@
+                        <section class="col head-only" data-key="@col.Key" @onclick="e => ColumnClick(col.Key, e)" @onclick:stopPropagation="true">
+                            <Menu Label="Column options" IgnoreModifiedClick="true">
                                 <Activator>
                                     @* drag a header along the row to reorder columns, in every project at once *@
-                                    <header class="col-h hov" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
+                                    <header class="col-h hov @(selectedColumns.Contains(col.Key) ? "selected" : "")" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)"
                                             @ondragstart="() => StartColumnDrag(HeadKeys, BoardModel.ColumnKey(Opt, col.Key))">
                                         <h3>@col.Label</h3><span class="count">@projects.Where(p => !Collapsed(p)).Sum(p => p.Sections[0].Columns.Where(c => c.Key == col.Key).Sum(c => BoardModel.Count(c.Items, O.Unit)))</span>
                                     </header>
@@ -179,6 +180,12 @@ else
                                 <Items>
                                     <MenuItem OnClick="() => NewItem(null, col.Key)">+ Add work item here…</MenuItem>
                                     <MenuItem OnClick="() => SelectAllProjects(col.Key)">Select all in column</MenuItem>
+                                    @if (Opt.GroupBy == "status")
+                                    {
+                                        @if (selectedColumns.Count >= 2 && selectedColumns.Contains(col.Key)) { <MenuItem OnClick="MergeSelected">Merge</MenuItem> }
+                                        @if (BoardModel.LookAlikes(HeadColumns, col.Key) is { } look) { <MenuItem OnClick="() => MergeLookAlikes(look)">@(col.Key == look.Fixed ? "Merge look-alikes" : $"Merge with {look.Fixed}")</MenuItem> }
+                                        @if (BoardModel.MergeOf(O, col.Key) is not null) { <MenuItem OnClick="() => Unmerge(col.Key)">Unmerge</MenuItem> }
+                                    }
                                     @if (col.Key != BoardModel.Unassigned)
                                     {
                                         <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(Opt, col.Key)))">Hide column</MenuItem>
@@ -367,7 +374,7 @@ else if (View != "analytics" && (View == "list" || O.Unit == "tasks"))
             }
             else
             {
-                <WorkItemCard Item="it" Options="O" Names="p.Names" Colours="p.Colours" Selected="selected.Contains((p.Root, it.Id))"
+                <WorkItemCard Item="it" Options="O" Names="p.Names" Colours="p.Colours" Selected="selected.Contains((p.Root, it.Id))" Examine="@ExamineClass(p, it.Id)"
                               OnClick="e => CardClick(p, it, e)" OnDragStart="i => StartCardDrag(p, i, col.Key, swim)" OnDrop="t => DropBefore(p, col, t, swim)" OnReview="i => ReviewItem(p, i)" />
             }
         }

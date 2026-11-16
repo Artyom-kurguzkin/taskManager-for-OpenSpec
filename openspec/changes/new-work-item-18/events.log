@@ -6,3 +6,12 @@
 2026-11-11T08:00:09 | Artyom-kurguzkin | dates | none -> 9 Nov – 16 Nov
 2026-11-11T08:00:14 | Artyom-kurguzkin | status | Backlog -> Planned
 2026-11-11T08:01:03 | Artyom-kurguzkin | priority | low -> high
+2026-11-16T07:54:31 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-16T08:31:44 | Claude chunk list-dates | test-linked | UsingTheBoardTests / An expanded card shows its due date and the list shows updated, started and due apart
+2026-11-16T08:31:44 | Claude chunk list-dates | test-linked | ReadingWorkItemsTests / A work item's updated time is the last change in its worklog (events and notes), not the time its files were written
+2026-11-16T08:31:52 | Claude chunk list-dates | status | In Progress -> In Review
+2026-11-16T08:43:35 | Claude | log | Integrated the list-dates chunk into main (due date on expanded cards tested; Updated now the last worklog change). Clean rebuild, one suite run with all six chunks: Passed 1059, Failed 0.
+2026-11-16T09:35:33 | Artyom-kurguzkin | attachment-added | n445: pasted-20261116-093533.png
+2026-11-16T09:39:14 | Artyom-kurguzkin | subtask-added | 1.1 ui cr #n445
+2026-11-16T09:39:14 | Artyom-kurguzkin | converted | note #n445 -> subtask 1.1
+2026-11-16T09:39:19 | Artyom-kurguzkin | status | In Review -> In Progress

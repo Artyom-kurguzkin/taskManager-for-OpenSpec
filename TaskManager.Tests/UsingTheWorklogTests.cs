@@ -965,7 +965,7 @@ public sealed class UsingTheWorklogTests : IDisposable
         Pick(log, "Make it a subtask");
 
         Assert.Equal("Restrict permissions", NotesApi.Get(id)!.Title);
-        Assert.Equal("Restrict permissions", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
+        Assert.Equal($"Restrict permissions #n{id}", WorkItemsApi.Get(123)!.Subtasks[^1].Text);
         string number = WorkItemsApi.Get(123)!.Subtasks[^1].Number;
         Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"note #n{id} -> subtask {number}");
         log.WaitForAssertion(() => Assert.Contains($"promoted note #n{id} to subtask {number}", Text(DayOf(log, today).QuerySelector(".wk-e[data-kind='converted']")!)));

@@ -227,4 +227,22 @@ public sealed class ReadingWorkItemsTests
         Assert.Equal(("Mixed endings", "In Progress", "high"), (it.Title, it.Status, it.Priority));
         Assert.Null(it.Warning);
     }
+
+    // ---- list-dates chunk ----
+
+    [Fact(DisplayName = "A work item's updated time is the last change in its worklog (events and notes), not the time its files were written")]
+    public void UpdatedIsTheLastWorklogChange()
+    {
+        using TestRepo repo = new();
+        DateTime checkout = new(2026, 11, 1, 12, 0, 0);
+        repo.Write("openspec/changes/add-health-check/events.log", "2026-10-05T08:00:00 | Artyom | status | Planned -> In Progress\n2026-10-20T08:00:00 | Artyom | priority | low -> high\n");
+        repo.Write("openspec/changes/export-remittances/events.log", "2026-10-06T08:00:00 | Tom | created | Export remittances\n");
+        repo.Write("openspec/changes/export-remittances/notes/n9.md", "---\nid: 9\nby: Tom\ncreated: 2026-10-25T12:30:00\n---\n# Later\n\nText\n");
+        foreach (string file in Directory.EnumerateFiles(repo.PathOf("openspec/changes"), "*", SearchOption.AllDirectories)) File.SetLastWriteTime(file, checkout);   // a git checkout writes every file now
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.Equal(new DateTime(2026, 10, 20, 8, 0, 0), Item(123).Modified);   // its note (2 Oct) is older, and the checkout (1 Nov) is not a change
+        Assert.Equal(new DateTime(2026, 10, 25, 12, 30, 0), WorkItemsApi.GetAll().Single(w => w.Folder == "export-remittances").Modified);   // a note after the last event counts
+        Assert.Equal(checkout, WorkItemsApi.GetAll().Single(w => w.Folder == "plain-change").Modified);   // no worklog at all: the files' time is all there is
+    }
 }
