@@ -19,3 +19,4 @@
 2026-11-17T08:44:48 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of six rows mixing high and low priority, an arrow key on a middle row swaps it with the row shown next to it, with or without a saved order that holds other columns' cards(staleOrder: False, key: "ArrowUp")
 2026-11-17T08:44:48 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of six rows mixing high and low priority, an arrow key on a middle row swaps it with the row shown next to it, with or without a saved order that holds other columns' cards(staleOrder: True, key: "ArrowUp")
 2026-11-17T08:44:48 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of six rows mixing high and low priority, an arrow key on a middle row swaps it with the row shown next to it, with or without a saved order that holds other columns' cards(staleOrder: True, key: "ArrowDown")
+2026-11-17T08:56:31 | Claude | status | In Progress -> In Review

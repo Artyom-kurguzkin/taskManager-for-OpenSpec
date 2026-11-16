@@ -124,7 +124,7 @@ public sealed class MovingRowsWithArrowKeysTests : IDisposable
             await board.InvokeAsync(() => { });
         }
         List<int> before = Shown(board);
-        int pick = ids[3], at = before.IndexOf(pick), to = at + (key == "ArrowUp" ? -1 : 1);
+        int pick = before.Where(ids.Contains).ElementAt(3), at = before.IndexOf(pick), to = at + (key == "ArrowUp" ? -1 : 1);   // the fourth of the six as shown, by position: which id that is depends on the creation seconds (equal ones tie on the id, a later one sorts first), and the last row of a group goes on into the next group
         List<int> expected = [.. before];
         (expected[at], expected[to]) = (expected[to], expected[at]);
 
