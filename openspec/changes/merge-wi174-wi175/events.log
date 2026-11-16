@@ -11,3 +11,16 @@
 2026-11-16T10:47:33 | Artyom-kurguzkin | feature | work-item-details -> organise-work-items
 2026-11-16T10:47:37 | Artyom-kurguzkin | label | none -> enhancement
 2026-11-16T10:47:47 | Artyom-kurguzkin | dates | none -> 16 Nov – 16 Nov
+2026-11-16T10:56:22 | Claude chunk git-deltas | plan-linked | DevResources/plans/git-deltas-2026-11-16.md
+2026-11-16T10:56:22 | Claude chunk git-deltas | contributor-added | Claude chunk git-deltas
+2026-11-16T11:06:47 | Claude chunk git-deltas | subtask-done | 1.1 highlight uncommited changes
+2026-11-16T11:06:47 | Claude chunk git-deltas | subtask-done | 2.1 highlight chages for specific commit
+2026-11-16T11:11:26 | Claude chunk git-deltas | test-linked | ReadingGitHistoryTests / A commit's work items are the change folders its files are in, archived ones included
+2026-11-16T11:11:26 | Claude chunk git-deltas | test-linked | ReadingGitHistoryTests / Uncommitted lists the work items whose files are changed or new
+2026-11-16T11:11:26 | Claude chunk git-deltas | test-linked | ArrangingTheBoardTests / The commit filter shows only the chosen commit's items on the board, the list and the calendar, and any shows all
+2026-11-16T11:11:26 | Claude chunk git-deltas | test-linked | ArrangingTheBoardTests / The items the uncommitted marker is for are the ones whose change folders are changed or new
+2026-11-16T11:11:26 | Claude chunk git-deltas | test-linked | UsingTheBoardTests / An item with uncommitted changes carries the marker
+2026-11-16T11:11:26 | Claude chunk git-deltas | test-linked | UsingTheBoardTests / The Filters section offers any, uncommitted and the recent commits, and choosing one filters the board
+2026-11-16T11:11:26 | Claude chunk git-deltas | test-linked | UsingThePagesTests / The item page and the examine panel show the last contributing commit
+2026-11-16T11:18:10 | Claude chunk git-deltas | status | In Progress -> In Review
+2026-11-16T13:02:20 | Claude | log | Integrated git-deltas into main; the item page's last-commit lookup moved from markup to Load (it walked openspec/changes per render). One run with all chunks: Passed 1083, Failed 0, 3 m 32 s.

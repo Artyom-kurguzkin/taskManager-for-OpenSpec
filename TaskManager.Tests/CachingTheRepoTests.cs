@@ -2,7 +2,10 @@ using Features;
 using GitHistory;
 using Notes;
 using OpenSpecStore;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 
 namespace TaskManager.Tests;
@@ -19,11 +22,11 @@ public sealed class CachingTheRepoTests
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
-        int before = WorkItemsModule.Loads;
+        int before = ItemsCache.Loads;
 
         WorkItemsApi.GetAll(); WorkItemsApi.GetAll(); WorkItemsApi.Get(123); WorkItemsApi.GetWarnings(); WorkItemsApi.NextId();
 
-        Assert.Equal(before + 1, WorkItemsModule.Loads);
+        Assert.Equal(before + 1, ItemsCache.Loads);
     }
 
     [Fact(DisplayName = "The app's own edit is visible on the very next read")]
@@ -61,12 +64,12 @@ public sealed class CachingTheRepoTests
     {
         using TestRepo repo = new();
         OpenSpecStoreApi.Open(repo.Root);
-        int f = FeaturesModule.Loads, n = NotesModule.Loads;
+        int f = FeaturesCache.Loads, n = NotesCache.Loads;
 
         FeaturesApi.GetAll(); FeaturesApi.GetAll();
         NotesApi.GetAll(); NotesApi.Get(123); NotesApi.ResolveLinks("#n123 #wi107 [[runbook/uptime]]");
 
-        Assert.Equal((f + 1, n + 1), (FeaturesModule.Loads, NotesModule.Loads));
+        Assert.Equal((f + 1, n + 1), (FeaturesCache.Loads, NotesCache.Loads));
         NotesApi.SaveBody(123, "# Ping test\n\nchanged\n");
         Assert.Equal("# Ping test\n\nchanged\n", NotesApi.Get(123)!.Body);
     }
@@ -92,7 +95,7 @@ public sealed class CachingTheRepoTests
         GitHistoryApi.Configure(dir);
         int before = GitHistoryModule.RepoChecks;
 
-        GitHistoryApi.IsRepository(); GitHistoryApi.Mentioning("#wi1"); GitHistoryApi.AuthorsOfChange("x"); GitHistoryApi.IsRepository();
+        GitHistoryApi.IsRepository(); GitHistoryApi.Mentioning(OpenSpecStoreApi.MentionsItem(1)); GitHistoryApi.AuthorsOfChange("x"); GitHistoryApi.IsRepository();
 
         Assert.Equal(before + 1, GitHistoryModule.RepoChecks);
     }
@@ -250,7 +253,7 @@ public sealed class CachingTheRepoTests
         // The bar is the work done, not the time it takes (a loaded machine stretches both): folders parsed by a cold load against by a re-read.
         // The milliseconds are only printed.
         System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
-        WorkItemsModule.Cache.Clear(); NotesModule.Cache.Clear();
+        Caches.Invalidate();
         int parses = WorkItemsModule.FolderParses;
         WorkItemsApi.GetAll(true); NotesApi.GetAll();
         double cold = sw.Elapsed.TotalMilliseconds;

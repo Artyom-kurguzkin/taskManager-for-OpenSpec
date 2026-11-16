@@ -1206,6 +1206,27 @@ public sealed class EditingWorkItemsTests
         Assert.Null(Notes.NotesApi.Get(own)!.MergedAt);
     }
 
+    [Fact(DisplayName = "A merge is invisible to a note reader running at the same time: the merged-in note is always there afterwards")]
+    public async Task MergeIsAtomicToNoteReaders()
+    {
+        for (int round = 0; round < 12; round++)   // a reader that loads mid-merge saw one note id in two folders and renumbered into the id the merge had picked for its own note
+        {
+            using TestRepo repo = new();
+            OpenSpecStoreApi.Open(repo.Root);
+            Notes.NotesApi.Create(107, "Tom");
+            using CancellationTokenSource done = new();
+            Task reader = Task.Run(() => { while (!done.IsCancellationRequested) _ = Notes.NotesApi.GetAll(); });
+
+            (bool ok, string message, int id) = WorkItemsApi.Merge([107, 123], 107);
+            done.Cancel();
+            await reader;
+
+            Assert.True(ok, message);
+            Assert.Single(Notes.NotesApi.GetForWorkItem(id), n => n.MergedFrom == 123 && n.By == "Merge");
+            Assert.Single(Notes.NotesApi.GetForWorkItem(id), n => n.Id == 123 && n.MergedFrom == 123 && n.By != "Merge");   // the source's own note kept its number
+        }
+    }
+
     [Fact(DisplayName = "A work item's revision changes when any of its files changes, and stays the same when nothing changed")]
     public void RevisionTracksFiles()
     {

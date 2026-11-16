@@ -1,0 +1,308 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "id": "t",
+   "type": "text",
+   "width": 495.00000000000006,
+   "text": "Where things live (the reference solution's rules)",
+   "y": 20,
+   "x": 40,
+   "height": 22.5,
+   "fontSize": 18
+  },
+  {
+   "id": "q",
+   "type": "text",
+   "width": 607.75,
+   "text": "3am rule: could the MCP server need it with no window open?  yes → module   no → host",
+   "y": 50,
+   "x": 40,
+   "height": 16.25,
+   "fontSize": 13
+  },
+  {
+   "type": "rectangle",
+   "id": "host",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "host-label"
+    }
+   ],
+   "width": 820,
+   "x": 40,
+   "backgroundColor": "#e7f5ff",
+   "height": 150,
+   "y": 80
+  },
+  {
+   "id": "host-label",
+   "type": "text",
+   "width": 804,
+   "strokeColor": "#1e1e1e",
+   "fontSize": 13,
+   "text": "Host: TaskManager, every caller, one process\nProgram.cs · AppState/ (UI state, all caches) · Helpers/ · BackgroundJobs/ (timer loops)\nComponents/: Layout · Pages/<Feature> · Shared · RtmComponent base\nMcp/ (tools, relay) · Api/ (listener, endpoints) · Acp/ (later)",
+   "verticalAlign": "middle",
+   "y": 88,
+   "textAlign": "center",
+   "x": 48,
+   "containerId": "host",
+   "height": 134,
+   "originalText": "Host: TaskManager, every caller, one process\nProgram.cs · AppState/ (UI state, all caches) · Helpers/ · BackgroundJobs/ (timer loops)\nComponents/: Layout · Pages/<Feature> · Shared · RtmComponent base\nMcp/ (tools, relay) · Api/ (listener, endpoints) · Acp/ (later)"
+  },
+  {
+   "type": "rectangle",
+   "id": "m1",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "m1-label"
+    }
+   ],
+   "width": 130,
+   "x": 40,
+   "backgroundColor": "#ffe8cc",
+   "height": 110,
+   "y": 270
+  },
+  {
+   "id": "m1-label",
+   "type": "text",
+   "width": 114,
+   "strokeColor": "#1e1e1e",
+   "fontSize": 13,
+   "text": "OpenSpecStore\n\nconfig.yaml reader/writer\n#wi / #n / [[doc]] grammar\nopenspec watcher + Version",
+   "verticalAlign": "middle",
+   "y": 278,
+   "textAlign": "center",
+   "x": 48,
+   "containerId": "m1",
+   "height": 94,
+   "originalText": "OpenSpecStore\n\nconfig.yaml reader/writer\n#wi / #n / [[doc]] grammar\nopenspec watcher + Version"
+  },
+  {
+   "type": "rectangle",
+   "id": "m2",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "m2-label"
+    }
+   ],
+   "width": 130,
+   "x": 178,
+   "backgroundColor": "#ffe8cc",
+   "height": 110,
+   "y": 270
+  },
+  {
+   "id": "m2-label",
+   "type": "text",
+   "width": 114,
+   "strokeColor": "#1e1e1e",
+   "fontSize": 13,
+   "text": "GitHistory\n\n.git watcher + HeadVersion\nHEAD, uncommitted,\nlast commit cached",
+   "verticalAlign": "middle",
+   "y": 278,
+   "textAlign": "center",
+   "x": 186,
+   "containerId": "m2",
+   "height": 94,
+   "originalText": "GitHistory\n\n.git watcher + HeadVersion\nHEAD, uncommitted,\nlast commit cached"
+  },
+  {
+   "type": "rectangle",
+   "id": "m3",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "m3-label"
+    }
+   ],
+   "width": 130,
+   "x": 316,
+   "backgroundColor": "#ffe8cc",
+   "height": 110,
+   "y": 270
+  },
+  {
+   "id": "m3-label",
+   "type": "text",
+   "width": 114,
+   "strokeColor": "#1e1e1e",
+   "fontSize": 13,
+   "text": "WorkItems\n\nfield catalog\nparsed events\npeople directory",
+   "verticalAlign": "middle",
+   "y": 278,
+   "textAlign": "center",
+   "x": 324,
+   "containerId": "m3",
+   "height": 94,
+   "originalText": "WorkItems\n\nfield catalog\nparsed events\npeople directory"
+  },
+  {
+   "type": "rectangle",
+   "id": "m4",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "m4-label"
+    }
+   ],
+   "width": 130,
+   "x": 454,
+   "backgroundColor": "#ffe8cc",
+   "height": 110,
+   "y": 270
+  },
+  {
+   "id": "m4-label",
+   "type": "text",
+   "width": 114,
+   "strokeColor": "#1e1e1e",
+   "fontSize": 13,
+   "text": "Notes\n\n[[doc]] containment\nsafe attachment bytes",
+   "verticalAlign": "middle",
+   "y": 278,
+   "textAlign": "center",
+   "x": 462,
+   "containerId": "m4",
+   "height": 94,
+   "originalText": "Notes\n\n[[doc]] containment\nsafe attachment bytes"
+  },
+  {
+   "type": "rectangle",
+   "id": "m5",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "m5-label"
+    }
+   ],
+   "width": 130,
+   "x": 592,
+   "backgroundColor": "#ffe8cc",
+   "height": 110,
+   "y": 270
+  },
+  {
+   "id": "m5-label",
+   "type": "text",
+   "width": 114,
+   "strokeColor": "#1e1e1e",
+   "fontSize": 13,
+   "text": "BoardSync\n\nstorage + sync rules\nstatus without writes",
+   "verticalAlign": "middle",
+   "y": 278,
+   "textAlign": "center",
+   "x": 600,
+   "containerId": "m5",
+   "height": 94,
+   "originalText": "BoardSync\n\nstorage + sync rules\nstatus without writes"
+  },
+  {
+   "type": "rectangle",
+   "id": "m6",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "m6-label"
+    }
+   ],
+   "width": 130,
+   "x": 730,
+   "backgroundColor": "#ffe8cc",
+   "height": 110,
+   "y": 270
+  },
+  {
+   "id": "m6-label",
+   "type": "text",
+   "width": 114,
+   "strokeColor": "#1e1e1e",
+   "fontSize": 13,
+   "text": "Features · LinkedTestRuns\n\ncaches keyed with\nrepo generation",
+   "verticalAlign": "middle",
+   "y": 278,
+   "textAlign": "center",
+   "x": 738,
+   "containerId": "m6",
+   "height": 94,
+   "originalText": "Features · LinkedTestRuns\n\ncaches keyed with\nrepo generation"
+  },
+  {
+   "id": "n",
+   "type": "text",
+   "width": 908.0500000000001,
+   "text": "Each module: its own reads, its own cache (rebuilt only when a version it read moves), its own change signal. No shared kernel.",
+   "y": 395,
+   "x": 40,
+   "height": 16.25,
+   "fontSize": 13
+  },
+  {
+   "type": "rectangle",
+   "id": "enf",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "enf-label"
+    }
+   ],
+   "width": 200,
+   "x": 880,
+   "backgroundColor": "#ffe3e3",
+   "height": 300,
+   "y": 80
+  },
+  {
+   "id": "enf-label",
+   "type": "text",
+   "width": 184,
+   "strokeColor": "#1e1e1e",
+   "fontSize": 13,
+   "text": "Enforcement\n\nModuleBoundaryTests\n(+ BoardSync)\n\narchitecture test:\nbase class, parameter\nrules, fixed cascades\n\nrender budgets\nper screen\n\nsecond render\nreads no files",
+   "verticalAlign": "middle",
+   "y": 88,
+   "textAlign": "center",
+   "x": 888,
+   "containerId": "enf",
+   "height": 284,
+   "originalText": "Enforcement\n\nModuleBoundaryTests\n(+ BoardSync)\n\narchitecture test:\nbase class, parameter\nrules, fixed cascades\n\nrender budgets\nper screen\n\nsecond render\nreads no files"
+  },
+  {
+   "id": "a1",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     40
+    ]
+   ],
+   "type": "arrow",
+   "width": 0,
+   "strokeColor": "#1e1e1e",
+   "y": 230,
+   "x": 450,
+   "height": 40
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

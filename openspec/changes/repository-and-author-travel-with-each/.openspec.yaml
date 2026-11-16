@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-16
+x-rtm:
+  id: 181
+  title: Repository and author travel with each call, not one global per process
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [integration-with-agents]
+  label: bug
+  started: 2026-11-16
+  moved: 2026-11-16
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: KeepingCallsOnTheirOwnRepositoryTests, test: An agent writing to another repository while the board loads leaves the board on its own repository}, {suite: KeepingCallsOnTheirOwnRepositoryTests, test: 'Edits made in the app while an agent works are signed by me, not the agent'}, {suite: KeepingCallsOnTheirOwnRepositoryTests, test: An agent's call does not add its repository to my open projects}, {suite: KeepingCallsOnTheirOwnRepositoryTests, test: A reopened repository shows its new features and test results}]
+  agentBy: Claude
+  agentAt: 2026-11-16T18:49:02

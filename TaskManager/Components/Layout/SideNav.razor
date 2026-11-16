@@ -1,12 +1,11 @@
 @using Features
 @using Features.PublicDTOs
-@using TaskManager.Board
 @using TaskManager.Components.Pages
 @using WorkItems
 @implements IDisposable
 @* Left icon rail; ☰ expands it to labels, the board's view options and the list of hidden columns.
    On narrow windows the same markup lays out as a top header bar (see app.css "side menu"), where the view icon opens the options. *@
-<nav class="side @(expanded ? "expanded" : "")" @onclick="() => Popups.Examine(null)">
+<nav class="side @(expanded ? "expanded" : "")" @onclick="LetGo">
     @* The collapse icon is the rail's first row; expanded, it shares the first visible row instead (the projects row, or the Worklog header). *@
     @if (!ToggleInRow) { @Toggle(false) }
     @if (Workspace.Root is not null)
@@ -43,14 +42,14 @@
         <Menu Label="Board, list or calendar">
             <Activator>
                 <button class="nav-btn" aria-label="Layout" title="Board, list or calendar" aria-haspopup="menu">
-                    @Ui.Icon(ViewIcon)<span class="nav-l">@BoardPage.Views.First(v => v.Item1 == O.View).Item2</span><span class="nav-l nav-caret">@Ui.Icon("caret")</span>
+                    @Ui.Icon(ViewIcon)<span class="nav-l">@BoardPage.Views.First(v => v.Item1 == o.View).Item2</span><span class="nav-l nav-caret">@Ui.Icon("caret")</span>
                 </button>
             </Activator>
             <Items>
-                <MenuItem Class="@(O.View == "board" ? "cur" : "")" OnClick='() => Show("board")'>@Ui.Icon("board") Board</MenuItem>
-                <MenuItem Class="@(O.View == "list" ? "cur" : "")" OnClick='() => Show("list")'>@Ui.Icon("list") List</MenuItem>
-                <MenuItem Class="@(O.View == "calendar" ? "cur" : "")" OnClick='() => Show("calendar")'>@Ui.Icon("cal") Calendar</MenuItem>
-                <MenuItem Class="@(O.View == "analytics" ? "cur" : "")" OnClick='() => Show("analytics")'>@Ui.Icon("chart") Analytics</MenuItem>
+                <MenuItem Class="@(o.View == "board" ? "cur" : "")" OnClick='() => Show("board")'>@Ui.Icon("board") Board</MenuItem>
+                <MenuItem Class="@(o.View == "list" ? "cur" : "")" OnClick='() => Show("list")'>@Ui.Icon("list") List</MenuItem>
+                <MenuItem Class="@(o.View == "calendar" ? "cur" : "")" OnClick='() => Show("calendar")'>@Ui.Icon("cal") Calendar</MenuItem>
+                <MenuItem Class="@(o.View == "analytics" ? "cur" : "")" OnClick='() => Show("analytics")'>@Ui.Icon("chart") Analytics</MenuItem>
             </Items>
         </Menu>
         <button class="nav-btn nav-new" aria-label="New work item" title="New work item" @onclick="NewItem">@Ui.Icon("plus")<span class="nav-l">New work item</span></button>
@@ -58,16 +57,16 @@
         @if (!expanded)
         {
             @* the expanded menu has the same switch as a checkbox; always rendered so hint letters below it don't shift *@
-            bool listView = OnBoard && O.View == "list";
-            bool on = listView ? O.ShowSubtasks : O.Compact;   // the board compacts its cards; the list unfolds every row's subtasks
+            bool listView = OnBoard && o.View == "list";
+            bool on = listView ? o.ShowSubtasks : o.Compact;   // the board compacts its cards; the list unfolds every row's subtasks
             <button class="nav-btn compact-btn @(OnBoard && on ? "is-sel" : "")" aria-label="@(listView ? "Show subtasks" : "Compact cards")" aria-pressed="@(on ? "true" : "false")"
                     title="@(listView ? (on ? "Subtasks: shown" : "Subtasks: folded") : on ? "Compact cards: on" : "Compact cards: off")"
-                    disabled="@(!OnBoard)" @onclick="() => Set(listView ? O with { ShowSubtasks = !on } : O with { Compact = !on })">@Ui.Icon("compact")</button>
-            <button class="nav-btn hidden-btn @(OnBoard && O.ShowHidden ? "is-sel" : "")" aria-label="Show all hidden" aria-pressed="@(O.ShowHidden ? "true" : "false")"
-                    title="@(O.ShowHidden ? "Show all hidden: on" : "Show all hidden: off")"
-                    disabled="@(!OnBoard)" @onclick="() => Set(O with { ShowHidden = !O.ShowHidden })">@Ui.Icon(O.ShowHidden ? "eye" : "eyeoff")</button>
+                    disabled="@(!OnBoard)" @onclick="() => Set(listView ? ViewOptions() with { ShowSubtasks = !on } : ViewOptions() with { Compact = !on })">@Ui.Icon("compact")</button>
+            <button class="nav-btn hidden-btn @(OnBoard && o.ShowHidden ? "is-sel" : "")" aria-label="Show all hidden" aria-pressed="@(o.ShowHidden ? "true" : "false")"
+                    title="@(o.ShowHidden ? "Show all hidden: on" : "Show all hidden: off")"
+                    disabled="@(!OnBoard)" @onclick="ToggleShowHidden">@Ui.Icon(o.ShowHidden ? "eye" : "eyeoff")</button>
         }
-        <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="() => expanded = !expanded">@Ui.Icon("sliders")</button>
+        <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="ToggleMenu">@Ui.Icon("sliders")</button>
         @if (expanded && Popups.WorklogOpen is { } worklog)
         {
             @* An open worklog has its own filters and actions here, first: they come before the list's options when the split view shows both. *@
@@ -75,15 +74,11 @@
             <div class="nav-view nav-worklog" role="group" aria-label="Worklog">
                 <div class="nav-h"><span>Worklog</span>@if (ItemFillsWindow) { @Toggle(true) }</div>
                 <div class="nav-pills">
-                    @Pill("Notes", wf.Notes, v => Popups.FilterWorklog(wf with { Notes = v }))
-                    @Pill("Decisions", wf.Decisions, v => Popups.FilterWorklog(wf with { Decisions = v }))
-                    @Pill("Bugs", wf.Bugs, v => Popups.FilterWorklog(wf with { Bugs = v }))
-                    @Pill("Events", wf.Events, v => Popups.FilterWorklog(wf with { Events = v }))
-                    @Pill("Links", wf.Links, v => Popups.FilterWorklog(wf with { Links = v }))
-                    @Pill("Subtasks", wf.Subtasks, v => Popups.FilterWorklog(wf with { Subtasks = v }))
-                    @Pill("Edits", wf.Edits, v => Popups.FilterWorklog(wf with { Edits = v }))
+                    @* with every kind on a click shows only that kind; then clicks add or remove kinds (never none); "all" brings every kind back *@
+                    @foreach (string kind in WorklogFilters.Kinds) { @Pill(kind, wf.Has(kind), _ => Popups.ClickWorklogKind(kind)) }
+                    @if (!wf.AllKinds) { <button type="button" class="nav-feed-all" title="Show every kind of entry" @onclick="() => Popups.FilterWorklog(wf.ShowAllKinds())">all</button> }
                 </div>
-                <div class="field"><label>who</label><Dropdown Label="who" Class="@Look(wf.Who, "all")" Options="WorklogPeople" Value="@wf.Who" ValueChanged="v => Popups.FilterWorklog(wf with { Who = v })" /></div>
+                <div class="field"><label>who</label><Dropdown Label="who" Class="@SideNavOptions.Look(wf.Who, "all")" Options="WorklogPeople" Value="@wf.Who" ValueChanged="v => Popups.FilterWorklog(wf with { Who = v })" /></div>
                 @* one button instead of a list of actions: a menu of what the entry is *@
                 <Menu Label="Add entry" Class="nav-add-menu">
                     <Activator><button type="button" class="nav-add" aria-haspopup="menu">@Ui.Icon("plus") Add entry</button></Activator>
@@ -115,98 +110,14 @@
                 }
             </div>
         }
-        @if (expanded && ListBlocks && Popups.Examined is not null)
+        @if (expanded && ListBlocks)
         {
-            <ExaminePanel />   @* an examined work item: its metadata takes the place of Organise, Filters and Hidden *@
-        }
-        else if (expanded && ListBlocks)
-        {
-            <div class="nav-view">
-                @* three independent options over one field list, the same in the board, the list and the calendar *@
-                @if (!Analytics)
-                {
-                <div class="organise" role="group" aria-label="Organise">
-                    @SectionHead("organise", "Organise", OrganiseSummary)
-                    <div class="nav-sec-body" id="sec-organise-body" hidden="@(!Settings.MenuSectionOpen("organise"))">
-                    <div class="field"><label>sort by</label><Dropdown Label="sort by" Class="@Look(O.SortBy, "")" Options="BoardPage.SortBys" Value="@O.SortBy" ValueChanged="v => Set(O with { SortBy = v, SortDir = 1 })" /></div>
-                    @if (ListView == "list")
-                    {
-                        @* the list has groups and subgroups of its own, flat (none) until chosen; the board's columns and rows are kept apart *@
-                        <div class="field"><label>groups</label><Dropdown Label="groups" Class="@("is-group " + Look(OV.GroupBy, "none"))" Options="BoardPage.ListGroupBys" Value="@OV.GroupBy" ValueChanged="v => Set(O with { ListGroupBy = v })" /></div>
-                        <div class="field"><label>subgroups</label><Dropdown Label="subgroups" Class="@Look(OV.Swimlane, "none")" Options="BoardPage.ListGroupBys" Value="@OV.Swimlane" ValueChanged="v => Set(O with { ListSwimlane = v })" /></div>
-                    }
-                    else
-                    {
-                        <div class="field"><label>columns</label><Dropdown Label="columns" Class="@("is-group " + Look(O.GroupBy, "none"))" Options="BoardPage.GroupBys" Value="@O.GroupBy" ValueChanged="v => Set(O with { GroupBy = v })" /></div>
-                        <div class="field"><label>rows</label><Dropdown Label="rows" Class="@Look(O.Swimlane, "none")" Options="BoardPage.Swimlanes" Value="@O.Swimlane" ValueChanged="v => Set(O with { Swimlane = v })" /></div>
-                    }
-                    <div class="field"><label>colour</label><Dropdown Label="colour" Class="@Look(O.ColorBy, "none")" Options="BoardPage.ColorBys" Value="@O.ColorBy" ValueChanged="v => Set(O with { ColorBy = v })" /></div>
-                    @if (Legend is var legend && (O.ChangedOn || legend.Count > 0))
-                    {
-                        <div class="legend" aria-label="Colour legend">
-                            @if (O.ChangedOn) { <span class="lg head">@BoardModel.ChangedLabel(O)</span> }
-                            @if (ShownCount is var (inPeriod, others)) { <span class="lg head count">@inPeriod of @others shown</span> }
-                            @foreach ((string label, string colour) in legend.Take(BoardModel.Palette.Count))
-                            {
-                                <span class="lg"><i style="--sw:var(@colour)"></i>@label</span>
-                            }
-                            @if (legend.Count > BoardModel.Palette.Count) { <span class="lg more">+@(legend.Count - BoardModel.Palette.Count) more</span> }
-                        </div>
-                    }
-                    </div>
-                </div>
-                <div class="nav-sep" role="separator"></div>
-                }
-                <div class="nav-filters" role="group" aria-label="Filters">
-                    @SectionHead("filters", "Filters", FiltersSummary)
-                    <div class="nav-sec-body" id="sec-filters-body" hidden="@(!Settings.MenuSectionOpen("filters"))">
-                <div class="field"><label>contributor</label><Dropdown Label="contributor" Class="@Look(O.Who, "all")" Options="People" Value="@O.Who" ValueChanged="v => Set(O with { Who = v })" /></div>
-                <div class="field"><label>period</label><Dropdown Label="period" Class="@Look(O.Period, "all")" Options="BoardPage.Periods" Value="@O.Period" ValueChanged="v => Set(O with { Period = v })" /></div>
-                @* the filter: only work that changed between two days is shown *@
-                <div class="field changed"><label>changed</label>
-                    <DateRange Label="changed" Empty="any time" ClearLabel="Show all" WithTime="true" Start="@O.ChangedFrom" End="@O.ChangedTo" StartTime="@O.ChangedFromTime" EndTime="@O.ChangedToTime"
-                               Changed="r => Set(O with { ChangedFrom = r.Start, ChangedTo = r.End, ChangedFromTime = r.Start is null ? null : O.ChangedFromTime, ChangedToTime = r.Start is null ? null : O.ChangedToTime })"
-                               TimesChanged="t => Set(O with { ChangedFromTime = t.From, ChangedToTime = t.To })" />
-                </div>
-                @if (ListView == "board")
-                {
-                    <Seg Name="unit" Options="BoardPage.Units" Value="@O.Unit" ValueChanged="v => Set(O with { Unit = v })" />
-                }
-                    </div>
-                </div>
-                @if (!Analytics) { <div class="nav-sep" role="separator"></div> }
-                @if (ListView == "list") { @Pill("show subtasks", O.ShowSubtasks, v => Set(O with { ShowSubtasks = v }), opt: "subtasks") }
-                else if (!Analytics) { @Pill("compact cards", O.Compact, v => Set(O with { Compact = v }), opt: "compact") }
-            </div>
-            @* hide from a column header (or a project header) on the board; hidden ones are listed here, to bring back, under the switch that shows them all.
-               The block is always there, so the switch can be reached before anything is hidden. *@
-            <div class="nav-hidden">
-                @SectionHead("hidden", "Hidden", HiddenSummary)
-                <div class="nav-sec-body" id="sec-hidden-body" hidden="@(!Settings.MenuSectionOpen("hidden"))">
-                @Pill("show all hidden", O.ShowHidden, v => Set(O with { ShowHidden = v }), id: "f-hidden")
-                @if (HiddenHere.Count > 0 || HiddenProjects.Count > 0 || HiddenRows.Count > 0)
-                {
-                    foreach (string root in HiddenProjects)
-                    {
-                        string pname = System.IO.Path.GetFileName(root);
-                        <div class="grp-row"><span class="nm">@pname</span>
-                            <button class="ic" aria-label="Show project @pname" title="Show project" @onclick="() => Settings.ToggleProjectHidden(root)">@Ui.Icon("eye")</button></div>
-                    }
-                    Dictionary<string, int> held = BoardModel.HiddenCounts(CountedItems, FeaturesApi.GetAll(), WorkItemsApi.GetLanes(), OV);
-                    foreach (string key in HiddenHere)
-                    {
-                        string name = BoardModel.KeyLabel(key, FeaturesApi.GetAll());
-                        <div class="grp-row"><span class="nm">@name</span>@if (!key.StartsWith(BoardModel.ListColumnKey(""))) { <span class="count" title="@(O.Unit == "subtasks" ? "subtasks" : "work items") in this column">@held.GetValueOrDefault(key)</span> }
-                            <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(O, key))">@Ui.Icon("eye")</button></div>
-                    }
-                    foreach ((string key, string name, int count) in HiddenRows)
-                    {
-                        <div class="grp-row"><span class="nm">@name</span><span class="count" title="@(O.Unit == "subtasks" ? "subtasks" : "work items") in this row">@count</span>
-                            <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(O, key))">@Ui.Icon("eye")</button></div>
-                    }
-                }
-                </div>
-            </div>
+            @* the option blocks stay while an item is examined: hidden, not rebuilt, so letting go costs no draw *@
+            <div class="nav-opts" hidden="@(examining)"><SideNavOptions ListView="@ListView" /></div>
+            @if (examining)
+            {
+                <ExaminePanel />   @* an examined work item: its metadata takes the place of Organise, Filters and Hidden *@
+            }
         }
     }
     <span class="spacer"></span>
@@ -228,59 +139,7 @@
     private bool ToggleInRow => expanded && Workspace.Root is not null && (!ItemFillsWindow || Popups.WorklogOpen is not null);
     private RenderFragment Toggle(bool inRow) =>
         @<button class="@(inRow ? "ic nav-toggle" : "nav-btn nav-toggle")" aria-label="Menu" aria-expanded="@(expanded ? "true" : "false")" title="@(expanded ? "Collapse menu" : "Expand menu")"
-                 @onclick="() => expanded = !expanded">@Ui.Icon("menu")</button>;
-
-    /// <summary>A section's header: a click target with a chevron that folds the block under it. Folded, it carries a short summary of what is set inside, so an active filter shows without opening it.</summary>
-    private RenderFragment SectionHead(string sec, string title, string? summary)
-    {
-        bool open = Settings.MenuSectionOpen(sec);
-        return @<button type="button" class="nav-h nav-sec-h @(open ? "is-open" : "")" data-sec="@sec" aria-expanded="@(open ? "true" : "false")" aria-controls="@($"sec-{sec}-body")"
-                        title="@(summary is null ? null : $"{title} · {summary}")" @onclick="() => Settings.ToggleMenuSection(sec)">
-                   <span class="nav-sec-chev" aria-hidden="true">@Ui.Icon("caret")</span><span class="nav-sec-t">@title</span>@if (!open && summary is not null) { <span class="nav-sec-sum">@(" · " + summary)</span> }
-               </button>;
-    }
-
-    private static string Label(IReadOnlyList<(string, string)> options, string value) => options.Where(o => o.Item1 == value).Select(o => o.Item2).FirstOrDefault() ?? value;
-
-    /// <summary>How the view is arranged, as the Organise dropdowns say it (the list's groups and subgroups for the list).</summary>
-    private string? OrganiseSummary
-    {
-        get
-        {
-            bool list = ListView == "list";
-            List<string> parts = [$"sort {Label(BoardPage.SortBys, O.SortBy)}"];
-            if (OV.GroupBy != "none") parts.Add($"{(list ? "groups" : "columns")} {Label(BoardPage.GroupBys, OV.GroupBy)}");
-            if (OV.Swimlane != "none") parts.Add($"{(list ? "subgroups" : "rows")} {Label(BoardPage.GroupBys, OV.Swimlane)}");
-            if (O.ColorBy != "none") parts.Add($"colour {Label(BoardPage.ColorBys, O.ColorBy)}");
-            return string.Join(" · ", parts);
-        }
-    }
-
-    /// <summary>The filters that are not neutral (everyone, any time, no changed period, work items); null when none is.</summary>
-    private string? FiltersSummary
-    {
-        get
-        {
-            List<string> parts = [];
-            if (O.Who != "all") parts.Add($"contributor: {O.Who}");
-            if (O.Period != "all") parts.Add($"period: {Label(BoardPage.Periods, O.Period)}");
-            if (O.ChangedOn) parts.Add(BoardModel.ChangedLabel(O));
-            if (ListView == "board" && O.Unit != "tasks") parts.Add($"unit: {Label(BoardPage.Units, O.Unit)}");
-            return parts.Count == 0 ? null : string.Join(" · ", parts);
-        }
-    }
-
-    private string? HiddenSummary
-    {
-        get
-        {
-            List<string> parts = [];
-            int n = HiddenHere.Count + HiddenProjects.Count + HiddenRows.Count;
-            if (n > 0) parts.Add($"{n} hidden");
-            if (O.ShowHidden) parts.Add("showing all");
-            return parts.Count == 0 ? null : string.Join(" · ", parts);
-        }
-    }
+                 @onclick="ToggleMenu">@Ui.Icon("menu")</button>;
 
     /// <summary>Shift-click picks the day for the feed's day filter; a plain click jumps the feed to it.</summary>
     private void DayClick(MouseEventArgs e, DateTime day, WorklogActions worklog)
@@ -299,48 +158,64 @@
     /// <summary>An on/off option: a pill, filled when on and plain underlined text when off; a real button, so the keyboard reaches it.</summary>
     private RenderFragment Pill(string label, bool on, Action<bool> set, string? id = null, string? opt = null) =>
         @<button type="button" class="nav-pill @(on ? "is-sel" : "")" id="@id" data-opt="@opt" aria-pressed="@(on ? "true" : "false")" @onclick="() => set(!on)">@label</button>;
-    /// <summary>A dropdown value in the menu is a pill: grey while it is the neutral choice (none, everyone, any time), yellow for any other value.</summary>
-    private static string Look(string value, string neutral) => "nav-dd " + (value == neutral ? "is-off" : "is-on");
-    private string ListView => OnBoard ? O.View : "list";
-    private IReadOnlyList<(string, string)> WorklogPeople => [("all", "everyone"), .. Popups.WorklogPeople.Select(p => (p, p))];
-    private string ViewIcon => O.View switch { "list" => "list", "calendar" => "cal", "analytics" => "chart", _ => "board" };
-    private bool Analytics => ListView == "analytics";   // the charts have their own options in the view; the board's Organise, sort and card options do not apply
-    private bool OnSettings => Path.StartsWith("settings", StringComparison.OrdinalIgnoreCase);
-    private BoardOptions O => Workspace.ViewRoot is string r ? Settings.Board(r) : new();
-    /// <summary>The options as the view being shown reads them: the list's groups and subgroups stand in for the board's columns and rows.</summary>
-    private BoardOptions OV => ListView == "list" ? O.ForList() : O;
-
-    private IReadOnlyList<(string, string)> People =>
-        [("all", "everyone"), .. WorkItemsApi.GetAll(includeHidden: O.ShowHidden).SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
-
-    // What the colours mean, for the active project's items under the current filters.
-    private IReadOnlyList<(string Label, string Colour)> Legend
+    private string ListView => OnBoard ? o.View : "list";
+    private IReadOnlyList<string>? peopleSeen;
+    private IReadOnlyList<(string, string)> worklogPeople = [];
+    private IReadOnlyList<(string, string)> WorklogPeople
     {
         get
         {
-            IReadOnlyList<WorkItems.PublicDTOs.WorkItem> items = WorkItemsApi.GetAll(includeHidden: O.ShowHidden);
-            return BoardModel.Legend(items, FeaturesApi.GetAll(), O);
+            if (!ReferenceEquals(peopleSeen, Popups.WorklogPeople)) (peopleSeen, worklogPeople) = (Popups.WorklogPeople, [("all", "everyone"), .. Popups.WorklogPeople.Select(p => (p, p))]);
+            return worklogPeople;
         }
     }
+    private string ViewIcon => o.View switch { "list" => "list", "calendar" => "cal", "analytics" => "chart", _ => "board" };
+    private bool OnSettings => Path.StartsWith("settings", StringComparison.OrdinalIgnoreCase);
+    private bool examining => Popups.Examined is not null;
 
-    // While a changed period is set: how many of this project's items the board shows with it, of those the other filters leave.
-    private (int InPeriod, int Others)? ShownCount => BoardModel.ShownCount(WorkItemsApi.GetAll(includeHidden: O.ShowHidden), O);
+    // ---- when the menu draws ----
 
-    // The items the Hidden counts add up: none while this project is folded to its heading among several (show all hidden or not), as the column headers leave it out.
-    private IReadOnlyList<WorkItems.PublicDTOs.WorkItem> CountedItems =>
-        Workspace.ViewRoot is string r && Settings.ProjectCollapsed(r) && Workspace.Projects.Count(p => O.ShowHidden || !Settings.ProjectHidden(p)) > 1 ? [] : WorkItemsApi.GetAll(includeHidden: O.ShowHidden);
+    /// <summary>Events here change state through Settings, Workspace and UiService, which tell the menu (Redraw); a handler never draws it by itself.</summary>
+    protected override bool Strict => true;
 
-    // Hidden columns of the current grouping, and in the list view the grid's hidden columns too.
-    private List<string> HiddenHere => (O.Hidden ?? []).Where(k => k.StartsWith(BoardModel.ColumnKey(OV, "")) || (O.View == "list" && k.StartsWith(BoardModel.ListColumnKey("")))).ToList();
+    /// <summary>The saved options of the project the menu shows, read once for a draw (not once per use in the markup).</summary>
+    private BoardOptions o = new();
 
-    // Rows (swimlanes) of the current row field taken off the board with the × on their header.
-    private IReadOnlyList<(string Key, string Label, int Count)> HiddenRows => BoardModel.HiddenRows(CountedItems, FeaturesApi.GetAll(), WorkItemsApi.GetLanes(), OV);
+    protected override bool ShouldRender()
+    {
+        o = ViewOptions();
+        return base.ShouldRender();
+    }
 
-    // Open tabs taken off the board and list.
-    private List<string> HiddenProjects => Workspace.Projects.Where(Settings.ProjectHidden).ToList();
+    private BoardOptions ViewOptions() => Workspace.ViewRoot is string r ? Settings.Board(r) : new();
+
+    /// <summary>
+    /// What the menu itself shows. The option blocks under it have their own key (SideNavOptions), so a theme change, a filter pick or a change in the
+    /// work items does not draw the rail. The collapsed rail shows the board's switches, the expanded menu does not.
+    /// </summary>
+    private sealed record WorklogKey(WorklogActions Actions, WorklogFilters Filter, string People, string Days, string Picked, bool CanLinkTest, bool CanLinkCommit);
+    private sealed record NavKey(bool Expanded, bool OnBoard, bool Split, bool Fills, bool OnSettings, string? Root, string Repos, string HiddenRepos, string View,
+        bool Compact, bool Subtasks, bool ShowHidden, bool Examining, WorklogKey? Worklog);
+
+    private NavKey MakeKey()
+    {
+        BoardOptions options = ViewOptions();
+        bool open = expanded;
+        IReadOnlyList<string> repos = Workspace.OpenRepos;
+        WorklogKey? worklog = open && Popups.WorklogOpen is { } w
+            ? new WorklogKey(w, Popups.WorklogFilter, string.Join('|', Popups.WorklogPeople), string.Join('|', Popups.WorklogDays), string.Join('|', Popups.WorklogSelectedDays.Order()),
+                w.CanLinkTest?.Invoke() ?? true, w.CanLinkCommit?.Invoke() ?? true)
+            : null;
+        return new NavKey(open, OnBoard, SplitItem, ItemFillsWindow, OnSettings, Workspace.Root, string.Join('|', repos), string.Concat(repos.Select(r => Settings.ProjectHidden(r) ? '1' : '0')),
+            options.View, !open && options.Compact, !open && options.ShowSubtasks, !open && options.ShowHidden, examining, worklog);
+    }
+
+    private NavKey? requested;
 
     protected override void OnInitialized()
     {
+        o = ViewOptions();
+        requested = MakeKey();
         Settings.Changed += Redraw;
         Workspace.Changed += Redraw;
         Popups.WorklogChanged += Redraw;
@@ -348,8 +223,31 @@
         Nav.LocationChanged += OnNavigated;
     }
 
-    private void Redraw() => InvokeAsync(StateHasChanged);
+    /// <summary>Draws the menu when what it shows differs from what it last drew; most events (a theme, a change in the items) do not.</summary>
+    private void Redraw() => _ = InvokeAsync(() =>
+    {
+        NavKey key = MakeKey();
+        if (key.Equals(requested)) return;
+        requested = key;
+        StateHasChanged();
+    });
+
     private void OnNavigated(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => Redraw();
+
+    /// <summary>A click anywhere in the menu lets go of an examined item; with none examined it changes nothing and draws nothing.</summary>
+    private void LetGo() => Popups.Examine(null);
+
+    private void ToggleMenu()
+    {
+        expanded = !expanded;
+        Redraw();
+    }
+
+    private void ToggleShowHidden()
+    {
+        BoardOptions current = ViewOptions();
+        Set(current with { ShowHidden = !current.ShowHidden });
+    }
 
     private void Set(BoardOptions options)
     {
@@ -358,7 +256,7 @@
 
     private void Show(string view)
     {
-        Set(O with { View = view });
+        Set(ViewOptions() with { View = view });
         if (!OnBoard) Nav.NavigateTo("");
     }
 
@@ -388,7 +286,7 @@
     /// <summary>Several projects open: asks which one first. The new item's project becomes the active one, then its page opens.</summary>
     private async Task NewItem()
     {
-        if (await Workspace.PickProject("New work item in…") is not string root) return;
+        if (await Workspace.PickProject("New work item in…", Popups) is not string root) return;
         (bool ok, string message, int id) = Workspace.CreateItem(project: root);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
         if (!IsActive(root)) Workspace.Open(root);

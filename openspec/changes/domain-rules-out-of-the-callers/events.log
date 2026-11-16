@@ -1,0 +1,17 @@
+2026-11-16T22:03:20 | Claude | created | Domain rules out of the callers: MCP tools and the host call modules only
+2026-11-16T22:03:21 | Claude | status | Planned -> In Progress
+2026-11-16T22:03:21 | Claude | description-edited | proposal.md
+2026-11-16T22:03:21 | Claude | label | none -> enhancement
+2026-11-16T22:03:21 | Claude | plan-linked | DevResources/plans/universal-ui-structure-2026-11-16.md
+2026-11-16T22:03:21 | Claude | dependency-added | #wi181
+2026-11-16T22:03:21 | Claude | dependency-added | #wi184
+2026-11-16T22:03:21 | Claude | subtask-added | 1.1 BoardTools rules into modules (creation, statuses, folder naming, readiness, tasks.md format, note composition, test and capability checks, repo discovery)
+2026-11-16T22:03:21 | Claude | subtask-added | 1.2 host rules into modules (duplicate repair, worklog feed, status history, changed in period, sync-conflict notes)
+2026-11-16T22:26:17 | Claude | subtask-done | 1.1 BoardTools rules into modules (creation, statuses, folder naming, readiness, tasks.md format, note composition, test and capability checks, repo discovery)
+2026-11-16T22:26:17 | Claude | subtask-done | 1.2 host rules into modules (duplicate repair, worklog feed, status history, changed in period, sync-conflict notes)
+2026-11-16T22:41:27 | Claude | status | In Progress -> In Review
+2026-11-16T22:41:27 | Claude | test-linked | AgentsAndTheAppFollowTheSameRulesTests / An item created by an agent and one created in the app start with the same status rules
+2026-11-16T22:41:27 | Claude | test-linked | AgentsAndTheAppFollowTheSameRulesTests / The worklog an agent reads and the one on the item page list the same entries in the same order
+2026-11-16T22:41:27 | Claude | test-linked | AgentsAndTheAppFollowTheSameRulesTests / A duplicate id is repaired the same way whether the app or an agent finds it first
+2026-11-16T22:41:27 | Claude | test-linked | AgentsAndTheAppFollowTheSameRulesTests / The charts and an agent read an item's past from the same events
+2026-11-16T22:41:27 | Claude | test-linked | AgentsAndTheAppFollowTheSameRulesTests / An agent's start of work adds it to the contributors, and an agent can never complete an item

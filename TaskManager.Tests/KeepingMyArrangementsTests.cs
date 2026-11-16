@@ -1,11 +1,12 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using Radzen;
-using TaskManager.Board;
-using TaskManager.Components.Layout;
 using TaskManager.Components.Pages;
+using TaskManager.Components.Layout;
 using TaskManager.Components.Shared;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 
 namespace TaskManager.Tests;
 
@@ -34,9 +35,15 @@ public sealed class KeepingMyArrangementsTests : IDisposable
 
     private void Show(string view)
     {
+        // Click returns before its handler while the renderer is busy (a render the tab switch queued): the empty InvokeAsync runs after
+        // everything queued before it, so the menu is open before it is searched and the pick has landed before the test goes on. No clock.
         nav!.Find("button[aria-label=Layout]").Click();
+        Settle();
         nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == view).Click();
+        Settle();
     }
+
+    private void Settle() => nav!.InvokeAsync(() => { }).GetAwaiter().GetResult();
 
     private static List<string> Columns(IRenderedComponent<BoardPage> board) => board.FindAll("section.col h3").Select(h => h.TextContent).ToList();
 

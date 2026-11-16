@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-16
+x-rtm:
+  id: 184
+  title: 'One reader for config.yaml and one grammar for #wi / #n / [[doc]]'
+  status: In Review
+  contributors: [Claude]
+  features: [track-work-items]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-16
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: ReadingProjectSettingsFromConfigTests, test: A project with a broken config.yaml section still opens with default lanes and statuses and says what is wrong}, {suite: ReadingProjectSettingsFromConfigTests, test: The config.yaml path is built in one place only}, {suite: ReadingProjectSettingsFromConfigTests, test: Changing the files folder in Settings writes only that key}, {suite: LinkingReferencesEverywhereTests, test: 'A note that mentions #wi12, #n3 and [[guide]] shows the same links on the note page, in the worklog and in a document'}, {suite: LinkingReferencesEverywhereTests, test: 'Renumbering an item rewrites #wi12 but not #wi123'}, {suite: LinkingReferencesEverywhereTests, test: "An agent's board_note mentioning #wi123 links the same way as one written in the app"}]
+  dependsOn: [181]
+  agentBy: Claude
+  agentAt: 2026-11-16T22:02:28

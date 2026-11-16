@@ -10,7 +10,9 @@ using Notes.PublicDTOs;
 using Radzen;
 using TaskManager.Components.Pages;
 using TaskManager.Components.Shared;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 using WorkItems.PublicDTOs;
 
@@ -590,7 +592,7 @@ public sealed class UsingTheWorklogTests : IDisposable
     [Fact(DisplayName = "One write from the worklog reloads the page once, not once per Changed event")]
     public async Task OneWriteReloadsOnce()
     {
-        FakeTimeProvider time = new();
+        FakeTimeProvider time = new(new DateTimeOffset(DateTime.SpecifyKind(DateTime.Today.AddHours(12), DateTimeKind.Unspecified), TimeSpan.Zero));   // the page's "today" is the clock's: the real date, held still
         await using BunitContext ctx = NewContext(time);
         (IRenderedComponent<WorkItemPage> page, IRenderedComponent<Worklog> log) = OpenWorklogView(ctx);
         DateTime today = DateTime.Today;
@@ -1054,6 +1056,24 @@ public sealed class UsingTheWorklogTests : IDisposable
 
 // ── table helper ──
 
+    /// <summary>
+    /// The element reference id of the textarea on screen. bUnit writes it into the markup (blazor:elementReference) only in the render that created the
+    /// element: Blazor's diff gives a render that keeps the element no id (RenderTreeDiffBuilder, case ElementReferenceCapture), so the attribute reads ""
+    /// from then on, whichever render came last. Reading it when the test happens to look is therefore a race with the reloads; this remembers the id
+    /// the creating render wrote and forgets it when the textarea is gone.
+    /// </summary>
+    private static Func<string?> TextareaOnScreen(IRenderedComponent<Worklog> log)
+    {
+        string? shown = null;
+        log.OnMarkupUpdated += (_, _) =>
+        {
+            System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(log.Markup, @"<textarea\b[^>]*\bblazor:elementReference=""([^""]*)""");
+            if (!m.Success) Volatile.Write(ref shown, null);
+            else if (m.Groups[1].Value.Length > 0) Volatile.Write(ref shown, m.Groups[1].Value);
+        };
+        return () => Volatile.Read(ref shown);
+    }
+
     [Fact(DisplayName = "Every markdown editor in the app gets the table helper attached")]
     public async Task EveryEditorGetsTheTableHelper()
     {
@@ -1085,13 +1105,14 @@ public sealed class UsingTheWorklogTests : IDisposable
         UiService ui = ctx.Services.GetRequiredService<UiService>();
         IRenderedComponent<Worklog> log = Log(ctx);
         string? attachedTo() => ctx.JSInterop.Invocations.Where(i => i.Identifier == "rtm.markdownEditor").Select(i => ((Microsoft.AspNetCore.Components.ElementReference)i.Arguments[0]!).Id).LastOrDefault();
-        string? onScreen() => log.FindAll(".wk-edit textarea").FirstOrDefault()?.GetAttribute("blazor:elementreference");
+        Func<string?> onScreen = TextareaOnScreen(log);
 
         for (int round = 0; round < 2; round++)
         {
             await log.InvokeAsync(() => ui.WorklogOpen!.AddNote());   // the side menu's block
             log.WaitForAssertion(() => Assert.NotNull(onScreen()));
-            log.WaitForAssertion(() => Assert.Equal(onScreen(), attachedTo()));
+            await log.InvokeAsync(() => { });   // the renderer has finished the after-render work of what was drawn (the attach): no render is needed to see it
+            Assert.Equal(onScreen(), attachedTo());
 
             // an entry arriving above the editor (the file watcher's echo of the write, another agent's event) must not leave the helper on a textarea that is gone:
             // the editor is keyed, so Blazor keeps its textarea and the helper stays on it
@@ -1102,6 +1123,7 @@ public sealed class UsingTheWorklogTests : IDisposable
             log.WaitForAssertion(() => Assert.Contains($"{next} arrived", string.Concat(log.FindAll(".wk-e[data-kind='custom']").Select(Text))));
             await log.InvokeAsync(() => { });
             Assert.Equal(before, attachedTo());   // the same textarea, still the one the helper is on
+            Assert.Equal(onScreen(), attachedTo());
             log.Find(".wk-edit").FocusOut();
             log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
         }
@@ -1142,11 +1164,12 @@ public sealed class UsingTheWorklogTests : IDisposable
         await using BunitContext ctx = NewContext();
         UiService ui = ctx.Services.GetRequiredService<UiService>();
         IRenderedComponent<Worklog> log = Log(ctx);
+        Func<string?> onScreen = TextareaOnScreen(log);
         await log.InvokeAsync(() => ui.WorklogOpen!.AddNote());
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit textarea.desc-in")));
 
-        string? onScreen() => log.Find(".wk-edit textarea").GetAttribute("blazor:elementreference");
-        log.WaitForAssertion(() => Assert.Contains(ctx.JSInterop.Invocations, i => i.Identifier == "rtm.autoGrow" && ((Microsoft.AspNetCore.Components.ElementReference)i.Arguments[0]!).Id == onScreen()));
+        await log.InvokeAsync(() => { });   // the after-render work (the helper's attach) is done
+        Assert.Contains(ctx.JSInterop.Invocations, i => i.Identifier == "rtm.autoGrow" && ((Microsoft.AspNetCore.Components.ElementReference)i.Arguments[0]!).Id == onScreen());
         Assert.Empty(log.FindAll(".wk-edit [aria-label='Expand editor']"));   // short: no expand button until the text is taller than one screen
 
         string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");

@@ -1,3 +1,5 @@
+using OpenSpecStore.PublicDTOs;
+
 namespace OpenSpecStore;
 
 /// <summary>
@@ -21,6 +23,31 @@ public static class OpenSpecStoreApi
     public static (bool Success, string Message) Open(string repoRoot, bool keepOthers = false) => Commands.Open(repoRoot, keepOthers);
     /// <summary>Switches the current repository to another open one; false when it is not open.</summary>
     public static bool Use(string repoRoot) => Commands.Use(repoRoot);
+    /// <summary>
+    /// Makes <paramref name="repoRoot"/> the current repository for this call only (the code running from here until the scope is disposed): every read and write of the modules, here and in the calls it awaits, goes to it,
+    /// while other threads and calls keep the repository they work in. A repository that is not open is used as a guest: it is not added to <see cref="OpenRoots"/>. The folder must exist and hold openspec/.
+    /// </summary>
+    public static IDisposable InRepo(string repoRoot) => OpenSpecStoreModule.InRepo(repoRoot);
+
+    /// <summary>
+    /// An agent's call in the app's own process: what it reads and writes is recorded apart from the window's (until disposed), so the window's stale-write check still sees a file the
+    /// call changed since the window read it, and the call is not refused for a file the window read. Pair it with <see cref="InRepo"/>.
+    /// </summary>
+    public static IDisposable AsCaller() => OpenSpecStoreModule.AsCaller();
+
+    /// <summary>
+    /// The repository root for a path inside it (a file or a folder): the nearest folder, walking up, that holds openspec/; null when there is none.
+    /// The one rule for "which repository is this path in", for every caller (the app, an agent's tool call).
+    /// </summary>
+    public static string? FindRepoRoot(string path)
+    {
+        string full = Path.GetFullPath(path);
+        if (File.Exists(full)) full = Path.GetDirectoryName(full)!;
+        for (string? dir = full; dir is not null; dir = Path.GetDirectoryName(dir))
+            if (Directory.Exists(Path.Combine(dir, "openspec"))) return dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return null;
+    }
+
     /// <summary>Closes the open repositories not listed.</summary>
     public static void Keep(IEnumerable<string> repoRoots) => Commands.Keep(repoRoots);
     /// <summary>Every open repository, in the order opened.</summary>
@@ -34,6 +61,13 @@ public static class OpenSpecStoreApi
         remove => OpenSpecStoreModule.Changed -= value;
     }
 
+    /// <summary>
+    /// A multi-step change (a merge) takes this lock for all of its steps, and a reader that repairs what it reads (the notes' duplicate ids) takes it before its own lock,
+    /// so a repair never runs on a half-made change: it would see one note in two folders and renumber into an id the change had already picked.
+    /// Always taken first, before any module's own lock.
+    /// </summary>
+    public static object StepsGate => OpenSpecStoreModule.State.StepsGate;
+
     // ── Ids ──
     /// <summary>
     /// The next free number of a counter ("work-item", "note"), allocated under a lock shared by every git worktree of the repository.
@@ -42,6 +76,20 @@ public static class OpenSpecStoreApi
     /// </summary>
     public static int Allocate(string counter, Func<IEnumerable<string>, int> maxOver) =>
         IdAllocator.Allocate(RepoRoot ?? throw new InvalidOperationException("No repository is open"), counter, maxOver);
+
+    // ── References: #wiN, #nN, [[doc]] ──
+    /// <summary>Every reference in a text, in order, with its kind ("item", "note", "doc"), target and where it stands. #wi123 is not #wi1234, #wi12a or foo#wi12.</summary>
+    public static IReadOnlyList<Reference> FindReferences(string text) => References.Find(text);
+    /// <summary>The text of a reference: "#wi12", "#n3" or "[[guide]]" for kind "item", "note" or "doc".</summary>
+    public static string FormatReference(string kind, string target) => References.Format(kind, target);
+    /// <summary>The text with each reference replaced by what <paramref name="replace"/> returns for it (null keeps it as written).</summary>
+    public static string RewriteReferences(string text, Func<Reference, string?> replace) => References.Rewrite(text, replace);
+    /// <summary>The text with every reference of kind "item" or "note" numbered <paramref name="from"/> now numbered <paramref name="to"/>; longer numbers that start the same are left alone.</summary>
+    public static string RenameReference(string text, string kind, int from, int to) => References.Rename(text, kind, from, to);
+    /// <summary>The item a typed reference names ("#wi12", "wi12", and "12" or "#12" when <paramref name="bareNumber"/>), the whole text and no more; null when it names none.</summary>
+    public static int? ParseItemReference(string text, bool bareNumber = false) => References.ParseItem(text.Trim(), bareNumber);
+    /// <summary>Whether a text (a commit message) mentions the item; for a module that reads texts but must not know the grammar, such as GitHistory, to be handed.</summary>
+    public static Func<string, bool> MentionsItem(int id) => References.MentionsItem(id);
 
     // ── Files ──
     public static string ReadText(string path) => Queries.ReadText(path);
@@ -65,6 +113,31 @@ public static class OpenSpecStoreApi
 
     /// <summary>Replaces one section inside the x-rtm block (null removes it); sibling sections and the rest of the file are untouched.</summary>
     public static (bool Success, string Message) WriteRtmSection(string yamlPath, string key, string? sectionYaml) => Commands.WriteRtmSection(yamlPath, key, sectionYaml);
+
+    // ── The project's settings: x-rtm in openspec/config.yaml ──
+    /// <summary>The default folder of note attachments in a project that has neither <c>x-rtm.filesDir</c> nor <c>x-rtm.attachmentsDir</c> (the old layout).</summary>
+    public const string DefaultAttachmentsDir = "local/task-tracking";
+    /// <summary>The default files folder of a project (<c>x-rtm.filesDir</c>): images and plans go inside it.</summary>
+    public const string DefaultFilesDir = "attachments";
+
+    /// <summary>The project's config file: the one place its path is built.</summary>
+    public static string ConfigFile(string repoRoot) => Queries.ConfigFile(repoRoot);
+
+    /// <summary>
+    /// One section of the project's config.yaml (<c>x-rtm.&lt;key&gt;</c>) as <typeparamref name="T"/> (a string, a list of strings, a mapping, ...), of the open project or of <paramref name="repoRoot"/>.
+    /// One rule for every section: it never throws. Missing or empty gives no value and no problem; a section that cannot be read gives no value and a problem that names it, so the caller uses its
+    /// default and shows the problem; a file that is locked right now is <see cref="PublicDTOs.ConfigSection{T}.Unavailable"/>. Nothing is cached here.
+    /// </summary>
+    public static PublicDTOs.ConfigSection<T> ReadConfigSection<T>(string key, string? repoRoot = null) => Queries.ReadConfigSection<T>(key, repoRoot);
+
+    /// <summary>
+    /// Replaces one section of config.yaml with <paramref name="value"/> (null removes it); lists go on one line as [a, b] when <paramref name="flowLists"/>. Sibling sections, comments and the rest of the file
+    /// stay as they are. Refused (not written over) when the file changed on disk since this section was read.
+    /// </summary>
+    public static (bool Success, string Message) WriteConfigSection<T>(string key, T? value, bool flowLists = false, string? repoRoot = null) => Commands.WriteConfigSection(key, value, flowLists, repoRoot);
+
+    /// <summary>Sets one plain value (<c>key: value</c> on one line of the x-rtm block; null removes the key) and touches nothing else. Reads the file from disk first, so it is never refused as stale.</summary>
+    public static (bool Success, string Message) WriteConfigValue(string key, string? value, string? repoRoot = null) => Commands.WriteConfigValue(key, value, repoRoot);
 
     /// <summary>
     /// The serializer for every YAML the app writes: strings are quoted when YAML would read them as something else (colons, hashes, a leading

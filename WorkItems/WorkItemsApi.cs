@@ -39,6 +39,35 @@ public static class WorkItemsApi
     public static void ConfigureArchiverWithFlags(Func<string, IReadOnlyList<string>, (bool Success, string Message, bool CouldRun)>? archive) =>
         WorkItemsModule.Archive = archive ?? Infrastructure.OpenSpecCli.Archive;
 
+    // ── The board as the host's cache reads it (the module keeps no cache of its own) ──
+    /// <summary>
+    /// Hands the module the host's cached read of the board (<paramref name="current"/>, refreshed when what it depends on moved) and its look at the last board without refreshing
+    /// (<paramref name="lastSeen"/>, null when none was read yet), for <see cref="GetAll"/> and the module's own commands and rules. Null = read the board afresh on every call.
+    /// </summary>
+    public static void UseBoard(Func<BoardRead>? current, Func<BoardRead?>? lastSeen)
+    {
+        WorkItemsModule.Board = current;
+        WorkItemsModule.LastSeen = lastSeen;
+    }
+
+    /// <summary>The change folders in board order: open changes by folder name, then archived ones.</summary>
+    public static IReadOnlyList<(string Dir, bool Archived)> ListFolders() => Queries.ListFolders();
+
+    /// <summary>One change folder parsed from disk now (nothing is kept); null when it is being moved or written while read.</summary>
+    public static FolderRead? ReadFolder(string dir, bool archived) => Queries.ReadFolder(dir, archived);
+
+    /// <summary>The number each folder shows, in the order given: its stored x-rtm.id, else the next free one after the highest stored.</summary>
+    public static IReadOnlyList<int> Number(IReadOnlyList<FolderRead> folders) => Queries.Number(folders);
+
+    /// <summary>What a folder shows as: its number, its commit authors as contributors until the list is edited (<paramref name="git"/>, from <see cref="ContributorSource"/>), and Backlog for a status outside <paramref name="statuses"/>.</summary>
+    public static WorkItem Present(FolderRead folder, int id, IReadOnlyList<string> statuses, (string Token, Func<string, IReadOnlyList<string>> AuthorsOf)? git) => Queries.Present(folder, id, statuses, git);
+
+    /// <summary>The commit authors per change folder with the token that changes on each commit (see <see cref="ConfigureContributors"/>); null outside git.</summary>
+    public static (string Token, Func<string, IReadOnlyList<string>> AuthorsOf)? ContributorSource() => WorkItemsModule.Git?.Invoke();
+
+    /// <summary>Goes up each time <see cref="ConfigureContributors"/> is called: every item takes its commit authors again.</summary>
+    public static int ContributorEpoch => WorkItemsModule.GitEpoch;
+
     // ── Reads ──
     /// <summary>Visible work items; pass includeHidden to also get the ones "deleted" in the app.</summary>
     public static IReadOnlyList<WorkItem> GetAll(bool includeHidden = false) => Queries.GetAll(includeHidden);
@@ -70,8 +99,8 @@ public static class WorkItemsApi
     // ── Statuses of the open project ──
     /// <summary>The open project's statuses in board order: <c>x-rtm.statuses</c> in its openspec/config.yaml, else <see cref="Statuses"/>; the fixed three are always in it.</summary>
     public static IReadOnlyList<string> GetStatuses() => Queries.GetStatuses();
-    /// <summary>Adds a status at the end of the list. A name the project has already is refused (spelling counts: "completed" is not "Completed").</summary>
-    public static (bool Success, string Message) AddStatus(string name) => Commands.AddStatus(name);
+    /// <summary>Adds a status at the end of the list, or with <paramref name="beforeCompleted"/> just before Completed when the list ends with it. A name the project has already is refused (spelling counts: "completed" is not "Completed").</summary>
+    public static (bool Success, string Message) AddStatus(string name, bool beforeCompleted = false) => Commands.AddStatus(name, beforeCompleted);
     /// <summary>Removes a status that is not a fixed one and that no work item (hidden ones included) has.</summary>
     public static (bool Success, string Message) RemoveStatus(string name) => Commands.RemoveStatus(name);
     /// <summary>Moves the work items that have the status to another, then removes it.</summary>
@@ -133,6 +162,9 @@ public static class WorkItemsApi
     /// <summary>Who an event is recorded as: the actor's name, trimmed ("someone" when it is null or blank). Null restores the default (nobody configured).</summary>
     public static void ConfigureActor(Func<string?>? actor) => WorkItemsModule.Actor = actor;
 
+    /// <summary>Records the events the code running from here writes as <paramref name="who"/> (an agent's tool call) until the scope is disposed. Only this call is affected: the actor <see cref="ConfigureActor"/> set (the app's user), and the actor of every other call, stay.</summary>
+    public static IDisposable ActingAs(string who) => WorkItemsModule.ActingAs(who);
+
     /// <summary>
     /// What happened to the item, oldest first, from events.log in its change folder (empty for an unknown item or no log). The app records, with
     /// these kinds and texts: <c>created</c> (the title), <c>status</c> ("Old -> New"), <c>commit-linked</c> / <c>commit-unlinked</c> (the hash),
@@ -188,6 +220,68 @@ public static class WorkItemsApi
     /// <summary>Stops waiting on that item. The status is left as it is (Blocked stays Blocked until changed).</summary>
     public static (bool Success, string Message) RemoveDependency(int id, int dependencyId) =>
         Get(id) is { } item ? Commands.SetDependencies(id, (item.DependsOn ?? []).Where(d => d != dependencyId)) : (false, "That work item no longer exists");
+
+    // ── The rules every caller shares (the app, an agent's tool call) ──
+    /// <summary>The priorities a work item can have, the highest first.</summary>
+    public static IReadOnlyList<string> Priorities => ItemRules.Priorities;
+    /// <summary>The statuses a new item can start in: the project's own, except Blocked, In Review and Completed.</summary>
+    public static IReadOnlyList<string> CreationStatuses() => ItemRules.CreationStatuses();
+    /// <summary>Why an agent may not move an item to this status (Completed is archiving, the user's; or the project has no such status), or null.</summary>
+    public static string? CheckAgentStatus(string status) => ItemRules.CheckAgentStatus(status);
+    public static string? CheckLabel(string? label) => ItemRules.CheckLabel(label);
+    public static string? CheckPriority(string? priority) => ItemRules.CheckPriority(priority);
+    /// <summary>Why the ids cannot be dependencies of the item <paramref name="self"/> (null for a new one): one that does not exist, or itself; null when they can.</summary>
+    public static string? CheckDependencies(int? self, IEnumerable<int>? ids) => ItemRules.CheckDependencies(self, ids);
+    /// <summary>Why a name cannot be an agent's (letters, digits, spaces, dots, dashes and underscores, at most 40), or null.</summary>
+    public static string? CheckAgentName(string name) => ItemRules.CheckAgentName(name);
+    /// <summary>The feature the item is in (its first; an item has one at most), or null.</summary>
+    public static string? FeatureOf(WorkItem item) => ItemRules.FeatureOf(item);
+    /// <summary>The item can be started now: not In Progress, not archived, and nothing it waits on is unresolved.</summary>
+    public static bool IsReady(WorkItem item) => ItemRules.IsReady(item);
+    /// <summary>The contributors to write when work starts or they are edited: the list given (or the item's own) plus <paramref name="who"/> when <paramref name="status"/> is In Progress; null when neither applies.</summary>
+    public static IReadOnlyList<string>? ContributorsAfter(WorkItem item, IEnumerable<string>? given, string? status, string who) => ItemRules.ContributorsAfter(item, given, status, who);
+    /// <summary>The linked documents after an edit: the list given (else <paramref name="current"/>) tidied (slashes, blanks, repeats), the ones to remove taken out, the ones to add put at the end.</summary>
+    public static IReadOnlyList<string> DocsAfter(IEnumerable<string>? current, IEnumerable<string>? replace, IEnumerable<string>? add, IEnumerable<string>? remove) => ItemRules.DocsAfter(current, replace, add, remove);
+    /// <summary>A warning for each document that is neither a file nor a folder of the open repository yet.</summary>
+    public static IReadOnlyList<string> MissingDocs(IEnumerable<string> paths) => ItemRules.MissingDocs(paths);
+    /// <summary>The delta specs of the item's change folder, by capability; with <paramref name="withText"/> their markdown too.</summary>
+    public static IReadOnlyList<DeltaSpecFile> GetDeltaSpecs(WorkItem item, bool withText) => ItemRules.DeltaSpecs(item, withText);
+    /// <summary>"cancelled", "duplicate of #wiN" or "superseded by #wiN" as the text for the worklog and the title of the decision note; refused for another text, for the item itself, or an item that does not exist.</summary>
+    public static Resolution ParseResolution(string resolution, int id) => ItemRules.ParseResolution(resolution, id);
+
+    /// <summary>
+    /// A new item titled "New work item" (or <paramref name="title"/>): the one road both the app's "+" and an agent take. One that starts In Progress is created Planned and then moved,
+    /// so it has its start day, its move and its status event like any item that starts work.
+    /// </summary>
+    public static (bool Success, string Message, int Id) CreateNew(string status = "Backlog", IEnumerable<string>? features = null, IEnumerable<string>? contributors = null, string? folder = null, string? title = null) =>
+        NewItems.CreateNew(status, features, contributors, folder, title);
+
+    /// <summary>
+    /// Creates an item from an agent's brief: checks it (the Why's 50 to 1000 characters, the starting status, label, priority, dependencies, capabilities, the kebab-case folder that must not exist yet),
+    /// writes the change folder (description, plan, dependencies, signed subtasks in tasks.md, delta specs), signs it as <paramref name="who"/> and runs the validator.
+    /// </summary>
+    public static CreatedWorkItem CreateFromBrief(NewWorkItem brief, string who) => NewItems.FromBrief(brief, who);
+
+    /// <summary>Adds a subtask signed as the agent's (one line, ending in the agent mark), logged like <see cref="AddSubtask(int, string)"/>.</summary>
+    public static (bool Success, string Message) AddSubtask(int id, string text, string agent) => Commands.AddSubtask(id, ItemRules.Signed(text, agent));
+    /// <summary>Retexts a subtask, signed as the agent's.</summary>
+    public static (bool Success, string Message) SetSubtaskText(int id, string number, string text, string agent) => Commands.SetSubtaskText(id, number, ItemRules.Signed(text, agent));
+    /// <summary>Removes the subtasks, highest number first (numbers sort as 2.10 after 2.9), so renumbering the rest of a group never shifts one still to remove. One result per number, each done as it is read (stop reading at the first failure and the rest stays).</summary>
+    public static IEnumerable<(string Number, bool Success, string Message)> RemoveSubtasks(int id, IEnumerable<string> numbers) =>
+        numbers.Distinct().OrderByDescending(ItemRules.SubtaskOrder).Select(n => { (bool ok, string m) = Commands.RemoveSubtask(id, n); return (n, ok, m); });
+
+    /// <summary>
+    /// The item's status at the end of each moment given (null where it did not exist yet), read from its events: the last status move before it, else the status it was created with.
+    /// An item archived by the CLI with no move to Completed in its log counts as Completed from when it was last modified.
+    /// </summary>
+    public static IReadOnlyList<string?> StatusAt(WorkItem item, IReadOnlyList<WorkItemEvent> events, IReadOnlyList<DateTime> ends) => ItemRules.StatusAt(item, events, ends);
+
+    /// <summary>The ids of the items that changed from one day to another, both included, by local day (with times: the exact window): some of the times <paramref name="logged"/> gives for it, its creation, or its files' last write falls in it.</summary>
+    public static IReadOnlySet<int> ChangedIn(IReadOnlyList<WorkItem> items, Func<WorkItem, IEnumerable<DateTime>> logged, DateOnly from, DateOnly to,
+        TimeOnly? fromTime = null, TimeOnly? toTime = null, Func<WorkItem, bool>? hasCreated = null) => ItemRules.ChangedIn(items, logged, from, to, fromTime, toTime, hasCreated);
+
+    /// <summary>The filter group a worklog entry of this event kind answers to: "events", "links", "subtasks" or "edits".</summary>
+    public static string EventGroup(string kind) => ItemRules.EventGroup(kind);
 
     // ── Whole items ──
     public static (bool Success, string Message, int Id) Create(string title, string status = "Backlog", IEnumerable<string>? features = null, IEnumerable<string>? contributors = null, string? folder = null)

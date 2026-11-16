@@ -15,7 +15,8 @@ namespace TaskManager.Tests;
 /// <summary>
 /// An attacker's view of the board sync: a hostile storage (compromised bucket, a person with write access to the shared folder, a man in the middle),
 /// hostile file names and contents in the board, a hostile response from the network. Every test states the SAFE behaviour; a failing test is a defect.
-/// Temp folders and loopback only.
+/// Temp folders and loopback only. No test has a wall-clock Timeout: the work runs on an injected clock, and a limit on the wall clock fails a correct test
+/// while the run's first seconds keep every core busy. A test that hangs is named by the run settings' blame collector instead (tests.runsettings).
 /// </summary>
 public sealed class SecurityOfBoardSyncTests : IDisposable
 {
@@ -100,7 +101,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
     // 1. Where a sync may write: paths named by the manifest
     // =====================================================================================================================================
 
-    [Fact(DisplayName = "a manifest path that leaves the board folder (dot dots, absolute, drive, UNC, backslash, stream) is refused and nothing is written outside", Timeout = 20000)]
+    [Fact(DisplayName = "a manifest path that leaves the board folder (dot dots, absolute, drive, UNC, backslash, stream) is refused and nothing is written outside")]
     public async Task Escaping_paths_are_refused()
     {
         string[] hostile = ["../escape.md", "a/../../escape.md", "/abs/escape.md", "C:/escape.md", "C:escape.md", "//server/share/escape.md", "\\\\server\\share\\escape.md",
@@ -117,7 +118,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_temp.FullName, "escape.md")));
     }
 
-    [Fact(DisplayName = "a manifest path that is a Windows device name (CON, NUL.md, aux/x.md, COM1.txt) is refused", Timeout = 20000)]
+    [Fact(DisplayName = "a manifest path that is a Windows device name (CON, NUL.md, aux/x.md, COM1.txt) is refused")]
     public async Task Device_names_are_refused()
     {
         string[] hostile = ["CON", "NUL.md", "aux/x.md", "COM1.txt", "prn.md", "LPT1", "x/CONIN$"];
@@ -132,7 +133,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.Empty(accepted);
     }
 
-    [Fact(DisplayName = "a manifest path with a trailing dot or space (which Windows silently renames) is refused", Timeout = 20000)]
+    [Fact(DisplayName = "a manifest path with a trailing dot or space (which Windows silently renames) is refused")]
     public async Task Trailing_dot_and_space_are_refused()
     {
         string[] hostile = ["note.md.", "dir /x.md", "dir./x.md", "note.md "];
@@ -147,7 +148,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.Empty(accepted);
     }
 
-    [Fact(DisplayName = "two manifest paths that differ only by case do not silently lose one of the files", Timeout = 20000)]
+    [Fact(DisplayName = "two manifest paths that differ only by case do not silently lose one of the files")]
     public async Task Case_collisions_do_not_lose_content()
     {
         Site s = NewSite("case");
@@ -158,7 +159,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.True(r.Outcome == SyncOutcome.Failed || both, $"Outcome {r.Outcome}, the board folder holds: {onDisk}");
     }
 
-    [Fact(DisplayName = "a manifest path far longer than the file system allows ends the sync as Failed, not as an exception", Timeout = 20000)]
+    [Fact(DisplayName = "a manifest path far longer than the file system allows ends the sync as Failed, not as an exception")]
     public async Task Overlong_paths_fail_cleanly()
     {
         Site s = NewSite("long");
@@ -167,7 +168,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.Null(thrown);
     }
 
-    [Fact(DisplayName = "a junction inside the board folder is not followed: files behind it are not uploaded", Timeout = 20000)]
+    [Fact(DisplayName = "a junction inside the board folder is not followed: files behind it are not uploaded")]
     public async Task Junction_is_not_read()
     {
         Site s = NewSite("jr");
@@ -182,7 +183,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.False(AnyFileContains(s.StorageFolder, "TOP SECRET OUTSIDE THE BOARD"));
     }
 
-    [Fact(DisplayName = "a junction inside the board folder is not followed: a manifest path through it writes nothing outside the board", Timeout = 20000)]
+    [Fact(DisplayName = "a junction inside the board folder is not followed: a manifest path through it writes nothing outside the board")]
     public async Task Junction_is_not_written_through()
     {
         Site s = NewSite("jw");
@@ -195,7 +196,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.Empty(Files(outside));
     }
 
-    [Fact(DisplayName = "a junction inside the board folder is not followed: a tombstone through it does not move a file outside the board away", Timeout = 20000)]
+    [Fact(DisplayName = "a junction inside the board folder is not followed: a tombstone through it does not move a file outside the board away")]
     public async Task Junction_is_not_deleted_through()
     {
         Site s = NewSite("jd");
@@ -216,7 +217,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
     // 2. Integrity of what is downloaded, and of the manifest itself
     // =====================================================================================================================================
 
-    [Fact(DisplayName = "an object whose bytes do not hash to the manifest's content hash (different, empty or truncated) is never written into the board", Timeout = 20000)]
+    [Fact(DisplayName = "an object whose bytes do not hash to the manifest's content hash (different, empty or truncated) is never written into the board")]
     public async Task Object_bytes_are_checked_against_the_manifest()
     {
         foreach (byte[] served in new[] { Encoding.UTF8.GetBytes("other content"), [], Encoding.UTF8.GetBytes("genuin") })
@@ -231,7 +232,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         }
     }
 
-    [Fact(DisplayName = "a manifest that is empty, null, an array, text, has a wrong version or a huge number is refused without touching the board", Timeout = 20000)]
+    [Fact(DisplayName = "a manifest that is empty, null, an array, text, has a wrong version or a huge number is refused without touching the board")]
     public async Task Garbled_manifests_are_refused()
     {
         string[] bodies = ["", "null", "[]", "\"x\"", "{", "{\"version\":2,\"entries\":{}}", "{\"version\":99999999999999999999}", "{\"version\":1,\"entries\":{\"a.md\":5}}"];
@@ -246,7 +247,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         }
     }
 
-    [Fact(DisplayName = "a manifest whose entries are null ends the sync as Failed, not as an exception", Timeout = 20000)]
+    [Fact(DisplayName = "a manifest whose entries are null ends the sync as Failed, not as an exception")]
     public async Task Null_entries_do_not_crash()
     {
         Site s = NewSite("ne");
@@ -257,7 +258,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.Equal(SyncOutcome.Failed, report!.Outcome);
     }
 
-    [Fact(DisplayName = "a manifest entry whose hash is null ends the sync as Failed, not as an exception", Timeout = 20000)]
+    [Fact(DisplayName = "a manifest entry whose hash is null ends the sync as Failed, not as an exception")]
     public async Task Null_hash_does_not_crash()
     {
         Site s = NewSite("nh");
@@ -268,7 +269,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.Equal(SyncOutcome.Failed, report!.Outcome);
     }
 
-    [Fact(DisplayName = "a malformed content hash (too short, not hex) in the manifest is refused and nothing is written", Timeout = 20000)]
+    [Fact(DisplayName = "a malformed content hash (too short, not hex) in the manifest is refused and nothing is written")]
     public async Task Malformed_hashes_are_refused()
     {
         foreach (string hash in new[] { "ab", "zz11", "../../x", new string('a', 70) })
@@ -305,7 +306,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.True(blocked || left >= 50, $"{left} of 100 files left and no sync was blocked");
     }
 
-    [Fact(DisplayName = "content that a download replaces on this computer stays recoverable in the state folder", Timeout = 20000)]
+    [Fact(DisplayName = "content that a download replaces on this computer stays recoverable in the state folder")]
     public async Task Overwritten_content_is_kept()
     {
         Site s = NewSite("over");
@@ -318,7 +319,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         for (int i = 0; i < 5; i++) Assert.True(AnyFileContains(s.State, $"precious local text number {i}"), $"the old text of w{i} is gone");
     }
 
-    [Fact(DisplayName = "a storage cannot make a local edit 'stale' by listing its hash in the history and so overwrite it without a copy", Timeout = 20000)]
+    [Fact(DisplayName = "a storage cannot make a local edit 'stale' by listing its hash in the history and so overwrite it without a copy")]
     public async Task Forged_history_does_not_destroy_a_local_edit()
     {
         Site s = NewSite("stale");
@@ -340,7 +341,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.True(SyncClock.IsLater(next, floor), $"{next} is not later than {floor}");
     }
 
-    [Fact(DisplayName = "an edit made after the storage entry got a maximal clock is uploaded with a later clock", Timeout = 20000)]
+    [Fact(DisplayName = "an edit made after the storage entry got a maximal clock is uploaded with a later clock")]
     public async Task Edit_after_a_maximal_clock_gets_a_later_clock()
     {
         Site s = NewSite("clk");
@@ -355,7 +356,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.True(SyncClock.IsLater(now, clamped), $"the manifest holds {now} after a local edit, not later than {clamped}");
     }
 
-    [Fact(DisplayName = "a manifest clock far in the future does not make the storage win every clash for good", Timeout = 20000)]
+    [Fact(DisplayName = "a manifest clock far in the future does not make the storage win every clash for good")]
     public async Task Far_future_clock_does_not_win_every_clash()
     {
         Site s = NewSite("skew");
@@ -368,7 +369,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.Contains("LOCAL EDIT", File.ReadAllText(Path.Combine(s.Root, "w/proposal.md")));
     }
 
-    [Fact(DisplayName = "a tombstone with a far-future clock does not delete a file edited here a moment ago", Timeout = 20000)]
+    [Fact(DisplayName = "a tombstone with a far-future clock does not delete a file edited here a moment ago")]
     public async Task Far_future_tombstone_does_not_delete_an_edit()
     {
         Site s = NewSite("skewdel");
@@ -452,7 +453,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.True(h.Requests < 500, $"the listing asked for {h.Requests} pages of the same token and was only stopped from outside");
     }
 
-    [Fact(DisplayName = "a bucket listing with a DOCTYPE (entity declarations) is refused rather than parsed", Timeout = 20000)]
+    [Fact(DisplayName = "a bucket listing with a DOCTYPE (entity declarations) is refused rather than parsed")]
     public async Task Listing_with_a_dtd_is_refused()
     {
         const string xml = "<?xml version=\"1.0\"?><!DOCTYPE r [<!ENTITY a \"expanded\">]><ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>&a;</Key><ETag>\"x\"</ETag></Contents></ListBucketResult>";
@@ -472,7 +473,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
     }
 
-    [Fact(DisplayName = "an external entity in a bucket listing does not read a local file into a key", Timeout = 20000)]
+    [Fact(DisplayName = "an external entity in a bucket listing does not read a local file into a key")]
     public async Task External_entities_are_not_resolved()
     {
         string secret = Path.Combine(_temp.FullName, "xxe-secret.txt");
@@ -735,7 +736,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
     // 7. Git guard
     // =====================================================================================================================================
 
-    [Fact(DisplayName = "a board file that only quotes conflict markers (inside a code fence) does not pause sync for good", Timeout = 20000)]
+    [Fact(DisplayName = "a board file that only quotes conflict markers (inside a code fence) does not pause sync for good")]
     public async Task Quoted_markers_do_not_block_sync()
     {
         Site s = NewSite("git");
@@ -753,7 +754,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
     // 9. What the fixes added
     // =====================================================================================================================================
 
-    [Fact(DisplayName = "files a download replaced are listed as Replaced (copies in the trash), not as Trashed, and a new file has no copy", Timeout = 20000)]
+    [Fact(DisplayName = "files a download replaced are listed as Replaced (copies in the trash), not as Trashed, and a new file has no copy")]
     public async Task Replaced_list_is_separate_from_trashed()
     {
         Site s = NewSite("replaced");
@@ -828,7 +829,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.Throws<BoardStorageException>(() => S3(h, prefix: "./a"));
     }
 
-    [Fact(DisplayName = "any 3xx answer from the storage is a storage error that does not name the target, and 304 still means not modified", Timeout = 20000)]
+    [Fact(DisplayName = "any 3xx answer from the storage is a storage error that does not name the target, and 304 still means not modified")]
     public async Task Redirect_answers_are_errors()
     {
         FuncHandler h = new(_ =>
@@ -844,7 +845,7 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.True((await S3(notModified).GetIfChanged("manifest.json", "\"v\"")) is { IsNotModified: true });
     }
 
-    [Fact(DisplayName = "the access key id is shown with its last 4 characters only in a refused-key message", Timeout = 20000)]
+    [Fact(DisplayName = "the access key id is shown with its last 4 characters only in a refused-key message")]
     public async Task Access_key_is_masked()
     {
         FuncHandler h = new(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden)));

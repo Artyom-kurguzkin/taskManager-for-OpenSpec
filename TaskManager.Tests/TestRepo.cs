@@ -120,8 +120,8 @@ internal static class TestAssemblySetup
         GitHistory.Infrastructure.GitCli.AnswerWithoutSpawnWhenNoRepository = true;
         // Tests never run a real timer: the sync service only records when its quiet wait and idle check are due (the test calls QuietElapsed and IdleElapsed itself), whatever the
         // SyncSetup asks for, so no pass starts on a background thread while a test writes files. The tests write files and sync at once, so the settle window is off too unless a test sets one.
-        TaskManager.Services.SyncSetup.NoRealTimers = true;
-        TaskManager.Services.SyncSetup.DefaultSettleWindow = TimeSpan.Zero;
+        TaskManager.BackgroundJobs.SyncSetup.NoRealTimers = true;
+        TaskManager.BackgroundJobs.SyncSetup.DefaultSettleWindow = TimeSpan.Zero;
         // A page's WaitForAssertion passes at the first render that satisfies it; the timeout only says how long a failing one waits. Classes run side by side,
         // so a render can take longer than bUnit's default second on a busy machine: the bound is raised, no passing test waits any longer for it.
         Bunit.BunitContext.DefaultWaitTimeout = TimeSpan.FromSeconds(15);

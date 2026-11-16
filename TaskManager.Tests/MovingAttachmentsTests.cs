@@ -7,7 +7,9 @@ using OpenSpecStore;
 using Radzen;
 using TaskManager.Components.Pages;
 using TaskManager.Components.Shared;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 
 namespace TaskManager.Tests;

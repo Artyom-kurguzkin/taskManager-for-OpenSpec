@@ -18,6 +18,12 @@
     /// <summary>Optional colour token per value (e.g. status band) shown as a swatch.</summary>
     [Parameter] public Func<string, string>? Swatch { get; set; }
 
+    /// <summary>
+    /// Drawn again only when something it shows changed: its callback counts as unchanged while it is the same method on the same object (a lambda that reads
+    /// only its component, which cannot have gone stale). A swatch function can read anything, so a dropdown with one draws on every parameter set.
+    /// </summary>
+    protected override object? RenderKey => Swatch is not null ? null : (Label, Options, Value, ValueChanged, Placeholder, Class, Style, Disabled);
+
     private sealed record Opt(string Value, string Label);
 
     // A non-empty value that no option names (stale or legacy data) is still shown, as itself, rather than as nothing.

@@ -1,0 +1,17 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-16
+x-rtm:
+  id: 180
+  title: 'One universal UI structure: rendering, caching and shared low-level functions'
+  status: In Review
+  contributors: [Claude]
+  features: [organise-work-items]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-17
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: CachingInAppStateTests, test: A second read of the board with nothing changed reads no file}, {suite: CachingInAppStateTests, test: An edit to one item re-reads that item's folder and no other}, {suite: CachingInAppStateTests, test: A reopened repository is not served from the old repository's cache}, {suite: CachingInAppStateTests, test: An equal reload keeps the same item instances so nothing redraws}, {suite: PagesRenderBudgetTests, test: Typing in a worklog note redraws only the editor}, {suite: PagesRenderBudgetTests, test: A click inside the calendar does not let go of the examined item}, {suite: PagesRenderBudgetTests, test: Analytics does not rebuild its charts when nothing they show changed}, {suite: ComponentRulesTests, test: Every component we write derives from the base component}]
+  dependsOn: [179]
+  agentBy: Claude
+  agentAt: 2026-11-17T07:41:35

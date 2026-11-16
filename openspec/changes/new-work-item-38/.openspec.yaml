@@ -1,0 +1,13 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-17
+x-rtm:
+  id: 192
+  title: list view work item expand
+  status: Backlog
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-23
+  due: 2026-11-30
+  moved: 2026-11-17

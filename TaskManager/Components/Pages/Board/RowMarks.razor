@@ -1,0 +1,63 @@
+@namespace TaskManager.Components.Pages
+@* Marks rows of a grid that the grid does not draw again for it: one <style> block with a rule per marked row, outside the grid. The rows keep
+   their own attributes (data-row, data-group); the rule finds them by those. app.js reads which rows are selected from the block's own data-
+   attributes (JSON lists of the keys), so what is selected is said once, here. The rules sit in the layers the look was in (nav, board) so the
+   cascade is the one the rows' own classes had. *@
+<style data-rowmarks @attributes="attributes">@((MarkupString)css)</style>
+
+@code {
+    /// <summary>What marks a row: selected (outline and halo), the one open beside the list, the examined one and the ones it waits on and needs.</summary>
+    [Flags]
+    public enum Mark { None = 0, Selected = 1, Current = 2, Examined = 4, Waits = 8, Needs = 16 }
+
+    /// <summary>A row to mark: found by <paramref name="Attr"/> (data-row for an item's row, data-group for a group row) having <paramref name="Value"/>.</summary>
+    public readonly record struct RowMark(string Attr, string Value, Mark Marks);
+
+    [Parameter] public IReadOnlyList<RowMark> Marks { get; set; } = [];
+
+    private string css = "";
+    private Dictionary<string, object> attributes = [];
+
+    protected override object? RenderKey => css + "\0" + string.Join("\0", attributes.Values);
+
+    protected override void OnParametersSet() => (css, attributes) = (Css(Marks), Keys(Marks));
+
+    // data-selected: the keys of the selected item rows; data-selected-groups: of the selected group rows; data-examined / -waits / -needs / -current likewise
+    private static Dictionary<string, object> Keys(IReadOnlyList<RowMark> marks)
+    {
+        Dictionary<string, object> a = [];
+        void Add(string name, Func<RowMark, bool> which, string attr)
+        {
+            string[] keys = [.. marks.Where(m => m.Attr == attr && which(m)).Select(m => m.Value)];
+            if (keys.Length > 0) a[name] = System.Text.Json.JsonSerializer.Serialize(keys);
+        }
+        Add("data-selected", m => m.Marks.HasFlag(Mark.Selected), "data-row");
+        Add("data-selected-groups", m => m.Marks.HasFlag(Mark.Selected), "data-group");
+        Add("data-examined", m => m.Marks.HasFlag(Mark.Examined), "data-row");
+        Add("data-waits", m => m.Marks.HasFlag(Mark.Waits), "data-row");
+        Add("data-needs", m => m.Marks.HasFlag(Mark.Needs), "data-row");
+        Add("data-current", m => m.Marks.HasFlag(Mark.Current), "data-row");
+        return a;
+    }
+
+    // A CSS string for the attribute's value; "<" cannot end the style element (the block is written as markup).
+    private static string Quote(string s) =>
+        "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("<", "\\3c ").Replace("&", "\\26 ").Replace("\n", "\\a ").Replace("\r", "") + "\"";
+
+    private static string Css(IReadOnlyList<RowMark> marks)
+    {
+        System.Text.StringBuilder nav = new(), board = new(), plain = new();   // the layers the look was written in (app.css: nav, board; the open row's wash is unlayered)
+        foreach (RowMark m in marks)
+        {
+            string tr = $".tbl-wrap tr[{m.Attr}={Quote(m.Value)}]";
+            if (m.Marks.HasFlag(Mark.Selected))
+                nav.Append($"{tr}{{outline:3px solid var(--ink);outline-offset:-4px;box-shadow:inset 0 0 0 1px var(--ink),inset 0 0 0 8px var(--sun)}}");
+            if (m.Marks.HasFlag(Mark.Current))
+                plain.Append($"tr[{m.Attr}={Quote(m.Value)}],tr[{m.Attr}={Quote(m.Value)}]>td{{background:color-mix(in srgb,var(--sun) 40%,transparent)}}");
+            foreach ((Mark which, string colour, int percent) in new[] { (Mark.Examined, "sun", 35), (Mark.Waits, "rose", 22), (Mark.Needs, "sky", 30) })
+                if (m.Marks.HasFlag(which))
+                    board.Append($"{tr}{{outline:3px solid var(--{colour});outline-offset:-3px}}{tr}>td{{background:color-mix(in srgb,var(--{colour}) {percent}%,transparent)}}");
+        }
+        return (nav.Length > 0 ? $"@layer nav{{{nav}}}" : "") + (board.Length > 0 ? $"@layer board{{{board}}}" : "") + plain;
+    }
+}

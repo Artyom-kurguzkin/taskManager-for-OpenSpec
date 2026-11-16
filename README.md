@@ -50,7 +50,7 @@ dotnet test TaskManager.Tests --filter Category!=OpenSpecCli
 # everything, including `openspec validate --strict` on a repo the app has edited (needs Node.js, ~10 s)
 dotnet test TaskManager.Tests
 
-# only the MCP server and stdio entry, run as real processes (~15 s, ports 7450-7459, their own RTM_HOME)
+# the one test that runs the real `--mcp` process against an endpoint started in the test (its own RTM_HOME, a port the OS picks)
 dotnet test TaskManager.Tests --filter Category=Server
 ```
 
@@ -119,15 +119,14 @@ What the tools guarantee:
 - **Agents never archive.** Status `Completed` is refused: set `In Review` and archive from the app.
 - **The worklog keeps itself.** What a tool call changes (status, links, subtasks, dependencies) is recorded in the item's worklog under the agent's name; the agent writes a `board_note` only for what the tools cannot see, such as a command it ran and what came back.
 
-One server serves every repository on the machine. The same exe runs in three ways:
+The app serves every repository on the machine, from its own process: there is no separate server. The same exe runs in two ways:
 
 | Command | What it does |
 |---|---|
-| `TaskManager.exe` | the desktop app. It starts the server when it opens (a newer build replaces an older server); **Settings → Agents over MCP** shows whether it is running, on which port, and starts or stops it |
-| `TaskManager.exe --serve [--port N] [--idle H] [--parent PID]` | headless server for streamable HTTP MCP at `http://127.0.0.1:7431/mcp` (loopback only). The app starts it with `--parent <its pid>`, and it exits when that process ends. Without `--parent` it exits after `H` idle hours (three by default, `--idle 0` = never) |
-| `TaskManager.exe --mcp [--agent X]` | stdio entry for MCP clients: finds the running server and forwards to it. It never starts one: while the app is closed a tool call gets an error asking you to open it, and the next call works once you have |
+| `TaskManager.exe` | the desktop app. It listens for agents (streamable HTTP MCP at `http://127.0.0.1:7431/mcp`, loopback only) from the moment it opens until it closes; **Settings → Agents over MCP** shows the port, or that another Repo Tasks window already serves agents (a second copy of the app leaves the first one serving and does not touch `server.json`) |
+| `TaskManager.exe --mcp [--agent X]` | stdio entry for MCP clients, a tiny process that holds no logic: it finds the running app and forwards to it. While the app is closed a tool call gets an error asking you to open it, and the next call works once you have |
 
-The server runs while the app is open: open the app before using the tools, and closing it stops the server. The two are separate processes on purpose: the app shows what an agent wrote within a moment (it watches the files), and an agent reads what you changed in the app on its next call.
+Open the app before using the tools; closing it stops them. An agent's write shows in the open window at once, and an agent reads what you changed in the app on its next call. If you have a file open for editing in the app and an agent changes it, saving your edit is refused as stale (the file changed since you read it) instead of replacing the agent's change.
 
 Most clients want the stdio entry. Add this to `.mcp.json` in the repository the agents work in (the Settings page shows it with this machine's path; `claude mcp add repo-tasks -- <path to TaskManager.exe> --mcp` does the same):
 
@@ -148,16 +147,16 @@ Most clients want the stdio entry. Add this to `.mcp.json` in the repository the
 
 The stdio entry tells the server which repository it was started in and which agent it speaks for, so an agent never has to pass `repo`: a call acts on the repository the client runs in, also from a git worktree.
 
-A client that only speaks HTTP connects to `--serve` with the header `Authorization: Bearer <token>`. The token is the content of `%LOCALAPPDATA%\RepoTaskManager\token`, created on first use and readable by you only. Requests without it get 401, and requests from a browser origin other than localhost get 403. Over plain HTTP every call must pass `repo` (any path inside the repository): the server serves all of them and has no default.
+A client that only speaks HTTP connects to the app's endpoint (while it is open) with the header `Authorization: Bearer <token>`. The token is the content of `%LOCALAPPDATA%\RepoTaskManager\token`, created on first use and readable by you only. Requests without it get 401, and requests from a browser origin other than localhost get 403. Over plain HTTP every call must pass `repo` (any path inside the repository): the server serves all of them and has no default.
 
 | Environment variable | What it does |
 |---|---|
 | `RTM_AGENT` | the name the tools sign with (default `Claude`); `--agent X` and a tool's `agent` argument override it |
-| `RTM_PORT` | the port the app's server listens on (default 7431) |
+| `RTM_PORT` | the port the app listens on for agents (default 7431) |
 | `RTM_HOME` | where the token, `server.json` and logs live instead of `%LOCALAPPDATA%\RepoTaskManager`, for demos and tests |
 | `RTM_APP` | not read by the app: the variable a committed `.mcp.json` can use for the exe's path (above) |
 
-When something goes wrong, the server's log is `%LOCALAPPDATA%\RepoTaskManager\logs\serve-<date>.log`; the stdio entry logs to stderr, which the client shows. After `dotnet publish` or a rebuild, the app replaces a running server of an older build when it starts.
+When something goes wrong, the endpoint's log is `%LOCALAPPDATA%\RepoTaskManager\logsgents-<date>.log`; the stdio entry logs to stderr, which the client shows.
 
 ## Where things are stored
 
@@ -170,7 +169,7 @@ When something goes wrong, the server's log is `%LOCALAPPDATA%\RepoTaskManager\l
 | Events of a work item (created, status changes, links, ticked subtasks, dependencies: who and when) | `openspec/changes/<change>/events.log`, one line each; the item page's Worklog shows them with the notes; when a rule such as `*.log` would make git ignore them, opening the repository adds `!openspec/**/events.log` to its `.gitignore` | yes |
 | Your settings (theme, last repo, name, board view per repo) | `%APPDATA%\RepoTaskManager\settings.json` | no |
 | The last work-item and note numbers handed out, and their lock files | `.git/rtm/` in the repository (shared by its worktrees); `%TEMP%\rtm\` for a folder without git | no |
-| The MCP server's token, `server.json` (pid, port, version) and logs | `%LOCALAPPDATA%\RepoTaskManager\` | no |
+| The agent endpoint's token, `server.json` (pid, port, version) and logs | `%LOCALAPPDATA%\RepoTaskManager\` | no |
 
 Set the `RTM_SETTINGS` environment variable to a file path to use a different settings file, for example for demos.
 
@@ -182,8 +181,7 @@ A modular monolith with one static class library per domain entity, plus the app
 - `GitHistory/`: git CLI wrapper
 - `Features/`, `WorkItems/`, `Notes/`: the domain modules
 - `LinkedTestRuns/`: reads the latest test results file for linked tests
-- `TaskManager.Mcp/`: the eight `board_*` MCP tools over the modules (no UI, no host)
-- `TaskManager/`: the Photino + Blazor app, the only project with UI; `Hosting/` holds the headless server (`--serve`) and the stdio entry (`--mcp`)
+- `TaskManager/`: the Photino + Blazor app, the only project with UI and the one caller project: `Mcp/` holds the eight `board_*` MCP tools over the modules and the stdio relay (`--mcp`), `Api/` the endpoint agents reach (Kestrel, in the app's own process), `AppState/` per-user state and the caches (`UiService`, `Workspace`, `SettingsStore`), `Helpers/` host code shared by the callers (`Ui`, `Paths`, the window and OS adapters), `BackgroundJobs/` the sync timer loop, `Components/` the GUI (`Layout/`, `Pages/<Feature>/` with each page's components and view model, `Shared/`)
 - `TaskManager.Tests/`: xunit and bUnit tests, plus a sample repo in `Fixtures/`
 - `openspec/`: this project's own specs and changes
 - `design/mockup.html`: the design system mockup

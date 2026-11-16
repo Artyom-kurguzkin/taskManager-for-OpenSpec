@@ -15,3 +15,9 @@
 2026-11-16T09:39:14 | Artyom-kurguzkin | subtask-added | 1.1 ui cr #n445
 2026-11-16T09:39:14 | Artyom-kurguzkin | converted | note #n445 -> subtask 1.1
 2026-11-16T09:39:19 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T11:05:39 | Claude chunk card-dates | test-linked | UsingTheBoardTests / A card shows no id pill and no agent badge
+2026-11-16T11:05:39 | Claude chunk card-dates | test-linked | UsingTheBoardTests / A card's dates are one period: 9–16 Nov, across months and years, from or due alone
+2026-11-16T11:05:39 | Claude chunk card-dates | test-linked | UsingTheBoardTests / The modified time reads 15:34. 16 Nov 26 on the card and in the list's Updated column
+2026-11-16T11:05:39 | Claude chunk card-dates | subtask-done | 1.1 ui cr #n445
+2026-11-16T11:05:50 | Claude chunk card-dates | status | In Progress -> In Review
+2026-11-16T13:02:20 | Claude | log | Integrated the card-dates chunk into main (no id pill or badge, period pill, 15:34. 16 Nov 26 stamp). One run with all chunks and test fixes: Passed 1083, Failed 0, 3 m 32 s.

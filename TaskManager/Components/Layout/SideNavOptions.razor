@@ -1,0 +1,277 @@
+@using Features
+@using Features.PublicDTOs
+@using TaskManager.Components.Pages
+@using WorkItems
+@implements IDisposable
+@inject Workspace Workspace
+@inject SettingsStore Settings
+@inject IServiceProvider Services
+@* The board's view options in the expanded side menu: Organise, Filters, the display switch and the Hidden list. They are drawn when what they show changed
+   (the key below), never because the menu around them was; the lists they offer are built once per change, not per draw; a folded section draws nothing
+   until it is opened. *@
+<div class="nav-view">
+    @* three independent options over one field list, the same in the board, the list and the calendar *@
+    @if (!analytics)
+    {
+    <div class="organise" role="group" aria-label="Organise">
+        @SectionHead("organise", "Organise", organiseSummary)
+        <div class="nav-sec-body" id="sec-organise-body" hidden="@(!openOrganise)">
+        @if (openOrganise)
+        {
+        <div class="field"><label>sort by</label><Dropdown Label="sort by" Class="@Look(o.SortBy, "")" Options="BoardPage.SortBys" Value="@o.SortBy" ValueChanged="v => Set(Saved with { SortBy = v, SortDir = 1 })" /></div>
+        @if (ListView == "list")
+        {
+            @* the list has groups and subgroups of its own, flat (none) until chosen; the board's columns and rows are kept apart *@
+            <div class="field"><label>groups</label><Dropdown Label="groups" Class="@("is-group " + Look(ov.GroupBy, "none"))" Options="BoardPage.ListGroupBys" Value="@ov.GroupBy" ValueChanged="v => Set(Saved with { ListGroupBy = v })" /></div>
+            <div class="field"><label>subgroups</label><Dropdown Label="subgroups" Class="@Look(ov.Swimlane, "none")" Options="BoardPage.ListGroupBys" Value="@ov.Swimlane" ValueChanged="v => Set(Saved with { ListSwimlane = v })" /></div>
+        }
+        else
+        {
+            <div class="field"><label>columns</label><Dropdown Label="columns" Class="@("is-group " + Look(o.GroupBy, "none"))" Options="BoardPage.GroupBys" Value="@o.GroupBy" ValueChanged="v => Set(Saved with { GroupBy = v })" /></div>
+            <div class="field"><label>rows</label><Dropdown Label="rows" Class="@Look(o.Swimlane, "none")" Options="BoardPage.Swimlanes" Value="@o.Swimlane" ValueChanged="v => Set(Saved with { Swimlane = v })" /></div>
+        }
+        <div class="field"><label>colour</label><Dropdown Label="colour" Class="@Look(o.ColorBy, "none")" Options="BoardPage.ColorBys" Value="@o.ColorBy" ValueChanged="v => Set(Saved with { ColorBy = v })" /></div>
+        @if (o.ChangedOn || legend.Count > 0)
+        {
+            <div class="legend" aria-label="Colour legend">
+                @if (o.ChangedOn) { <span class="lg head">@BoardModel.ChangedLabel(o)</span> }
+                @if (shownCount is var (inPeriod, others)) { <span class="lg head count">@inPeriod of @others shown</span> }
+                @foreach ((string label, string colour) in legend.Take(BoardModel.Palette.Count))
+                {
+                    <span class="lg"><i style="--sw:var(@colour)"></i>@label</span>
+                }
+                @if (legend.Count > BoardModel.Palette.Count) { <span class="lg more">+@(legend.Count - BoardModel.Palette.Count) more</span> }
+            </div>
+        }
+        }
+        </div>
+    </div>
+    <div class="nav-sep" role="separator"></div>
+    }
+    <div class="nav-filters" role="group" aria-label="Filters">
+        @SectionHead("filters", "Filters", filtersSummary)
+        <div class="nav-sec-body" id="sec-filters-body" hidden="@(!openFilters)">
+        @if (openFilters)
+        {
+    <div class="field"><label>contributor</label><Dropdown Label="contributor" Class="@Look(o.Who, "all")" Options="people" Value="@o.Who" ValueChanged="v => Set(Saved with { Who = v })" /></div>
+    <div class="field"><label>period</label><Dropdown Label="period" Class="@Look(o.Period, "all")" Options="BoardPage.Periods" Value="@o.Period" ValueChanged="v => Set(Saved with { Period = v })" /></div>
+    @* the filter: only the work items one commit (or the work tree) changed *@
+    <div class="field commit"><label>commit</label><Dropdown Label="commit" Class="@Look(o.Commit, "any")" Options="commits" Value="@o.Commit" ValueChanged="v => Set(Saved with { Commit = v })" /></div>
+    @* the filter: only work that changed between two days is shown *@
+    <div class="field changed"><label>changed</label>
+        <DateRange Label="changed" Empty="any time" ClearLabel="Show all" WithTime="true" Start="@o.ChangedFrom" End="@o.ChangedTo" StartTime="@o.ChangedFromTime" EndTime="@o.ChangedToTime"
+                   Changed="r => Set(Saved with { ChangedFrom = r.Start, ChangedTo = r.End, ChangedFromTime = r.Start is null ? null : Saved.ChangedFromTime, ChangedToTime = r.Start is null ? null : Saved.ChangedToTime })"
+                   TimesChanged="t => Set(Saved with { ChangedFromTime = t.From, ChangedToTime = t.To })" />
+    </div>
+    @if (ListView == "board" && o.Unit == "subtasks")
+    {
+        @* the unit switch lives in the examined item's panel; here only the way back from the subtask cards *@
+        <Seg Name="unit" Options="BoardPage.Units" Value="@o.Unit" ValueChanged="v => Set(Saved with { Unit = v })" />
+    }
+        }
+        </div>
+    </div>
+    @if (!analytics) { <div class="nav-sep" role="separator"></div> }
+    @if (ListView == "list") { @Pill("show subtasks", o.ShowSubtasks, v => Set(Saved with { ShowSubtasks = v }), opt: "subtasks") }
+    else if (!analytics) { @Pill("compact cards", o.Compact, v => Set(Saved with { Compact = v }), opt: "compact") }
+</div>
+@* hide from a column header (or a project header) on the board; hidden ones are listed here, to bring back, under the switch that shows them all.
+   The block is always there, so the switch can be reached before anything is hidden. *@
+<div class="nav-hidden">
+    @SectionHead("hidden", "Hidden", hiddenSummary)
+    <div class="nav-sec-body" id="sec-hidden-body" hidden="@(!openHidden)">
+    @if (openHidden)
+    {
+    @Pill("show all hidden", o.ShowHidden, v => Set(Saved with { ShowHidden = v }), id: "f-hidden")
+    @if (hiddenHere.Count > 0 || hiddenProjects.Count > 0 || hiddenRows.Count > 0)
+    {
+        foreach (string root in hiddenProjects)
+        {
+            string pname = System.IO.Path.GetFileName(root);
+            <div class="grp-row"><span class="nm">@pname</span>
+                <button class="ic" aria-label="Show project @pname" title="Show project" @onclick="() => Settings.ToggleProjectHidden(root)">@Ui.Icon("eye")</button></div>
+        }
+        foreach (string key in hiddenHere)
+        {
+            string name = BoardModel.KeyLabel(key, features);
+            <div class="grp-row"><span class="nm">@name</span>@if (!key.StartsWith(BoardModel.ListColumnKey(""))) { <span class="count" title="@(o.Unit == "subtasks" ? "subtasks" : "work items") in this column">@held.GetValueOrDefault(key)</span> }
+                <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(Saved, key))">@Ui.Icon("eye")</button></div>
+        }
+        foreach ((string key, string name, int count) in hiddenRows)
+        {
+            <div class="grp-row"><span class="nm">@name</span><span class="count" title="@(o.Unit == "subtasks" ? "subtasks" : "work items") in this row">@count</span>
+                <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(Saved, key))">@Ui.Icon("eye")</button></div>
+        }
+    }
+    }
+    </div>
+</div>
+
+@code {
+    /// <summary>The view the menu sits in as the menu shows it: board, list, calendar or analytics (the list's options also serve the item page's split view).</summary>
+    [Parameter, EditorRequired] public string ListView { get; set; } = "board";
+
+    // Events change what the menu shows through Settings and Workspace; each handler asks for a draw only when the key moved.
+    protected override bool Strict => true;
+    protected override object? RenderKey => built;
+
+    /// <summary>
+    /// Everything the blocks read. The settings part is read off the saved options (cheap, value-compared); the board's content (items, features, commits,
+    /// who changed what) is one counter, moved by every Workspace.Changed. A theme or any other setting moves nothing here.
+    /// </summary>
+    private sealed record Key(string ListView, BoardOptions O, long Changes, DateOnly Today, string? Root, string Open, string HiddenProjects, bool Folded);
+
+    private Key built = default!;
+    private long changes;
+
+    private BoardOptions o = new(), ov = new();
+    private bool analytics, openOrganise, openFilters, openHidden;
+    private IReadOnlyList<(string, string)> people = [], commits = [];
+    private IReadOnlyList<(string Label, string Colour)> legend = [];
+    private (int InPeriod, int Others)? shownCount;
+    private IReadOnlyList<Feature> features = [];
+    private IReadOnlyList<WorkItems.PublicDTOs.WorkItem> items = [];
+    private (long, bool, string?) contentRead = (-1, false, null);
+    private (long, string?) commitsRead = (-1, null);
+    private List<string> hiddenHere = [], hiddenProjects = [];
+    private IReadOnlyList<(string Key, string Label, int Count)> hiddenRows = [];
+    private Dictionary<string, int> held = [];
+    private string? organiseSummary, filtersSummary, hiddenSummary;
+
+    private DateOnly Today => Ui.Today(Ui.ClockOf(Services));
+
+    private Key MakeKey()
+    {
+        string? root = Workspace.ViewRoot;
+        BoardOptions options = root is null ? new() : Settings.Board(root);
+        List<string> hidden = Workspace.Projects.Where(Settings.ProjectHidden).ToList();
+        // the Hidden counts add up no items while this project is folded to its heading among several (shown or not), as the column headers leave it out
+        bool folded = root is not null && Settings.ProjectCollapsed(root) && Workspace.Projects.Count(p => options.ShowHidden || !Settings.ProjectHidden(p)) > 1;
+        string open = string.Concat(new[] { "organise", "filters", "hidden" }.Select(s => Settings.MenuSectionOpen(s) ? '1' : '0'));
+        return new Key(ListView, options, Interlocked.Read(ref changes), Today, root, open, string.Join('|', hidden), folded);
+    }
+
+    private bool Refresh()
+    {
+        Key key = MakeKey();
+        if (key.Equals(built)) return false;
+        built = key;
+        Rebuild(key);
+        return true;
+    }
+
+    /// <summary>The lists the blocks offer and the counts they show, read once for a key (not per draw, not in the markup).</summary>
+    private void Rebuild(Key key)
+    {
+        o = key.O;
+        bool list = key.ListView == "list";
+        ov = list ? o.ForList() : o;
+        analytics = key.ListView == "analytics";
+        (openOrganise, openFilters, openHidden) = (key.Open[0] == '1', key.Open[1] == '1', key.Open[2] == '1');
+        DateOnly today = key.Today;
+
+        // what the board's content gives (items, features, the people and the commits to pick from) is read again only when the content moved or the
+        // hidden items came or went; picking a filter keeps the same lists, so their dropdowns have nothing new to draw
+        (long, bool, string?) content = (key.Changes, o.ShowHidden, key.Root);
+        if (!content.Equals(contentRead))
+        {
+            contentRead = content;
+            items = ItemsCache.All(includeHidden: o.ShowHidden);
+            features = FeaturesCache.Get();
+            people = [("all", "everyone"), .. items.SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
+            if (commitsRead != (key.Changes, key.Root))
+            {
+                commitsRead = (key.Changes, key.Root);
+                commits = [("any", "any"), (BoardModel.UncommittedCommit, "uncommitted"), .. GitCache.Recent(30).Select(c => (c.Hash, $"{c.Hash} {c.Subject} · {Ui.Day(c.Date)}"))];
+            }
+        }
+        legend = BoardModel.Legend(items, features, o, today);
+        shownCount = BoardModel.ShownCount(items, o, today);
+
+        IReadOnlyList<WorkItems.PublicDTOs.WorkItem> counted = key.Folded ? [] : items;
+        IReadOnlyDictionary<string, IReadOnlyList<string>> lanes = WorkItemsApi.GetLanes();
+        hiddenHere = (o.Hidden ?? []).Where(k => k.StartsWith(BoardModel.ColumnKey(ov, "")) || (o.View == "list" && k.StartsWith(BoardModel.ListColumnKey("")))).ToList();
+        hiddenProjects = key.HiddenProjects.Length == 0 ? [] : [.. key.HiddenProjects.Split('|')];
+        hiddenRows = BoardModel.HiddenRows(counted, features, lanes, ov, today);
+        held = hiddenHere.Count > 0 ? BoardModel.HiddenCounts(counted, features, lanes, ov, today) : [];
+
+        organiseSummary = OrganiseSummary(list);
+        filtersSummary = FiltersSummary(key.ListView);
+        int n = hiddenHere.Count + hiddenProjects.Count + hiddenRows.Count;
+        List<string> hiddenParts = [];
+        if (n > 0) hiddenParts.Add($"{n} hidden");
+        if (o.ShowHidden) hiddenParts.Add("showing all");
+        hiddenSummary = hiddenParts.Count == 0 ? null : string.Join(" · ", hiddenParts);
+    }
+
+    private static string Label(IReadOnlyList<(string, string)> options, string value) => options.Where(x => x.Item1 == value).Select(x => x.Item2).FirstOrDefault() ?? value;
+
+    /// <summary>How the view is arranged, as the Organise dropdowns say it (the list's groups and subgroups for the list).</summary>
+    private string OrganiseSummary(bool list)
+    {
+        List<string> parts = [$"sort {Label(BoardPage.SortBys, o.SortBy)}"];
+        if (ov.GroupBy != "none") parts.Add($"{(list ? "groups" : "columns")} {Label(BoardPage.GroupBys, ov.GroupBy)}");
+        if (ov.Swimlane != "none") parts.Add($"{(list ? "subgroups" : "rows")} {Label(BoardPage.GroupBys, ov.Swimlane)}");
+        if (o.ColorBy != "none") parts.Add($"colour {Label(BoardPage.ColorBys, o.ColorBy)}");
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>The filters that are not neutral (everyone, any time, no changed period, work items); null when none is.</summary>
+    private string? FiltersSummary(string view)
+    {
+        List<string> parts = [];
+        if (o.Who != "all") parts.Add($"contributor: {o.Who}");
+        if (o.Period != "all") parts.Add($"period: {Label(BoardPage.Periods, o.Period)}");
+        if (o.ChangedOn) parts.Add(BoardModel.ChangedLabel(o));
+        if (BoardModel.CommitLabel(o) is string commit) parts.Add(commit);
+        if (view == "board" && o.Unit != "tasks") parts.Add($"unit: {Label(BoardPage.Units, o.Unit)}");
+        return parts.Count == 0 ? null : string.Join(" · ", parts);
+    }
+
+    /// <summary>A section's header: a click target with a chevron that folds the block under it. Folded, it carries a short summary of what is set inside, so an active filter shows without opening it.</summary>
+    private RenderFragment SectionHead(string sec, string title, string? summary)
+    {
+        bool open = sec switch { "organise" => openOrganise, "filters" => openFilters, _ => openHidden };
+        return @<button type="button" class="nav-h nav-sec-h @(open ? "is-open" : "")" data-sec="@sec" aria-expanded="@(open ? "true" : "false")" aria-controls="@($"sec-{sec}-body")"
+                        title="@(summary is null ? null : $"{title} · {summary}")" @onclick="() => Settings.ToggleMenuSection(sec)">
+                   <span class="nav-sec-chev" aria-hidden="true">@Ui.Icon("caret")</span><span class="nav-sec-t">@title</span>@if (!open && summary is not null) { <span class="nav-sec-sum">@(" · " + summary)</span> }
+               </button>;
+    }
+
+    /// <summary>A dropdown value in the menu is a pill: grey while it is the neutral choice (none, everyone, any time), yellow for any other value.</summary>
+    internal static string Look(string value, string neutral) => "nav-dd " + (value == neutral ? "is-off" : "is-on");
+
+    /// <summary>An on/off option: a pill, filled when on and plain underlined text when off; a real button, so the keyboard reaches it.</summary>
+    private RenderFragment Pill(string label, bool on, Action<bool> set, string? id = null, string? opt = null) =>
+        @<button type="button" class="nav-pill @(on ? "is-sel" : "")" id="@id" data-opt="@opt" aria-pressed="@(on ? "true" : "false")" @onclick="() => set(!on)">@label</button>;
+
+    /// <summary>The options as saved right now: a handler builds on these, not on the last draw (a pick made a moment ago may not have drawn yet).</summary>
+    private BoardOptions Saved => Workspace.ViewRoot is string root ? Settings.Board(root) : new();
+
+    private void Set(BoardOptions options)
+    {
+        if (Workspace.ViewRoot is string root) Settings.SaveBoard(root, options);   // the board page picks this up from Settings.Changed
+    }
+
+    protected override void OnInitialized()
+    {
+        Settings.Changed += OnChanged;
+        Workspace.Changed += OnWorkspaceChanged;
+    }
+
+    protected override void OnParametersSet() => Refresh();
+
+    private void OnWorkspaceChanged()
+    {
+        Interlocked.Increment(ref changes);
+        OnChanged();
+    }
+
+    private void OnChanged() => _ = InvokeAsync(() => { if (Refresh()) StateHasChanged(); });
+
+    public void Dispose()
+    {
+        Settings.Changed -= OnChanged;
+        Workspace.Changed -= OnWorkspaceChanged;
+    }
+}

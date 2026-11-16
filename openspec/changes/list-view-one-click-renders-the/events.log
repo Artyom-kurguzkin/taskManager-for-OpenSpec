@@ -1,0 +1,26 @@
+2026-11-16T13:29:15 | Claude | created | List view: one click renders the whole grid; make clicks cheap
+2026-11-16T13:29:15 | Claude | description-edited | proposal.md
+2026-11-16T13:29:15 | Claude | label | none -> enhancement
+2026-11-16T13:29:15 | Claude | plan-linked | DevResources/plans/list-render-cost-2026-11-16.md
+2026-11-16T13:29:15 | Claude | subtask-added | 1.1 render-counter: RowRenders counter and render-budget test helper
+2026-11-16T13:29:15 | Claude | subtask-added | 1.2 one-render-click: non-rendering background and row handlers
+2026-11-16T13:29:15 | Claude | subtask-added | 1.3 light-pills: list pills as markup, one shared picker on demand
+2026-11-16T13:29:15 | Claude | subtask-added | 1.4 grid-isolation: ListGrid with ShouldRender(Version), marks outside the grid
+2026-11-16T13:29:15 | Claude | subtask-added | 1.5 param-hygiene: cached options, header fragments, per-row callbacks
+2026-11-16T13:55:22 | Claude | status | Planned -> In Progress
+2026-11-16T14:26:40 | Claude | log | Chunk B (light pills) merged into main: ListPill.razor, ListPillsTests.cs, Pill helpers, cell templates, app.css block (one EOF conflict resolved). Suite runs after chunk A lands.
+2026-11-16T14:35:28 | Claude | test-linked | UsingTheBoardTests / An examine click in the list renders the page once
+2026-11-16T14:35:28 | Claude | test-linked | UsingTheBoardTests / A Shift-click in the list renders the page once
+2026-11-16T14:35:28 | Claude | test-linked | UsingTheBoardTests / A background click with nothing selected does not render the list
+2026-11-16T14:35:28 | Claude | test-linked | ListPillsTests / The list renders no pill editors until a pill is clicked
+2026-11-16T14:35:28 | Claude | test-linked | ListPillsTests / A list pill looks like the read-only pill: its colour fill, its text, and a menu of the field's values
+2026-11-16T14:35:28 | Claude | test-linked | ListPillsTests / Picking a status from a list pill sets it
+2026-11-16T14:35:28 | Claude | test-linked | ListPillsTests / Picking a label or a priority from a list pill sets it
+2026-11-16T14:35:28 | Claude | test-linked | ListPillsTests / Picking Completed from a list pill still asks first
+2026-11-16T14:35:28 | Claude | test-linked | ListPillsTests / A list pill opens its picker from the keyboard
+2026-11-16T14:35:28 | Claude | test-linked | ListPillsTests / A Shift-click on a list pill selects the row and does not open the picker
+2026-11-16T14:35:28 | Claude | test-linked | ListPillsTests / An archived item's status in the list is a read-only pill, its other pills open pickers
+2026-11-16T14:35:29 | Claude | subtask-done | 1.1 render-counter: RowRenders counter and render-budget test helper
+2026-11-16T14:35:29 | Claude | subtask-done | 1.2 one-render-click: non-rendering background and row handlers
+2026-11-16T14:35:29 | Claude | subtask-done | 1.3 light-pills: list pills as markup, one shared picker on demand
+2026-11-16T15:00:45 | Claude | status | In Progress -> In Review

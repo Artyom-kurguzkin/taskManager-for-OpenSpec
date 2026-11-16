@@ -112,8 +112,8 @@
   /* selection (Shift-click): one look for a picked card, list row, project or subtask. The item keeps its own surface; a black
      line hugs it and a dotted yellow line runs round that. Rows draw both inside their edge, so neighbours don't cover them. */
   /* selected: a firm ink ring with a yellow halo outside it; the dotted yellow before was hard to see on paper */
-  .card.selected, .sub.selected, .proj-h.selected, .col-h.selected, .tbl-wrap tr[data-selected] { outline: 3px solid var(--ink); outline-offset: 0; box-shadow: 0 0 0 7px var(--sun); }
-  .tbl-wrap tr[data-selected] { outline-offset: -4px; box-shadow: inset 0 0 0 1px var(--ink), inset 0 0 0 8px var(--sun); }
+  .card.selected, .sub.selected, .proj-h.selected, .col-h.selected { outline: 3px solid var(--ink); outline-offset: 0; box-shadow: 0 0 0 7px var(--sun); }
+  /* a selected list row's ring is written by RowMarks (the grid's rows carry no mark): inset, in this layer */
   .is-group { --fill: var(--sage); color: var(--on-fill); }
 
   /* buttons: boxed (.btn), quiet (.btn.ghost), a quiet "+ …" that adds something (.add), an icon button (.ic) */
@@ -241,6 +241,7 @@
   nav.side .menu-wrap, nav.side .menu-activator { display: block; }
   nav.side .menu-activator .nav-btn { width: 100%; }
   /* the view options */
+  .nav-opts { display: contents; }   /* keeps the option blocks in the menu's layout; hidden (not removed) while an item is examined */
   .nav-view { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 4px 0; padding: 8px 6px; border-block: 2px dashed var(--line-soft); }
   .nav-view .field { gap: 6px; }
   .nav-sep { align-self: stretch; margin-block: 2px; border-top: 2px dashed var(--line-soft); }   /* between the organise block, the sort and filters, and the display switches */
@@ -819,7 +820,7 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 .split-list, .split-item { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; padding: 4px 12px 0; }
 .split-list { border-right: 2px solid var(--line-soft); }
 .split-list .scx { min-height: 360px; }
-tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent); }
+/* the row of the open work item (tr.cur) is marked by RowMarks */
 @media (max-width: 1399px) {
   main.split { grid-template-columns: minmax(0, 1fr); }
   .split-list, .split-btn { display: none; }
@@ -1114,18 +1115,16 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
 }
 @media (max-width: 640px) { @layer page { .att-row { grid-column: 1 / -1; } } }
 
-/* agent badge */
+/* card dates */
 @layer page {
-  .agent-badge { color: var(--ink-2); font-size: 12px; white-space: nowrap; }   /* "Claude, 3 min ago": muted text, no frame; the same token as .muted */
-  .meta-row .agent-badge { flex-basis: 100%; }   /* its own line under the date and people */
-  .tbl-wrap .tcell .agent-badge { flex: none; margin-left: 10px; }
-  .is-sel .agent-badge { color: var(--on-fill); opacity: .7; }
+  .meta-row .stamp { flex-basis: 100%; }   /* "15:34. 16 Nov 26" fills its own line; people and the subtask count follow */
+  .tag.dates { white-space: nowrap; }   /* "9–16 Nov": one period pill, never wrapped; wears .hot (peach) once its due day is past */
 }
 
 /* menu sections */
-:root { --alert: #c62d2d; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --alert: #f0847a; } }
-:root[data-theme="dark"] { --alert: #f0847a; }
+:root { --alert: #c62d2d; --on-alert: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --alert: #f0847a; --on-alert: #1c1917; } }
+:root[data-theme="dark"] { --alert: #f0847a; --on-alert: #1c1917; }
 @layer nav {
   /* Organise, Filters and Hidden fold under their header (folded until the user opens one); folded, the header says what is set inside */
   .nav-sec-h { justify-content: flex-start; gap: 4px; width: 100%; min-width: 0; padding: 2px 0; border: 0; background: none; text-align: left; cursor: pointer; }
@@ -1150,8 +1149,8 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
   .nav-days-all { margin-top: 2px; padding: 0 6px; border: 0; background: none; color: var(--ink); font: 500 13px var(--f-body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
   .nav-days-all:hover { color: var(--ink-2); }
   /* New work item is the red button; the view switcher beside it is a plain one */
-  .nav-btn.nav-new { border-color: var(--alert); color: var(--alert); }
-  .nav-btn.nav-new:hover { background: var(--alert); color: var(--paper); }
+  .nav-btn.nav-new { background: var(--alert); border-color: var(--alert); color: var(--on-alert); }
+  .nav-btn.nav-new:hover { background: var(--alert); border-color: var(--alert); color: var(--on-alert); filter: brightness(.88); }
   @media (max-width: 900px) {
     .nav-filters { flex: 1 1 100%; }
     .nav-sec-body { flex-flow: row wrap; align-items: center; }
@@ -1174,12 +1173,7 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
   .card.ex-waits, .rm-row.ex-waits, .rm-bar.ex-waits { box-shadow: 4px 4px 0 var(--rose); }
   .card.ex-needs, .rm-row.ex-needs, .rm-bar.ex-needs { box-shadow: 4px 4px 0 var(--sky); }
   .card.ex-on:hover { box-shadow: 4px 4px 0 var(--sun); }
-  .tbl-wrap tr.ex-on { outline: 3px solid var(--sun); outline-offset: -3px; }
-  .tbl-wrap tr.ex-waits { outline: 3px solid var(--rose); outline-offset: -3px; }
-  .tbl-wrap tr.ex-needs { outline: 3px solid var(--sky); outline-offset: -3px; }
-  .tbl-wrap tr.ex-on > td { background: color-mix(in srgb, var(--sun) 35%, transparent); }
-  .tbl-wrap tr.ex-waits > td { background: color-mix(in srgb, var(--rose) 22%, transparent); }
-  .tbl-wrap tr.ex-needs > td { background: color-mix(in srgb, var(--sky) 30%, transparent); }
+  /* a list row's examine marks (outline and wash) are written by RowMarks, in this layer */
 }
 @layer nav {
   /* the examined item in the menu: plain lines, no frames */
@@ -1193,4 +1187,62 @@ tr.cur > td, tr.cur { background: color-mix(in srgb, var(--sun) 40%, transparent
   .ex-acts { display: flex; gap: 16px; padding-top: 8px; }
   .ex-link { background: none; border: 0; padding: 0; font: 600 var(--t-sm) var(--f-body); color: var(--ink); text-decoration: underline; cursor: pointer; }
   .ex-link:hover, .ex-link:focus-visible { background: var(--sun); color: var(--on-fill); outline: none; }
+}
+
+/* menu2 */
+@layer nav {
+  /* the feed's kind pills: a small "all" link restores every kind once some are off */
+  .nav-feed-all { padding: 0 6px; border: 0; background: none; color: var(--ink); font: 500 13px var(--f-body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .nav-feed-all:hover, .nav-feed-all:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; border-radius: 6px; }
+  /* the examined item's subtasks: rows with their number, plain like the lines above them */
+  .ex-sub-group { padding-top: 4px; font: 600 var(--t-sm) var(--f-body); color: var(--ink-2); overflow-wrap: anywhere; }
+  .ex-sub { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 2px 4px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 500 var(--t-sm) var(--f-body); text-align: left; }
+  button.ex-sub { cursor: grab; }
+  button.ex-sub:hover, button.ex-sub:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
+  .ex-sub[data-done] { color: var(--ink-2); text-decoration: line-through; }
+  .ex-num { flex: none; min-width: 2.2em; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  button.ex-sub:hover .ex-num, button.ex-sub:focus-visible .ex-num { color: inherit; }
+  .ex-txt { min-width: 0; overflow-wrap: anywhere; }
+  .ex-none { font-size: var(--t-sm); }
+  .ex-sub-folded, .ex-all-subtasks { align-self: flex-start; margin-top: 4px; }
+  /* every pressable row of the expanded menu has one outer edge (4px in from the menu's), one height, one inner padding (so the icon column is at
+     10px, where the fields' labels start) and one radius: the view switcher, New work item, Settings, the section headers and Add entry */
+  @media (min-width: 901px) {
+    nav.side .nav-btn, nav.side .nav-sec-h, nav.side .nav-add { min-height: 32px; padding-inline: 4px; border: 2px solid transparent; border-radius: 10px; gap: 10px; }
+    nav.side:not(.expanded) .nav-btn { padding-inline: 8px; }   /* the rail: the icon centred in its 44px */
+    nav.side .nav-sec-h, nav.side .nav-add-menu { margin-inline: -6px; width: calc(100% + 12px); align-self: stretch; }
+    .nav-hidden { padding-inline: 6px; }
+    nav.side .nav-hidden > .nav-sec-h { margin-inline: -6px; width: calc(100% + 12px); padding-inline: 4px; }
+    .nav-hidden .nav-sec-body > .nav-pill { margin-left: -6px; }
+    nav.side .nav-sec-h:hover { background: var(--stone); color: var(--on-fill); }
+    .nav-sec-chev { width: 16px; height: 16px; justify-content: center; align-items: center; }
+    .nav-sec-chev svg { width: 14px; height: 14px; }
+    nav.side .nav-add { display: flex; width: 100%; background: none; font-weight: 500; }
+    .nav-add svg { width: 16px; height: 16px; flex: none; }
+    .nav-add:hover, .nav-add:focus-visible { background: var(--stone); color: var(--on-fill); }
+  }
+}
+
+/* git deltas */
+@layer board {
+  /* an item with files not committed yet: one small muted dot before the title, no frame */
+  .card .band .dirty-dot { display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--on-fill); opacity: .55; vertical-align: middle; }
+}
+
+@layer nav {
+  /* a chosen commit is a long label (hash and subject): the pill shrinks to the menu and ends in an ellipsis */
+  nav.side .field.commit { min-width: 0; max-width: 100%; }
+  nav.side .field.commit .dd.nav-dd { min-width: 0; flex: 0 1 auto; max-width: 100%; }
+  nav.side .field.commit .dd .rz-dropdown-label { min-width: 0; max-width: 100%; }
+  nav.side .field.commit .dd .rz-dropdown-label > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* ───────────────────────────────────────────── list pills ───────────────────────────────────────────── */
+@layer list {
+  /* a list cell's status / label / priority is a plain button (BoardPage.PillCell); one picker (a Menu) mounts in the cell that was clicked */
+  button.cell.filled.pick { cursor: pointer; max-width: 100%; min-width: 0; }
+  button.cell.filled.pick::after { content: "▾"; margin-left: 2px; opacity: 0; font-size: 11px; }
+  button.cell.filled.pick:hover::after, button.cell.filled.pick:focus-visible::after, tr:hover button.cell.filled.pick::after { opacity: .6; }
+  button.cell.filled.pick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .tbl-wrap td .menu-wrap, .tbl-wrap td .menu-activator { display: block; min-width: 0; max-width: 100%; }
 }

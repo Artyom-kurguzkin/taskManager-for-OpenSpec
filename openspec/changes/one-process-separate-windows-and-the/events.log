@@ -1,0 +1,19 @@
+2026-11-16T22:03:23 | Claude | created | One process: separate windows and the MCP listener inside the app
+2026-11-16T22:03:23 | Claude | status | Planned -> In Progress
+2026-11-16T22:03:23 | Claude | description-edited | proposal.md
+2026-11-16T22:03:23 | Claude | label | none -> enhancement
+2026-11-16T22:03:23 | Claude | plan-linked | DevResources/plans/universal-ui-structure-2026-11-16.md
+2026-11-16T22:03:23 | Claude | dependency-added | #wi181
+2026-11-16T22:03:23 | Claude | subtask-added | 1.1 separate windows in the same process
+2026-11-16T22:03:23 | Claude | subtask-added | 1.2 TaskManager.Mcp merged in; listener in the app; --serve and spawning removed
+2026-11-16T22:20:47 | Claude | subtask-done | 1.1 separate windows in the same process
+2026-11-17T03:49:45 | Claude chunk W4a | subtask-done | 1.2 TaskManager.Mcp merged in; listener in the app; --serve and spawning removed
+2026-11-17T06:31:39 | Claude | status | In Progress -> In Review
+2026-11-17T06:31:39 | Claude | test-linked | OpeningSeparateWindowsTests / Opening an item in a separate window opens a window of this process on that item and project, with its own dialogs, and starts no other process
+2026-11-17T06:31:39 | Claude | test-linked | OpeningSeparateWindowsTests / A toast shows only in the window that caused it
+2026-11-17T06:31:39 | Claude | test-linked | OpeningSeparateWindowsTests / Both windows see an edit made in the other
+2026-11-17T06:31:39 | Claude | test-linked | ServingAgentsFromTheAppTests / The app serves agents itself: no second process
+2026-11-17T06:31:39 | Claude | test-linked | ServingAgentsFromTheAppTests / An agent's write shows in the open window without a refresh
+2026-11-17T06:31:39 | Claude | test-linked | ServingAgentsFromTheAppTests / An edit made in the app after an agent's write is not lost and does not overwrite it
+2026-11-17T06:31:39 | Claude | test-linked | ServingAgentsFromTheAppTests / A second app instance leaves the first one serving
+2026-11-17T06:31:39 | Claude | test-linked | ServingAgentsFromTheAppTests / With the app closed, an agent is told to open it

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)tests.runsettings</RunSettingsFilePath>   <!-- aborts a run past 6 minutes, names a test stuck for 2 -->
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
@@ -18,7 +19,6 @@
     <ProjectReference Include="../WorkItems/WorkItems.csproj" />
     <ProjectReference Include="../Notes/Notes.csproj" />
     <ProjectReference Include="../LinkedTestRuns/LinkedTestRuns.csproj" />
-    <ProjectReference Include="../TaskManager.Mcp/TaskManager.Mcp.csproj" />
     <ProjectReference Include="../TaskManager/TaskManager.csproj" />
   </ItemGroup>
   <ItemGroup>

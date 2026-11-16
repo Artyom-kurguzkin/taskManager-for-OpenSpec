@@ -1,0 +1,19 @@
+2026-11-16T22:03:26 | Claude | created | List screen on the render rules: grid redraws only when its data changes
+2026-11-16T22:03:26 | Claude | status | Planned -> In Progress
+2026-11-16T22:03:26 | Claude | description-edited | proposal.md
+2026-11-16T22:03:26 | Claude | label | none -> enhancement
+2026-11-16T22:03:26 | Claude | plan-linked | DevResources/plans/universal-ui-structure-2026-11-16.md
+2026-11-16T22:03:26 | Claude | dependency-added | #wi179
+2026-11-16T22:03:26 | Claude | dependency-added | #wi183
+2026-11-16T22:03:26 | Claude | subtask-added | 1.1 RenderBoundary around the grid, keyed on a data version
+2026-11-16T22:03:26 | Claude | subtask-added | 1.2 RowMarks outside the grid; app.js follows
+2026-11-16T22:03:26 | Claude | subtask-added | 1.3 strict mode and render-budget tests; board to list under 150 ms
+2026-11-16T22:41:30 | Claude | status | In Progress -> In Review
+2026-11-16T22:41:30 | Claude | test-linked | ListRenderBudgetTests / Examining a row in the list renders no grid rows
+2026-11-16T22:41:30 | Claude | test-linked | ListRenderBudgetTests / Shift-clicking a row in the list renders no grid rows
+2026-11-16T22:41:30 | Claude | test-linked | ListRenderBudgetTests / A status change re-renders the list once
+2026-11-16T22:41:30 | Claude | test-linked | ListRenderBudgetTests / Switching to the list builds each pill once
+2026-11-16T22:41:30 | Claude | subtask-done | 1.1 RenderBoundary around the grid, keyed on a data version
+2026-11-16T22:41:31 | Claude | subtask-done | 1.2 RowMarks outside the grid; app.js follows
+2026-11-16T22:41:31 | Claude | subtask-done | 1.3 strict mode and render-budget tests; board to list under 150 ms
+2026-11-17T06:55:25 | Claude | subtask-added | 1.4 bug: 'Examining a row in the list renders no grid rows' fails only in the full run (48 row renders = one late grid redraw after the before-count); suspects OnAfterRenderAsync FillGroups/Reload branches (BoardPage.razor.cs:481-499) and a late watcher-driven Load; make those branches idempotent or settle on RowRenders

@@ -5,6 +5,7 @@ x-rtm:
   id: 136
   title: global feed view
   status: Planned
+  priority: low
   contributors: [Artyom-kurguzkin]
   features: [track-work-items]
   label: enhancement

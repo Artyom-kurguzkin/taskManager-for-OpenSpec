@@ -1,0 +1,16 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-16
+x-rtm:
+  id: 183
+  title: One base component for every component, with a render counter
+  status: In Review
+  contributors: [Claude]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-16
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: ComponentRulesTests, test: Every component we write derives from the base component}, {suite: ComponentRulesTests, test: A strict component does not redraw after a click that changed nothing}, {suite: ComponentRulesTests, test: A legacy component still redraws after every click}, {suite: ComponentRulesTests, test: A component with an unchanged render key skips a parameter redraw}, {suite: ComponentRulesTests, test: An exception in a strict component's handler reaches the error boundary}, {suite: ComponentRulesTests, test: Render counts in one test do not leak into another}]
+  agentBy: Claude chunk G
+  agentAt: 2026-11-16T21:58:21

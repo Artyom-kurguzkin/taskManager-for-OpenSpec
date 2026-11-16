@@ -2,98 +2,126 @@ using Microsoft.Extensions.DependencyInjection;
 using OpenSpecStore;
 using Photino.Blazor;
 using Radzen;
-using TaskManager.Services;
-using WorkItems;
+using TaskManager.Api;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 
 namespace TaskManager;
 
-/// <summary>Composition root: the only place that wires services, configures modules and owns the window.</summary>
+/// <summary>Composition root: the only place that wires services, configures modules and owns the windows.</summary>
 internal static class Program
 {
-    private static volatile bool windowFocused = true;   // Photino reports focus in and out; the sync service reads it
+    private static readonly HashSet<PhotinoBlazorApp> focused = [];   // the windows that have focus (Photino reports focus in and out); the sync service asks whether any has
+    private static bool AnyWindowFocused { get { lock (focused) return focused.Count > 0; } }
+    private static void Unfocus(PhotinoBlazorApp window) { lock (focused) focused.Remove(window); }
 
     [STAThread]
     private static void Main(string[] args)
     {
-        // Headless modes (no window): --serve is the one MCP server, --mcp the stdio shim agents start.
-        if (args.Contains("--serve")) { Environment.ExitCode = Hosting.ServeHost.RunAsync(args).GetAwaiter().GetResult(); return; }
-        if (args.Contains("--mcp")) { Environment.ExitCode = Hosting.McpShim.RunAsync(args).GetAwaiter().GetResult(); return; }
+        // The one headless mode: --mcp, the stdio relay agents start. It holds no logic and no board; it forwards to the app, which serves agents itself (below).
+        if (args.Contains("--mcp")) { Environment.ExitCode = Mcp.McpShim.RunAsync(args).GetAwaiter().GetResult(); return; }
 
-        PhotinoBlazorAppBuilder builder = PhotinoBlazorAppBuilder.CreateDefault(args);
-        PhotinoBlazorApp? app = null;
-
-        // --repo <folder> --item <n>: a separate window on one work item (started from the item page's split menu).
-        string? detachedRepo = Option(args, "--repo");
-        int? detachedItem = int.TryParse(Option(args, "--item"), out int n) ? n : null;
-        bool detached = detachedItem is not null && detachedRepo is not null && Directory.Exists(detachedRepo);
+        AppState.Caches.Install();   // the modules answer from the app's caches (AppState/), here and in the agent endpoint the app hosts
 
         // RTM_SETTINGS lets demos/tests run with their own settings file instead of the user's.
         // Otherwise the user's file, in the folder they chose (the pointer next to the default file names it) or the default one.
         SettingsStore settings = Environment.GetEnvironmentVariable("RTM_SETTINGS") is string own ? new(own) : SettingsStore.Open(SettingsStore.DefaultPath, SettingsStore.DefaultPointerPath);
-        if (detached)
-        {
-            settings.ReadOnly = true;   // the main window owns the settings file; this process only reads it
-            settings.Update(s => s with { LastRepo = detachedRepo, OpenRepos = [detachedRepo!] });   // memory only: this repository alone, the user's open-projects list stays as it is
-        }
-        builder.Services.AddRadzenComponents();   // the list view's data grid
-        builder.Services.AddSingleton<UiService>();
-        builder.Services.AddSingleton(settings);
-        builder.Services.AddSingleton(new AppMode { Detached = detached, StartPath = detached ? $"item/{detachedItem}" : null });
-        builder.Services.AddSingleton(new BoardStorageSettings(Hosting.Paths.Home, StorageProviders.Builtin));   // connected storage, per project (Settings → Board storage)
-        if (!detached) builder.Services.AddSingleton(SyncSetup.Default with { Focused = () => windowFocused });   // the idle check asks less often while the window has no focus
-        if (!detached) builder.Services.AddSingleton<BoardSyncService>();   // the main window syncs; a detached item window only reads
-        builder.Services.AddSingleton<Workspace>();
-        builder.Services.AddSingleton<FolderPicker>(title => app?.MainWindow.ShowOpenFolder(title ?? "Choose a repository with an openspec/ folder")?.FirstOrDefault());
-        builder.Services.AddSingleton<FilePicker>(title => app?.MainWindow.ShowOpenFile(title)?.FirstOrDefault());
-        builder.Services.AddSingleton<EditorLauncher>(EditorLaunchers.Default);
-        builder.Services.AddSingleton<FolderOpener>(FolderOpeners.Default);
-        builder.Services.AddSingleton<WindowLauncher>(WindowLaunchers.Default);
-        builder.Services.AddSingleton(Hosting.McpServerControl.Default);   // Settings shows the headless MCP server and can start or stop it
-        builder.Services.AddSingleton(new WindowFrame(() => app?.MainWindow.WindowHandle ?? IntPtr.Zero));
-        builder.RootComponents.Add<App>("#app");
 
-        app = builder.Build();
-        app.MainWindow.WindowFocusIn += (_, _) => windowFocused = true;
-        app.MainWindow.WindowFocusOut += (_, _) => windowFocused = false;
-        if (detached) app.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(false).SetSize(960, 1000);   // a normal window beside the main one
-        else app.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(true).SetMaximized(true);   // icons: WindowFrame
+        // The main window creates the app-wide services (one set per process); a separate window is handed the same instances, and has its own dialogs, address and pickers.
+        ItemWindows? separate = null;
+        AgentEndpoint? agents = null;   // started below, once the first window and its workspace exist
+        PhotinoBlazorApp main = CreateWindow(args, new AppMode(), new UiService(), null, builder =>
+        {
+            builder.Services.AddSingleton(settings);
+            builder.Services.AddSingleton(new BoardStorageSettings(Paths.Home, StorageProviders.Builtin));   // connected storage, per project (Settings → Board storage)
+            builder.Services.AddSingleton(SyncSetup.Default with { Focused = () => AnyWindowFocused });   // the idle check asks less often while no window has focus
+            builder.Services.AddSingleton<BoardSyncService>();   // the main window syncs
+            builder.Services.AddSingleton<Workspace>();
+            builder.Services.AddSingleton<EditorLauncher>(EditorLaunchers.Default);
+            builder.Services.AddSingleton<FolderOpener>(FolderOpeners.Default);
+            builder.Services.AddSingleton<WindowLauncher>((root, id) => separate?.Open(root, id) ?? (false, "The app is still starting."));   // a window of this process, not another process
+            builder.Services.AddSingleton<AgentStatus>(() => agents?.Status ?? new AgentEndpointStatus(false, Paths.Port, false, "Agents cannot connect yet."));   // Settings shows whether the app serves agents
+        });
+        main.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(true).SetMaximized(true);   // icons: WindowFrame
         // The exception goes to a log first: before the window exists a message box cannot be shown (it threw and hid the cause), and a crash is then silent.
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             string text = e.ExceptionObject.ToString() ?? "";
             LogCrash(text);
-            if (WindowIsUp(app)) try { app.MainWindow.ShowMessage("Error", text); } catch (Exception) { }
+            if (WindowIsUp(main)) try { main.MainWindow.ShowMessage("Error", text); } catch (Exception) { }
         };
 
         // Reopen the last repository; otherwise try the folder the app was started from.
-        Workspace workspace = app.Services.GetRequiredService<Workspace>();
-        string? start = detached ? detachedRepo : args.FirstOrDefault(Directory.Exists) ?? settings.Current.LastRepo ?? Environment.CurrentDirectory;
+        Workspace workspace = main.Services.GetRequiredService<Workspace>();
+        string? start = args.FirstOrDefault(Directory.Exists) ?? settings.Current.LastRepo ?? Environment.CurrentDirectory;
         // A repository that cannot be read cleanly (a file mid-write, a bad yaml the readers did not foresee) never stops the app from starting: it opens with what could be read.
         try { if (start is not null && Directory.Exists(start)) workspace.Open(start); }
         catch (Exception e) { LogCrash("Opening " + start + " failed at startup; the app starts anyway.\n" + e); }
-        if (detached)
-        {
-            string? title = WorkItemsApi.Get(detachedItem!.Value)?.Title;
-            app.MainWindow.SetTitle($"#wi{detachedItem} {title} — Repo tasks");
-        }
 
-        // The headless MCP server lives with the app: started here in the background (never blocks or fails the window), it ends when this process does.
-        if (!detached)
-            _ = Task.Run(async () =>
+        // "Separate window": one more PhotinoBlazorApp in this process (Photino.Blazor has no multi-window API; this is the pattern its maintainers point to, issues 150 and 153).
+        // It is built on the UI thread, which a window captures when it is created. The first window owns the message loop; Run of a later one returns at once.
+        // Closing the main window ends the process. A closed window's provider is not disposed: disposing it hangs (Photino issues 149 and 158).
+        separate = new ItemWindows(workspace, request =>
+        {
+            Exception? failed = null;
+            main.MainWindow.Invoke(() =>
             {
-                try { if (await Hosting.McpShim.EnsureServerAsync(Environment.ProcessId) is null) LogCrash("The MCP server did not start; the board tools will ask for the app until it does."); }
-                catch (Exception e) { LogCrash("Starting the MCP server failed; the app goes on.\n" + e); }
+                try
+                {
+                    PhotinoBlazorApp window = CreateWindow([], request.Mode, request.Ui, main, _ => { });
+                    window.MainWindow.SetTitle(request.Title).SetUseOsDefaultSize(false).SetSize(960, 1000);   // a normal window beside the main one
+                    window.MainWindow.WindowClosing += (_, _) => { request.Closed(); Unfocus(window); return false; };
+                    window.Run();
+                }
+                catch (Exception e) { failed = e; }
             });
+            if (failed is not null) throw failed;
+        });
+
+        // The app serves agents itself, in this process: Kestrel starts here, before the first window's message loop (Run below blocks this thread), and stops when Run returns.
+        // A port that is taken (another copy of the app) is a status, not a failure: that window serves agents. An agent's write is the app's own write, which the file watcher ignores, so the window is told here.
+        try { agents = AgentEndpoint.StartAsync(new AgentEndpointOptions(Paths.Port, Paths.Home, Paths.Token(), Paths.Version) { AfterWrite = workspace.Notify }).GetAwaiter().GetResult(); }
+        catch (Exception e) { LogCrash("Starting the agent endpoint failed; the app goes on without serving agents.\n" + e); }
 
         // A crash in native code leaves no managed log: a marker per run, removed on a clean exit, lets the next start say that the last one died.
-        try { foreach (string lost in Hosting.RunMarker.Begin(Hosting.Paths.Logs, Environment.ProcessId)) LogCrash(lost); }
+        try { foreach (string lost in RunMarker.Begin(Paths.Logs, Environment.ProcessId)) LogCrash(lost); }
         catch (Exception) { }
 
-        app.Run();
-        try { app.Services.GetService<BoardSyncService>()?.SyncOnExit().GetAwaiter().GetResult(); }   // what has not been synced yet goes now, for at most 15 seconds
+        main.Run();
+        try { agents?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5)); }
+        catch (Exception e) { LogCrash("Stopping the agent endpoint failed; the app closes anyway. " + e); }
+        try { main.Services.GetService<BoardSyncService>()?.SyncOnExit().GetAwaiter().GetResult(); }   // what has not been synced yet goes now, for at most 15 seconds
         catch (Exception e) { LogCrash("Syncing on exit failed; the app closes anyway. " + e); }
-        Hosting.RunMarker.End(Hosting.Paths.Logs, Environment.ProcessId);
+        RunMarker.End(Paths.Logs, Environment.ProcessId);
         OpenSpecStoreApi.Close();
+    }
+
+    /// <summary>
+    /// One window: its own provider with its own mode, dialogs, frame and pickers. <paramref name="first"/> is the main window, whose app-wide services (settings, workspace, sync, launchers)
+    /// a later window shares instead of making its own; for the main window itself <paramref name="appWide"/> registers them. WebView2 options come from the environment, so every window has the same.
+    /// </summary>
+    private static PhotinoBlazorApp CreateWindow(string[] args, AppMode mode, UiService ui, PhotinoBlazorApp? first, Action<PhotinoBlazorAppBuilder> appWide)
+    {
+        PhotinoBlazorApp? self = null;
+        PhotinoBlazorAppBuilder builder = PhotinoBlazorAppBuilder.CreateDefault(args);
+        builder.Services.AddRadzenComponents();   // the list view's data grid
+        builder.Services.AddSingleton(ui);
+        builder.Services.AddSingleton(mode);
+        builder.Services.AddSingleton<FolderPicker>(title => self?.MainWindow.ShowOpenFolder(title ?? "Choose a repository with an openspec/ folder")?.FirstOrDefault());
+        builder.Services.AddSingleton<FilePicker>(title => self?.MainWindow.ShowOpenFile(title)?.FirstOrDefault());
+        builder.Services.AddSingleton(new WindowFrame(() => self?.MainWindow.WindowHandle ?? IntPtr.Zero));
+        if (first is null) appWide(builder);
+        else
+            foreach (Type shared in new[] { typeof(SettingsStore), typeof(BoardStorageSettings), typeof(SyncSetup), typeof(BoardSyncService), typeof(Workspace), typeof(EditorLauncher), typeof(FolderOpener), typeof(WindowLauncher), typeof(AgentStatus) })
+                builder.Services.AddSingleton(shared, first.Services.GetRequiredService(shared));
+        builder.RootComponents.Add<App>("#app");
+        self = builder.Build();
+        PhotinoBlazorApp window = self;
+        lock (focused) focused.Add(window);   // a new window has focus
+        window.MainWindow.WindowFocusIn += (_, _) => { lock (focused) focused.Add(window); };
+        window.MainWindow.WindowFocusOut += (_, _) => Unfocus(window);
+        return window;
     }
 
     /// <summary>True once the native window exists (it is created when the app runs, not when it is built).</summary>
@@ -108,11 +136,9 @@ internal static class Program
     {
         try
         {
-            Directory.CreateDirectory(Hosting.Paths.Logs);
-            File.AppendAllText(Path.Combine(Hosting.Paths.Logs, $"crash-{DateTime.Now:yyyy-MM-dd}.log"), $"[{DateTime.Now:HH:mm:ss}] {text}{Environment.NewLine}{Environment.NewLine}");
+            Directory.CreateDirectory(Paths.Logs);
+            File.AppendAllText(Path.Combine(Paths.Logs, $"crash-{DateTime.Now:yyyy-MM-dd}.log"), $"[{DateTime.Now:HH:mm:ss}] {text}{Environment.NewLine}{Environment.NewLine}");
         }
         catch (Exception) { }
     }
-
-    private static string? Option(string[] args, string name) => args.SkipWhile(a => a != name).Skip(1).FirstOrDefault();
 }

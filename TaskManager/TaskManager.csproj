@@ -23,7 +23,6 @@
     <ProjectReference Include="../WorkItems/WorkItems.csproj" />
     <ProjectReference Include="../Notes/Notes.csproj" />
     <ProjectReference Include="../LinkedTestRuns/LinkedTestRuns.csproj" />
-    <ProjectReference Include="../TaskManager.Mcp/TaskManager.Mcp.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />

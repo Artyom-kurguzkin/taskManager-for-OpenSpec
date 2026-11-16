@@ -5,7 +5,9 @@ using OpenSpecStore;
 using Radzen;
 using TaskManager.Components.Pages;
 using TaskManager.Components.Shared;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 
 namespace TaskManager.Tests;
@@ -196,5 +198,26 @@ public sealed class KeepingProjectStatusesTests : IDisposable
         page.WaitForAssertion(() => Assert.DoesNotContain("Planned", Rows(page)));
         Assert.Equal("Confirmed", WorkItemsApi.Get(107)!.Status);
         Assert.Equal("1 work item", page.Find("[data-status='Confirmed'] .st-count").TextContent);
+    }
+
+    // ---- add-status chunk ----
+
+    [Fact(DisplayName = "A status added before Completed goes left of it, one that exists already is refused whatever the position, and Completed stays last")]
+    public void AddingAStatusBeforeCompleted()
+    {
+        OpenSpecStoreApi.Open(repo.Root);
+
+        Assert.True(WorkItemsApi.AddStatus("Review ready", beforeCompleted: true).Success);
+        Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Review ready", "Completed"], WorkItemsApi.GetStatuses());
+
+        (bool ok, string message) = WorkItemsApi.AddStatus("Review ready", beforeCompleted: true);
+        Assert.False(ok);
+        Assert.Contains("already", message);
+        Assert.False(WorkItemsApi.AddStatus("Planned", beforeCompleted: true).Success);
+
+        // a list that does not end with Completed: the new one goes at the end, nothing is moved
+        Assert.True(WorkItemsApi.MoveStatus("Completed", -1).Success);
+        Assert.True(WorkItemsApi.AddStatus("Parked", beforeCompleted: true).Success);
+        Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed", "Review ready", "Parked"], WorkItemsApi.GetStatuses());
     }
 }

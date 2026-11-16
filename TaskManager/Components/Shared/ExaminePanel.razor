@@ -5,6 +5,7 @@
 @inject Workspace Workspace
 @inject UiService Popups
 @inject NavigationManager Nav
+@inject SettingsStore Settings
 @* The side menu while a work item is examined (a click on a card or row with the menu expanded): its metadata and a count of what hangs on it, in
    plain lines, in place of the Organise, Filters and Hidden blocks. "Open" opens the item (a second click on it does too), "Done" lets go. *@
 @if (view is { } v)
@@ -19,13 +20,41 @@
         @Line("who", v.Item.Contributors.Count > 0 ? string.Join(", ", v.Item.Contributors) : "nobody")
         @Line("started", Day(v.Item.Started))
         @Line("due", Day(v.Item.Due))
-        @Line("updated", v.Item.Modified.ToString("d MMM yyyy"))
+        @Line("updated", Ui.DayWithYear(DateOnly.FromDateTime(v.Item.Modified)))
+        @if (v.Commit is { } commit) { @Line("last commit", commit) }
         <div class="nav-h ex-sum">Summary</div>
         @Line("notes", v.Notes.ToString())
         @Line("bugs", v.Bugs.ToString())
         @Line("subtasks", v.OpenSubtasks.ToString(), "open subtasks")
         @Line("waiting", v.Waiting.ToString(), "waiting on it")
         @Line("needs", v.Needs.ToString(), "it waits on")
+        @* the item decomposed: its groups and open subtasks as rows (done ones folded behind a count); a click or a drag on one asks what it becomes *@
+        <div class="nav-h ex-sum">Subtasks</div>
+        @if (v.Item.Subtasks.Count == 0)
+        {
+            <div class="ex-none muted">none</div>
+        }
+        @foreach (IGrouping<string, Subtask> group in v.Item.Subtasks.Where(s => showDone || !s.Done).GroupBy(s => s.Group))
+        {
+            <div class="ex-sub-group">@group.Key</div>
+            @foreach (Subtask s in group)
+            {
+                @if (s.Done)
+                {
+                    <div class="ex-sub" data-sub="@s.Number" data-done><span class="ex-num">@s.Number</span><span class="ex-txt">@s.Text</span></div>
+                }
+                else
+                {
+                    <button type="button" class="ex-sub" data-sub="@s.Number" draggable="true" title="Make it a work item of its own, or one this item waits on"
+                            @onclick="() => Ask(s)" @ondragstart="() => Ask(s)" @ondragstart:preventDefault="true"><span class="ex-num">@s.Number</span><span class="ex-txt">@s.Text</span></button>
+                }
+            }
+        }
+        @if (v.Item.Subtasks.Any(s => s.Done))
+        {
+            <button type="button" class="ex-link ex-sub-folded" aria-expanded="@(showDone ? "true" : "false")" @onclick="() => showDone = !showDone">@(showDone ? "hide done" : $"{v.Item.Subtasks.Count(s => s.Done)} done")</button>
+        }
+        <button type="button" class="ex-link ex-all-subtasks" title="The board shows every work item's subtasks as cards" @onclick="ShowAllSubtasks">All subtasks on the board</button>
         <div class="ex-acts">
             <button type="button" class="ex-link ex-open" @onclick="Open">Open</button>
             <button type="button" class="ex-link ex-done" @onclick="() => Popups.Examine(null)">Done</button>
@@ -34,14 +63,23 @@
 }
 
 @code {
-    private sealed record View(WorkItem Item, string Features, int Notes, int Bugs, int OpenSubtasks, int Waiting, int Needs);
+    private sealed record View(WorkItem Item, string Features, int Notes, int Bugs, int OpenSubtasks, int Waiting, int Needs, string? Commit);
 
     private View? view;
+    private bool showDone;
+    private (string, int)? shown;   // the item the folded count belongs to: another item starts folded again
 
     private RenderFragment Line(string key, string value, string? label = null) =>
         @<div class="ex-line" data-line="@key"><span>@(label ?? key)</span><b>@value</b></div>;
 
-    private static string Day(DateOnly? d) => d is { } v ? v.ToString("d MMM yyyy") : "none";
+    /// <summary>"abc1234 · subject" for the newest commit that touched the item, "uncommitted changes" while its files are not committed, null when git knows nothing of it.</summary>
+    private static string? CommitLine(WorkItem item)
+    {
+        (bool dirty, GitHistory.PublicDTOs.CommitInfo? last) = TaskManager.Components.Pages.BoardModel.LastCommit(item);
+        return dirty ? "uncommitted changes" : last is null ? null : $"{last.Hash} · {last.Subject}";
+    }
+
+    private static string Day(DateOnly? d) => d is { } v ? Ui.DayWithYear(v) : "none";
 
     protected override void OnInitialized()
     {
@@ -56,15 +94,37 @@
     {
         view = null;
         if (Popups.Examined is not (string root, int id)) return;
+        if (shown != (root, id)) { shown = (root, id); showDone = false; }
         view = Workspace.In(root, () =>
         {
-            if (WorkItemsApi.Get(id) is not { } item) return null;
+            if (ItemsCache.Get(id) is not { } item) return null;
             IReadOnlyDictionary<string, string> names = Workspace.FeatureNames;
-            IReadOnlyList<Notes.PublicDTOs.Note> notes = NotesApi.GetForWorkItem(id);
+            IReadOnlyList<Notes.PublicDTOs.Note> notes = NotesCache.ForWorkItem(id);
             return new View(item, string.Join(", ", item.Features.Select(f => names.GetValueOrDefault(f.Path, f.Path))), notes.Count, notes.Count(n => n.IsBug),
-                item.Subtasks.Count(s => !s.Done), WorkItemsApi.GetBlocking(id).Count(w => !w.Archived), item.DependsOn?.Count ?? 0);
+                item.Subtasks.Count(s => !s.Done), WorkItemsApi.GetBlocking(id).Count(w => !w.Archived), item.DependsOn?.Count ?? 0,
+                CommitLine(item));
         });
         if (view is null) Popups.Examine(null);   // the item is gone (archived, merged, hidden away): nothing left to look at
+    }
+
+    /// <summary>A subtask was clicked or picked up: asks what it becomes, then moves it out of this item with the same commands the item page uses (logged on both items).</summary>
+    private async Task Ask(Subtask s)
+    {
+        if (Popups.Examined is not (string root, int id)) return;
+        string? pick = await Popups.Choose($"Subtask {s.Number}", $"\"{s.Text}\" leaves this work item. What does it become?",
+            [("own", "Make it a work item of its own"), ("dep", "Make it a work item this one waits on")]);
+        if (pick is null) return;
+        (bool ok, string message, int newId) = Workspace.In(root, () => pick == "dep" ? WorkItemsApi.MoveSubtasksToDependency(id, [s.Number]) : WorkItemsApi.MoveSubtasksToNew(id, [s.Number]));
+        if (!ok) Popups.Toast(message, ToastKind.Warning);
+        else Popups.Toast(pick == "dep" ? $"#wi{newId} created: #wi{id} now waits on it" : $"Made #wi{newId} from subtask {s.Number}", ToastKind.Success);
+        Read();
+        StateHasChanged();
+    }
+
+    /// <summary>The board's other unit: every work item's subtasks as cards. Filters offers the way back while it is on.</summary>
+    private void ShowAllSubtasks()
+    {
+        if (Workspace.ViewRoot is string root) Settings.SaveBoard(root, Settings.Board(root) with { Unit = "subtasks" });
     }
 
     private void Open()

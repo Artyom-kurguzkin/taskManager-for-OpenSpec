@@ -1,0 +1,90 @@
+@namespace TaskManager.Components.Pages
+@* Settings: the statuses of one project, in the order of its board's columns. Saved in the project's openspec/config.yaml (x-rtm.statuses), so everyone who shares the project has the same list. *@
+@implements IDisposable
+@using WorkItems
+@{
+    string project = System.IO.Path.GetFileName(Root.TrimEnd('\\', '/'));
+}
+<section class="set-row" data-statuses="@project">
+    <div>
+        <h3>Statuses</h3>
+        <p class="muted">The columns of @project's board, in this order. Backlog, In Progress and Completed stay; add the others you need or take them away. Taking away a status that work items have asks where they go first.</p>
+    </div>
+    <div class="set-val st">
+        <ol class="st-list">
+            @foreach ((string status, int n, int at) in statuses.Select((s, i) => (s, counts.GetValueOrDefault(s), i)))
+            {
+                bool fixedOne = WorkItemsApi.FixedStatuses.Contains(status);
+                <li class="st-row" data-status="@status">
+                    <span class="box cell filled st-name" style="--fill:var(@Ui.Band(status))">@status</span>
+                    <span class="muted st-count">@(n == 0 ? "no work items" : n == 1 ? "1 work item" : $"{n} work items")</span>
+                    @if (fixedOne) { <span class="muted st-fixed">always there</span> }
+                    <span class="st-tools">
+                        <button type="button" class="ic st-up" aria-label="Move @status up" title="Move up" disabled="@(at == 0)" @onclick="() => Move(status, -1)">@Ui.Icon("up")</button>
+                        <button type="button" class="ic st-down" aria-label="Move @status down" title="Move down" disabled="@(at == statuses.Count - 1)" @onclick="() => Move(status, 1)">@Ui.Icon("down")</button>
+                        @if (!fixedOne) { <button type="button" class="ic st-remove" aria-label="Remove @status" title="Remove" @onclick="() => Remove(status)">@Ui.Icon("trash")</button> }
+                    </span>
+                </li>
+            }
+        </ol>
+        <div class="st-add">
+            <input class="box text-in st-new" data-sk placeholder="New status…" maxlength="40" aria-label="New status for @project" @bind="newName" @bind:event="oninput" @onkeydown="EnterAdds" />
+            <button type="button" class="btn st-add-btn" data-sk disabled="@(newName.Trim().Length == 0)" @onclick="Add">Add</button>
+        </div>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Root { get; set; } = "";
+
+    [Inject] private Workspace Workspace { get; set; } = default!;
+    [Inject] private UiService Popups { get; set; } = default!;
+
+    private IReadOnlyList<string> statuses = [];
+    private Dictionary<string, int> counts = [];
+    private string newName = "";
+
+    protected override void OnInitialized() => Workspace.Changed += OnChanged;
+
+    protected override void OnParametersSet()
+    {
+        IReadOnlyList<string> list = Workspace.In(Root, () => WorkItemsApi.GetStatuses());
+        statuses = list;
+        counts = Workspace.In(Root, () => list.ToDictionary(s => s, WorkItemsApi.CountWithStatus));
+    }
+
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        try { OnParametersSet(); StateHasChanged(); } catch (ObjectDisposedException) { }
+    });
+
+    public void Dispose() => Workspace.Changed -= OnChanged;
+
+    private bool Done((bool Success, string Message) result)
+    {
+        if (Workspace.Do(result).Success) { Popups.Saved(); return true; }
+        Popups.Toast(result.Message, ToastKind.Warning);
+        return false;
+    }
+
+    private void EnterAdds(KeyboardEventArgs e) { if (e.Key == "Enter") Add(); }
+
+    private void Add()
+    {
+        if (newName.Trim().Length == 0) return;
+        if (Done(Workspace.In(Root, () => WorkItemsApi.AddStatus(newName)))) newName = "";
+    }
+
+    private void Move(string status, int by) => Done(Workspace.In(Root, () => WorkItemsApi.MoveStatus(status, by)));
+
+    /// <summary>A status nobody has goes at once; one that work items have asks where they go first (the status they land in, then it is removed).</summary>
+    private async Task Remove(string status)
+    {
+        int n = counts.GetValueOrDefault(status);
+        if (n == 0) { Done(Workspace.In(Root, () => WorkItemsApi.RemoveStatus(status))); return; }
+        List<(string, string)> choices = [.. statuses.Where(s => s != status && s != "Completed").Select(s => (s, s))];
+        string? to = await Popups.Choose($"Where do the {n} work item{(n == 1 ? "" : "s")} go?", $"{(n == 1 ? "It has" : "They have")} the status \"{status}\". Pick the status {(n == 1 ? "it" : "they")} move to; then \"{status}\" is removed.", choices);
+        if (to is null) return;
+        Done(Workspace.In(Root, () => WorkItemsApi.RemoveStatus(status, to)));
+    }
+}

@@ -44,3 +44,11 @@
 2026-11-16T10:38:32 | Artyom-kurguzkin | status | In Review -> In Progress
 2026-11-16T10:39:14 | Artyom-kurguzkin | attachment-added | n448: pasted-20261116-103914.png
 2026-11-16T10:39:28 | Artyom-kurguzkin | converted | note #n448 -> bug
+2026-11-16T11:00:52 | Claude chunk add-status | subtask-added | 1.8 Board: + status button after the last column when grouped by status (shared header row asks which project), refused when the name exists
+2026-11-16T11:01:09 | Claude chunk add-status | test-linked | UsingTheBoardTests / Grouped by status the board has a + status button after the last column, like + feature, and it adds the status to the project's list
+2026-11-16T11:01:09 | Claude chunk add-status | test-linked | UsingTheBoardTests / With several projects shown, + status asks which project
+2026-11-16T11:01:09 | Claude chunk add-status | test-linked | UsingTheBoardTests / A status name that exists already is refused
+2026-11-16T11:01:09 | Claude chunk add-status | test-linked | KeepingProjectStatusesTests / A status added before Completed goes left of it, one that exists already is refused whatever the position, and Completed stays last
+2026-11-16T11:01:09 | Claude chunk add-status | subtask-done | 1.8 Board: + status button after the last column when grouped by status (shared header row asks which project), refused when the name exists
+2026-11-16T11:01:18 | Claude chunk add-status | status | In Progress -> In Review
+2026-11-16T13:02:20 | Claude | log | Integrated the add-status chunk into main (+ status in the header, before Completed, asks which project). One run with all chunks and test fixes: Passed 1083, Failed 0, 3 m 32 s.

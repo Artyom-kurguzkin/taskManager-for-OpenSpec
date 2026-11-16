@@ -24,6 +24,7 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         WorkItemsApi.ConfigureValidator(folder => (true, $"valid: {folder}"));
+        OpenSpecStoreApi.Open(repo.Root);   // the app has the repository open, as in one process; a tool call works in it without opening anything itself
         services = new ServiceCollection().AddLogging().AddMcpServer().AddBoardTools().Services.BuildServiceProvider();
         Pipe toServer = new(), toClient = new();
         server = McpServer.Create(

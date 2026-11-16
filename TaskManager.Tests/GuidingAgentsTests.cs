@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using OpenSpecStore;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 using WorkItems.PublicDTOs;
 
@@ -94,7 +96,7 @@ public sealed partial class GuidingAgentsTests
         string text = AgentGuide.Text("DevResources/plans", appPath: @"C:\apps\TaskManager.exe");
 
         foreach (string s in new[] { "board_list", "board_get", "board_features", "board_create", "board_update", "board_note", "board_validate",
-                     "claude mcp list", "claude mcp add", "--serve", "RepoTaskManager/token", "127.0.0.1:7431/mcp", "C:/apps/TaskManager.exe", "RTM_AGENT", "RTM_APP", "In Review", "fallback" })
+                     "claude mcp list", "claude mcp add", "serves agents itself", "RepoTaskManager/token", "127.0.0.1:7431/mcp", "C:/apps/TaskManager.exe", "RTM_AGENT", "RTM_APP", "In Review", "fallback" })
             Assert.Contains(s, text);
         Assert.Matches(@"(?i)never.{0,40}`Completed`", text);
         Assert.DoesNotContain(@"C:\apps", text);   // the snippet is JSON, forward slashes
@@ -135,7 +137,7 @@ public sealed partial class GuidingAgentsTests
 
         Assert.Equal(GuideChange.Updated, change);
         string text = repo.Read("openspec/REPO-TASKS.md");
-        Assert.StartsWith("<!-- repo-tasks-guide v17 ", text);
+        Assert.StartsWith("<!-- repo-tasks-guide v18 ", text);
         Assert.Contains("C:/apps/TaskManager.exe", text);
     }
 
@@ -153,7 +155,7 @@ public sealed partial class GuidingAgentsTests
     public void GuideSaysToolsAreTheOnlyWay()
     {
         string text = Guide;
-        Assert.StartsWith("<!-- repo-tasks-guide v17 ", text);
+        Assert.StartsWith("<!-- repo-tasks-guide v18 ", text);
         Assert.Contains("`board_log`", text);
 
         string tools = text[..text.IndexOf("## 0a.", StringComparison.Ordinal)];

@@ -50,3 +50,18 @@ A status that equals Backlog, In Progress or Completed when case, spaces and das
 #### Scenario: One click
 - **WHEN** the user chooses Merge with Completed in the menu of the completed column
 - **THEN** completed and Completed become one column called Completed
+
+### Requirement: Adding a status from the board
+When the board's columns are statuses, a "+ status" button SHALL follow the last column header, like "+ feature", ask for a name and add the status to the project's list before Completed, so the new empty column appears at once.
+
+#### Scenario: Adding a status
+- **WHEN** the board is grouped by status and the user chooses + status and types Review ready
+- **THEN** the project's list has Review ready before Completed and the board shows an empty Review ready column before Completed
+
+#### Scenario: Several projects
+- **WHEN** the board shows several projects under one shared header row and the user chooses + status
+- **THEN** the app asks which project, or All projects, before it asks for the name
+
+#### Scenario: A name that exists
+- **WHEN** the user types the name of a status the project has already, spelled exactly
+- **THEN** the app refuses it with a message and the list does not change

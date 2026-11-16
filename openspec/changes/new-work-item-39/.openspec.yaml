@@ -1,0 +1,13 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-17
+x-rtm:
+  id: 193
+  title: check for updates
+  status: Backlog
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  started: 2026-11-17
+  due: 2026-11-23
+  moved: 2026-11-17

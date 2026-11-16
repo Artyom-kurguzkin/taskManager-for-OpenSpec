@@ -87,16 +87,10 @@ internal static class Metadata
     internal static (bool Success, string Message) Write<T>(string yamlPath, T value) =>
         OpenSpecStoreApi.WriteRtmBlock(yamlPath, Writer.Serialize(value!));
 
-    /// <summary>One section of the x-rtm block (config.yaml is shared with other modules, so never rewrite the whole block).</summary>
-    internal static T? ReadSection<T>(string yamlPath, string key) where T : class =>
-        OpenSpecStoreApi.ReadRtmSection(yamlPath, key) is string s && s.Trim().Length > 0 ? Parse<T>(yamlPath, s, null) : null;
-
     /// <summary>
     /// Parses a block of the file. Line endings are made the same first (a hand edit or a tool can leave a file with both).
     /// <paramref name="offset"/> = how many lines of the file come before the block's first line, so a failure names the file's line.
     /// </summary>
-    private static T? Parse<T>(string yamlPath, string text, int? offset) where T : class => Parse<T>(yamlPath, text, offset, out _);
-
     private static T? Parse<T>(string yamlPath, string text, int? offset, out string? mended) where T : class
     {
         mended = null;
@@ -145,7 +139,4 @@ internal static class Metadata
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return 0; }
     }
-
-    internal static (bool Success, string Message) WriteSection<T>(string yamlPath, string key, T? value) where T : class =>
-        OpenSpecStoreApi.WriteRtmSection(yamlPath, key, value is null ? null : Writer.Serialize(value));
 }

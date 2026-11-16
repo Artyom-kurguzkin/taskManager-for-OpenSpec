@@ -1,0 +1,17 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-16
+x-rtm:
+  id: 189
+  title: 'List screen on the render rules: grid redraws only when its data changes'
+  status: In Review
+  contributors: [Claude]
+  features: [organise-work-items]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-16
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: ListRenderBudgetTests, test: Examining a row in the list renders no grid rows}, {suite: ListRenderBudgetTests, test: Shift-clicking a row in the list renders no grid rows}, {suite: ListRenderBudgetTests, test: A status change re-renders the list once}, {suite: ListRenderBudgetTests, test: Switching to the list builds each pill once}]
+  dependsOn: [179, 183]
+  agentBy: Claude
+  agentAt: 2026-11-17T07:16:56

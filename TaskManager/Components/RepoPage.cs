@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Components;
 using OpenSpecStore;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 
 namespace TaskManager.Components;
 
@@ -8,7 +10,7 @@ namespace TaskManager.Components;
 /// A page over the open repository. It reloads its data whenever the workspace changes (an edit here, or one from
 /// outside), and runs module commands through <see cref="Run"/>, which shows a failure as a toast.
 /// </summary>
-public abstract class RepoPage : ComponentBase, IDisposable
+public abstract class RepoPage : RtmComponent, IDisposable
 {
     [Inject] protected Workspace Workspace { get; set; } = default!;
     [Inject] protected UiService Popups { get; set; } = default!;
@@ -16,14 +18,14 @@ public abstract class RepoPage : ComponentBase, IDisposable
     [Inject] private IServiceProvider PageServices { get; set; } = default!;
 
     /// <summary>The clock the page's timers run on: the system's, unless a <see cref="TimeProvider"/> is registered (a test moves time by hand with one).</summary>
-    protected TimeProvider Time => PageServices.GetService(typeof(TimeProvider)) as TimeProvider ?? TimeProvider.System;
+    protected TimeProvider Time => Ui.ClockOf(PageServices);
 
     protected override void OnInitialized() => Workspace.Changed += OnChanged;
 
     /// <summary>How many times <see cref="Load"/> has run: tests and the perf probe check that a navigation or a change reads once.</summary>
     public int Loads { get; private set; }
 
-    private void LoadNow() { lock (gate) loadedStamp = Stamp(); Loads++; Load(); }
+    private void LoadNow() { using IDisposable? scope = WindowScope(); lock (gate) loadedStamp = Stamp(); Loads++; Load(); }
 
     // What the repositories held when the page last read: a trailing reload that would read the same is skipped.
     private (string?, long) loadedStamp;
@@ -71,6 +73,7 @@ public abstract class RepoPage : ComponentBase, IDisposable
 
     private void WindowEnded()
     {
+        using IDisposable? scope = WindowScope();   // the stamp is of this window's project, like the one taken when the page read
         lock (gate)
         {
             if (disposed) return;

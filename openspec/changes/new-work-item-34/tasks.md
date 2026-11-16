@@ -9,3 +9,4 @@
 - [x] 1.5 Settings page: per project status list with add, remove (move items first), reorder <!-- agent: Claude chunk statuses -->
 - [x] 1.6 Board: Shift-select headers, Merge, Unmerge, Merge with look-alike, drop into a merged column, pills with the project's statuses <!-- agent: Claude chunk statuses -->
 - [x] 1.7 Verify in the hidden app, light and dark, and attach shots <!-- agent: Claude chunk statuses -->
+- [x] 1.8 Board: + status button after the last column when grouped by status (shared header row asks which project), refused when the name exists <!-- agent: Claude chunk add-status -->

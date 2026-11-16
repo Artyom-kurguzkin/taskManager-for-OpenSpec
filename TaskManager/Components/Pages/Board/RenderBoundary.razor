@@ -1,0 +1,12 @@
+@namespace TaskManager.Components.Pages
+@* Draws its content only when Version changed since it last drew (a stamp the owner bumps when what the content shows changed). The parent
+   draws often (every click on its page); a subtree that costs real work, like the list's grid, sits behind one of these and is paid for only
+   when its data moved. State the content shows but the data does not carry (a selection, the examined row) goes through RowMarks instead. *@
+@ChildContent
+
+@code {
+    [Parameter] public long Version { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    protected override object? RenderKey => Version;
+}

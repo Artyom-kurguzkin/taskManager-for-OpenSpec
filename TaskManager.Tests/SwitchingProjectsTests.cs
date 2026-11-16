@@ -6,7 +6,9 @@ using TaskManager.Components.Pages;
 using Microsoft.Extensions.DependencyInjection;
 using TaskManager.Components.Layout;
 using TaskManager.Components.Shared;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 
 namespace TaskManager.Tests;
 
@@ -525,7 +527,7 @@ public sealed class SwitchingProjectsTests : IDisposable
             Assert.True(open > 0);
 
             board.FindAll("tr[data-group^='proj:'] button.proj-name-btn")[1].Click(new MouseEventArgs { ShiftKey = true });
-            board.WaitForAssertion(() => Assert.Single(board.FindAll("tr[data-selected]")));
+            board.WaitForAssertion(() => Assert.Single(board.FindAll("tr[data-group^='proj:']").Where(g => RowMarkProbe.GroupSelected(board, g))));
             Assert.Empty(board.FindAll(".menu-pop"));
 
             board.FindAll("tr[data-group^='proj:'] button.proj-name-btn")[1].Click();

@@ -278,18 +278,26 @@ function _armFlip() {
 }
 function _synthetic(type) { return new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }); }
 
-// A list row has no handle: Shift-click marks it selected (data-selected, BoardPage), and a press on a selected row (anywhere on it but on a
+// Which list rows are selected is said by BoardPage's RowMarks, in one <style data-rowmarks> block outside the grid (data-selected: the keys of the
+// selected rows, data-selected-groups: of the selected project rows). The grid's rows carry no mark: a selection must not draw them again.
+function _marked(name) { try { return JSON.parse(document.querySelector("style[data-rowmarks]")?.dataset[name] ?? "[]"); } catch { return []; } }
+function _rowSelected(tr) { return !!tr && tr.matches("tr[data-id]") && _marked("selected").includes(tr.dataset.row); }
+function _groupSelected(tr) { return !!tr && tr.matches("tr[data-group^='proj:']") && _marked("selectedGroups").includes(tr.dataset.group); }
+function _selectedRows() { const keys = new Set(_marked("selected")); return keys.size ? [...document.querySelectorAll("tr[data-id][data-row]")].filter(tr => keys.has(tr.dataset.row)) : []; }
+function _anyRowSelected() { return _marked("selected").length > 0 || _marked("selectedGroups").length > 0; }
+
+// A list row has no handle: Shift-click marks it selected (RowMarks, BoardPage), and a press on a selected row (anywhere on it but on a
 // control: input, select, button, link, chevron, open dropdown) drags it once the pointer has moved GRAB px, with every other selected row, as
 // cards drag. A press on a row that is not selected never drags: it selects cells (List cells, below). Released without moving, either is a click.
 function _rowAt(target) {
   const tr = target.closest?.("tr[data-id]");
-  return tr && !target.closest("input, select, textarea, a, .chev, .pop, .menu-wrap, .rz-dropdown-panel, button:not(.row-title)") ? tr : null;   // a pill (.dd) is no control here: a press that moves on it drags
+  return tr && !target.closest("input, select, textarea, a, .chev, .pop, .menu-wrap, .rz-dropdown-panel, button:not(.row-title):not(.pick)") ? tr : null;   // a pill (.dd, or the list's .pick button) is no control here: a press that moves on it drags
 }
 function _endPress() { _press = null; }
 document.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
   const tr = !(e.shiftKey || e.ctrlKey || e.metaKey) && _rowAt(e.target);   // a modifier click is the row's select click
-  if (tr?.hasAttribute("data-selected")) { _press = { handle: tr, el: tr, kind: "row", x: e.clientX, y: e.clientY, pointer: e.pointerId }; return; }   // only a selected row is pressed as a row
+  if (_rowSelected(tr)) { _press = { handle: tr, el: tr, kind: "row", x: e.clientX, y: e.clientY, pointer: e.pointerId }; return; }   // only a selected row is pressed as a row
   if (e.target.closest("input, button, a, select, textarea, .pop")) return;
   const card = e.target.closest(".lane > .card:not(.subcard)"), head = !card && e.target.closest(".col-h[data-drag-col]");   // Blazor renders a true bool as a bare attribute
   const swim = !card && !head && e.target.closest(".swim-h");   // a swimlane header drags whole (its cells follow in the re-render)
@@ -317,8 +325,7 @@ function _startDrag(e) {
   const p = _press; _press = null;
   if (p.kind === "swim") { _startSwimDrag(p, e); return; }
   const box = p.el.parentElement, scroller = p.el.closest(".board-wrap, .tbl-wrap");
-  const sel = p.kind === "card" ? ".lane > .card.selected" : "tr[data-id][data-selected]";   // list rows carry data-selected, cards the class
-  const picked = p.el.matches(sel) ? [...document.querySelectorAll(sel)] : [];
+  const picked = p.kind === "card" ? (p.el.matches(".lane > .card.selected") ? [...document.querySelectorAll(".lane > .card.selected")] : []) : _rowSelected(p.el) ? _selectedRows() : [];   // cards carry the class, list rows are in RowMarks
   const r = _rect(p.el), axis = p.kind === "col" ? "X" : "Y";
   const d = _drag = {
     ...p, box, scroller, sx: scroller.scrollLeft, sy: scroller.scrollTop, axis, spot: null, shifted: new Map(),
@@ -464,22 +471,48 @@ addEventListener("keydown", (e) => {
   // BoardPage.KeyDown, on the view's wrapper, moves the selected cards / checked rows. The key is re-sent there whatever has
   // the focus (a checkbox, the grid, the body after a hint-mode pick), and neither the page nor the grid may act on it as well.
   const wrap = document.querySelector(".board-wrap, .tbl-wrap");
-  if (!wrap || !document.querySelector(".lane > .card.selected, tr[data-id][data-selected], .proj-h.selected, .swim-h.selected, tr[data-group^='proj:'][data-selected]")) return;
+  if (!wrap || !(document.querySelector(".lane > .card.selected, .proj-h.selected, .swim-h.selected") || _anyRowSelected())) return;
   e.preventDefault(); e.stopPropagation(); _armFlip();
+  _follow = { key: e.key, until: performance.now() + 1200 };   // the moved selection is scrolled into view once the board has re-rendered (below)
   wrap.dispatchEvent(new KeyboardEvent("keydown", { key: e.key, bubbles: true }));
 }, true);
+
+let _follow = null;   // { key, until }: an arrow move is waiting for its re-render, to bring what moved into view
+/**
+ * Scrolls the selected card or row that an arrow key moved into view: the first selected going up or left, the last going down or right.
+ * Clear of the list's sticky header (the rows scroll under it) and of the selection bar over the bottom of the page. True when it scrolled.
+ */
+function _reveal(key) {
+  const sel = [...document.querySelectorAll(".lane > .card.selected"), ..._selectedRows()];
+  const el = key === "ArrowUp" || key === "ArrowLeft" ? sel[0] : sel[sel.length - 1];
+  const box = el?.closest(".board-wrap, .tbl-wrap");
+  if (!box) return;
+  const r = _base(el), b = box.getBoundingClientRect();   // where layout put it, not where its FLIP transform still shows it
+  // what sticks to the top: the list's header cells (the thead itself scrolls away), the board's shared header row, or the column's own header
+  const stuck = el.matches("tr") ? box.querySelector("thead th") : box.querySelector(".head-row") ?? el.closest("section.col")?.querySelector(":scope > .menu-wrap");
+  const head = stuck && getComputedStyle(stuck).position === "sticky" ? stuck.getBoundingClientRect() : null;
+  const bar = document.querySelector(".actionbar:not(.select-hint)")?.getBoundingClientRect();
+  const top = Math.max(b.top, head?.bottom ?? 0) + 8, bottom = Math.min(b.bottom, bar?.top ?? b.bottom) - 8;
+  const was = [box.scrollTop, box.scrollLeft];
+  if (r.top < top) box.scrollTop -= top - r.top; else if (r.bottom > bottom) box.scrollTop += r.bottom - bottom;
+  if (el.matches(".card")) { if (r.left < b.left) box.scrollLeft -= b.left - r.left; else if (r.right > b.right) box.scrollLeft += r.right - b.right; }   // a list row spans the whole table: only cards scroll sideways
+  return box.scrollTop !== was[0] || box.scrollLeft !== was[1];
+}
 
 // After a drop or an arrow move, Blazor re-renders the board: animate every card and column from its last frame.
 // Style attributes are ignored: those are this script's own writes (reacting to them would loop forever).
 new MutationObserver((records) => {
-  if (!_flip) return;
   const board = records.some(r => !(r.type === "attributes" && r.attributeName === "style") &&
     (r.target.nodeType === 1 ? r.target : r.target.parentElement)?.closest?.(".board, .tbl-wrap"));
   if (!board) return;
+  let scrolled = false;
+  if (_follow) { if (performance.now() < _follow.until) scrolled = _reveal(_follow.key); else _follow = null; }   // before the FLIP below, which then animates the scroll too
+  if (!_flip) return;
   const was = _flip;
   if (_settling) _restore(_settling, false);
   const moves = [];
   for (const el of document.querySelectorAll(_FLIPPED)) {
+    if (scrolled && el.matches("section.col")) continue;   // a scroll moves a column on screen; its cards slide on their own, and the column's slide would carry them twice
     const o = was.get(_key(el)); if (!o) continue;
     const n = _rect(el), dx = o.left - n.left, dy = o.top - n.top;
     if (Math.abs(dx) > .5 || Math.abs(dy) > .5) moves.push([el, dx, dy]);
@@ -536,7 +569,7 @@ document.addEventListener("pointerdown", (e) => {
   if (!cell) { if (!e.target.closest?.(".tbl-wrap")) _clearCells(); return; }
   _cells.moved = false;
   if (e.shiftKey || e.ctrlKey || e.metaKey) return;   // the board's select click (BoardPage), as on a card
-  if (e.target.closest("tr[data-selected]")) { _clearCells(); return; }   // a selected row: that press is its drag's, and it ends a selection
+  if (_rowSelected(e.target.closest("tr")) || _groupSelected(e.target.closest("tr"))) { _clearCells(); return; }   // a selected row: that press is its drag's, and it ends a selection
   _cells.anchor = _cells.focus = cell;
   _cells.dragging = true;
   if (!e.target.closest("button, .dd, .menu-wrap")) _paintCells();   // a press on a control paints nothing until it moves

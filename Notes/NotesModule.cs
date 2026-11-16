@@ -1,16 +1,13 @@
 namespace Notes;
 
-/// <summary>The module's state: the parsed notes per repository and the counters tests read.</summary>
+/// <summary>The module's state: the counter tests read. It keeps no cache of the notes: that lives in the host (see <see cref="NotesModule.Reader"/>).</summary>
 internal sealed class NotesState
 {
-    public readonly Dictionary<string, Queries.NotesCache> Cache = new(StringComparer.OrdinalIgnoreCase);
-    public readonly object Gate = new();
-    public int Loads, FolderReads;
+    public int FolderReads;
 }
 
 /// <summary>
-/// Process-wide state: the parsed notes, the assembled list valid while OpenSpecStore's content version is unchanged and each change's notes/ folder valid while its files are.
-/// The app has one such state; a test runs against its own (<see cref="Isolated"/>).
+/// Process-wide state. The app has one such state; a test runs against its own (<see cref="Isolated"/>).
 /// </summary>
 internal static class NotesModule
 {
@@ -21,11 +18,9 @@ internal static class NotesModule
 
     private static NotesState S => Isolated.Value ?? Shared;
 
-    internal static Dictionary<string, Queries.NotesCache> Cache => S.Cache;   // per repository
-
-    /// <summary>Guards <see cref="Cache"/>: the UI thread and the file watcher's timer both read the notes.</summary>
-    internal static object Gate => S.Gate;
-    internal static int Loads { get => S.Loads; set => S.Loads = value; }
+    /// <summary>The host's cached read of the notes, and its hand-over of the renumberings made since the last one (see NotesApi.UseNotes); null = read afresh on every call. Not per test: the reads they point to find the test's own caches.</summary>
+    internal static Func<PublicDTOs.NotesRead>? Reader;
+    internal static Func<IReadOnlyList<(int OldId, int NewId, string Path)>>? Drain;
 
     /// <summary>How many change folders' notes were read from disk (tests use it to prove an edit re-reads only its own folder).</summary>
     internal static int FolderReads { get => S.FolderReads; set => S.FolderReads = value; }

@@ -1,3 +1,4 @@
+using WorkItems.PublicDTOs;
 using Notes.PublicDTOs;
 
 namespace Notes;
@@ -8,6 +9,29 @@ namespace Notes;
 /// </summary>
 public static class NotesApi
 {
+    // ── The notes as the host's cache reads them (the module keeps no cache of its own) ──
+    /// <summary>
+    /// Hands the module the host's cached read of the notes (<paramref name="current"/>) and its hand-over of the renumberings made since the last call (<paramref name="renumbered"/>),
+    /// for <see cref="GetAll"/> and the module's own rules. Null = read every notes folder afresh on every call.
+    /// </summary>
+    public static void UseNotes(Func<NotesRead>? current, Func<IReadOnlyList<(int OldId, int NewId, string Path)>>? renumbered)
+    {
+        NotesModule.Reader = current;
+        NotesModule.Drain = renumbered;
+    }
+
+    /// <summary>One change's notes/ folder read from disk now (nothing is kept).</summary>
+    public static NotesFolderRead ReadFolder(string notesDir, int workItemId) => Queries.ReadFolder(notesDir, workItemId);
+
+    /// <summary>The work item's number moved (a provisional one): the folder read stays, its notes now belong to the new number.</summary>
+    public static void Rebind(NotesFolderRead folder, int workItemId) => Queries.Rebind(folder, workItemId);
+
+    /// <summary>
+    /// Brings the folders read to a consistent set: a frontmatter id that disagrees with its file name takes the file name's number, and a note whose number another carries is
+    /// renamed to the next free one (see <see cref="RepairDuplicateIds"/>). Returns the notes and the highest number seen; <paramref name="renumbered"/> lists what was renumbered.
+    /// </summary>
+    public static NotesRead Settle(IReadOnlyList<NotesFolderRead> folders, out IReadOnlyList<(int OldId, int NewId, string Path)> renumbered) => Queries.Settle(folders, out renumbered, out _);
+
     public static IReadOnlyList<Note> GetAll() => Queries.GetAll();
     public static IReadOnlyList<Note> GetForWorkItem(int workItemId) => Queries.GetAll().Where(n => n.WorkItemId == workItemId).ToList();
     /// <summary>
@@ -125,4 +149,46 @@ public static class NotesApi
 
     /// <summary>An agent wrote this note: frontmatter agentBy = <paramref name="agent"/>, agentAt = now.</summary>
     public static (bool Success, string Message) StampAgent(int id, string agent) => Commands.StampAgent(id, agent);
+
+    // ── The rules every caller shares (the app, an agent's tool call) ──
+
+    /// <summary>Why a draft cannot be written (no body, an unknown kind, an attachment that is not an http(s) link), or null.</summary>
+    public static string? CheckDraft(NoteDraft draft) => Writing.Check(draft);
+
+    /// <summary>
+    /// Writes a note of the work item by <paramref name="who"/> from text alone: the kind lower-cased and checked, the title (given, "Decision", or the first line of the body, cut to 80), a heading unless the body has its own,
+    /// the links, the commits (<paramref name="knownCommits"/> names the ones the repository's history has; the rest get a warning), http(s) attachments, unticked checkboxes turned into subtasks; the note and the item are signed as <paramref name="who"/>.
+    /// </summary>
+    public static WrittenNote Write(int workItemId, string who, NoteDraft draft, Func<IReadOnlyList<string>, IReadOnlyList<string>>? knownCommits = null) => Writing.Write(workItemId, who, draft, knownCommits);
+
+    /// <summary>
+    /// An item ends without being done (see <see cref="WorkItems.WorkItemsApi.ParseResolution"/>): hidden with its status kept, the resolution logged, and a decision note written titled by it, with <paramref name="why"/> as its body.
+    /// </summary>
+    public static ResolvedItem Resolve(int workItemId, Resolution resolution, string? why, string who) => Writing.Resolve(workItemId, resolution, why, who);
+
+    /// <summary>The item's events and notes as one feed, newest first; a note comes before the events it was written with when they share a moment. The one list the worklog page and an agent's read show.</summary>
+    public static IReadOnlyList<WorklogEntry> GetWorklog(int workItemId) => Feed.Worklog(workItemId);
+
+    /// <summary>The ids of the items that changed from one day to another, both included, by local day (with times: the exact window): by their files, their creation, or an event or note in their worklog.</summary>
+    public static IReadOnlySet<int> ChangedIn(IReadOnlyList<WorkItem> items, DateOnly from, DateOnly to, TimeOnly? fromTime = null, TimeOnly? toTime = null) => Feed.ChangedIn(items, from, to, fromTime, toTime);
+
+    /// <summary>
+    /// Settles numbers used twice, one way for every caller: a work item that shares its number with an earlier one is renumbered (unless <paramref name="items"/> is false, for a caller that knows no change folder moved)
+    /// and gets a note by <paramref name="by"/> saying so; then notes that share a number are renumbered. Returns what changed (nothing is written when nothing is duplicated).
+    /// </summary>
+    public static DuplicateRepairs RepairDuplicates(bool items = true, string by = "App") => Feed.RepairDuplicates(items, by);
+
+    /// <summary>A word about where plans go when the project keeps them in its files folder and the plan is linked from somewhere else; null when there is none to say.</summary>
+    public static string? PlanFolderWarning(string plan) => Feed.PlanFolderWarning(plan);
+
+    /// <summary>Puts a conflict the sync settled on its work item: an event for a changed field of .openspec.yaml or tasks.md, a note holding the dropped text for any other file. False when it could not be recorded.</summary>
+    public static bool RecordSyncConflict(int workItemId, string file, string path, string what, string kept, string dropped, bool droppedHere) =>
+        Feed.RecordSyncConflict(workItemId, file, path, what, kept, dropped, droppedHere);
+
+    /// <summary>Records on the work item that a git merge's conflict markers were repaired, with what was kept and dropped.</summary>
+    public static void RecordRepairedConflict(int workItemId, string file, string path, string what, string kept, string dropped, bool fromGit) =>
+        Feed.RecordRepairedConflict(workItemId, file, path, what, kept, dropped, fromGit);
+
+    /// <summary>Records on the work item an attachment (the sync's path, wi&lt;id&gt;/name) that changed on both computers; false when the path names no work item that exists.</summary>
+    public static bool RecordAttachmentConflict(string attachmentPath) => Feed.RecordAttachmentConflict(attachmentPath);
 }

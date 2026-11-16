@@ -7,11 +7,12 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using TaskManager.Board;
-using TaskManager.Components.Layout;
 using TaskManager.Components.Pages;
+using TaskManager.Components.Layout;
 using TaskManager.Components.Shared;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 
 namespace TaskManager.Tests;
@@ -29,14 +30,17 @@ public sealed class UsingTheBoardTests : IDisposable
     private IRenderedComponent<Overlays>? overlays;
     private IRenderedComponent<SideNav>? nav;
 
-    private BunitContext NewContext(TimeProvider? time = null)
+    /// <param name="sectionsOpen">The menu's Organise, Filters and Hidden sections start open (a folded section draws nothing, #wi190); false: as a new user has them, folded.</param>
+    private BunitContext NewContext(TimeProvider? time = null, bool sectionsOpen = true)
     {
         BunitContext ctx = new();
         if (time is not null) ctx.Services.AddSingleton(time);   // the clock of the pages: a test moves it by hand
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<UiService>();
         ctx.Services.AddRadzenComponents();   // Radzen components ask for its services (the markdown editor wants DialogService)
-        ctx.Services.AddSingleton(new SettingsStore(settingsFile));
+        SettingsStore settings = new(settingsFile);
+        if (sectionsOpen) foreach (string section in new[] { "organise", "filters", "hidden" }) settings.ToggleMenuSection(section);
+        ctx.Services.AddSingleton(settings);
         ctx.Services.AddSingleton<Workspace>();
         Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(repo.Root).Success);
         overlays = ctx.Render<Overlays>();
@@ -77,7 +81,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.NotEmpty(byStatus.FindAll(".meta-row .who-list"));
     }
 
-    [Fact(DisplayName = "A card shows its title on a band coloured by status, its feature, its date and people, its subtask count, its coloured label tag and its #wi tag, and no priority tag")]
+    [Fact(DisplayName = "A card shows its title on a band coloured by status, its feature, its date and people, its subtask count, its coloured label tag, and no priority tag")]
     public async Task Card()
     {
         await using BunitContext ctx = NewContext();
@@ -94,7 +98,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Empty(card.FindAll(".meta-row .ico"));   // plain text, no icons
         Assert.Equal("feature", card.Find(".tag.lbl").TextContent.Trim());
         Assert.Contains("--sky", card.Find(".tag.lbl").GetAttribute("style"));   // filled with the label's colour
-        Assert.Contains("#wi123", card.Find(".tags").TextContent);
+        Assert.DoesNotContain("#wi", card.Find(".tags").TextContent);   // the id is for the list and the item page, not the card
         Assert.DoesNotContain(card.FindAll(".tag.hot"), t => t.TextContent.Contains("high priority"));
     }
 
@@ -337,10 +341,10 @@ public sealed class UsingTheBoardTests : IDisposable
         {
             Assert.True(row.HasAttribute("data-row"));
             Assert.Empty(row.QuerySelectorAll(".grip"));
-            Assert.False(row.HasAttribute("data-selected"));
+            Assert.False(RowMarkProbe.Selected(board, row));
         }
         board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true });
-        board.WaitForAssertion(() => Assert.True(board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).HasAttribute("data-selected")));   // what the script reads
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")))));   // what the script reads: the marks block names the row
 
         string js = AppJs();
         // text no longer decides and nothing is held: the selection does
@@ -349,18 +353,19 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.DoesNotContain("_liftRow", js);
         string down = js[js.IndexOf("const tr = !(e.shiftKey", StringComparison.Ordinal)..];
         down = down[..down.IndexOf("if (e.target.closest(\"input, button", StringComparison.Ordinal)];
-        Assert.Contains("hasAttribute(\"data-selected\")", down);   // only a selected row is pressed as a row
+        Assert.Contains("_rowSelected(tr)", down);   // only a selected row is pressed as a row
         Assert.DoesNotContain("setTimeout", down);
         string move = js[js.IndexOf("document.addEventListener(\"pointermove\"", StringComparison.Ordinal)..];
         move = move[..move.IndexOf("const d = _drag;", StringComparison.Ordinal)];
         Assert.Contains("moved >= GRAB", move);
         Assert.Contains("_startDrag(e)", move);
-        // every selected row goes along: list rows carry data-selected, not the board's "selected" class
+        // every selected row goes along: list rows are named by the marks block (RowMarks), not by the board's "selected" class
         string start = JsFunction(js, "_startDrag");
-        Assert.Contains("tr[data-id][data-selected]", start);
-        Assert.Contains("p.el.matches(sel)", start);
+        Assert.Contains("_selectedRows()", start);
+        Assert.Contains("_rowSelected(p.el)", start);
         // a pill is no control here: a press on it that moves drags the selected row, a still click opens its dropdown
         Assert.DoesNotContain(".dd, .menu-wrap", JsFunction(js, "_rowAt"));
+        Assert.Contains("button:not(.row-title):not(.pick)", JsFunction(js, "_rowAt"));   // the list's pills are buttons (ListPill, #wi179)
         // over a group's own header row means that group (its end), not the group above it
         Assert.Contains("target = head;", JsFunction(js, "_findSpot"));
     }
@@ -378,11 +383,11 @@ public sealed class UsingTheBoardTests : IDisposable
         List<int> ids = GroupRows(board, "Planned").Select(r => int.Parse(r.GetAttribute("data-id")!)).ToList();
 
         board.WaitForAssertion(() => GroupRows(board, "Planned")[0].QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
-        board.WaitForAssertion(() => Assert.True(GroupRows(board, "Planned")[0].HasAttribute("data-selected")));
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, GroupRows(board, "Planned")[0])));
         await board.InvokeAsync(() => { });
         board.WaitForAssertion(() => GroupRows(board, "Planned")[2].QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
-        board.WaitForAssertion(() => Assert.True(GroupRows(board, "Planned")[2].HasAttribute("data-selected")));
-        Assert.False(GroupRows(board, "Planned")[1].HasAttribute("data-selected"));
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, GroupRows(board, "Planned")[2])));
+        Assert.False(RowMarkProbe.Selected(board, GroupRows(board, "Planned")[1]));
 
         board.WaitForAssertion(() => GroupRows(board, "Planned")[2].DragStart());   // the press is on the last selected row; the first one goes with it
         await board.InvokeAsync(() => { });
@@ -405,18 +410,18 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
         board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
-        Assert.Empty(board.FindAll("tr[data-id][data-selected]"));   // nothing is selected: every press is a cell selection's
+        Assert.Empty(RowMarkProbe.SelectedKeys(board));   // nothing is selected: every press is a cell selection's
 
         string js = AppJs();
         // the row press is for selected rows only, so an unselected row's press never reaches _startDrag
         string down = js[js.IndexOf("const tr = !(e.shiftKey", StringComparison.Ordinal)..];
         down = down[..down.IndexOf("if (e.target.closest(\"input, button", StringComparison.Ordinal)];
-        Assert.Contains("hasAttribute(\"data-selected\")", down);
+        Assert.Contains("_rowSelected(tr)", down);
         // the cell selection starts from any press on an unselected row, over text or not, as the grid did before
         string cell = js[js.IndexOf("const cell = _cellAt(e.target);", StringComparison.Ordinal)..];
         cell = cell[..cell.IndexOf("_cells.dragging = true;", StringComparison.Ordinal)];
         Assert.DoesNotContain("_pressOnText", cell);
-        Assert.Contains("tr[data-selected]", cell);   // a selected row's press is the drag's: it ends a selection instead
+        Assert.Contains("_rowSelected(", cell);   // a selected row's press is the drag's: it ends a selection instead
     }
 
     [Fact(DisplayName = "Dropping a list row on another group moves the work item there")]
@@ -566,14 +571,15 @@ public sealed class UsingTheBoardTests : IDisposable
         AngleSharp.Dom.IElement row = board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123"));
 
         row.QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true });
-        board.WaitForAssertion(() => Assert.NotNull(board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).GetAttribute("data-selected")));
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")))));
         Assert.Contains("1 selected", board.Find(".actionbar:not(.select-hint)").TextContent);
         Assert.Empty(board.FindAll("tr[data-id] input[type=checkbox]"));   // no tick boxes, as on the board
         board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector("td.num")!.Click(new MouseEventArgs { CtrlKey = true });
         board.WaitForAssertion(() => Assert.Contains("Shift-click rows", board.Find(".select-hint").TextContent));   // the Shift hint is there in the list too
 
         board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector(".row-title")!.Click(new MouseEventArgs { ShiftKey = true });
-        board.WaitForAssertion(() => Assert.Null(board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).GetAttribute("data-selected")));   // toggled off, not opened
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")))));   // the title button leaves a modifier click to the row, which selects it again (the one before had let go): not opened
+        Assert.DoesNotContain("/item/", ctx.Services.GetRequiredService<NavigationManager>().Uri);
 
         board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi123")).QuerySelector(".row-title")!.Click();
         Assert.EndsWith("/item/123", ctx.Services.GetRequiredService<NavigationManager>().Uri);
@@ -728,9 +734,9 @@ public sealed class UsingTheBoardTests : IDisposable
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ListGroupBy = "label" });
         board.WaitForAssertion(() => Assert.Contains(board.FindAll("tr[data-id]"), r => r.TextContent.Contains("#wi124") && r.TextContent.Contains("Completed")));
         AngleSharp.Dom.IElement row = board.FindAll("tr[data-id]").First(r => r.TextContent.Contains("#wi124"));
-        Assert.NotEmpty(row.QuerySelectorAll(".dd"));   // priority dropdown
+        Assert.NotNull(row.QuerySelector("button[data-pill=priority]"));   // priority pill, opens the list's picker
         Assert.NotNull(row.QuerySelector("span.box.cell.filled"));   // status: read-only
-        Assert.DoesNotContain(row.QuerySelectorAll(".dd"), d => d.TextContent.Contains("Completed"));
+        Assert.Null(row.QuerySelector("button[data-pill=status]"));
     }
 
     [Fact(DisplayName = "In the list, subtasks start folded away; the rail's subtasks button, selected, shows every row's subtasks, and unselected folds them again")]
@@ -830,8 +836,8 @@ public sealed class UsingTheBoardTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         nav!.Find("button.nav-toggle").Click();
-        nav.Find("input[name=unit][value=subtasks]").Change("subtasks");
-        Assert.Equal(4 + 2 + 1 + 1, board.FindAll("article.subcard").Count);
+        ctx.Services.GetRequiredService<SettingsStore>().SaveBoard(repo.Root, ctx.Services.GetRequiredService<SettingsStore>().Board(repo.Root) with { Unit = "subtasks" });   // the switch lives in the examine panel now (tested below)
+        board.WaitForAssertion(() => Assert.Equal(4 + 2 + 1 + 1, board.FindAll("article.subcard").Count));
     }
 
     [Fact(DisplayName = "The menu button expands the side menu to labels and view options, and collapses it again")]
@@ -960,7 +966,7 @@ public sealed class UsingTheBoardTests : IDisposable
         string timeout = WorkItemsApi.Get(124)!.Title;
         Assert.Contains(timeout, CardsIn(board, "Security"));
 
-        Col(board, "Security").QuerySelectorAll("article.card").First(c => c.TextContent.Contains("#wi124")).DragStart();
+        Col(board, "Security").QuerySelectorAll("article.card").First(c => c.GetAttribute("data-id") == "124").DragStart();
         Col(board, "Availability").Drop();
 
         board.WaitForAssertion(() => Assert.Contains(timeout, CardsIn(board, "Availability")));
@@ -978,7 +984,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains(health, CardsIn(board, "Security"));   // picked by hand
         Assert.DoesNotContain(health, CardsIn(board, "Availability"));   // its spec, not shown as a second feature
 
-        Col(board, "Security").QuerySelectorAll("article.card").First(c => c.TextContent.Contains("#wi123")).DragStart();
+        Col(board, "Security").QuerySelectorAll("article.card").First(c => c.GetAttribute("data-id") == "123").DragStart();
         Col(board, "Banking").Drop();
 
         board.WaitForAssertion(() => Assert.Contains(health, CardsIn(board, "Banking")));
@@ -1020,10 +1026,10 @@ public sealed class UsingTheBoardTests : IDisposable
 
         AngleSharp.Dom.IElement overdue = board.FindAll("article.card").First(c => c.TextContent.Contains("Health-check")).QuerySelector(".tag.due")!;
         Assert.Contains("overdue", overdue.ClassList);
-        Assert.Contains(today.AddDays(-1).ToString("d MMM"), overdue.TextContent);
-        AngleSharp.Dom.IElement soon = board.FindAll("article.card").First(c => c.TextContent.Contains("#wi107")).QuerySelector(".tag.due")!;
+        Assert.Equal(TaskManager.Helpers.Ui.Period(today.AddDays(-5), today.AddDays(-1)), overdue.TextContent.Trim());   // started and due are one period
+        AngleSharp.Dom.IElement soon = board.FindAll("article.card").First(c => c.GetAttribute("data-id") == "107").QuerySelector(".tag.due")!;
         Assert.DoesNotContain("overdue", soon.ClassList);
-        Assert.Empty(board.FindAll("article.card").Where(c => c.TextContent.Contains("#wi125")).Select(c => c.QuerySelector(".tag.due")).Where(t => t is not null));
+        Assert.Empty(board.FindAll("article.card").Where(c => c.GetAttribute("data-id") == "125").Select(c => c.QuerySelector(".tag.due")).Where(t => t is not null));
 
         ShowList();
         board.WaitForAssertion(() => Assert.Contains(board.FindAll("thead th"), h => h.TextContent.Contains("Due")));
@@ -1145,12 +1151,13 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         GroupByFeature();
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Payments")).Click();
-        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Delete feature…").Click();
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Trim() == "Delete feature…"));   // the menu opens in the next render
+        await board.InvokeAsync(() => { board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Delete feature…").Click(); });   // find and click in one dispatcher turn; ClickAsync would wait for the handler, which waits for the dialog
         overlays!.WaitForAssertion(() => Assert.Contains("Delete Payments?", overlays.Find(".dialog").TextContent));
         overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Delete").Click();
 
         board.WaitForAssertion(() => Assert.DoesNotContain("Payments", Columns(board)));
-        Assert.Contains($"#wi{id}", board.FindAll("section.col").Single(c => c.QuerySelector("h3")!.TextContent == "Unassigned").TextContent);
+        Assert.True(HasCard(board.FindAll("section.col").Single(c => c.QuerySelector("h3")!.TextContent == "Unassigned"), id));
     }
 
     [Fact(DisplayName = "A feature with a spec folder can be deleted too: the dialog says its folder goes, and the column leaves the board")]
@@ -1163,7 +1170,8 @@ public sealed class UsingTheBoardTests : IDisposable
         board.WaitForAssertion(() => Assert.Contains("Ledger", Columns(board)));
 
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Ledger")).Click();
-        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Delete feature…").Click();
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Trim() == "Delete feature…"));   // the menu opens in the next render
+        await board.InvokeAsync(() => { board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Delete feature…").Click(); });   // find and click in one dispatcher turn; ClickAsync would wait for the handler, which waits for the dialog
         overlays!.WaitForAssertion(() => Assert.Contains("openspec/specs/functional/ledger", overlays.Find(".dialog").TextContent));
         overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Delete").Click();
 
@@ -1180,7 +1188,8 @@ public sealed class UsingTheBoardTests : IDisposable
         board.WaitForAssertion(() => Assert.Contains("Availability", Columns(board)));
 
         board.FindAll("header.col-h").First(h => h.TextContent.Contains("Availability")).Click();
-        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Delete feature…").Click();
+        board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Trim() == "Delete feature…"));   // the menu opens in the next render
+        await board.InvokeAsync(() => { board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Delete feature…").Click(); });   // find and click in one dispatcher turn; ClickAsync would wait for the handler, which waits for the dialog
         overlays!.WaitForAssertion(() => Assert.Contains("#wi123 still describes it in its specs", overlays.Find(".dialog").TextContent));
         overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Delete").Click();
 
@@ -1427,7 +1436,7 @@ public sealed class UsingTheBoardTests : IDisposable
         board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-group^='proj:']").Count));
 
         board.FindAll("tr[data-group^='proj:']")[0].Click(new MouseEventArgs { ShiftKey = true });   // anywhere in the group row
-        board.WaitForAssertion(() => Assert.NotNull(board.FindAll("tr[data-group^='proj:']")[0].GetAttribute("data-selected")));
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.GroupSelected(board, board.FindAll("tr[data-group^='proj:']")[0])));
         await board.InvokeAsync(() => { });
         board.Find(".tbl-wrap").KeyDown("ArrowDown");
 
@@ -1461,8 +1470,11 @@ public sealed class UsingTheBoardTests : IDisposable
     public void OneSelectionLook()
     {
         string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css"));
-        Assert.Matches(@"\.card\.selected[^{]*\.proj-h\.selected[^{]*tr\[data-selected\][^{]*\{[^}]*outline: 3px solid var\(--ink\)[^}]*box-shadow: 0 0 0 7px var\(--sun\)", css);
-        Assert.DoesNotMatch(@"tr\[data-selected\][^{]*\{[^}]*background", css);
+        Assert.Matches(@"\.card\.selected[^{]*\.proj-h\.selected[^{]*\{[^}]*outline: 3px solid var\(--ink\)[^}]*box-shadow: 0 0 0 7px var\(--sun\)", css);
+        using BunitContext ctx = new();
+        string rule = ctx.Render<RowMarks>(p => p.Add(m => m.Marks, [new RowMarks.RowMark("data-row", "1:0:5", RowMarks.Mark.Selected)])).Find("style").InnerHtml;   // a list row's ring: the same line and halo, inset, written by RowMarks
+        Assert.Matches(@"outline:3px solid var\(--ink\);[^}]*box-shadow:inset 0 0 0 1px var\(--ink\),inset 0 0 0 8px var\(--sun\)", rule);
+        Assert.DoesNotContain("background", rule);
     }
 
     [Fact(DisplayName = "Agent-added work carries no agent chip on its card or list row; the review click is on the item page, the filter still finds it")]
@@ -1603,25 +1615,28 @@ public sealed class UsingTheBoardTests : IDisposable
         TwoProjects(ctx);
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
-        board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-id='123']").Count));
+        // each step first lets the renderer finish what the click (or the settings change) queued, with no clock: a check that waits behind
+        // a hundred grid renders on a busy machine never runs inside a wait's time limit (the failure said "Check count: 0")
+        async Task Settled(Action check) { await board.InvokeAsync(() => { }); board.WaitForAssertion(check); }
+        await Settled(() => Assert.Equal(2, board.FindAll("tr[data-id='123']").Count));
 
         board.FindAll("tr[data-group^='proj:']")[0].QuerySelector("button[aria-label='Expand group']")!.Click();
 
-        board.WaitForAssertion(() => Assert.Single(board.FindAll("tr[data-id='123']")));
+        await Settled(() => Assert.Single(board.FindAll("tr[data-id='123']")));
         Assert.True(ctx.Services.GetRequiredService<SettingsStore>().ProjectCollapsed(repo.Root));   // the same setting as the board's project chevron
 
         // a group collapsed inside the other project stays collapsed when that project folds and unfolds, and only there
         AngleSharp.Dom.IElement Proj2() => board.FindAll("tr[data-group^='proj:']")[1];
         int Rows123() => board.FindAll("tr[data-id='123']").Count;
         board.FindAll("tr[data-group='In Progress']").Last().QuerySelector("button[aria-label='Expand group']")!.Click();
-        board.WaitForAssertion(() => Assert.Equal(0, Rows123()));
+        await Settled(() => Assert.Equal(0, Rows123()));
         Proj2().QuerySelector("button[aria-label='Expand group']")!.Click();
-        board.WaitForAssertion(() => Assert.True(ctx.Services.GetRequiredService<SettingsStore>().ProjectCollapsed(repo2.Root)));
+        await Settled(() => Assert.True(ctx.Services.GetRequiredService<SettingsStore>().ProjectCollapsed(repo2.Root)));
         Proj2().QuerySelector("button[aria-label='Expand group']")!.Click();
-        board.WaitForAssertion(() => Assert.False(ctx.Services.GetRequiredService<SettingsStore>().ProjectCollapsed(repo2.Root)));
+        await Settled(() => Assert.False(ctx.Services.GetRequiredService<SettingsStore>().ProjectCollapsed(repo2.Root)));
         Assert.Equal(0, Rows123());
         board.FindAll("tr[data-group^='proj:']")[0].QuerySelector("button[aria-label='Expand group']")!.Click();
-        board.WaitForAssertion(() => Assert.Equal(1, Rows123()));   // the first project's In Progress was never collapsed
+        await Settled(() => Assert.Equal(1, Rows123()));   // the first project's In Progress was never collapsed
     }
 
     [Fact(DisplayName = "With two repositories, the list groups rows by project first, then by column")]
@@ -1729,13 +1744,13 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Single(Cell("high", "Backlog").QuerySelectorAll("article.card"));
         Assert.Equal(2, Cell("low", "Backlog").QuerySelectorAll("article.card").Length);   // the fixture's own Backlog item and the new one
 
-        Cell("low", "Backlog").QuerySelectorAll("article.card").First(c => c.TextContent.Contains($"#wi{other}")).DragStart();
+        Cell("low", "Backlog").QuerySelectorAll("article.card").First(c => c.GetAttribute("data-id") == other.ToString()).DragStart();
         Cell("high", "In Progress").QuerySelector(".lane")!.Drop();
 
         board.WaitForAssertion(() => Assert.Equal("In Progress", WorkItemsApi.Get(other)!.Status));
         board.WaitForAssertion(() => Assert.Equal("high", WorkItemsApi.Get(other)!.Priority));
-        board.WaitForAssertion(() => Assert.Contains($"#wi{other}", Cell("high", "In Progress").TextContent));
-        Assert.DoesNotContain($"#wi{other}", Cell("low", "Backlog").TextContent);
+        board.WaitForAssertion(() => Assert.True(HasCard(Cell("high", "In Progress"), other)));
+        Assert.False(HasCard(Cell("low", "Backlog"), other));
     }
 
     [Fact(DisplayName = "The column menu no longer offers subgroups, and a column shows its cards in one lane whatever their priorities")]
@@ -1942,7 +1957,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains("Banking", board.FindAll(".swim-h span:first-child").Select(s => s.TextContent.Trim()));
         Assert.Equal(board.FindAll(".swim-h").Count, board.FindAll(".swim").Count);
         Assert.Equal(7, board.FindAll("section.col h3").Count);   // the status columns, once, on top
-        AngleSharp.Dom.IElement Band(int id) => board.FindAll("article.card").First(c => c.TextContent.Contains($"#wi{id}")).QuerySelector(".band")!;
+        AngleSharp.Dom.IElement Band(int id) => board.FindAll("article.card").First(c => c.GetAttribute("data-id") == id.ToString()).QuerySelector(".band")!;
         Assert.Contains("var(--peach)", Band(123).GetAttribute("style"));   // bug
         Assert.Contains("var(--stone)", Band(107).GetAttribute("style"));   // no label
         Assert.Contains("bug", nav.Find(".legend").TextContent);            // the legend explains the colours shown
@@ -1966,7 +1981,7 @@ public sealed class UsingTheBoardTests : IDisposable
         File.SetLastWriteTime(log123, new DateTime(2026, 1, 1));
         File.Delete(Path.Combine(repo.OpenSpec, "changes", "export-remittances", "events.log"));
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        bool Card(int id) => board.FindAll("article.card").Any(c => c.TextContent.Contains($"#wi{id}"));
+        bool Card(int id) => board.FindAll("article.card").Any(c => c.GetAttribute("data-id") == id.ToString());
         int shown = board.FindAll("article.card").Count;
         Assert.True(Card(107) && Card(123) && shown > 1);   // before any period
 
@@ -1986,8 +2001,8 @@ public sealed class UsingTheBoardTests : IDisposable
             nav.WaitForAssertion(() => nav.Find($".range-pop button.rd[data-day='{day:yyyy-MM-dd}']").Click());
         }
         nav.WaitForAssertion(() => Assert.Equal((first, last), (settings.Board(repo.Root).ChangedFrom, settings.Board(repo.Root).ChangedTo)));   // remembered per board
-        nav.WaitForAssertion(() => Assert.Contains($"{first:d MMM} – {last:d MMM}", nav.Find("button[aria-label='changed']").TextContent));
-        Assert.Equal($"changed {first:d MMM} – {last:d MMM}", nav.Find(".legend .lg.head").TextContent.Trim());   // the legend's first line names it
+        nav.WaitForAssertion(() => Assert.Contains(TaskManager.Helpers.Ui.Period(first, last), nav.Find("button[aria-label='changed']").TextContent));
+        Assert.Equal("changed " + TaskManager.Helpers.Ui.Period(first, last), nav.Find(".legend .lg.head").TextContent.Trim());   // the legend's first line names it
         nav.WaitForAssertion(() => Assert.Equal($"1 of {shown} shown", nav.Find(".legend .lg.count").TextContent.Trim()));   // the second line counts what is shown of what the other filters leave
         Assert.Equal(["In Progress"], nav.FindAll(".legend .lg:not(.head)").Select(l => l.TextContent.Trim()));   // and keeps only the colours of the shown items
 
@@ -2030,21 +2045,21 @@ public sealed class UsingTheBoardTests : IDisposable
         // finding a cell and firing its event and leave the event without a handler.
         Task Drag((string Row, string Column) from, int id, (string Row, string Column) to) => board.InvokeAsync(() =>
         {
-            Cell(from.Row, from.Column).QuerySelectorAll("article.card").First(c => c.TextContent.Contains($"#wi{id}")).DragStart();
+            Cell(from.Row, from.Column).QuerySelectorAll("article.card").First(c => c.GetAttribute("data-id") == id.ToString()).DragStart();
             Cell(to.Row, to.Column).QuerySelector(".lane")!.Drop();
         });
 
         // columns by status, rows by feature (a field with several values: the card leaves its old feature for the new one)
         PickField("rows", "feature");
-        board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell("functional/banking", "Backlog").TextContent));
+        board.WaitForAssertion(() => Assert.True(HasCard(Cell("functional/banking", "Backlog"), pay)));
         await Drag(("functional/banking", "Backlog"), pay, ("non-functional/availability", "In Progress"));
         board.WaitForAssertion(() => Assert.Equal("In Progress", WorkItemsApi.Get(pay)!.Status));
         board.WaitForAssertion(() => Assert.Equal(["non-functional/availability"], WorkItemsApi.Get(pay)!.Features.Select(f => f.Path)));
-        board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell("non-functional/availability", "In Progress").TextContent));
+        board.WaitForAssertion(() => Assert.True(HasCard(Cell("non-functional/availability", "In Progress"), pay)));
 
         // columns by priority, rows by label: two single-valued fields
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = "priority", Swimlane = "label" });
-        board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell(BoardModel.NoRow, "low").TextContent));
+        board.WaitForAssertion(() => Assert.True(HasCard(Cell(BoardModel.NoRow, "low"), pay)));
         await Drag((BoardModel.NoRow, "low"), pay, ("bug", "high"));
         board.WaitForAssertion(() => Assert.Equal("high", WorkItemsApi.Get(pay)!.Priority));
         board.WaitForAssertion(() => Assert.Equal("bug", WorkItemsApi.Get(pay)!.Label));
@@ -2052,7 +2067,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         // a field a drop cannot set (due dates) stays read-only: the other dimension still applies
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = "status", Swimlane = "due" });
-        board.WaitForAssertion(() => Assert.Contains($"#wi{pay}", Cell("none", "In Progress").TextContent));
+        board.WaitForAssertion(() => Assert.True(HasCard(Cell("none", "In Progress"), pay)));
         await Drag(("none", "In Progress"), pay, ("overdue", "Blocked"));
         board.WaitForAssertion(() => Assert.Equal("Blocked", WorkItemsApi.Get(pay)!.Status));
         Assert.Null(WorkItemsApi.Get(pay)!.Due);
@@ -2187,10 +2202,12 @@ public sealed class UsingTheBoardTests : IDisposable
         // a filter acts on the feed at once
         string[] kinds() => [.. log.FindAll(".wk-day .wk-e").Select(e => e.GetAttribute("data-kind")!)];
         Assert.Contains("note", kinds());
-        nav.FindAll(".nav-worklog button.nav-pill")[0].Click();   // Notes
-        log.WaitForAssertion(() => Assert.DoesNotContain("note", kinds()));
-        Assert.False(ui.WorklogFilter.Notes);
-        Assert.True(ui.WorklogFilter.Events);
+        nav.FindAll(".nav-worklog button.nav-pill")[0].Click();   // Notes: with every kind on, a click shows only that kind
+        log.WaitForAssertion(() => Assert.All(kinds(), k => Assert.Equal("note", k)));
+        Assert.True(ui.WorklogFilter.Notes);
+        Assert.False(ui.WorklogFilter.Events);
+        nav.FindAll(".nav-worklog button.nav-pill")[0].Click();   // the only one on, off again: every kind is back
+        Assert.Equal(new WorklogFilters(), ui.WorklogFilter);
 
         // who: a dropdown of the people in the feed
         nav.Find(".nav-worklog .field .dd").Click();
@@ -2297,15 +2314,15 @@ public sealed class UsingTheBoardTests : IDisposable
 
         Assert.Equal(["Notes", "Decisions", "Bugs", "Events", "Links", "Subtasks", "Edits"], block.QuerySelectorAll("button.nav-pill").Select(l => l.TextContent.Trim()));
 
-        nav.FindAll(".nav-worklog button.nav-pill")[1].Click();   // Decisions
-        Assert.False(ui.WorklogFilter.Decisions);
-        Assert.True(ui.WorklogFilter.Notes);
-        nav.FindAll(".nav-worklog button.nav-pill")[6].Click();   // Edits
-        Assert.False(ui.WorklogFilter.Edits);
-        Assert.True(ui.WorklogFilter.Events);
-        nav.FindAll(".nav-worklog button.nav-pill")[2].Click();   // Bugs
-        Assert.False(ui.WorklogFilter.Bugs);
-        nav.FindAll(".nav-worklog button.nav-pill")[1].Click();
+        nav.FindAll(".nav-worklog button.nav-pill")[1].Click();   // Decisions: every kind was on, so only this one now
+        Assert.True(ui.WorklogFilter.Decisions);
+        Assert.False(ui.WorklogFilter.Notes);
+        nav.FindAll(".nav-worklog button.nav-pill")[6].Click();   // Edits joins it
+        Assert.True(ui.WorklogFilter.Edits);
+        Assert.False(ui.WorklogFilter.Events);
+        nav.FindAll(".nav-worklog button.nav-pill")[2].Click();   // Bugs too
+        Assert.True(ui.WorklogFilter.Bugs);
+        nav.FindAll(".nav-worklog button.nav-pill")[1].Click();   // each click takes its kind out again; the last one brings every kind back
         nav.FindAll(".nav-worklog button.nav-pill")[6].Click();
         nav.FindAll(".nav-worklog button.nav-pill")[2].Click();
         Assert.Equal(new WorklogFilters(), ui.WorklogFilter);
@@ -2418,7 +2435,7 @@ public sealed class UsingTheBoardTests : IDisposable
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ChangedFrom = new DateOnly(2026, 1, 1), ChangedTo = today });
         nav.WaitForAssertion(() => Assert.Equal($"{shown} of {shown} shown", nav.Find(".legend .lg.count").TextContent.Trim()));
         board.WaitForAssertion(() => Assert.Equal(shown, board.FindAll("article.card").Count));
-        Assert.Equal($"changed {new DateOnly(2026, 1, 1):d MMM} – {today:d MMM}", nav.Find(".legend .lg.head").TextContent.Trim());   // the head line is unchanged
+        Assert.Equal("changed " + TaskManager.Helpers.Ui.Period(new DateOnly(2026, 1, 1), today), nav.Find(".legend .lg.head").TextContent.Trim());   // the head line is unchanged
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ChangedFrom = null, ChangedTo = null });
         nav.WaitForAssertion(() => Assert.Empty(nav.FindAll(".legend .lg.count")));
     }
@@ -2490,7 +2507,7 @@ public sealed class UsingTheBoardTests : IDisposable
         To().Change("18:00");
         nav.WaitForAssertion(() => Assert.Equal((new TimeOnly(10, 30), new TimeOnly(18, 0)), (Saved().ChangedFromTime, Saved().ChangedToTime)));   // remembered per board
         nav.WaitForAssertion(() => Assert.Equal($"{day:d MMM} 10:30 – 18:00", nav.Find("button[aria-label='changed']").TextContent.Trim()));
-        Assert.Equal($"changed {day:d MMM} 10:30 – {day:d MMM} 18:00", nav.Find(".legend .lg.head").TextContent.Trim());
+        Assert.Equal($"changed {day:d MMM} 10:30 – 18:00", nav.Find(".legend .lg.head").TextContent.Trim());
         nav.WaitForAssertion(() => Assert.Equal($"0 of {shown} shown", nav.Find(".legend .lg.count").TextContent.Trim()));
         board.WaitForAssertion(() => Assert.Empty(board.FindAll("article.card")));   // the event is before the window
 
@@ -2536,11 +2553,12 @@ public sealed class UsingTheBoardTests : IDisposable
         ctx.Services.GetRequiredService<UiService>().OpenWorklog(new WorklogActions(() => { }, () => { }, () => { }, () => { }, () => { }, () => { }));
         nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-worklog button.nav-pill")));
         Assert.Empty(nav.FindAll("input[type=checkbox]"));
-        nav.FindAll(".nav-worklog button.nav-pill")[0].Click();
+        nav.FindAll(".nav-worklog button.nav-pill")[0].Click();   // every kind was on: only Notes stays filled, the rest are plain
         IElement notes = nav.FindAll(".nav-worklog button.nav-pill")[0];
-        Assert.Equal("false", notes.GetAttribute("aria-pressed"));
-        Assert.DoesNotContain("is-sel", notes.ClassList);
-        Assert.Contains("is-sel", nav.FindAll(".nav-worklog button.nav-pill")[1].ClassList);
+        Assert.Equal("true", notes.GetAttribute("aria-pressed"));
+        Assert.Contains("is-sel", notes.ClassList);
+        Assert.Equal("false", nav.FindAll(".nav-worklog button.nav-pill")[1].GetAttribute("aria-pressed"));
+        Assert.DoesNotContain("is-sel", nav.FindAll(".nav-worklog button.nav-pill")[1].ClassList);
     }
 
     [Fact(DisplayName = "Sort by is the first field under Organise, and show all hidden sits under the Hidden header")]
@@ -2959,38 +2977,6 @@ public sealed class UsingTheBoardTests : IDisposable
     }
     // ---- hook-badge chunk ----
 
-    private static readonly DateTime AgentWrote = new(2026, 10, 30, 9, 0, 0);
-
-    private static FakeTimeProvider ClockAt(TimeSpan after) => new(new DateTimeOffset(AgentWrote + after, TimeSpan.Zero));
-
-    [Fact(DisplayName = "A card whose agent wrote three minutes ago says so, and the badge disappears after a day or once reviewed")]
-    public async Task CardCarriesTheAgentBadge()
-    {
-        FakeTimeProvider time = ClockAt(TimeSpan.FromMinutes(3));
-        await using BunitContext ctx = NewContext(time);
-        WorkItem item = WorkItemsApi.Get(123)! with { AgentBy = "Claude", AgentAt = AgentWrote, ReviewedAt = null };
-        IRenderedComponent<WorkItemCard> Card(WorkItem i) => ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, i).Add(c => c.Options, new BoardOptions()));
-
-        Assert.Equal("Claude, 3 min ago", Card(item).Find(".agent-badge").TextContent.Trim());
-        time.Advance(TimeSpan.FromMinutes(117));
-        Assert.Equal("Claude, 2 h ago", Card(item).Find(".agent-badge").TextContent.Trim());
-        Assert.Empty(Card(item with { ReviewedAt = AgentWrote.AddMinutes(30) }).FindAll(".agent-badge"));   // the user has looked at it since
-        Assert.Empty(Card(item with { AgentBy = null, AgentAt = null }).FindAll(".agent-badge"));          // nobody stamped it
-        time.Advance(TimeSpan.FromHours(23));
-        Assert.Empty(Card(item).FindAll(".agent-badge"));   // a day on: the stamp is history, not "working now"
-    }
-
-    [Fact(DisplayName = "The list row carries the same agent badge")]
-    public async Task ListRowCarriesTheAgentBadge()
-    {
-        EditingWorkItemsTests.StampAgent(repo);
-        await using BunitContext ctx = NewContext(ClockAt(TimeSpan.FromMinutes(3)));
-        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        ShowList();
-
-        board.WaitForAssertion(() => Assert.Equal("Claude, 3 min ago", board.Find("tr[data-id='123'] .agent-badge").TextContent.Trim()));
-    }
-
     // Runs the repository's PreToolUse hook (.claude/hooks/deny-board-edits.js) on a sample tool call, as Claude Code does: JSON on stdin.
     private static string RunHook(string json, bool allowDirect = false)
     {
@@ -3012,7 +2998,7 @@ public sealed class UsingTheBoardTests : IDisposable
     public void EditHookDeniesDirectBoardEdits()
     {
         string inChange = """{"tool_name":"Edit","tool_input":{"file_path":"openspec/changes/some-item/proposal.md"}}""";
-        string elsewhere = """{"tool_name":"Edit","tool_input":{"file_path":"TaskManager/Components/Pages/BoardPage.razor"}}""";
+        string elsewhere = """{"tool_name":"Edit","tool_input":{"file_path":"TaskManager/Components/Pages/Board/BoardPage.razor"}}""";
         string redirect = """{"tool_name":"Bash","tool_input":{"command":"echo done >> openspec/changes/some-item/tasks.md"}}""";
         string reading = """{"tool_name":"Bash","tool_input":{"command":"cat openspec/changes/some-item/tasks.md 2>&1 | head"}}""";
 
@@ -3035,7 +3021,7 @@ public sealed class UsingTheBoardTests : IDisposable
     [Fact(DisplayName = "The menu's Organise, Filters and Hidden sections are collapsed by default and remember being opened")]
     public async Task MenuSectionsAreCollapsedByDefaultAndRemembered()
     {
-        await using BunitContext ctx = NewContext();
+        await using BunitContext ctx = NewContext(sectionsOpen: false);
         ctx.Render<BoardPage>();
         nav!.Find("button.nav-toggle").Click();
 
@@ -3069,7 +3055,7 @@ public sealed class UsingTheBoardTests : IDisposable
     [Fact(DisplayName = "A collapsed section's header summarises a filter that is not neutral")]
     public async Task CollapsedSectionHeaderSummarisesActiveFilters()
     {
-        await using BunitContext ctx = NewContext();
+        await using BunitContext ctx = NewContext(sectionsOpen: false);
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         ctx.Render<BoardPage>();
         nav!.Find("button.nav-toggle").Click();
@@ -3168,7 +3154,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains("New work item", Flat(add));
 
         string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css"));
-        Assert.Matches(@"\.nav-btn\.nav-new\s*\{[^}]*border-color:\s*var\(--alert\)[^}]*color:\s*var\(--alert\)", css);
+        Assert.Matches(@"\.nav-btn\.nav-new\s*\{[^}]*background:\s*var\(--alert\)[^}]*color:\s*var\(--on-alert\)", css);   // filled red, not outlined (the geometry test checks the details)
 
         // the + does what the expanded button does: it creates the item and opens it
         add.Click();
@@ -3227,7 +3213,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.DoesNotContain("color:", rule.Groups["body"].Value.Replace("background-color", "").Replace("color-mix", ""));
         Assert.DoesNotContain("inset 4px 0 0 var(--band", css);
         // the selected row's ring and the open row's wash stay the rows' own (outline and shadow on the tr, not overwritten by the cells' tint)
-        Assert.Contains(".tbl-wrap tr[data-selected] { outline-offset: -4px;", css);
+        Assert.Contains("outline-offset:-4px", ctx.Render<RowMarks>(p => p.Add(m => m.Marks, [new RowMarks.RowMark("data-row", "1:0:5", RowMarks.Mark.Selected)])).Find("style").InnerHtml);   // written by RowMarks (the rows carry no mark)
         Assert.DoesNotContain("outline", rule.Groups["body"].Value);
         Assert.DoesNotContain("box-shadow", rule.Groups["body"].Value);
     }
@@ -3392,11 +3378,11 @@ public sealed class UsingTheBoardTests : IDisposable
 
         CardOf(board, 123).Click();
         board.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".examine")));
-        Assert.Empty(nav.FindAll(".organise"));   // filtering, hiding and organising give way to the metadata
-        Assert.Empty(nav.FindAll(".nav-hidden"));
+        Assert.True(nav.Find(".nav-opts").HasAttribute("hidden"));   // filtering, hiding and organising give way to the metadata: kept, out of sight
 
         board.Find(".board-wrap").Click();
         board.WaitForAssertion(() => Assert.Empty(nav.FindAll(".examine")));
+        Assert.False(nav.Find(".nav-opts").HasAttribute("hidden"));
         Assert.NotNull(nav.Find(".organise"));
         Assert.NotNull(nav.Find(".nav-hidden"));
         Assert.Empty(board.FindAll("article.card.ex-on"));
@@ -3430,12 +3416,12 @@ public sealed class UsingTheBoardTests : IDisposable
         AngleSharp.Dom.IElement Row() => board.FindAll("tr[data-id]").First(r => r.GetAttribute("data-id") == "123");
 
         Row().QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true });
-        board.WaitForAssertion(() => Assert.NotNull(Row().GetAttribute("data-selected")));
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, Row())));
         Assert.Empty(nav.FindAll(".examine"));
         Row().QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true });
 
         Row().QuerySelector(".row-title")!.Click();
-        board.WaitForAssertion(() => Assert.NotNull(Row().GetAttribute("data-examined")));
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.Examined(board, Row())));
         Assert.DoesNotContain("/item/", NavUri(ctx));
         Assert.Contains("#wi123", nav.Find(".examine").TextContent);
 
@@ -3464,5 +3450,566 @@ public sealed class UsingTheBoardTests : IDisposable
         // the strip stays above the cells' shadows and the rows
         Assert.Contains("z-index: 3;", strip.Groups["body"].Value);
         Assert.Contains("z-index: 2;", th.Groups["body"].Value);
+    }
+
+    // ---- add-status chunk ----
+
+    [Fact(DisplayName = "Grouped by status the board has a + status button after the last column, like + feature, and it adds the status to the project's list")]
+    public async Task AddStatusColumn()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"], Columns(board)));
+
+        AngleSharp.Dom.IElement add = board.Find("button.add-col");   // the same button and place as + feature, after the last column
+        Assert.Equal("+ status", add.TextContent.Trim());
+        Assert.Equal("section", add.PreviousElementSibling!.LocalName);
+        add.Click();
+        overlays!.WaitForAssertion(() => Assert.Contains("New status", overlays.Find(".dialog").TextContent));
+        overlays.Find(".dialog input").Input("Review ready");
+        overlays.Find(".dialog button.primary").Click();
+
+        // the new column is there at once, empty, before Completed (which is archiving and stays last)
+        board.WaitForAssertion(() => Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Review ready", "Completed"], Columns(board)));
+        Assert.Empty(board.FindAll("section.col").Single(c => c.GetAttribute("data-key") == "Review ready").QuerySelectorAll("article.card"));
+        Assert.Contains("Review ready", WorkItemsApi.GetStatuses());
+        Assert.Contains("Review ready", repo.Read("openspec/config.yaml"));
+
+        // grouped by feature the button is + feature again, not + status
+        GroupByFeature();
+        board.WaitForAssertion(() => Assert.Equal("+ feature", board.Find("button.add-col").TextContent.Trim()));
+    }
+
+    [Fact(DisplayName = "With several projects shown, + status asks which project")]
+    public async Task AddStatusAsksWhichProject()
+    {
+        await using BunitContext ctx = NewContext();
+        TwoProjects(ctx);
+        Workspace ws = ctx.Services.GetRequiredService<Workspace>();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".head-row")));   // the projects' columns agree: one shared header row
+        Assert.Single(board.FindAll("button.add-col"));
+        Assert.Equal("+ status", board.Find(".head-row > button.add-col").TextContent.Trim());
+
+        board.Find(".head-row > button.add-col").Click();
+        overlays!.WaitForAssertion(() => Assert.Equal([NameOf(repo), NameOf(repo2), "All projects"], overlays.FindAll(".dialog .choice").Select(c => c.TextContent.Trim())));
+        overlays.FindAll(".dialog .choice").Single(c => c.TextContent.Trim() == NameOf(repo2)).Click();
+        overlays.WaitForAssertion(() => Assert.Contains("New status", overlays.Find(".dialog").TextContent));
+        overlays.Find(".dialog input").Input("Design");
+        overlays.Find(".dialog button.primary").Click();
+
+        board.WaitForAssertion(() => Assert.Contains("Design", Heads(board)));   // the union: the shared row has the new column
+        Assert.Contains("Design", ws.In(repo2.Root, () => WorkItemsApi.GetStatuses()));
+        Assert.DoesNotContain("Design", ws.In(repo.Root, () => WorkItemsApi.GetStatuses()));   // only the project picked
+        Assert.Equal(1, board.FindAll(".proj")[0].QuerySelectorAll("section.col").Count(c => c.GetAttribute("data-key") == "Design"));   // the other shows it empty
+
+        // "All projects": every project that lacks it gets it
+        board.Find(".head-row > button.add-col").Click();
+        overlays.WaitForAssertion(() => Assert.Equal(3, overlays.FindAll(".dialog .choice").Count));
+        overlays.FindAll(".dialog .choice").Single(c => c.TextContent.Trim() == "All projects").Click();
+        overlays.WaitForAssertion(() => Assert.Contains("New status", overlays.Find(".dialog").TextContent));
+        overlays.Find(".dialog input").Input("Design");   // repo2 has it already: only repo gets it
+        overlays.Find(".dialog button.primary").Click();
+
+        board.WaitForAssertion(() => Assert.Contains("Design", ws.In(repo.Root, () => WorkItemsApi.GetStatuses())));
+        Assert.Single(ws.In(repo2.Root, () => WorkItemsApi.GetStatuses()), "Design");
+    }
+
+    [Fact(DisplayName = "A status name that exists already is refused")]
+    public async Task AddStatusRefusesAnExistingName()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("button.add-col")));
+
+        board.Find("button.add-col").Click();
+        overlays!.WaitForAssertion(() => overlays.Find(".dialog input").Input("Planned"));
+        overlays.Find(".dialog button.primary").Click();
+
+        overlays.WaitForAssertion(() => Assert.Contains("already", overlays.Find(".toast").TextContent));
+        Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"], Columns(board));
+        Assert.Equal(WorkItemsApi.Statuses, WorkItemsApi.GetStatuses());
+        Assert.DoesNotContain("statuses:", repo.Read("openspec/config.yaml"));   // nothing was written
+
+        // spelling counts: "planned" is another status than "Planned" (the board can merge the two)
+        board.Find("button.add-col").Click();
+        overlays.WaitForAssertion(() => overlays.Find(".dialog input").Input("planned"));
+        overlays.Find(".dialog button.primary").Click();
+        board.WaitForAssertion(() => Assert.Contains("planned", Columns(board)));
+    }
+
+    // ---- card-dates chunk ----
+
+    private static readonly DateTime AgentWrote = new(2026, 10, 30, 9, 0, 0);
+
+    private static FakeTimeProvider ClockAt(TimeSpan after) => new(new DateTimeOffset(AgentWrote + after, TimeSpan.Zero));
+
+    private static bool HasCard(AngleSharp.Dom.IElement cell, int id) => cell.QuerySelectorAll("article.card").Any(c => c.GetAttribute("data-id") == id.ToString());
+
+    [Fact(DisplayName = "A card shows no id pill and no agent badge")]
+    public async Task CardShowsNoIdPillAndNoAgentBadge()
+    {
+        EditingWorkItemsTests.StampAgent(repo);   // Claude wrote #123 at 09:00 on 30 Oct, unreviewed
+        await using BunitContext ctx = NewContext(ClockAt(TimeSpan.FromMinutes(3)));
+        WorkItem item = WorkItemsApi.Get(123)! with { AgentBy = "Claude", AgentAt = AgentWrote, ReviewedAt = null };
+        IRenderedComponent<WorkItemCard> card = ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, item).Add(c => c.Options, new BoardOptions()));
+
+        Assert.DoesNotContain("#wi", card.Markup);
+        Assert.DoesNotContain("min ago", card.Markup);
+        Assert.Empty(card.FindAll(".agent-badge"));
+        Assert.Equal("123", card.Find("article.card").GetAttribute("data-id"));   // the id is still how the board finds the card
+
+        // the list row leaves the badge out too: it squeezed the title down to a letter in a 1280 px window
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.Equal("Health-check endpoint", board.Find("tr[data-id='123'] .row-title").TextContent.Trim()));
+        Assert.DoesNotContain("min ago", board.Find("tr[data-id='123']").TextContent);
+        Assert.Empty(board.FindAll(".agent-badge"));
+    }
+
+    [Fact(DisplayName = "A card's dates are one period: 9–16 Nov, across months and years, from or due alone")]
+    public async Task CardDatesAreOnePeriod()
+    {
+        FakeTimeProvider time = new(new DateTimeOffset(2026, 11, 16, 12, 0, 0, TimeSpan.Zero));
+        await using BunitContext ctx = NewContext(time);
+        WorkItem item = WorkItemsApi.Get(123)! with { Archived = false, Started = null, Due = null };
+        IRenderedComponent<WorkItemCard> Card(WorkItem i, bool compact = false) => ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, i).Add(c => c.Options, new BoardOptions(Compact: compact)));
+        string? Pill(WorkItem i, bool compact = false) => Card(i, compact).FindAll(".tags .tag.dates").SingleOrDefault()?.TextContent.Trim();
+        static DateOnly D(int y, int m, int d) => new(y, m, d);
+
+        Assert.Equal("9–16 Nov", Pill(item with { Started = D(2026, 11, 9), Due = D(2026, 11, 16) }));
+        Assert.Equal("28 Oct – 3 Nov", Pill(item with { Started = D(2026, 10, 28), Due = D(2026, 11, 3) }));
+        Assert.Equal("9 Nov 25 – 3 Jan 26", Pill(item with { Started = D(2025, 11, 9), Due = D(2026, 1, 3) }));
+        Assert.Equal("16 Nov", Pill(item with { Started = D(2026, 11, 16), Due = D(2026, 11, 16) }));   // one day
+        Assert.Equal("from 9 Nov", Pill(item with { Started = D(2026, 11, 9) }));
+        Assert.Equal("due 16 Nov", Pill(item with { Due = D(2026, 11, 16) }));
+        Assert.Null(Pill(item));
+        Assert.Null(Pill(item with { Started = D(2026, 11, 9), Due = D(2026, 11, 16) }, compact: true));
+
+        // overdue: the pill wears the due colour once the due day is past (the day itself is not), and not when archived or only started
+        WorkItem week = item with { Started = D(2026, 11, 9), Due = D(2026, 11, 16) };
+        Assert.DoesNotContain("overdue", Card(week).Find(".tags .tag.dates").ClassName);   // due today
+        time.Advance(TimeSpan.FromDays(1));
+        Assert.Contains("overdue hot", Card(week).Find(".tags .tag.dates").ClassName);
+        Assert.Contains("overdue hot", Card(item with { Due = D(2026, 11, 16) }).Find(".tags .tag.dates").ClassName);
+        Assert.DoesNotContain("overdue", Card(week with { Archived = true }).Find(".tags .tag.dates").ClassName);
+        Assert.DoesNotContain("overdue", Card(item with { Started = D(2026, 11, 9) }).Find(".tags .tag.dates").ClassName);
+    }
+
+    [Fact(DisplayName = "The modified time reads 15:34. 16 Nov 26 on the card and in the list's Updated column")]
+    public async Task ModifiedReadsTimeThenDay()
+    {
+        string folder = "openspec/changes/add-health-check/";
+        repo.Write(folder + "events.log", "2026-11-16T15:34:00 | Artyom | priority | low -> high\n");   // the newest change: what Updated shows
+        repo.Write(folder + ".openspec.yaml", repo.Read(folder + ".openspec.yaml").TrimEnd() + "\n  started: 2026-11-09\n  due: 2026-11-16\n");
+        await using BunitContext ctx = NewContext();
+
+        WorkItem item = WorkItemsApi.Get(123)!;
+        Assert.Equal(new DateTime(2026, 11, 16, 15, 34, 0), item.Modified);
+        IRenderedComponent<WorkItemCard> card = ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, item).Add(c => c.Options, new BoardOptions()));
+        Assert.StartsWith("15:34. 16 Nov 26", card.Find(".meta-row").TextContent.Trim());
+        Assert.StartsWith("09:05. 3 Jan 26", ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, item with { Modified = new DateTime(2026, 1, 3, 9, 5, 0) }).Add(c => c.Options, new BoardOptions())).Find(".meta-row").TextContent.Trim());   // zero-padded hour, plain day
+
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id='123']")));
+        List<string> cells = board.Find("tr[data-id='123']").QuerySelectorAll("td").Select(c => c.TextContent.Trim()).ToList();
+        int updated = cells.IndexOf("15:34. 16 Nov 26"), started = cells.IndexOf("9 Nov"), due = cells.IndexOf("16 Nov");
+        Assert.True(updated >= 0 && started > updated && due > started, string.Join(" | ", cells));   // Updated, then Started and Due in their own columns, in the short form
+    }
+
+    // ---- menu2 chunk ----
+
+    private IElement FeedPill(string name) => nav!.FindAll(".nav-worklog button.nav-pill").Single(b => b.TextContent.Trim() == name);
+    private string[] FeedPillsOn() => [.. nav!.FindAll(".nav-worklog button.nav-pill").Where(b => b.GetAttribute("aria-pressed") == "true").Select(b => b.TextContent.Trim())];
+
+    [Fact(DisplayName = "With every feed filter on, clicking one shows only that kind, and later clicks add kinds")]
+    public async Task FeedFilterClickIsSoloThenAdditive()
+    {
+        await using BunitContext ctx = NewContext();
+        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
+        ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        nav!.Find("button.nav-toggle").Click();
+        IRenderedComponent<Worklog> log = OpenWorklog(ctx);
+        nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-worklog")));
+        Assert.Equal(7, FeedPillsOn().Length);
+        Assert.Empty(nav.FindAll(".nav-worklog .nav-feed-all"));   // nothing to restore while everything is on
+
+        // every kind on: a click on one shows only that kind
+        FeedPill("Notes").Click();
+        Assert.Equal(["Notes"], FeedPillsOn());
+        Assert.Equal(new WorklogFilters(Notes: true, Decisions: false, Events: false, Links: false, Subtasks: false, Edits: false, Bugs: false), ui.WorklogFilter);
+        log.WaitForAssertion(() => Assert.All(log.FindAll(".wk-day .wk-e"), e => Assert.Equal("note", e.GetAttribute("data-kind"))));
+
+        // not all on: a click adds the kind, a second click takes it out again
+        FeedPill("Bugs").Click();
+        Assert.Equal(["Notes", "Bugs"], FeedPillsOn());
+        FeedPill("Notes").Click();
+        Assert.Equal(["Bugs"], FeedPillsOn());
+
+        // the last one off brings every kind back: never an empty feed
+        FeedPill("Bugs").Click();
+        Assert.Equal(7, FeedPillsOn().Length);
+        Assert.Equal(new WorklogFilters(), ui.WorklogFilter);
+
+        // the small "all" link restores everything at once, and keeps who
+        FeedPill("Events").Click();
+        FeedPill("Links").Click();
+        Assert.Equal(["Events", "Links"], FeedPillsOn());
+        nav.Find(".nav-worklog .nav-feed-all").Click();
+        Assert.Equal(new WorklogFilters(), ui.WorklogFilter);
+        Assert.Empty(nav.FindAll(".nav-worklog .nav-feed-all"));
+    }
+
+    private static string SubtaskRowNumbers(IEnumerable<IElement> rows) => string.Join(",", rows.Select(r => r.GetAttribute("data-sub")));
+
+    /// <summary>The board with the menu expanded and the fixture item #wi123 (two done and two open subtasks) examined.</summary>
+    private BunitContext ExamineFixtureItem(out IRenderedComponent<BoardPage> board, out UiService ui)
+    {
+        BunitContext ctx = NewContext();
+        board = ctx.Render<BoardPage>();
+        ui = ctx.Services.GetRequiredService<UiService>();
+        nav!.Find("button.nav-toggle").Click();
+        CardOf(board, 123).Click();
+        nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".examine")));
+        return ctx;
+    }
+
+    [Fact(DisplayName = "The examine panel lists the examined item's subtasks")]
+    public async Task ExaminePanelListsSubtasks()
+    {
+        await using BunitContext ctx = ExamineFixtureItem(out _, out _);
+
+        // the open ones are rows with their numbers, under their group; the done ones are folded behind a count
+        Assert.Equal("1.3,2.1", SubtaskRowNumbers(nav!.FindAll(".examine .ex-sub")));
+        Assert.Contains("Ping test in suite 543", nav.Find(".examine .ex-sub[data-sub='1.3']").TextContent);
+        Assert.Equal("1.3", nav.Find(".examine .ex-sub[data-sub='1.3'] .ex-num").TextContent.Trim());
+        Assert.Contains("Endpoint", nav.Find(".examine .ex-sub-group").TextContent);
+        Assert.Equal("2 done", nav.Find(".examine .ex-sub-folded").TextContent.Trim());
+        Assert.Empty(nav.FindAll(".examine .ex-sub[data-done]"));
+
+        nav.Find(".examine .ex-sub-folded").Click();
+        Assert.Equal("1.1,1.2,1.3,2.1", SubtaskRowNumbers(nav.FindAll(".examine .ex-sub")));
+        Assert.Equal(2, nav.FindAll(".examine .ex-sub[data-done]").Count);
+
+        // the unit switch is no longer in Filters: the examine panel is where subtasks are looked at
+        nav.Find(".examine button.ex-done").Click();
+        nav.WaitForAssertion(() => Assert.Empty(nav.FindAll(".examine")));
+        nav.Find("button[data-sec=filters]").Click();
+        Assert.Empty(nav.FindAll("input[name=unit]"));
+    }
+
+    [Fact(DisplayName = "The board's subtask view stays reachable from the examine panel, and Filters offers the way back to work items while it is on")]
+    public async Task SubtaskUnitReachableFromExaminePanel()
+    {
+        await using BunitContext ctx = ExamineFixtureItem(out IRenderedComponent<BoardPage> board, out _);
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+
+        nav!.Find(".examine button.ex-all-subtasks").Click();
+        Assert.Equal("subtasks", settings.Board(repo.Root).Unit);
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("article.subcard")));
+
+        nav.Find(".examine button.ex-done").Click();
+        nav.WaitForAssertion(() => Assert.Empty(nav.FindAll(".examine")));
+        nav.WaitForAssertion(() => Assert.Equal("true", Section("filters").GetAttribute("aria-expanded")));   // the test menu starts with Filters open
+        nav.Find("input[name=unit][value=tasks]").Change("tasks");
+        Assert.Equal("tasks", settings.Board(repo.Root).Unit);
+    }
+
+    [Fact(DisplayName = "Clicking a subtask in the examine panel asks whether to make it a work item of its own or one this item waits on, and does it")]
+    public async Task ClickingAnExamineSubtaskAsksAndSplits()
+    {
+        await using BunitContext ctx = ExamineFixtureItem(out _, out UiService ui);
+        int before = WorkItemsApi.GetAll(includeHidden: true).Count;
+
+        // The click, found and sent in one dispatcher turn. The returned task ends when the panel's handler has, which is after the dialog is answered and the panel has
+        // rendered again: awaiting it after the answer is what makes the next Find see the new render (a Find from before it holds a replaced handler).
+        Task ClickSubtask(string number) => nav!.InvokeAsync(() => nav.Find($".examine .ex-sub[data-sub='{number}']").ClickAsync(new()));
+
+        // a click asks; Cancel changes nothing
+        Task asked = ClickSubtask("2.1");
+        nav.WaitForAssertion(() => Assert.NotNull(ui.Dialog));
+        Assert.Equal(["own", "dep"], ui.Dialog!.Choices!.Select(c => c.Value));
+        Assert.Equal("Make it a work item of its own", ui.Dialog.Choices![0].Label);
+        Assert.Equal("Make it a work item this one waits on", ui.Dialog.Choices[1].Label);
+        Assert.Contains("Hide internals", ui.Dialog.Text);
+        ui.Close(null);
+        await asked;
+        Assert.Equal(before, WorkItemsApi.GetAll(includeHidden: true).Count);
+        Assert.Contains("2.1", SubtaskRowNumbers(nav.FindAll(".examine .ex-sub")));
+
+        // "of its own": the subtask leaves this item and becomes one, logged on both
+        asked = ClickSubtask("2.1");
+        nav.WaitForAssertion(() => Assert.NotNull(ui.Dialog));
+        ui.Close("own");
+        await asked;
+        nav.WaitForAssertion(() => Assert.DoesNotContain("2.1", SubtaskRowNumbers(nav.FindAll(".examine .ex-sub"))));
+        Assert.Equal(before + 1, WorkItemsApi.GetAll(includeHidden: true).Count);
+        WorkItem made = WorkItemsApi.GetAll(includeHidden: true).Single(w => w.Title == "Hide internals from anonymous callers");
+        Assert.DoesNotContain(made.Id, WorkItemsApi.Get(123)!.DependsOn ?? []);
+        Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "subtask-moved");
+
+        // "this one waits on": the new item is a dependency of the examined one
+        asked = ClickSubtask("1.3");
+        nav.WaitForAssertion(() => Assert.NotNull(ui.Dialog));
+        ui.Close("dep");
+        await asked;
+        nav.WaitForAssertion(() => Assert.DoesNotContain("1.3", SubtaskRowNumbers(nav.FindAll(".examine .ex-sub"))));
+        WorkItem examined = WorkItemsApi.Get(123)!;
+        Assert.Single(examined.DependsOn!.Where(d => WorkItemsApi.Get(d)?.Title == "Ping test in suite 543"));
+        Assert.Equal("Blocked", examined.Status);
+    }
+
+    [Fact(DisplayName = "Starting to drag a subtask in the examine panel asks the same question")]
+    public async Task DraggingAnExamineSubtaskAsks()
+    {
+        await using BunitContext ctx = ExamineFixtureItem(out _, out UiService ui);
+
+        Assert.Equal("true", nav!.Find(".examine .ex-sub[data-sub='2.1']").GetAttribute("draggable"));
+        nav.Find(".examine .ex-sub[data-sub='2.1']").DragStart();
+        nav.WaitForAssertion(() => Assert.NotNull(ui.Dialog?.Choices));
+        ui.Close(null);
+    }
+
+    [Fact(DisplayName = "New work item is a filled red button and the menu's buttons share one edge and height")]
+    public async Task NewWorkItemIsFilledRedAndMenuRowsAlign()
+    {
+        await using BunitContext ctx = NewContext();
+        ctx.Render<BoardPage>();
+        nav!.Find("button.nav-toggle").Click();
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+
+        // filled, not outlined: the --alert fill, the text on it, a darker fill when pointed at; the same button on the collapsed rail
+        string rule = System.Text.RegularExpressions.Regex.Matches(css, @"\.nav-btn\.nav-new \{(?<b>[^}]*)\}").Select(m => m.Groups["b"].Value).First();
+        Assert.Contains("background: var(--alert)", rule);
+        Assert.Contains("color: var(--on-alert)", rule);
+        Assert.Contains("--on-alert:", css);
+        Assert.Matches(@"\.nav-btn\.nav-new:hover \{[^}]*(brightness|color-mix)", css);
+
+        // one geometry for every pressable row: view switcher, New work item, section headers, Settings and Add entry share height, padding and radius
+        string shared = System.Text.RegularExpressions.Regex.Match(css, @"(?<sel>[^{}]*\.nav-sec-h[^{}]*) \{(?<b>[^}]*min-height: 32px[^}]*)\}").Value;
+        Assert.NotEmpty(shared);
+        Assert.Contains(".nav-btn", shared);
+        Assert.Contains(".nav-add", shared);
+        Assert.Contains("padding-inline:", shared);
+        Assert.Contains("border-radius: 10px", shared);
+
+        // in the markup every row leads with its icon (the section headers with the chevron), so the icons sit in one column
+        Assert.All(nav.FindAll("nav.side .nav-btn, nav.side .nav-add, nav.side .nav-sec-h"), b => Assert.NotNull(b.QuerySelector(":scope > svg, :scope > .nav-sec-chev > svg")));
+    }
+
+    // ---- git-deltas chunk ----
+
+    /// <summary>Makes the test repository a git repository with two commits (the fixture, then an edit of #wi107) and one uncommitted edit (#wi123). Call before NewContext.</summary>
+    private (string First, string Second) MakeGitHistory()
+    {
+        TempGit.Init(repo.Root);
+        TempGit.Commit(repo.Root, "2026-11-01T10:00:00+00:00", "Add the fixture");
+        repo.Write("openspec/changes/export-remittances/proposal.md", repo.Read("openspec/changes/export-remittances/proposal.md") + "\nA second line.\n");
+        TempGit.Commit(repo.Root, "2026-11-02T10:00:00+00:00", "Reword the export");
+        repo.Write("openspec/changes/add-health-check/proposal.md", repo.Read("openspec/changes/add-health-check/proposal.md") + "\nNot committed yet.\n");
+        string[] hashes = [.. TempGit.Run(repo.Root, null, "log", "--format=%h").Split('\n', StringSplitOptions.RemoveEmptyEntries)];
+        return (hashes[1].Trim(), hashes[0].Trim());
+    }
+
+    private static List<string> CardIds(IRenderedComponent<BoardPage> board) => [.. board.FindAll("article.card").Select(c => c.GetAttribute("data-id")!).Order()];
+
+    [Fact(DisplayName = "An item with uncommitted changes carries the marker")]
+    public async Task UncommittedItemCarriesTheMarker()
+    {
+        MakeGitHistory();
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.True(board.FindAll("article.card").Count > 2));
+
+        // while no commit is chosen: a small dot on the card of the one item whose files are not committed, none on the others
+        IElement dot = board.Find("article.card .dirty-dot");
+        Assert.Equal("123", dot.Closest("article.card")!.GetAttribute("data-id"));
+        Assert.Equal("Uncommitted changes", dot.GetAttribute("title"));
+        Assert.Single(board.FindAll(".dirty-dot"));
+
+        // choosing "uncommitted" filters instead of marking
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Commit = "uncommitted" });
+        board.WaitForAssertion(() => Assert.Equal(["123"], CardIds(board)));
+        Assert.Empty(board.FindAll(".dirty-dot"));
+    }
+
+    [Fact(DisplayName = "The Filters section offers any, uncommitted and the recent commits, and choosing one filters the board")]
+    public async Task CommitSelectorFiltersTheBoard()
+    {
+        (string first, string second) = MakeGitHistory();
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.True(board.FindAll("article.card").Count > 2));
+        nav!.Find("button.nav-toggle").Click();
+
+        Assert.Contains("is-off", NavDropdown("commit").ClassList);   // grey while it is any
+        NavDropdown("commit").Click();
+        IEnumerable<IElement> Items() => nav.FindAll(".nav-view .field").First(f => f.QuerySelector("label")!.TextContent.Trim() == "commit").QuerySelectorAll(".rz-dropdown-item");
+        nav.WaitForAssertion(() => Assert.Equal(4, Items().Count()));
+        List<string> options = [.. Items().Select(i => i.TextContent.Trim())];
+        Assert.Equal(["any", "uncommitted"], options[..2]);
+        Assert.StartsWith(second + " Reword the export", options[2]);   // newest first, each with its short hash and subject
+        Assert.StartsWith(first + " Add the fixture", options[3]);
+
+        Items().First(i => i.TextContent.Contains("Reword the export")).Click();
+        board.WaitForAssertion(() => Assert.Equal(["107"], CardIds(board)));
+        Assert.Equal(second, settings.Board(repo.Root).Commit);       // saved with the board's other options
+        nav.WaitForAssertion(() => Assert.Contains("is-on", NavDropdown("commit").ClassList));
+        Assert.Empty(board.FindAll(".dirty-dot"));
+
+        Section("filters").Click();   // fold the section (the test menu starts with it open): its header says which commit
+        Assert.True(SectionBody("filters").HasAttribute("hidden"));
+        nav.WaitForAssertion(() => Assert.Equal("Filters · commit: " + second, Flat(Section("filters"))));
+
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Commit = "any" });
+        board.WaitForAssertion(() => Assert.True(CardIds(board).Count > 2));
+    }
+
+    // ---- arrows chunk ----
+
+    [Fact(DisplayName = "Arrow up in the list swaps the selected row within its subgroup, then crosses into the subgroup above, then into the group above; arrow down brings it back")]
+    public async Task ArrowKeysMoveListRowsThroughSubgroups()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        int New(string status, string priority) { int id = workspace.CreateItem(status).Id; WorkItemsApi.SetPriority(id, priority); return id; }
+        int high = New("Confirmed", "high"), lowA = New("Confirmed", "low"), lowB = New("Confirmed", "low");   // Confirmed is empty in the sample repository
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ListSwimlane = "priority", SortBy = "id" });   // groups by status, subgroups by priority, in a fixed order
+
+        List<int> Seq() => [.. board.FindAll("tr[data-id]").Select(r => int.Parse(r.GetAttribute("data-id")!))];
+        bool IsHigh(int id) => WorkItemsApi.Get(id)!.Priority == "high";
+        List<int> Cell(string status, bool high) => [.. Seq().Where(id => WorkItemsApi.Get(id)!.Status == status && IsHigh(id) == high)];
+        string Selected() => string.Join(",", board.FindAll("tr[data-id]").Where(r => RowMarkProbe.Selected(board, r)).Select(r => r.GetAttribute("data-id")));
+        async Task Press(string key) { await board.InvokeAsync(() => { }); board.Find(".tbl-wrap").KeyDown(key); }
+        board.WaitForAssertion(() => Assert.Equal([lowA, lowB], Cell("Confirmed", high: false)));
+        Assert.Equal([high], Cell("Confirmed", high: true));
+        board.Find($"tr[data-id='{lowB}'] td.num").Click(new MouseEventArgs { ShiftKey = true });
+        board.WaitForAssertion(() => Assert.Equal($"{lowB}", Selected()));
+
+        // inside its subgroup the row swaps with the one above it; the sort becomes my order, as a drag does
+        await Press("ArrowUp");
+        board.WaitForAssertion(() => Assert.Equal([lowB, lowA], Cell("Confirmed", high: false)));
+        Assert.Equal("manual", settings.Board(repo.Root).SortBy);
+        Assert.Equal($"{lowB}", Selected());
+
+        // at the top of its subgroup the next press moves it to the end of the subgroup above: its priority changes
+        await Press("ArrowUp");
+        board.WaitForAssertion(() => Assert.Equal([high, lowB], Cell("Confirmed", high: true)));
+        Assert.Equal([lowA], Cell("Confirmed", high: false));
+        Assert.Equal($"{lowB}", Selected());
+        await Press("ArrowUp");
+        board.WaitForAssertion(() => Assert.Equal([lowB, high], Cell("Confirmed", high: true)));
+
+        // at the top of the group's first subgroup the next press moves it to the end of the group above
+        await Press("ArrowUp");
+        board.WaitForAssertion(() => Assert.Equal("Planned", WorkItemsApi.Get(lowB)!.Status));
+        board.WaitForAssertion(() => Assert.Equal(lowB, Seq().Where(id => WorkItemsApi.Get(id)!.Status == "Planned").Last()));
+        List<int> planned = [.. Seq().Where(id => WorkItemsApi.Get(id)!.Status == "Planned")];
+        if (planned.Count > 1) Assert.Equal(IsHigh(planned[^2]), IsHigh(lowB));   // it entered that group's last subgroup
+        Assert.Equal($"{lowB}", Selected());
+
+        // arrow down from the bottom edge enters the group below at the start of its first subgroup
+        await Press("ArrowDown");
+        board.WaitForAssertion(() => Assert.Equal("Confirmed", WorkItemsApi.Get(lowB)!.Status));
+        board.WaitForAssertion(() => Assert.Equal([lowB, high], Cell("Confirmed", high: true)));
+        Assert.Equal($"{lowB}", Selected());
+    }
+
+    [Fact(DisplayName = "Arrow keys on the board move a selected card one place per press and keep it selected, within its row's cell, then into the row above, and sideways into the next column's cell")]
+    public async Task ArrowKeysOnTheBoardMoveOnePlacePerPress()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        int New(string priority) { int id = workspace.CreateItem("Confirmed").Id; WorkItemsApi.SetPriority(id, priority); return id; }
+        int high = New("high"), lowA = New("low"), lowB = New("low");   // Confirmed is empty in the sample repository
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Swimlane = "priority", SortBy = "id" });
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+
+        List<int> Cell(string row, string column) => [.. board.FindAll($".cat-cols.swim[data-swim='{row}'] section.col[data-cell='{column}'] article.card").Select(c => int.Parse(c.GetAttribute("data-id")!))];
+        List<int> Selected() => [.. board.FindAll("article.card.selected").Select(c => int.Parse(c.GetAttribute("data-id")!))];
+        async Task Press(string key) { await board.InvokeAsync(() => { }); board.Find(".board-wrap").KeyDown(key); }
+        board.WaitForAssertion(() => Assert.Equal([lowA, lowB], Cell("low", "Confirmed")));
+        board.Find($"article.card[data-id='{lowB}']").Click(new MouseEventArgs { ShiftKey = true });
+        board.WaitForAssertion(() => Assert.Equal([lowB], Selected()));
+
+        // one place per press, in the cell the card is in: the other row's cards do not count as neighbours
+        await Press("ArrowUp");
+        board.WaitForAssertion(() => Assert.Equal([lowB, lowA], Cell("low", "Confirmed")));
+        Assert.Equal([lowB], Selected());
+        // at the top of its cell it enters the row above, at the end of that cell
+        await Press("ArrowUp");
+        board.WaitForAssertion(() => Assert.Equal([high, lowB], Cell("high", "Confirmed")));
+        Assert.Equal([lowA], Cell("low", "Confirmed"));
+        Assert.Equal([lowB], Selected());
+        await Press("ArrowUp");
+        board.WaitForAssertion(() => Assert.Equal([lowB, high], Cell("high", "Confirmed")));
+        // the first row has nothing above: the card stays
+        await Press("ArrowUp");
+        await board.InvokeAsync(() => { });
+        Assert.Equal([lowB, high], Cell("high", "Confirmed"));
+        Assert.Equal([lowB], Selected());
+
+        // sideways it goes to the next column, in the same row, and back at the same height
+        await Press("ArrowRight");
+        board.WaitForAssertion(() => Assert.Equal([lowB], Cell("high", "In Progress").Where(id => id == lowB).ToList()));
+        Assert.Equal("In Progress", WorkItemsApi.Get(lowB)!.Status);
+        Assert.Equal("high", WorkItemsApi.Get(lowB)!.Priority);
+        await Press("ArrowLeft");
+        board.WaitForAssertion(() => Assert.Equal([lowB, high], Cell("high", "Confirmed")));
+        Assert.Equal([lowB], Selected());
+    }
+
+    [Fact(DisplayName = "After an arrow move app.js scrolls the moved card or row into view once the board has re-rendered, clear of the sticky header and the action bar")]
+    public void ArrowMoveKeepsTheSelectionInView()
+    {
+        string js = AppJs();
+        Assert.Contains("function _reveal(", js);
+        Assert.Matches(@"_follow\s*=\s*\{[^}]*e\.key", js);   // the arrow key handler asks for it, with the direction
+        Assert.Contains("_reveal(", js[js.IndexOf("new MutationObserver((records)")..]);   // and the re-render's observer does it
+        string reveal = js[js.IndexOf("function _reveal(")..];
+        reveal = reveal[..reveal.IndexOf("\n}")];
+        Assert.Contains(".actionbar", reveal);
+        Assert.Contains("thead th", reveal);   // the cells of the header stay stuck, the thead itself scrolls away
+    }
+
+    // ---- render cost of a click in the list (#wi179) ----
+
+    /// <summary>The fixture plus <paramref name="extra"/> created items, the menu expanded through its toggle, the list shown and settled.</summary>
+    private async Task<IRenderedComponent<BoardPage>> ListWithItems(BunitContext ctx, int extra)
+    {
+        for (int i = 0; i < extra; i++) WorkItemsApi.Create("Row " + i);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        ShowList();
+        nav!.Find("button.nav-toggle").Click();
+        board.WaitForAssertion(() => Assert.True(board.FindAll("tr[data-id]").Count >= extra));
+        await board.InvokeAsync(() => { });
+        return board;
+    }
+
+    [Fact(DisplayName = "A background click with nothing selected does not render the list")]
+    public async Task BackgroundClickWithNothingSelectedDoesNotRender()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = await ListWithItems(ctx, 20);
+        int before = board.Instance.RowRenders;
+
+        await board.InvokeAsync(() => board.Find(".tbl-wrap").Click());
+        await board.InvokeAsync(() => { });
+
+        Assert.Equal(0, board.Instance.RowRenders - before);
+
+        // with an item examined the same click lets go of it, and that is a render
+        await board.InvokeAsync(() => ctx.Services.GetRequiredService<UiService>().Examine((repo.Root, 123)));   // not by a click: bUnit does not bubble it to the wrapper, so the wrapper would not have reset itemClicked
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.Examined(board, board.FindAll("tr[data-id]").First(r => r.GetAttribute("data-id") == "123"))));
+        await board.InvokeAsync(() => board.Find(".tbl-wrap").Click());
+        board.WaitForAssertion(() => Assert.False(RowMarkProbe.Examined(board, board.FindAll("tr[data-id]").First(r => r.GetAttribute("data-id") == "123"))));
     }
 }

@@ -1,0 +1,77 @@
+@namespace TaskManager.Components.Pages
+@* A list cell's status, label or priority: a plain filled button, as the read-only Pill is. A click, or Enter / Space, opens ONE picker (a Menu) in
+   this cell only, so the list never carries a RadzenDropDown per cell and opening a picker renders this cell, not the grid. The Menu's backdrop
+   covers the page while it is open, so a second picker cannot open before the first one closed. A Shift / Ctrl / ⌘-click is the row's select click. *@
+<span style="display:contents" @onclick="Taken">   @* every plain click in the cell (the button, the picker, its backdrop) is the pill's, and not the row's *@
+@if (open)
+{
+    <Menu Label="@Kind" OpenAtOnce="true" OnClosed="Closed">
+        <Activator>@Button</Activator>
+        <Items>
+            @foreach ((string v, string label) in Pill.OptionsOf(Kind, Statuses))
+            {
+                <MenuItem OnClick="() => ValueChanged.InvokeAsync(v)" Class="@(v == Value ? "cur" : "")"><i class="sw-dot" style="background:var(@Pill.ColourOf(Kind)(v))"></i><span>@label</span></MenuItem>
+            }
+        </Items>
+    </Menu>
+}
+else { @Button }
+</span>
+
+@code {
+    /// <summary>status, label or priority.</summary>
+    [Parameter, EditorRequired] public string Kind { get; set; } = "status";
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    /// <summary>The statuses to offer (a status pill): the project of the item shown.</summary>
+    [Parameter] public IReadOnlyList<string>? Statuses { get; set; }
+
+    /// <summary>Called for a plain click that reached the pill's cell, before it bubbles on to the row (which must not take it as its own). A plain Action: it renders nobody.</summary>
+    [Parameter] public Action? Pressed { get; set; }
+
+    private void Taken(MouseEventArgs e)
+    {
+        if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) Pressed?.Invoke();
+    }
+
+    private bool open, force;
+    private string? shownKind, shownValue;
+    private IReadOnlyList<string>? shownStatuses;
+
+    private RenderFragment Button => __builder =>
+    {
+        <button type="button" class="box cell filled pick" data-sk data-pill="@Kind" style="@Pill.FillOf(Kind, Value)" aria-haspopup="menu" aria-label="@Kind"
+                @onclick="Click" @onkeydown="Key">@Pill.TextOf(Kind, Value, Statuses)</button>
+    };
+
+    private void Click(MouseEventArgs e)
+    {
+        if (e.ShiftKey || e.CtrlKey || e.MetaKey) return;   // the row's select click
+        Open();
+    }
+
+    /// <summary>Enter / Space on the focused pill. The browser's own click for them reaches <see cref="Click"/> too, which only opens it again.</summary>
+    private void Key(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or " " && !(e.ShiftKey || e.CtrlKey || e.MetaKey)) Open();
+    }
+
+    private void Open() { open = force = true; }
+
+    private void Closed() { open = false; force = true; StateHasChanged(); }
+
+    // What the first draw shows is what the cell has shown: without this the first parameter set after it (Radzen's second pass over the rows)
+    // finds nothing shown yet and draws every pill a second time.
+    protected override void OnInitialized() => Shown();
+
+    private void Shown() => (force, shownKind, shownValue, shownStatuses) = (false, Kind, Value, Statuses is null ? null : [.. Statuses]);
+
+    // The grid hands every cell fresh callbacks on each of its renders; a cell whose value did not change keeps its markup.
+    protected override bool ShouldRender()
+    {
+        bool changed = force || Kind != shownKind || Value != shownValue
+            || !(ReferenceEquals(Statuses, shownStatuses) || (Statuses is not null && shownStatuses is not null && Statuses.SequenceEqual(shownStatuses)));
+        if (changed) Shown();
+        return changed;
+    }
+}

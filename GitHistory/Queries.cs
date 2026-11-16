@@ -33,28 +33,84 @@ internal static class Queries
         return name;
     }
 
-    internal static IReadOnlyList<CommitInfo> Mentioning(string token)
+    internal static IReadOnlyList<CommitInfo> Mentioning(Func<string, bool> mentions)
     {
         if (!IsRepository()) return [];
-        Regex whole = new($"(?<![\\w#]){Regex.Escape(token)}(?![\\w])");
-        return CurrentLog().Commits.Where(c => whole.IsMatch(c.Info.Subject)).Select(c => c.Info).ToList();
+        return CurrentLog().Commits.Where(c => mentions(c.Info.Subject)).Select(c => c.Info).ToList();
     }
 
     internal static IReadOnlyList<string> AuthorsOfChange(string folder)
     {
         if (!IsRepository()) return [];
-        string head = HeadToken();
-        if (GitHistoryModule.State.Authors is not { } a || a.Head != head)
-        {
-            a = (head, ReadAuthors());
-            GitHistoryModule.State.Authors = a;
-        }
-        return a.ByChange.TryGetValue(ChangeName(folder), out List<string>? authors) ? [.. authors.Select(PersonName).Distinct()] : [];
+        return Changes().Authors.TryGetValue(ChangeName(folder), out List<string>? authors) ? [.. authors.Select(PersonName).Distinct()] : [];
     }
 
-    internal static IReadOnlyList<string> AllAuthors() => People().Names;
+    internal static IReadOnlySet<string> ChangesOf(string commit)
+    {
+        string h = commit.Trim();
+        if (h.Length == 0 || !IsRepository()) return new HashSet<string>();
+        return Changes().Commits.FirstOrDefault(c => c.Full.StartsWith(h, StringComparison.OrdinalIgnoreCase))?.Names ?? (IReadOnlySet<string>)new HashSet<string>();
+    }
 
-    internal static string PersonName(string name) => People().Canonical.GetValueOrDefault(name, name);
+    internal static CommitInfo? LastCommitOf(string folder) =>
+        IsRepository() && Changes().Last.TryGetValue(ChangeName(folder), out CommitInfo? last) ? last : null;
+
+    /// <summary>
+    /// The changes whose files are modified, staged, deleted or new in the work tree. From the host's cache when it installed one (see GitHistoryApi.UseReads),
+    /// which keeps the answer under HEAD, the index and the board's content version (or a fingerprint of the files in openspec/changes); else git is asked now.
+    /// </summary>
+    internal static IReadOnlySet<string> Uncommitted(long? contentVersion)
+    {
+        if (!IsRepository() || GitHistoryModule.RepoRoot is null) return new HashSet<string>();
+        return GitHistoryModule.Reads?.Uncommitted(contentVersion) ?? ReadUncommitted();
+    }
+
+    /// <summary>Git asked now for the changes with files modified, staged, deleted or new in the work tree.</summary>
+    internal static IReadOnlySet<string> ReadUncommitted()
+    {
+        if (!IsRepository()) return new HashSet<string>();
+        HashSet<string> names = [];
+        string[] entries = GitCli.Run("--no-optional-locks", "status", "--porcelain", "-z", "-uall", "--", "openspec/changes").Output.Split('\0', StringSplitOptions.RemoveEmptyEntries);   // no optional locks: reading must not rewrite the index, which the watcher would take for a change
+        for (int i = 0; i < entries.Length; i++)
+        {
+            if (entries[i].Length < 4) continue;
+            if (ChangeOfPath(entries[i][3..]) is string name) names.Add(name);
+            if (entries[i][0] is 'R' or 'C' || entries[i][1] is 'R' or 'C')   // a rename or copy carries its source path as the next entry
+                if (++i < entries.Length && ChangeOfPath(entries[i]) is string from) names.Add(from);
+        }
+        return names;
+    }
+
+    /// <summary>A fingerprint of the files in openspec/changes (path, size, write time: one directory walk, no process) for a cache that has no content version to go by.</summary>
+    internal static long ChangesFingerprint() => GitHistoryModule.RepoRoot is string root ? Fingerprint(Path.Combine(root, "openspec", "changes")) : 0;
+
+    private static long Fingerprint(string changes)
+    {
+        long sum = 0;
+        GitHistoryModule.S.Walks++;
+        if (!Directory.Exists(changes)) return sum;
+        try
+        {
+            foreach (FileInfo f in new DirectoryInfo(changes).EnumerateFiles("*", SearchOption.AllDirectories))
+                sum = unchecked(sum + HashCode.Combine(f.FullName, f.Length, f.LastWriteTimeUtc.Ticks));
+        }
+        catch (IOException) { sum = -System.Diagnostics.Stopwatch.GetTimestamp(); }   // being moved while we look (an archive): a fingerprint no later walk gives
+        catch (UnauthorizedAccessException) { sum = -System.Diagnostics.Stopwatch.GetTimestamp(); }
+        return sum;
+    }
+
+    /// <summary>The change a repo-relative path belongs to (openspec/changes/&lt;name&gt;/… or openspec/changes/archive/&lt;date-name&gt;/…), or null.</summary>
+    private static string? ChangeOfPath(string path)
+    {
+        string[] parts = path.Replace('\\', '/').Split('/');
+        if (parts.Length < 4 || parts[0] != "openspec" || parts[1] != "changes") return null;
+        if (parts[2] == "archive") return parts.Length < 5 ? null : ChangeName(parts[3]);
+        return ChangeName(parts[2]);
+    }
+
+    internal static IReadOnlyList<string> AllAuthors() => IsRepository() ? People().Names : [];
+
+    internal static string PersonName(string name) => IsRepository() ? People().Canonical.GetValueOrDefault(name, name) : name;
 
     /// <summary>
     /// Everyone who committed (all branches). Names equal apart from case and - _ . and emails equal apart from case are
@@ -62,11 +118,13 @@ internal static class Queries
     /// ponytail: unrelated names on unrelated emails (work vs personal account) can't be told apart; a .mailmap merges those.
     /// Keyed on the current branch's HEAD, so a commit on another branch shows after the next local commit or reopen.
     /// </summary>
-    private static (IReadOnlyList<string> Names, Dictionary<string, string> Canonical) People()
+    private static PeopleRead People() => GitHistoryModule.Reads?.People() ?? ReadPeople();
+
+    /// <summary>Everyone who committed, read from git now (see <see cref="People"/>).</summary>
+    internal static PeopleRead ReadPeople()
     {
-        if (!IsRepository()) return ([], []);
+        if (!IsRepository()) return new PeopleRead("", [], []);
         string head = HeadToken();
-        if (GitHistoryModule.State.People is { } cached && cached.Head == head) return (cached.Names, cached.Canonical);
 
         var rows = GitCli.Run("log", "--all", "--format=%aN%x1f%aE").Output.Split('\n')
             .Select(l => l.TrimEnd('\r').Split('\x1f')).Where(p => p.Length == 2 && p[0].Trim().Length > 0)
@@ -95,31 +153,43 @@ internal static class Queries
             foreach ((string name, int _) in person.Names) canonical[name] = main;
         }
         List<string> names = [.. canonical.Values.Distinct().Order(StringComparer.OrdinalIgnoreCase)];
-        GitHistoryModule.State.People = (head, names, canonical);
-        return (names, canonical);
+        return new PeopleRead(head, names, canonical);
     }
 
-    // One "git log --name-only" over openspec/changes: each commit is "\x1e<author>" followed by the files it touched.
-    private static Dictionary<string, List<string>> ReadAuthors()
+    private static ChangeLog Changes() => GitHistoryModule.Reads?.Changes() ?? ReadChanges();
+
+    /// <summary>
+    /// One "git log --name-only" over openspec/changes, read now: each commit is "\x1e" and its author, hashes, subject and date, followed by the files it touched.
+    /// It gives the authors per change, the newest commit per change and the changes each commit touched.
+    /// </summary>
+    internal static ChangeLog ReadChanges()
     {
-        Dictionary<string, List<string>> byChange = [];
-        string? author = null;
-        foreach (string raw in GitCli.Run("log", "--format=%x1e%aN", "--name-only", "--", "openspec/changes").Output.Split('\n'))
+        string head = HeadToken();
+        Dictionary<string, List<string>> authors = [];
+        Dictionary<string, CommitInfo> last = [];
+        List<ChangeCommit> commits = [];
+        ChangeCommit? current = null;
+        foreach (string raw in GitCli.Run("log", "--format=%x1e%aN%x1f%H%x1f%h%x1f%s%x1f%aI", "--name-only", "--", "openspec/changes").Output.Split('\n'))
         {
             string line = raw.TrimEnd('\r');
-            if (line.StartsWith('\x1e')) { author = line[1..]; continue; }
-            string[] parts = line.Split('/');   // openspec/changes/<name>/… or openspec/changes/archive/<date-name>/…
-            if (author is null || parts.Length < 4 || parts[0] != "openspec" || parts[1] != "changes") continue;
-            if (parts[2] == "archive" && parts.Length < 5) continue;
-            string name = ChangeName(parts[2] == "archive" ? parts[3] : parts[2]);
-            List<string> list = byChange.TryGetValue(name, out List<string>? l) ? l : byChange[name] = [];
-            if (!list.Contains(author)) list.Add(author);
+            if (line.StartsWith('\x1e'))
+            {
+                string[] p = line[1..].Split('\x1f');
+                current = p.Length != 5 ? null : new ChangeCommit(p[1], new CommitInfo(p[2], p[3], p[0], DateTime.Parse(p[4], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)), []);
+                if (current is not null) commits.Add(current);
+                continue;
+            }
+            if (current is null || ChangeOfPath(line) is not string name) continue;
+            current.Names.Add(name);
+            List<string> list = authors.TryGetValue(name, out List<string>? l) ? l : authors[name] = [];
+            if (!list.Contains(current.Info.Author)) list.Add(current.Info.Author);
+            last.TryAdd(name, current.Info);   // newest first: the first commit seen for a change is its last
         }
-        return byChange;
+        return new ChangeLog(head, authors, last, commits);
     }
 
     /// <summary>"2026-09-18-session-timeout" (archived) and "session-timeout" are the same change.</summary>
-    private static string ChangeName(string folder) => Regex.Replace(folder, @"^\d{4}-\d{2}-\d{2}-", "");
+    internal static string ChangeName(string folder) => Regex.Replace(folder, @"^\d{4}-\d{2}-\d{2}-", "");
 
     /// <summary>
     /// The commit the current branch points at, read from .git files (no process): HEAD, then the branch's loose ref file,
@@ -129,21 +199,49 @@ internal static class Queries
     internal static string HeadToken()
     {
         if (GitHistoryModule.RepoRoot is not string root) return "";
+        return GitHistoryModule.State.Watcher is { } watcher ? watcher.Head : HeadTokenFromDisk(root);   // a watcher keeps it current: no file read per call
+    }
+
+    /// <summary>The size and write time of the index (it changes when something is staged or committed); from the watcher while one runs.</summary>
+    internal static string IndexStamp()
+    {
+        if (GitHistoryModule.State.Watcher is { } watcher) return watcher.IndexStamp;
+        if (GitHistoryModule.RepoRoot is not string root || GitDirs(root) is not { } dirs) return "";
+        FileInfo f = new(Path.Combine(dirs.GitDir, "index"));
+        return f.Exists ? $"{f.Length}:{f.LastWriteTimeUtc.Ticks}" : "-";
+    }
+
+    /// <summary>The git directory (the .git folder, or the one a linked work tree's .git file points to) and the common one that holds refs, packed-refs and config; null when there is no .git or it is unexpected.</summary>
+    internal static (string GitDir, string Common)? GitDirs(string root)
+    {
+        string dotGit = Path.Combine(root, ".git");
+        string gitDir = dotGit;
         try
         {
-            string dotGit = Path.Combine(root, ".git");
-            string gitDir = dotGit;
             if (File.Exists(dotGit))
             {
                 string pointer = File.ReadAllText(dotGit).Trim();
-                if (!pointer.StartsWith("gitdir: ", StringComparison.Ordinal)) return RevParseHead();
+                if (!pointer.StartsWith("gitdir: ", StringComparison.Ordinal)) return null;
                 gitDir = Path.GetFullPath(pointer[8..], root);
             }
-            else if (!Directory.Exists(dotGit)) return RevParseHead();
+            else if (!Directory.Exists(dotGit)) return null;
 
             string common = gitDir;
             string commonFile = Path.Combine(gitDir, "commondir");
             if (File.Exists(commonFile)) common = Path.GetFullPath(File.ReadAllText(commonFile).Trim(), gitDir);
+            return (gitDir, common);
+        }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+    }
+
+    internal static string HeadTokenFromDisk(string root)
+    {
+        GitHistoryModule.S.HeadReads++;
+        try
+        {
+            if (GitDirs(root) is not { } dirs) return RevParseHead();
+            (string gitDir, string common) = dirs;
 
             string head = File.ReadAllText(Path.Combine(gitDir, "HEAD")).Trim();
             if (!head.StartsWith("ref: ", StringComparison.Ordinal)) return head;
@@ -161,26 +259,18 @@ internal static class Queries
 
     private static string RevParseHead() => GitCli.Run("rev-parse", "HEAD").Output.Trim();
 
-    /// <summary>One commit of the cached log: the full hash is kept to match picked hashes of any length.</summary>
-    internal sealed record LogEntry(string Full, CommitInfo Info);
-
     /// <summary>
-    /// The newest commits of the current branch (at most GitHistoryModule.LogLimit), from one git log per HEAD.
+    /// The newest commits of the current branch (at most GitHistoryModule.LogLimit), from one git log per HEAD (the host's cache when it installed one).
     /// Older commits are not in it: Commits() asks git for those one at a time. Recent and Mentioning only look at the
     /// newest LogLimit commits, which is far more than a board links to.
     /// </summary>
-    private static GitState.CommitLog CurrentLog()
-    {
-        GitState state = GitHistoryModule.State;
-        lock (state)
-        {
-            string head = HeadToken();
-            if (state.Log is { } log && log.Head == head) return log;
-            string output = GitCli.Run("log", Format, $"-{GitHistoryModule.LogLimit}").Output;
-            state.Log = new GitState.CommitLog(head, ParseLog(output), []);
-            return state.Log;
-        }
-    }
+    private static CommitLog CurrentLog() => GitHistoryModule.Reads?.Log() ?? ReadCommitLog();
+
+    /// <summary>The newest commits of the current branch read from git now.</summary>
+    internal static CommitLog ReadCommitLog() => new(HeadToken(), ParseLog(GitCli.Run("log", Format, $"-{GitHistoryModule.LogLimit}").Output));
+
+    /// <summary>One commit looked up by hash, from git now (older than the log, or on another branch); null when git does not know the hash.</summary>
+    internal static CommitInfo? ReadCommit(string hash) => ParseLog(GitCli.Run("show", "-s", Format, hash).Output).FirstOrDefault()?.Info;
 
     internal static IReadOnlyList<CommitInfo> Recent(int count) =>
         IsRepository() ? CurrentLog().Commits.Take(count).Select(c => c.Info).ToList() : [];
@@ -188,7 +278,7 @@ internal static class Queries
     internal static IReadOnlyList<CommitInfo> Commits(IReadOnlyList<string> hashes)
     {
         if (!IsRepository()) return [];
-        GitState.CommitLog log = CurrentLog();
+        CommitLog log = CurrentLog();
         List<CommitInfo> found = [];
         foreach (string hash in hashes)
         {
@@ -196,13 +286,8 @@ internal static class Queries
             if (h.Length == 0) continue;
             LogEntry? hit = log.Commits.FirstOrDefault(c => c.Full.StartsWith(h, StringComparison.OrdinalIgnoreCase));
             if (hit is not null) { found.Add(hit.Info); continue; }
-            lock (GitHistoryModule.State)
-            {
-                // Older than the log (or on another branch): one "git show" per hash, so an unknown hash fails on its own; remembered until HEAD moves.
-                if (!log.Singles.TryGetValue(h, out CommitInfo? single))
-                    log.Singles[h] = single = ParseLog(GitCli.Run("show", "-s", Format, h).Output).FirstOrDefault()?.Info;
-                if (single is not null) found.Add(single);
-            }
+            // Older than the log (or on another branch): one "git show" per hash, so an unknown hash fails on its own.
+            if ((GitHistoryModule.Reads?.Single(h) ?? ReadCommit(h)) is { } single) found.Add(single);
         }
         return found;
     }

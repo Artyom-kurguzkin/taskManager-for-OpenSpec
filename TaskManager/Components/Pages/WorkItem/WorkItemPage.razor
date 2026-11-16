@@ -1,0 +1,577 @@
+@namespace TaskManager.Components.Pages
+@page "/item/{Id:int}"
+@using GitHistory
+@using GitHistory.PublicDTOs
+@using Notes
+@using OpenSpecStore
+@using Notes.PublicDTOs
+@using WorkItems
+@using WorkItems.PublicDTOs
+@inherits RepoPage
+@inject TaskManager.AppState.SettingsStore Settings
+@inject IServiceProvider Services
+
+@if (item is null)
+{
+    <NotFound What="@($"#wi{Id}")">It may have been merged or deleted.</NotFound>
+    return;
+}
+
+<div class="sheet" data-sk="soft">
+    <div class="head">
+        <h2 class="num">#wi@(item.Id)</h2>
+        <input class="title-in hov" data-sk value="@item.Title" aria-label="Title"
+               @onchange="e => Run(WorkItemsApi.SetTitle(item.Id, (string)e.Value!))" />
+        @if (item.Hidden)
+        {
+            <button class="btn ghost hide-item" title="Shows it on the board again" @onclick="() => Run(WorkItemsApi.Unhide(item.Id))">Restore</button>
+        }
+        @if (!Detached)
+        {
+            <Menu Label="Split screen">
+                <Activator><button type="button" class="ic split-btn" aria-label="Split screen" title="Beside the list, item only, or a separate window">⇔</button></Activator>
+                <Items>
+                    <MenuItem Class="@("wide-only" + (Settings.Current.Split ? " cur" : ""))" OnClick="() => Settings.Update(s => s with { Split = true })">Beside the list</MenuItem>
+                    <MenuItem Class="@(Settings.Current.Split ? "" : "cur")" OnClick="() => Settings.Update(s => s with { Split = false })">Item only</MenuItem>
+                    <MenuItem OnClick="OpenSeparateWindow">Separate window</MenuItem>
+                </Items>
+            </Menu>
+            <BackButton />
+        }
+    </div>
+    @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
+    <div class="head kvs">
+        <div class="kv"><label>feature</label>
+            <Dropdown @key="featureKey" Label="feature" Class="mini" Placeholder="no feature" Options="FeatureChoices" Value="@(item.Features.FirstOrDefault()?.Path ?? "")" ValueChanged="SetFeature" />
+        </div>
+        <div class="kv contributors"><label>contributors</label>
+            @* the agent that created or changed the item is a contributor too; while unreviewed its chip is the review control *@
+            @foreach (string p in item.Contributors)
+            {
+                if (IsAgent(p) && item.AgentUnreviewed)
+                {
+                    <button type="button" class="chip agent-contrib unreviewed" title="@AgentChip.TipFor(item.AgentBy, item.AgentAt)" @onclick="ReviewItem">@p</button>
+                }
+                else
+                {
+                    <span class="chip x @(IsAgent(p) ? "agent-contrib" : null)" title="Remove" @onclick="() => Run(WorkItemsApi.SetContributors(item.Id, item.Contributors.Where(x => x != p)))">@p</span>
+                }
+            }
+            @if (!string.IsNullOrWhiteSpace(item.AgentBy) && !item.Contributors.Any(IsAgent))
+            {
+                if (item.AgentUnreviewed)
+                {
+                    <button type="button" class="chip agent-contrib unreviewed" title="@AgentChip.TipFor(item.AgentBy, item.AgentAt)" @onclick="ReviewItem">@item.AgentBy</button>
+                }
+                else
+                {
+                    <span class="chip agent-contrib" title="Agent">@item.AgentBy</span>
+                }
+            }
+            @* known people, or any name typed in the filter *@
+            <PickerMenu TItem="string" Label="Add a contributor" ButtonClass="box dd mini" Boxed Placeholder="Type a name…" Items="PeopleChoices" Text="p => [p]"
+                        OnPick="AddContributor" OnTyped="AddContributor"><ItemTemplate Context="p">@p</ItemTemplate></PickerMenu>
+        </div>
+        <div class="kv status-field"><label>status</label><Pill Kind="status" Value="@item.Status" ReadOnly="item.Archived" ValueChanged="SetStatus" /></div>
+        <div class="kv"><label>priority</label><Pill Kind="priority" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" /></div>
+        <div class="kv"><label>label</label><Pill Kind="label" Value="@(item.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" /></div>
+        @* start and due as one range *@
+        <div class="kv"><label>dates</label><DateRange Start="item.Started" End="item.Due" Changed="SetDates" /></div>
+        <div class="kv moved-field"><label>in @item.Status since</label><span class="chip">@Ui.Day(item.Moved ?? DateOnly.FromDateTime(item.Created))</span></div>
+        @* the newest commit that touched the item's folder, or "uncommitted" while its files are changed or new *@
+        @if (dirty) { <div class="kv last-commit"><label>last commit</label><span class="chip" title="Its files have changes that are not committed yet">uncommitted</span></div> }
+        else if (lastCommit is not null) { <div class="kv last-commit"><label>last commit</label><span class="chip" title="@lastCommit.Subject">@lastCommit.Hash</span></div> }
+    </div>
+    @if (item.Warning is not null) { <p class="warning">@item.Warning</p> }
+
+    @* Two full views under the header; the current one is marked: the worklog (it opens first; the description is its first entry), and the
+       linked tasks (subtasks, what this item waits on, what waits on it, and what is related to it). *@
+    <div class="item-views"><Seg Name="item-view" Options="Views" Value="@view" ValueChanged="SetView" /></div>
+
+    @if (view == "worklog")
+    {
+        @* the worklog reads again on its own, from the workspace's Changed event, like this page: no callback up to Load() *@
+        <Worklog Item="item" Root="@ItemRoot" FocusNote="focusNote" OnOpenSubtask="OpenSubtask" NoteHtml="NoteHtml" />
+    }
+    else
+    {
+        @* The subtasks are the main list (two thirds); what the item waits on, what waits on it and what is related to it are a rail beside it (one third).
+           In a narrow window the rail follows the list below it. *@
+        <div class="view-grid view-linked @(narrow ? "stack" : null)">
+            <section class="tile ln-main" data-tile="subtasks">
+                <div class="tile-h">
+                    <h3>Subtasks</h3>
+                    @if (item.Subtasks.Count > 0) { <span class="count">@item.Subtasks.Count(s => s.Done) of @item.Subtasks.Count done</span> }
+                    <div class="ln-bar" aria-hidden="true"><div style="width:@(item.Subtasks.Count == 0 ? 0 : (int)Math.Round(100.0 * item.Subtasks.Count(s => s.Done) / item.Subtasks.Count))%"></div></div>
+                </div>
+                @* task groups: the ones with open subtasks first, the fully done ones after them, each in file order; a group's done subtasks are folded into "N done" *@
+                @foreach (IGrouping<string, Subtask> g in OrderedSubGroups)
+                {
+                    List<Subtask> open = g.Where(s => !s.Done).ToList(), done = g.Where(s => s.Done).ToList();
+                    bool unfolded = subUnfolded.Contains(g.Key);
+                    <div class="sub-grp">
+                        @* more than one task group (merged items): each has a header with its progress *@
+                        @if (SubGroups.Count > 1)
+                        {
+                            <div class="sub-group"><span class="g-name">@SubGroupName(g.Key)</span><span class="g-prog mono">@done.Count / @g.Count()</span></div>
+                        }
+                        @foreach (Subtask s in open) { @SubRow(s) }
+                        @if (done.Count > 0)
+                        {
+                            <button type="button" class="sub-fold" aria-expanded="@(unfolded ? "true" : "false")" @onclick="() => ToggleFold(g.Key)">@(unfolded ? "▾" : "▸") @done.Count done</button>
+                            @if (unfolded) { @foreach (Subtask s in done) { @SubRow(s) } }
+                        }
+                    </div>
+                }
+                @if (item.Subtasks.Count == 0) { <p class="muted">No subtasks yet.</p> }
+                @* a #wi12 here makes the item wait on that one instead of adding a subtask *@
+                <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
+                    <span class="plus" aria-hidden="true">+</span>
+                    <input @bind="newSubtask" placeholder="Add a subtask, or #wi12 to wait on it" aria-label="New subtask" />
+                </form>
+            </section>
+
+            <div class="ln-rail">
+                @* items this one waits on (struck through once in review or done, so they no longer block) *@
+                <section class="tile" data-tile="waiting">
+                    <div class="tile-h"><h3>Waiting on</h3></div>
+                    @foreach (WorkItem d in WaitingOn)
+                    {
+                        bool done = WorkItemsApi.IsResolved(d);
+                        <div class="sub dep waits @(done ? "done" : "blocking-me")" data-sk @onclick="@(() => Nav.NavigateTo($"item/{d.Id}"))">
+                            <span class="mono">#wi@(d.Id)</span><span class="s-t">@d.Title</span><span class="tag lbl dep-s" style="--fill:var(@Ui.Band(d.Archived ? "Completed" : d.Status))">@(d.Archived ? "Completed" : d.Status)</span>
+                            <button class="ic" aria-label="Remove dependency" title="Remove dependency" @onclick:stopPropagation="true"
+                                    @onclick="() => Run(WorkItemsApi.RemoveDependency(item.Id, d.Id))">×</button>
+                        </div>
+                    }
+                    @if (WaitingOn.Count == 0) { <p class="muted">Nothing.</p> }
+                    @if (!item.Archived)
+                    {
+                        @* an existing work item this one has to wait on (typing its id in the subtask box does the same) *@
+                        <PickerMenu TItem="WorkItem" Label="Wait on another work item" ButtonText="+ wait on another item" Placeholder="Filter work items…"
+                                    Items="DependencyChoices" Text="@(w => [$"#wi{w.Id}", w.Title, w.Status])" OnPick="w => LinkDependency(w.Id)">
+                            <ItemTemplate Context="w"><span class="mono">#wi@(w.Id)</span> @w.Title <span class="muted">· @w.Status</span></ItemTemplate>
+                        </PickerMenu>
+                    }
+                </section>
+
+                <section class="tile" data-tile="blocks">
+                    <div class="tile-h"><h3>Waiting on this</h3>@if (Blocking.Count > 0) { <span class="count">@Blocking.Count</span> }</div>
+                    @foreach (WorkItem b in Blocking)
+                    {
+                        <div class="sub dep blocks" data-sk @onclick="@(() => Nav.NavigateTo($"item/{b.Id}"))">
+                            <span class="mono">#wi@(b.Id)</span><span class="s-t">@b.Title</span><span class="tag lbl dep-s" style="--fill:var(@Ui.Band(b.Archived ? "Completed" : b.Status))">@(b.Archived ? "Completed" : b.Status)</span>
+                        </div>
+                    }
+                    @if (Blocking.Count == 0) { <p class="muted">Nothing.</p> }
+                </section>
+
+                @* everything that belongs to the item, and the one place its plan and linked documents are shown, linked and unlinked: the plan, the documents (x-rtm.docs),
+                   what the description and the notes name or attach, and the images *@
+                <section class="tile related" data-tile="related">
+                    <div class="tile-h"><h3>Related</h3>@if (related.Count > 0) { <span class="count">@related.Count</span> }</div>
+                    @if (related.Count == 0) { <p class="muted">Nothing attached yet.</p> }
+                    else
+                    {
+                        <ul class="rel-list">
+                            @foreach (Rel r in related)
+                            {
+                                <li class="rel" data-kind="@r.Kind">
+                                    <span class="k">@r.Kind</span>
+                                    @if (IsUrl(r.Target)) { <a class="rel-open" href="@r.Target" target="_blank" rel="noopener" title="@r.Target">@r.Name</a> }
+                                    else if (r.Kind is "plan" or "doc") { <a class="rel-open" href="doc/@r.Target" title="@r.Target">@r.Name</a> }
+                                    else { <button type="button" class="rel-open" title="@r.Target" @onclick="() => OpenFile(r.Target)">@r.Name</button> }
+                                    @if (r.Stored) { <button type="button" class="ic rel-x" aria-label="Unlink @r.Name" title="Unlink (the file stays)" @onclick="() => Unlink(r)">×</button> }
+                                </li>
+                            }
+                        </ul>
+                    }
+                    @* the plan file (x-rtm.plan), picked from the plans folder; documents are linked from the worklog's date menu *@
+                    @if (item.Plan is null)
+                    {
+                        <PickerMenu TItem="string" Label="Link a plan" ButtonText="+ link plan" Placeholder="Filter plans…" Items="PlanFiles" Text="f => [f]"
+                                    OnPick="f => Run(WorkItemsApi.SetPlan(item.Id, f))"><ItemTemplate Context="f"><span class="pick-item">@System.IO.Path.GetFileName(f)</span></ItemTemplate></PickerMenu>
+                    }
+                </section>
+            </div>
+        </div>
+    }
+</div>
+
+@if (subSel.Count >= 1)
+{
+    <div class="actionbar" data-sk>
+        <span class="n">@subSel.Count subtask@(subSel.Count == 1 ? "" : "s")</span>
+        <button class="btn primary" data-sk @onclick="MoveSubtasks">@(subSel.Count == 1 ? "Make it a work item" : "Move into a separate work item")</button>
+        <button class="btn dep" data-sk @onclick="MoveSubtasksAsDependency" title="Creates a new work item and blocks this one until it's done">Make it a dependency</button>
+        <button class="btn ghost" @onclick="() => subSel.Clear()">Clear</button>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+
+    // split menu: this window is a detached one (no menu, no back); "Separate window" moves the item out and the board comes back here
+    private bool Detached => Services.GetService(typeof(TaskManager.AppState.AppMode)) is TaskManager.AppState.AppMode { Detached: true };
+    private void OpenSeparateWindow()
+    {
+        if (Services.GetService(typeof(TaskManager.AppState.WindowLauncher)) is not TaskManager.AppState.WindowLauncher launch || Workspace.Root is not string root) return;
+        (bool ok, string message) = launch(root, Id);
+        if (ok) Nav.NavigateTo("/"); else Popups.Toast(message, ToastKind.Warning);
+    }
+
+    private WorkItem? item;
+    /// <summary>The notes' markdown as HTML for the page's life: a tick or any other reload converts only the notes that changed (the worklog, which comes and goes with the view, reads from it).</summary>
+    public NoteHtmlCache NoteHtml { get; } = new();
+    private bool dirty;               // the item's files are changed or new in the work tree
+    private CommitInfo? lastCommit;   // the newest commit that touched its folder
+    private string description = "";   // read for the Related list (what it names); it is edited in the worklog
+    private string newSubtask = "";
+    private IReadOnlyList<Note> notes = [];
+    private readonly HashSet<string> subSel = [];
+
+    // The page has two views under the header, switched with a segmented control; the worklog is the default.
+    private string view = "worklog";
+    private static readonly IReadOnlyList<(string Value, string Label)> Views = [("worklog", "Worklog"), ("linked", "Linked tasks")];
+
+    /// <summary>A subtask selection belongs to the linked tasks view.</summary>
+    private void SetView(string next)
+    {
+        if (view == next) return;
+        if (next != "linked") subSel.Clear();
+        (view, focusNote, flashSub) = (next, null, null);
+    }
+
+    // A subtask made from a note ends in its #nN: the row links to the note, and the worklog opens at it. A converted entry in the worklog links the
+    // other way, to the subtask. Both mark the target with the "flash" class, a CSS fade: nothing here waits.
+    private int? focusNote;
+    private string? flashSub;
+    private bool scrollToSub;
+
+    private int? NoteOf(Subtask s) => NotesApi.SubtaskReference(s.Text).Note is int id && notes.Any(n => n.Id == id) ? id : null;
+    private string ShownText(Subtask s) => NoteOf(s) is null ? s.Text : NotesApi.SubtaskReference(s.Text).Text;
+
+    private void OpenNote(int note)
+    {
+        subSel.Clear();
+        (view, focusNote, flashSub) = ("worklog", note, null);
+    }
+
+    private void OpenSubtask(string number)
+    {
+        if (item?.Subtasks.FirstOrDefault(s => s.Number == number) is not Subtask s) return;
+        if (s.Done) subUnfolded.Add(s.Group);   // a done subtask sits in its group's folded "N done"
+        (view, focusNote, flashSub, scrollToSub) = ("linked", null, number, true);
+    }
+
+    // What the markup shows that is worked out from the repository is worked out once per Load (null until first asked for), never once per render.
+    private IReadOnlyList<(string, string)>? featureChoices;
+    private IReadOnlyList<(string, string)> FeatureChoices => featureChoices ??= BuildFeatureChoices();
+
+    private static IReadOnlyList<(string, string)> BuildFeatureChoices()
+    {
+        List<Features.PublicDTOs.Feature> all = FeaturesCache.Get().ToList();
+        return [("", "no feature"), .. all.Select(f => (f.Path, all.Count(x => x.Name == f.Name) > 1 ? $"{f.Name} ({f.Group})" : f.Name)), (NewFeature, "+ New feature…")];   // the group only tells two same-named features apart
+    }
+
+    /// <summary>Known people not yet contributors. An iterator: nothing is read until the picker is open and lists it.</summary>
+    private IEnumerable<string> PeopleChoices
+    {
+        get
+        {
+            foreach (string p in GitCache.AllAuthors().Concat(ItemsCache.All().SelectMany(w => w.Contributors)).Append(Workspace.Me)
+                .Select(GitHistoryApi.PersonName).Distinct().Except(item!.Contributors.Select(GitHistoryApi.PersonName))
+                .Order(StringComparer.OrdinalIgnoreCase)) yield return p;
+        }
+    }
+
+    private bool IsAgent(string person) => string.Equals(person, item?.AgentBy, StringComparison.OrdinalIgnoreCase);
+    private void ReviewItem() => Run(WorkItemsApi.MarkReviewed(Id));
+
+    private void AddContributor(string person) => Run(WorkItemsApi.SetContributors(Id, item!.Contributors.Append(person)));
+
+    protected override object? LoadKey => Id;
+
+    protected override void Load()
+    {
+        (featureChoices, subGroups, waitingOn, blocking) = (null, null, null, null);
+        item = ItemsCache.Get(Id);
+        if (item is null) return;
+        description = WorkItemsApi.GetDescription(Id);
+        notes = NotesCache.ForWorkItem(Id).OrderByDescending(n => n.Created).ThenByDescending(n => n.Id).ToList();
+        related = RelatedTo(item, description, notes, ItemRoot);
+        (dirty, lastCommit) = TaskManager.Components.Pages.BoardModel.LastCommit(item);   // read here, with the item: in markup it walked openspec/changes on every render
+        subSel.IntersectWith(item.Subtasks.Select(s => s.Number));
+    }
+
+    private async Task SetStatus(string status)
+    {
+        if (status == "Completed" && item is { Archived: false })
+        {
+            if (!await Popups.Confirm("Complete and archive?",
+                $"#wi{item.Id} will be archived with the OpenSpec CLI and its delta specs merged into openspec/specs.", yes: "Archive")) return;
+            Run(await Popups.Busy($"Archiving #wi{item.Id} with the OpenSpec CLI…", () => WorkItemsApi.SetStatus(Id, status)));
+            return;
+        }
+        Run(WorkItemsApi.SetStatus(Id, status));
+    }
+
+    private int featureKey;   // a new key rebuilds the dropdown, so it drops the "New feature" row it kept as its value
+    private const string NewFeature = "\0new-feature";   // the last option of the feature list; never a feature path
+
+    private async Task SetFeature(string path)
+    {
+        if (path != NewFeature) { Run(WorkItemsApi.MoveFeature(Id, path.Length == 0 ? null : path)); return; }
+        // the board's "+ feature" dialog; the new feature then goes on this item
+        if (await Popups.Prompt("New feature", "e.g. Exports", "Create") is not string name) { featureKey++; return; }
+        (bool ok, string message, Features.PublicDTOs.Feature? created) = Features.FeaturesApi.CreateFeature(Features.FeaturesApi.Ungrouped, name);
+        if (ok && created is not null) Run(WorkItemsApi.MoveFeature(Id, created.Path));
+        else Popups.Toast(message, ToastKind.Warning);
+        featureKey++;
+    }
+
+    private void SetDates((DateOnly? Start, DateOnly? End) r)
+    {
+        Run(WorkItemsApi.SetDates(Id, r.Start, r.End));
+    }
+
+    /// <summary>Markdown files in the repository's plans folder (repo-relative, newest first), offered by "+ link plan".</summary>
+    private IEnumerable<string> PlanFiles   // an iterator: the folder is read when the picker is open and lists it, not on every render
+    {
+        get
+        {
+            if (Workspace.Root is not string root) yield break;
+            string dir = Path.Combine(root, Settings.PlansDir(root).Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(dir)) yield break;
+            foreach (string f in Directory.EnumerateFiles(dir, "*.md", SearchOption.AllDirectories).OrderByDescending(File.GetLastWriteTime).ToList())
+                yield return Path.GetRelativePath(root, f).Replace('\\', '/');
+        }
+    }
+
+    // The rail of the linked tasks view drops below the main list in a narrow window; nothing is minimised there.
+    private bool narrow;
+
+    private async Task<bool> IsNarrow()
+    {
+        try { return await Js.InvokeAsync<bool>("rtm.isNarrow"); }
+        catch (JSException) { return false; }
+    }
+
+    /// <summary>The subtasks in task groups, in file order (a merged item has one per source group).</summary>
+    private List<IGrouping<string, Subtask>>? subGroups;
+    private List<IGrouping<string, Subtask>> SubGroups => subGroups ??= item!.Subtasks.GroupBy(s => s.Group).ToList();
+    /// <summary>The groups as the main list shows them: those with an open subtask first, the fully done ones after, each in file order.</summary>
+    private IEnumerable<IGrouping<string, Subtask>> OrderedSubGroups => SubGroups.Where(g => g.Any(s => !s.Done)).Concat(SubGroups.Where(g => g.All(s => s.Done)));
+    private readonly HashSet<string> subUnfolded = [];   // groups whose "N done" is open; per page view, not saved: done subtasks start folded
+
+    private static string SubGroupName(string group) => System.Text.RegularExpressions.Regex.Replace(group, @"^\d+\.\s*", "").Trim() is { Length: > 0 } n ? n : "Subtasks";
+    private void ToggleFold(string group) { if (!subUnfolded.Remove(group)) subUnfolded.Add(group); }
+
+    /// <summary>One subtask row: its box, its text (click edits it, Shift-click selects it) and its number at the end of the line.</summary>
+    private RenderFragment SubRow(Subtask s) => @<div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "") @(flashSub == s.Number ? "flash" : "")" data-sk data-sub="@s.Number">
+        <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
+               @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item!.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
+        @if (editingSub == s.Number)
+        {
+            @* Enter or leaving the box saves, Esc cancels *@
+            <input @ref="subBox" class="sub-edit" data-own-esc value="@s.Text" aria-label="Subtask @s.Number" @oninput="SubTyped"
+                   @onkeydown="SubKeyed" @onblur="() => SaveSub(s)" />
+        }
+        else
+        {
+            <span class="s-t" title="Click to edit · Shift-click to select, then make it a work item" @onclick="e => SubClick(e, s)">@ShownText(s)</span>
+            @if (NoteOf(s) is int from) { <button type="button" class="sub-from" title="Open the note in the worklog" @onclick="() => OpenNote(from)">from #n@(from)</button> }
+        }
+        @if (s.Agent is not null) { <AgentChip By="@s.Agent" OnReview="() => Run(WorkItemsApi.MarkSubtaskReviewed(item!.Id, s.Number))" /> }
+        <span class="mono">@s.Number</span>
+    </div>;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && await IsNarrow()) { narrow = true; StateHasChanged(); }
+        if (focusSub) { focusSub = false; try { await subBox.FocusAsync(); } catch (InvalidOperationException) { } }
+        if (scrollToSub && flashSub is not null)
+        {
+            scrollToSub = false;
+            try { await Js.InvokeVoidAsync("rtm.scrollToDay", $".sub[data-sub='{flashSub}']"); } catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException) { }
+        }
+    }
+
+    /// <summary>The open repository a work item lives in, by its own folder (a switch of the active project meanwhile cannot send its files elsewhere); the active one when none matches.</summary>
+    public static string? RootOf(string itemPath, IEnumerable<string> openRepos, string? active) =>
+        openRepos.FirstOrDefault(r => System.IO.Path.GetFullPath(itemPath).StartsWith(System.IO.Path.GetFullPath(r).TrimEnd('\\', '/') + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) ?? active;
+
+    private string? ItemRoot => item is null ? Workspace.Root : RootOf(item.Path, Workspace.OpenRepos, Workspace.Root);
+
+    private void ToggleSub(string number)
+    {
+        if (!subSel.Remove(number)) subSel.Add(number);
+    }
+
+    // ── Editing a subtask's text in place ──
+    private string? editingSub;   // number of the subtask being edited
+    private string subText = "";
+    private ElementReference subBox;
+    private bool focusSub;
+
+    private void SubClick(MouseEventArgs e, Subtask s)
+    {
+        if (e.ShiftKey || e.CtrlKey || e.MetaKey) { ToggleSub(s.Number); return; }
+        editingSub = s.Number;
+        subText = s.Text;
+        focusSub = true;
+    }
+
+    // Typing in the box only stores the text and a key that is not Enter or Esc does nothing: neither draws the page (it draws when the edit is saved or cancelled).
+    private Action<ChangeEventArgs>? subTyped;
+    private Action<ChangeEventArgs> SubTyped => subTyped ??= EventUtil.AsNonRenderingEventHandler<ChangeEventArgs>(e => subText = e.Value?.ToString() ?? "");
+    private Action<KeyboardEventArgs>? subKeyed;
+    private Action<KeyboardEventArgs> SubKeyed => subKeyed ??= EventUtil.AsNonRenderingEventHandler<KeyboardEventArgs>(SubKey);
+
+    private void SubKey(KeyboardEventArgs e)
+    {
+        if (e.Key is not ("Enter" or "Escape") || editingSub is not string number || item?.Subtasks.FirstOrDefault(x => x.Number == number) is not Subtask s) return;
+        if (e.Key == "Enter") SaveSub(s);
+        else editingSub = null;
+        StateHasChanged();
+    }
+
+    /// <summary>Saves on Enter or blur; an unchanged text writes nothing. Blank text is refused with a message.</summary>
+    private void SaveSub(Subtask s)
+    {
+        if (editingSub != s.Number) return;   // already saved by Enter, or cancelled by Esc
+        editingSub = null;
+        if (subText.Trim() != s.Text) Run(WorkItemsApi.SetSubtaskText(Id, s.Number, subText));
+    }
+
+    // "#wi12", "wi12" or "12" names another work item: wait on it instead of adding a subtask line.
+    private void AddSubtask()
+    {
+        if (OpenSpecStoreApi.ParseItemReference(newSubtask, bareNumber: true) is int dependency)
+        {
+            LinkDependency(dependency);
+        }
+        else Run(WorkItemsApi.AddSubtask(Id, newSubtask));
+        newSubtask = "";
+    }
+
+    /// <summary>Active work items this one could wait on: not itself, not already waited on, and not one that waits on this (a loop).</summary>
+    private IEnumerable<WorkItem> DependencyChoices   // an iterator: read when the picker is open, not on every render
+    {
+        get
+        {
+            foreach (WorkItem w in ItemsCache.All(includeHidden: false))
+                if (!w.Archived && w.Id != Id && !(item!.DependsOn ?? []).Contains(w.Id) && !(w.DependsOn ?? []).Contains(Id)) yield return w;
+        }
+    }
+
+    private void LinkDependency(int dep)
+    {
+        (bool ok, string message) = WorkItemsApi.AddDependency(Id, dep);
+        Run((ok, message));
+        if (ok) Popups.Toast(ItemsCache.Get(dep) is { } d && WorkItemsApi.IsResolved(d)
+            ? $"Linked #wi{dep} — it's already {(d.Archived ? "Completed" : d.Status)}, so it doesn't block this item"
+            : $"Waiting on #wi{dep} — this item is Blocked until it's in review or done", ToastKind.Success);
+    }
+
+    private void MoveSubtasks()
+    {
+        (bool ok, string message, int newId) = WorkItemsApi.MoveSubtasksToNew(Id, subSel.ToList());
+        subSel.Clear();
+        Run((ok, message));
+        if (ok) Popups.Toast($"Moved into #wi{newId}", ToastKind.Success);
+    }
+
+    private void MoveSubtasksAsDependency()
+    {
+        (bool ok, string message, int newId) = WorkItemsApi.MoveSubtasksToDependency(Id, subSel.ToList());
+        subSel.Clear();
+        Run((ok, message));
+        if (ok) Popups.Toast($"#wi{newId} created — this item is now blocked on it", ToastKind.Success);
+    }
+
+    /// <summary>Items this one is waiting on before it can leave Blocked.</summary>
+    private IReadOnlyList<WorkItem>? waitingOn, blocking;
+    private IReadOnlyList<WorkItem> WaitingOn => item is null ? [] : waitingOn ??= (item.DependsOn ?? []).Select(WorkItemsApi.Get).OfType<WorkItem>().ToList();
+    /// <summary>Items whose x-rtm.dependsOn names this one.</summary>
+    private IReadOnlyList<WorkItem> Blocking => item is null ? [] : blocking ??= WorkItemsApi.GetBlocking(item.Id);
+
+    // ── Related: what belongs to the item, the fourth column of the linked tasks view ──
+
+    /// <summary>One row of the Related list. <see cref="Target"/> is a repository-relative path (forward slashes) or an http(s) address.</summary>
+    /// <summary>Stored = a link the item keeps itself (its plan, x-rtm.docs), which can be unlinked here; the rest is found in its text and notes.</summary>
+    private sealed record Rel(string Kind, string Name, string Target, bool Stored = false);
+
+    private void Unlink(Rel r)
+    {
+        if (item is null) return;
+        Run(r.Kind == "plan" ? WorkItemsApi.SetPlan(item.Id, null) : WorkItemsApi.SetLinkedDocs(item.Id, (item.Docs ?? []).Where(d => !string.Equals(d, r.Target, StringComparison.OrdinalIgnoreCase))));
+    }
+
+    private IReadOnlyList<Rel> related = [];
+
+    private static bool IsUrl(string a) => a.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || a.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+
+    /// <summary>
+    /// The item's plan, the documents and links its description and notes name ([[doc]] and markdown links to files of the repository or to
+    /// addresses), the notes' attachments, and the images of the description and the notes; each once, in the order found
+    /// (the notes newest first). Files that are not there are left out: there would be nothing to open.
+    /// </summary>
+    private static IReadOnlyList<Rel> RelatedTo(WorkItem item, string description, IEnumerable<Note> notes, string? root)
+    {
+        List<Rel> found = [];
+        void Add(Rel r) { if (!found.Any(x => string.Equals(x.Target, r.Target, StringComparison.OrdinalIgnoreCase))) found.Add(r); }
+        if (item.Plan is string plan) Add(new("plan", System.IO.Path.GetFileName(plan), plan, Stored: true));
+        foreach (string doc in item.Docs ?? []) Add(new(Ui.IsImage(doc) ? "image" : doc.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ? "doc" : "file", System.IO.Path.GetFileName(doc), doc, Stored: true));
+        foreach (Rel r in ReferencesIn(description, root)) Add(r);
+        foreach (Note n in notes)
+        {
+            foreach (Rel r in ReferencesIn(n.Body, root)) Add(r);
+            foreach (string a in n.Attachments)
+                Add(IsUrl(a) ? new("link", a, a) : new(Ui.IsImage(a) ? "image" : "file", System.IO.Path.GetFileName(a), a));
+        }
+        return found;
+    }
+
+    private static IEnumerable<Rel> ReferencesIn(string text, string? root)
+    {
+        if (string.IsNullOrWhiteSpace(text) || root is null) yield break;
+        foreach (OpenSpecStore.PublicDTOs.Reference reference in OpenSpecStoreApi.FindReferences(text).Where(r => r.Kind == "doc"))
+            if (DocFile(root, reference.Target) is string doc) yield return new("doc", System.IO.Path.GetFileName(doc), doc);
+        foreach ((string raw, bool isImage) in LinksIn(text))
+        {
+            string url = Uri.UnescapeDataString(raw).Trim();
+            if (IsUrl(url)) { yield return new(isImage ? "image" : "link", url, url); continue; }
+            int cut = url.IndexOfAny(['#', '?']);
+            string rel = (cut < 0 ? url : url[..cut]).Replace('\\', '/');
+            if (rel.StartsWith("./")) rel = rel[2..];
+            if (rel.Length == 0 || rel.Contains("..") || rel.Contains(':') || rel.StartsWith('/')) continue;   // an anchor, a mailto:, outside the repository
+            if (!System.IO.File.Exists(System.IO.Path.Combine(root, rel.Replace('/', System.IO.Path.DirectorySeparatorChar)))) continue;
+            string kind = isImage ? "image" : rel.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ? "doc" : "file";
+            yield return new(kind, System.IO.Path.GetFileName(rel), rel);
+        }
+    }
+
+    // Parsing a text's markdown is the costly part of the Related list and a text rarely changes between two loads: its links are kept by the text (AppState/RenderedCache).
+    private static IReadOnlyList<(string Url, bool IsImage)> LinksIn(string text) => RenderedCache.Links(text);
+
+    /// <summary>[[runbook/uptime]] is runbook/uptime(.md) in the repository root or under docs/, as the notes resolve it; null when no such file.</summary>
+    private static string? DocFile(string root, string name)
+    {
+        string rel = name.Replace('\\', '/');
+        if (rel.Contains("..") || rel.StartsWith('/')) return null;
+        return new[] { rel, rel + ".md", "docs/" + rel, "docs/" + rel + ".md" }
+            .FirstOrDefault(p => System.IO.File.Exists(System.IO.Path.Combine(root, p.Replace('/', System.IO.Path.DirectorySeparatorChar))));
+    }
+
+    /// <summary>Opens a file of the repository with the program the system has for it, as the note page does for an attachment.</summary>
+    private void OpenFile(string entry)
+    {
+        string? file = ItemRoot is string root && !entry.Contains("..") ? System.IO.Path.Combine(root, entry.Replace('/', System.IO.Path.DirectorySeparatorChar)) : null;
+        if (file is null || !System.IO.File.Exists(file)) { Popups.Toast("That file is no longer there", ToastKind.Warning); return; }
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file) { UseShellExecute = true }); }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { Popups.Toast(e.Message, ToastKind.Warning); }
+    }
+}

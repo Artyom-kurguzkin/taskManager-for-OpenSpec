@@ -1,0 +1,16 @@
+2026-11-16T18:46:38 | Claude | created | One place for dates, periods and colours on one clock
+2026-11-16T18:46:38 | Claude | status | Planned -> In Progress
+2026-11-16T18:46:38 | Claude | description-edited | proposal.md
+2026-11-16T18:46:38 | Claude | label | none -> enhancement
+2026-11-16T18:46:39 | Claude | plan-linked | DevResources/plans/universal-ui-structure-2026-11-16.md
+2026-11-16T18:46:39 | Claude | subtask-added | 1.1 every date/period/time format through Ui.cs
+2026-11-16T18:46:39 | Claude | subtask-added | 1.2 one clock: TimeProvider everywhere in the host
+2026-11-16T18:46:39 | Claude | subtask-added | 1.3 one set of colour maps
+2026-11-16T22:02:33 | Claude | status | In Progress -> In Review
+2026-11-16T22:02:33 | Claude | test-linked | ShowingDatesAndColoursOneWayTests / The period picker and the side menu name a period across a year end the same way
+2026-11-16T22:02:33 | Claude | test-linked | ShowingDatesAndColoursOneWayTests / Pages count 'today' from the app's clock: the roadmap, the period picker, the worklog, the due columns and the analytics weeks
+2026-11-16T22:02:33 | Claude | test-linked | ShowingDatesAndColoursOneWayTests / A status has the same colour on the board, in the list and in analytics, and a priority the same colour and name
+2026-11-16T22:02:33 | Claude | test-linked | ShowingDatesAndColoursOneWayTests / No date format string and no 'today' of the system is left in the components or the board's view models, except in Ui.cs
+2026-11-16T22:02:33 | Claude | subtask-done | 1.1 every date/period/time format through Ui.cs
+2026-11-16T22:02:33 | Claude | subtask-done | 1.2 one clock: TimeProvider everywhere in the host
+2026-11-16T22:02:33 | Claude | subtask-done | 1.3 one set of colour maps

@@ -18,7 +18,9 @@ using Radzen;
 using TaskManager.Components.Pages;
 using TaskManager.Components.Shared;
 using TaskManager.Mcp;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 
 namespace TaskManager.Tests;
@@ -472,6 +474,7 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
     public async Task BoardToolsUseThePlansFolder()
     {
         WorkItemsApi.ConfigureValidator(folder => (true, $"valid: {folder}"));
+        OpenSpecStoreApi.Open(repo.Root);   // the app has the project open; a tool call works in it without opening anything itself
         ServiceProvider services = new ServiceCollection().AddLogging().AddMcpServer().AddBoardTools().Services.BuildServiceProvider();
         System.IO.Pipelines.Pipe toServer = new(), toClient = new();
         McpServer server = McpServer.Create(

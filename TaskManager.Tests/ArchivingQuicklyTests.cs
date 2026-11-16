@@ -1,7 +1,9 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using TaskManager.Components.Shared;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems.Infrastructure;
 
 namespace TaskManager.Tests;

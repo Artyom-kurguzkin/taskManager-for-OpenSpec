@@ -1,0 +1,17 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-16
+x-rtm:
+  id: 190
+  title: 'Side menu on the render rules: one redraw per click, options kept while examining'
+  status: In Review
+  contributors: [Claude]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-17
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: SideMenuRenderBudgetTests, test: A click in the side menu redraws it once and its dropdowns not at all}, {suite: SideMenuRenderBudgetTests, test: Letting go of an examined item keeps the side menu's options as they were}, {suite: SideMenuRenderBudgetTests, test: A theme change does not redraw the side menu's options}, {suite: SideMenuRenderBudgetTests, test: A folded section is not drawn until it is opened}]
+  dependsOn: [183]
+  agentBy: Claude check W5
+  agentAt: 2026-11-17T07:22:13

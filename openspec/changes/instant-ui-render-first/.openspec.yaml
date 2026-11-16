@@ -1,0 +1,14 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-17
+x-rtm:
+  id: 195
+  title: 'Instant UI: render first, persist after'
+  status: Planned
+  priority: high
+  contributors: [Claude]
+  label: enhancement
+  moved: 2026-11-17
+  plan: DevResources/plans/instant-ui-2026-11-17.md
+  agentBy: Claude
+  agentAt: 2026-11-17T08:46:04

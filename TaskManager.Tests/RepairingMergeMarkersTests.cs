@@ -3,7 +3,9 @@ using System.Globalization;
 using BoardSync.PublicDTOs;
 using GitHistory;
 using OpenSpecStore;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 using WorkItems.PublicDTOs;
 

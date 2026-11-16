@@ -1,3 +1,4 @@
+using OpenSpecStore;
 using System.Diagnostics;
 using GitHistory;
 using GitHistory.PublicDTOs;
@@ -43,7 +44,7 @@ public sealed class ReadingGitHistoryTests : IDisposable
         Commit("a.txt", "1", "Add /health route #wi123");
         Commit("b.txt", "2", "Fix #wi1234");
 
-        CommitInfo c = Assert.Single(GitHistoryApi.Mentioning("#wi123"));
+        CommitInfo c = Assert.Single(GitHistoryApi.Mentioning(OpenSpecStoreApi.MentionsItem(123)));
 
         Assert.Equal("Add /health route #wi123", c.Subject);
         Assert.Equal(7, c.Hash.Length);
@@ -68,7 +69,7 @@ public sealed class ReadingGitHistoryTests : IDisposable
         (bool ok, string message) = GitHistoryApi.Commit(["openspec/changes/a"], "Update #wi1 A");
 
         Assert.True(ok, message);
-        Assert.Equal("Update #wi1 A", GitHistoryApi.Mentioning("#wi1")[0].Subject);
+        Assert.Equal("Update #wi1 A", GitHistoryApi.Mentioning(OpenSpecStoreApi.MentionsItem(1))[0].Subject);
         Assert.Contains("openspec/changes/b/tasks.md", Git("status", "--porcelain"));
         Assert.DoesNotContain("openspec/changes/a/tasks.md", Git("status", "--porcelain"));
     }
@@ -78,7 +79,7 @@ public sealed class ReadingGitHistoryTests : IDisposable
     {
         GitHistoryApi.Configure(root);
         Assert.False(GitHistoryApi.IsRepository());
-        Assert.Empty(GitHistoryApi.Mentioning("#wi1"));
+        Assert.Empty(GitHistoryApi.Mentioning(OpenSpecStoreApi.MentionsItem(1)));
     }
 
     private void CommitAs(string author, string file, string text, string message, string? email = null)
@@ -181,8 +182,8 @@ public sealed class ReadingGitHistoryTests : IDisposable
 
         int before = GitHistoryModule.Processes;
         Assert.Equal(2, GitHistoryApi.Recent(50).Count);
-        Assert.Equal(["Second #wi2"], GitHistoryApi.Mentioning("#wi2").Select(c => c.Subject));
-        Assert.Empty(GitHistoryApi.Mentioning("#wi22"));
+        Assert.Equal(["Second #wi2"], GitHistoryApi.Mentioning(OpenSpecStoreApi.MentionsItem(2)).Select(c => c.Subject));
+        Assert.Empty(GitHistoryApi.Mentioning(OpenSpecStoreApi.MentionsItem(22)));
         Assert.Equal(["First #wi1"], GitHistoryApi.Commits([first]).Select(c => c.Subject));
         Assert.Equal(first, GitHistoryApi.Commits([first])[0].Hash);
         Assert.Equal(before, GitHistoryModule.Processes);
@@ -190,7 +191,7 @@ public sealed class ReadingGitHistoryTests : IDisposable
         Commit("c.txt", "3", "Third #wi2");
         before = GitHistoryModule.Processes;
         Assert.Equal(3, GitHistoryApi.Recent(50).Count);
-        Assert.Equal(2, GitHistoryApi.Mentioning("#wi2").Count);
+        Assert.Equal(2, GitHistoryApi.Mentioning(OpenSpecStoreApi.MentionsItem(2)).Count);
         Assert.Equal(before + 1, GitHistoryModule.Processes);
     }
 
@@ -204,10 +205,10 @@ public sealed class ReadingGitHistoryTests : IDisposable
         Commit("b.txt", "2", "Second #wi9");
 
         Assert.Equal(["Second #wi9", "First"], GitHistoryApi.Recent(10).Select(c => c.Subject));
-        Assert.Single(GitHistoryApi.Mentioning("#wi9"));
+        Assert.Single(GitHistoryApi.Mentioning(OpenSpecStoreApi.MentionsItem(9)));
         Git("reset", "-q", "--hard", "HEAD~1");   // a reset moves the tip too
         Assert.Equal(["First"], GitHistoryApi.Recent(10).Select(c => c.Subject));
-        Assert.Empty(GitHistoryApi.Mentioning("#wi9"));
+        Assert.Empty(GitHistoryApi.Mentioning(OpenSpecStoreApi.MentionsItem(9)));
     }
 
     [Fact(DisplayName = "A HEAD recorded in packed-refs is read as a HEAD token")]
@@ -272,9 +273,130 @@ public sealed class ReadingGitHistoryTests : IDisposable
         }
     }
 
+    // ---- git-deltas chunk ----
+
+    private string CommitAt(string date, string message, params (string File, string Text)[] files)
+    {
+        foreach ((string file, string text) in files)
+        {
+            string path = Path.Combine(root, file);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+        }
+        TempGit.Commit(root, date, message);
+        return GitHistoryApi.Recent(1)[0].Hash;
+    }
+
+    [Fact(DisplayName = "A commit's work items are the change folders its files are in, archived ones included")]
+    public void ChangesOfACommit()
+    {
+        InitRepo();
+        string c1 = CommitAt("2026-11-01T10:00:00+00:00", "Create alpha and beta", ("openspec/changes/alpha/proposal.md", "a"), ("openspec/changes/beta/proposal.md", "b"), ("README.md", "r"));
+        string c2 = CommitAt("2026-11-02T10:00:00+00:00", "Tasks for alpha", ("openspec/changes/alpha/tasks.md", "t"));
+        string c3 = CommitAt("2026-11-02T11:00:00+00:00", "Readme only", ("README.md", "r2"));
+        Directory.CreateDirectory(Path.Combine(root, "openspec/changes/archive"));
+        Git("mv", "openspec/changes/alpha", "openspec/changes/archive/2026-11-03-alpha");
+        TempGit.Commit(root, "2026-11-03T10:00:00+00:00", "Archive alpha");
+        string c4 = GitHistoryApi.Recent(1)[0].Hash;
+
+        Assert.Equal(["alpha", "beta"], GitHistoryApi.ChangesOf(c1).Order());
+        Assert.Equal(["alpha"], GitHistoryApi.ChangesOf(c2));
+        Assert.Empty(GitHistoryApi.ChangesOf(c3));                       // a commit outside openspec/changes touches no work item
+        Assert.Equal(["alpha"], GitHistoryApi.ChangesOf(c4));            // the archived copy is the same change: the date prefix is dropped
+        Assert.Equal(["alpha"], GitHistoryApi.ChangesOf(Git("rev-parse", "HEAD~2").Trim()));   // a full hash works too
+        Assert.Empty(GitHistoryApi.ChangesOf("deadbee"));
+        Assert.Equal("alpha", GitHistoryApi.ChangeName("2026-11-03-alpha"));
+        Assert.Equal("alpha", GitHistoryApi.ChangeName("alpha"));
+
+        // the last commit that touched a change, found under its archived folder name too
+        CommitInfo last = GitHistoryApi.LastCommitOf("2026-11-03-alpha")!;
+        Assert.Equal((c4, "Archive alpha"), (last.Hash, last.Subject));
+        Assert.Equal(c1, GitHistoryApi.LastCommitOf("beta")!.Hash);
+        Assert.Null(GitHistoryApi.LastCommitOf("never-committed"));
+
+        // all of it is read from one log kept until HEAD moves: no process per question
+        int before = GitHistoryModule.Processes;
+        GitHistoryApi.ChangesOf(c2);
+        GitHistoryApi.LastCommitOf("beta");
+        Assert.Equal(before, GitHistoryModule.Processes);
+    }
+
+    [Fact(DisplayName = "Uncommitted lists the work items whose files are changed or new")]
+    public void UncommittedChanges()
+    {
+        InitRepo();
+        CommitAt("2026-11-01T10:00:00+00:00", "Create", ("openspec/changes/alpha/tasks.md", "- [ ] one\n"), ("openspec/changes/beta/tasks.md", "- [ ] one\n"), ("README.md", "r"));
+        Assert.Empty(GitHistoryApi.Uncommitted());
+
+        File.WriteAllText(Path.Combine(root, "openspec/changes/alpha/tasks.md"), "- [x] one\n- [ ] two\n");                                  // changed
+        Directory.CreateDirectory(Path.Combine(root, "openspec/changes/gamma"));
+        File.WriteAllText(Path.Combine(root, "openspec/changes/gamma/proposal.md"), "new");                                                // new, not added
+        File.WriteAllText(Path.Combine(root, "README.md"), "outside openspec/changes");                                                    // not a work item
+        Assert.Equal(["alpha", "gamma"], GitHistoryApi.Uncommitted().Order());
+
+        Git("add", "-A");                                                                                                                   // staged is still uncommitted
+        Assert.Equal(["alpha", "gamma"], GitHistoryApi.Uncommitted().Order());
+
+        TempGit.Commit(root, "2026-11-02T10:00:00+00:00", "Everything");
+        Assert.Empty(GitHistoryApi.Uncommitted());                                                                                         // HEAD moved: asked again
+
+        File.WriteAllText(Path.Combine(root, "openspec/changes/beta/tasks.md"), "- [x] one, done\n");
+        Assert.Equal(["beta"], GitHistoryApi.Uncommitted());                                                                               // saved files move no HEAD: still noticed
+        File.WriteAllText(Path.Combine(root, "openspec/changes/beta/tasks.md"), "- [ ] one\n");                                            // put back as it was
+        Assert.Empty(GitHistoryApi.Uncommitted());
+
+        // the same question again starts no process
+        int before = GitHistoryModule.Processes;
+        GitHistoryApi.Uncommitted();
+        Assert.Equal(before, GitHistoryModule.Processes);
+
+        // no repository: nothing is uncommitted, and git is not asked
+        string plain = Directory.CreateTempSubdirectory("rtm-plain").FullName;
+        try
+        {
+            GitHistoryApi.Configure(plain);
+            Assert.Empty(GitHistoryApi.Uncommitted());
+            Assert.Empty(GitHistoryApi.ChangesOf("abc1234"));
+            Assert.Null(GitHistoryApi.LastCommitOf("alpha"));
+        }
+        finally { GitHistoryApi.Configure(root); Directory.Delete(plain, true); }
+    }
+
     public void Dispose()
     {
         foreach (string f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal); // git marks objects read-only
         try { Directory.Delete(root, true); } catch (IOException) { } // ponytail: temp folder, best effort
+    }
+}
+
+/// <summary>Throw-away git repositories for the tests of the git-deltas chunk: commits with a fixed author and committer date, so what a test reads never depends on the clock.</summary>
+internal static class TempGit
+{
+    internal static string Run(string dir, string? date, params string[] args)
+    {
+        System.Diagnostics.ProcessStartInfo psi = new("git") { WorkingDirectory = dir, RedirectStandardOutput = true, RedirectStandardError = true };
+        if (date is not null) { psi.Environment["GIT_AUTHOR_DATE"] = date; psi.Environment["GIT_COMMITTER_DATE"] = date; }
+        foreach (string a in args) psi.ArgumentList.Add(a);
+        using System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi)!;
+        Task<string> err = p.StandardError.ReadToEndAsync();
+        string output = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        return output;
+    }
+
+    internal static void Init(string dir)
+    {
+        Run(dir, null, "init", "-q");
+        Run(dir, null, "config", "user.name", "Artyom Test");
+        Run(dir, null, "config", "user.email", "artyom@example.com");
+        Run(dir, null, "config", "commit.gpgsign", "false");
+        Run(dir, null, "config", "core.autocrlf", "false");
+    }
+
+    /// <summary>Stages everything and commits it at <paramref name="date"/>.</summary>
+    internal static void Commit(string dir, string date, string message)
+    {
+        Run(dir, date, "add", "-A");
+        Run(dir, date, "commit", "-q", "-m", message);
     }
 }

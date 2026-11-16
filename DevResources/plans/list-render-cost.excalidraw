@@ -1,0 +1,275 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "id": "t1",
+   "type": "text",
+   "x": 40,
+   "y": 20,
+   "fontSize": 18,
+   "text": "One click in the list today",
+   "width": 267.3,
+   "height": 22.5
+  },
+  {
+   "id": "c",
+   "type": "rectangle",
+   "x": 40,
+   "y": 60,
+   "width": 220,
+   "height": 70,
+   "backgroundColor": "#ffe3e3",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "c-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "c-label",
+   "containerId": "c",
+   "text": "click bubbles through\n3 handlers → 3 page renders",
+   "originalText": "click bubbles through\n3 handlers → 3 page renders",
+   "fontSize": 13,
+   "x": 53.474999999999994,
+   "y": 78.75,
+   "width": 193.05,
+   "height": 32.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "g",
+   "type": "rectangle",
+   "x": 300,
+   "y": 60,
+   "width": 220,
+   "height": 70,
+   "backgroundColor": "#ffe3e3",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "g-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "g-label",
+   "containerId": "g",
+   "text": "grid gets new fragments\n→ re-renders twice (Reload)",
+   "originalText": "grid gets new fragments\n→ re-renders twice (Reload)",
+   "fontSize": 13,
+   "x": 313.475,
+   "y": 78.75,
+   "width": 193.05,
+   "height": 32.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "r",
+   "type": "rectangle",
+   "x": 560,
+   "y": 60,
+   "width": 260,
+   "height": 70,
+   "backgroundColor": "#ffe3e3",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "r-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "r-label",
+   "containerId": "r",
+   "text": "every row, every pill:\nPill → Dropdown → RadzenDropDown → items",
+   "originalText": "every row, every pill:\nPill → Dropdown → RadzenDropDown → items",
+   "fontSize": 13,
+   "x": 547,
+   "y": 78.75,
+   "width": 286,
+   "height": 32.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "a1",
+   "type": "arrow",
+   "x": 260,
+   "y": 95,
+   "width": 40,
+   "height": 0,
+   "strokeColor": "#1e1e1e",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     40,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "a2",
+   "type": "arrow",
+   "x": 520,
+   "y": 95,
+   "width": 40,
+   "height": 0,
+   "strokeColor": "#1e1e1e",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     40,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "n1",
+   "type": "text",
+   "x": 40,
+   "y": 145,
+   "fontSize": 13,
+   "text": "≈ 5,600 component renders per click with 60 rows; 84 % are the pill editors. 100–210 ms in the real app, linear in rows.",
+   "width": 858.0000000000001,
+   "height": 16.25
+  },
+  {
+   "id": "t2",
+   "type": "text",
+   "x": 40,
+   "y": 200,
+   "fontSize": 18,
+   "text": "Proposed",
+   "width": 79.2,
+   "height": 22.5
+  },
+  {
+   "id": "p1",
+   "type": "rectangle",
+   "x": 40,
+   "y": 240,
+   "width": 240,
+   "height": 80,
+   "backgroundColor": "#d3f9d8",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "p1-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "p1-label",
+   "containerId": "p1",
+   "text": "1 pills as plain markup,\none shared picker on demand\n(−84 % renders)",
+   "originalText": "1 pills as plain markup,\none shared picker on demand\n(−84 % renders)",
+   "fontSize": 13,
+   "x": 63.474999999999994,
+   "y": 255.625,
+   "width": 193.05,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "p2",
+   "type": "rectangle",
+   "x": 310,
+   "y": 240,
+   "width": 240,
+   "height": 80,
+   "backgroundColor": "#d3f9d8",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "p2-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "p2-label",
+   "containerId": "p2",
+   "text": "2 handlers that change nothing\ndo not render\n(3 passes → 1)",
+   "originalText": "2 handlers that change nothing\ndo not render\n(3 passes → 1)",
+   "fontSize": 13,
+   "x": 322.75,
+   "y": 255.625,
+   "width": 214.50000000000003,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "p3",
+   "type": "rectangle",
+   "x": 580,
+   "y": 240,
+   "width": 240,
+   "height": 80,
+   "backgroundColor": "#fff3bf",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "p3-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "p3-label",
+   "containerId": "p3",
+   "text": "3 grid in its own component,\nselection marks outside it\n(examine/select: 0 grid renders)",
+   "originalText": "3 grid in its own component,\nselection marks outside it\n(examine/select: 0 grid renders)",
+   "fontSize": 13,
+   "x": 585.6,
+   "y": 255.625,
+   "width": 228.8,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "n2",
+   "type": "text",
+   "x": 40,
+   "y": 340,
+   "fontSize": 13,
+   "text": "Each step is proven by a render-count test (RowRenders, FindComponents), not by timing. Virtualization only if long lists still need it.",
+   "width": 972.4000000000001,
+   "height": 16.25
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

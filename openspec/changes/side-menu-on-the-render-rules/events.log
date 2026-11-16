@@ -1,0 +1,17 @@
+2026-11-16T22:42:14 | Claude | created | Side menu on the render rules: one redraw per click, options kept while examining
+2026-11-16T22:42:14 | Claude | status | Planned -> In Progress
+2026-11-16T22:42:14 | Claude | description-edited | proposal.md
+2026-11-16T22:42:14 | Claude | label | none -> enhancement
+2026-11-16T22:42:14 | Claude | plan-linked | DevResources/plans/universal-ui-structure-2026-11-16.md
+2026-11-16T22:42:14 | Claude | dependency-added | #wi183
+2026-11-16T22:42:14 | Claude | subtask-added | 1.1 non-rendering nav click; one redraw per click
+2026-11-16T22:42:14 | Claude | subtask-added | 1.2 option blocks kept while examining; folded sections lazy
+2026-11-16T22:42:14 | Claude | subtask-added | 1.3 skip redraws for unrelated events; render-budget tests
+2026-11-17T06:33:22 | Claude | status | In Progress -> In Review
+2026-11-17T06:33:22 | Claude | test-linked | SideMenuRenderBudgetTests / A click in the side menu redraws it once and its dropdowns not at all
+2026-11-17T06:33:22 | Claude | test-linked | SideMenuRenderBudgetTests / Letting go of an examined item keeps the side menu's options as they were
+2026-11-17T06:33:22 | Claude | test-linked | SideMenuRenderBudgetTests / A theme change does not redraw the side menu's options
+2026-11-17T06:33:22 | Claude | test-linked | SideMenuRenderBudgetTests / A folded section is not drawn until it is opened
+2026-11-17T06:33:22 | Claude | subtask-done | 1.1 non-rendering nav click; one redraw per click
+2026-11-17T06:33:22 | Claude | subtask-done | 1.2 option blocks kept while examining; folded sections lazy
+2026-11-17T06:33:22 | Claude | subtask-done | 1.3 skip redraws for unrelated events; render-budget tests

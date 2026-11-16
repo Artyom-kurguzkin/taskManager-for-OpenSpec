@@ -8,7 +8,9 @@ using Notes;
 using TaskManager.Components.Layout;
 using TaskManager.Components.Pages;
 using TaskManager.Components.Shared;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 
 namespace TaskManager.Tests;
@@ -19,7 +21,7 @@ public sealed class UsingThePagesTests : IDisposable
     private readonly string settingsFile = Path.Combine(Path.GetTempPath(), "rtm-ui-" + Guid.NewGuid().ToString("N") + ".json");
     private IRenderedComponent<Overlays>? overlays;
 
-    private BunitContext NewContext(EditorLauncher? launcher = null, WindowLauncher? windows = null, AppMode? mode = null, TaskManager.Hosting.McpServerControl? server = null, TimeProvider? time = null)
+    private BunitContext NewContext(EditorLauncher? launcher = null, WindowLauncher? windows = null, AppMode? mode = null, TaskManager.Api.AgentStatus? server = null, TimeProvider? time = null)
     {
         BunitContext ctx = new();
         if (time is not null) ctx.Services.AddSingleton(time);   // the pages' timers (autosave, reload coalescing) run on it: the test moves time by hand
@@ -299,7 +301,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Null(WorkItemsApi.Get(123)!.Started);   // nothing saved until the range is complete
         await PickDay(first.AddDays(6));
         page.WaitForAssertion(() => Assert.Equal((first, first.AddDays(6)), (WorkItemsApi.Get(123)!.Started, WorkItemsApi.Get(123)!.Due)));
-        page.WaitForAssertion(() => Assert.Contains($"{first:d MMM} – {first.AddDays(6):d MMM}", page.Find("button.dates-btn").TextContent));
+        page.WaitForAssertion(() => Assert.Contains(TaskManager.Helpers.Ui.Period(first, first.AddDays(6)), page.Find("button.dates-btn").TextContent));
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".range-pop")));   // closed once the range is complete
         await page.InvokeAsync(() => { });
 
@@ -989,29 +991,27 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("RTM_AGENT", snippet);
         Assert.Contains((Environment.ProcessPath ?? "").Replace('\\', '/'), snippet);
         Assert.Contains("claude mcp add repo-tasks", page.Find("section.mcp").TextContent);
-        Assert.Empty(page.FindAll(".mcp-status"));   // no server control registered (the desktop host does that): no status line
+        Assert.Empty(page.FindAll(".mcp-status"));   // no status registered (the desktop host does that): no status line
     }
 
-    [Fact(DisplayName = "The settings page shows whether the MCP server is running, with its port, and starts or stops it")]
+    [Fact(DisplayName = "The settings page says whether this app serves agents, with its port, or that another Repo Tasks window does")]
     public async Task SettingsShowsServerStatus()
     {
-        TaskManager.Hosting.McpServerState state = new(false, 0, 0);
-        await using BunitContext ctx = NewContext(server: new(
-            () => Task.FromResult(state),
-            () => { state = new(true, 7431, 4242); return Task.CompletedTask; },
-            () => { state = new(false, 0, 0); return Task.CompletedTask; }));
+        TaskManager.Api.AgentEndpointStatus state = new(true, 7431, false);
+        await using BunitContext ctx = NewContext(server: () => state);
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
 
-        page.WaitForAssertion(() => Assert.Contains("not running", page.Find(".mcp-status").TextContent));
-        Assert.Equal("Start", page.Find(".mcp-status button").TextContent.Trim());
+        Assert.Contains("Serving agents · port 7431", page.Find(".mcp-status").TextContent);
+        Assert.Contains("on", page.Find(".mcp-status .chip").ClassList);
+        Assert.Empty(page.FindAll(".mcp-status button"));   // nothing to start or stop: the app serves while it is open
 
-        page.Find(".mcp-status button").Click();
-        page.WaitForAssertion(() => Assert.Contains("port 7431", page.Find(".mcp-status").TextContent));
-        Assert.Equal("Stop", page.Find(".mcp-status button").TextContent.Trim());
+        state = new(false, 7431, true);   // the status is read when the page opens
+        Assert.Contains("Another Repo Tasks window serves agents", ctx.Render<SettingsPage>().Find(".mcp-status").TextContent);
 
-        await page.InvokeAsync(() => { });
-        page.Find(".mcp-status button").Click();
-        page.WaitForAssertion(() => Assert.Contains("not running", page.Find(".mcp-status").TextContent));
+        state = new(false, 7431, false, "Address already in use");
+        IRenderedComponent<SettingsPage> broken = ctx.Render<SettingsPage>();
+        Assert.Contains("Not serving agents", broken.Find(".mcp-status").TextContent);
+        Assert.Contains("Address already in use", broken.Find("section.mcp").TextContent);
     }
 
     [Fact(DisplayName = "Keyboard hints (F) are off until switched on in Settings; the switch is pushed to the page script")]
@@ -1171,25 +1171,31 @@ public sealed class UsingThePagesTests : IDisposable
         })));
 
         layout.WaitForAssertion(() => Assert.Equal(4, layout.FindAll("main.split .split-list tr[data-id]").Count));   // the grid groups its rows after the first render
-        Assert.Equal("123", layout.Find(".split-list tr[data-id].cur").GetAttribute("data-id"));
-        Assert.Single(layout.FindAll(".split-list tr.cur"));
+        string Open() => string.Join(",", layout.FindAll(".split-list tr[data-id]").Where(r => RowMarkProbe.Current(layout, r)).Select(r => r.GetAttribute("data-id")));   // the row RowMarks marks
+        Assert.Equal("123", Open());
         Assert.Equal("Health-check endpoint", layout.Find(".split-item input.title-in").GetAttribute("value"));
 
         // the marked row follows the address
         nav.NavigateTo("item/107");
-        layout.WaitForAssertion(() => Assert.Equal("107", layout.Find(".split-list tr[data-id].cur").GetAttribute("data-id")));
+        layout.WaitForAssertion(() => Assert.Equal("107", Open()));
 
         // the split menu's "Item only" hides the list, and the choice outlives the app
         PickSplit(layout, "Item only");
-        Assert.Empty(layout.FindAll(".split-list"));
-        Assert.Empty(layout.FindAll("main.split"));
-        Assert.NotEmpty(layout.FindAll("main input.title-in"));   // the item is still there, alone
-        Assert.False(settings.Current.Split);
-        Assert.False(new SettingsStore(settingsFile).Current.Split);
+        layout.WaitForAssertion(() =>   // the click returns before its handler and the draw it causes when the renderer is busy
+        {
+            Assert.Empty(layout.FindAll(".split-list"));
+            Assert.Empty(layout.FindAll("main.split"));
+            Assert.NotEmpty(layout.FindAll("main input.title-in"));   // the item is still there, alone
+            Assert.False(settings.Current.Split);
+            Assert.False(new SettingsStore(settingsFile).Current.Split);
+        });
 
         PickSplit(layout, "Beside the list");
-        Assert.NotEmpty(layout.FindAll(".split-list tr[data-id]"));
-        Assert.True(new SettingsStore(settingsFile).Current.Split);
+        layout.WaitForAssertion(() =>
+        {
+            Assert.NotEmpty(layout.FindAll(".split-list tr[data-id]"));
+            Assert.True(new SettingsStore(settingsFile).Current.Split);
+        });
 
         // away from an item (the board itself) there is no split
         nav.NavigateTo("/");
@@ -1290,8 +1296,9 @@ public sealed class UsingThePagesTests : IDisposable
     /// <summary>Opens the split menu and picks one entry by its text.</summary>
     private static void PickSplit(IRenderedComponent<MainLayout> layout, string choice)
     {
+        layout.InvokeAsync(() => { }).GetAwaiter().GetResult();   // let what is queued on the renderer run first: an event dispatched into a busy renderer returns before it is handled
         layout.Find("button.split-btn").Click();
-        layout.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == choice).Click();
+        layout.WaitForAssertion(() => layout.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == choice).Click());   // the menu is drawn after the click, not with it
     }
 
     [Fact(DisplayName = "The split button is a menu with Beside the list, Item only and Separate window; Separate window asks the launcher for a window on this item and the main window goes back to the board")]
@@ -1329,14 +1336,11 @@ public sealed class UsingThePagesTests : IDisposable
         layout.WaitForAssertion(() => Assert.Empty(layout.FindAll("main.split")));
     }
 
-    [Fact(DisplayName = "A detached window shows only the work item page, without the side menu, the split menu or the back button, and never writes the settings file")]
+    [Fact(DisplayName = "A separate window shows only the work item page, without the side menu, the split menu or the back button")]
     public async Task DetachedWindow()
     {
         AppMode mode = new() { Detached = true };
         await using BunitContext ctx = NewContext(mode: mode);
-        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
-        settings.ReadOnly = true;   // what Program does for a detached window
-        string before = File.ReadAllText(settingsFile);
         ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("item/123");
 
         IRenderedComponent<MainLayout> layout = RenderItemLayout(ctx, 123);
@@ -1347,12 +1351,6 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Empty(layout.FindAll(".split-list"));
         Assert.Empty(layout.FindAll("button.split-btn"));
         Assert.Empty(layout.FindAll(".sheet-close"));
-
-        // settings changes live in this process only
-        settings.Update(s => s with { Theme = "dark", Split = false });
-        Assert.Equal("dark", settings.Current.Theme);
-        Assert.Equal(before, File.ReadAllText(settingsFile));
-        Assert.Equal("light", new SettingsStore(settingsFile).Current.Theme);
     }
 
     [Fact(DisplayName = "The item page's feature list ends with New feature…, which creates a feature and sets it on the item")]
@@ -1639,5 +1637,39 @@ public sealed class UsingThePagesTests : IDisposable
         set.WaitForAssertion(() => Assert.Equal((new TimeOnly(9, 0), new TimeOnly(13, 15)), times));
         set.Find("input[aria-label='from time']").Change("");
         set.WaitForAssertion(() => Assert.Equal((null, new TimeOnly(12, 30)), times));   // an emptied input clears that time (the other end is the parent's value, which this test never updates)
+    }
+
+    // ---- git-deltas chunk ----
+
+    [Fact(DisplayName = "The item page and the examine panel show the last contributing commit")]
+    public async Task ItemShowsItsLastCommit()
+    {
+        TempGit.Init(repo.Root);
+        TempGit.Commit(repo.Root, "2026-11-01T10:00:00+00:00", "Add the fixture");
+        repo.Write("openspec/changes/export-remittances/proposal.md", repo.Read("openspec/changes/export-remittances/proposal.md") + "\nA second line.\n");
+        TempGit.Commit(repo.Root, "2026-11-02T10:00:00+00:00", "Reword the export");
+        string second = TempGit.Run(repo.Root, null, "log", "-1", "--format=%h").Trim(), first = TempGit.Run(repo.Root, null, "log", "--format=%h", "--skip=1", "-1").Trim();
+        await using BunitContext ctx = NewContext();
+
+        // #wi107 was last touched by the second commit, #wi123 by the first
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
+        Assert.Equal(second, page.Find(".kv.last-commit .chip").TextContent.Trim());
+        Assert.Equal("Reword the export", page.Find(".kv.last-commit .chip").GetAttribute("title"));
+        IRenderedComponent<WorkItemPage> other = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        Assert.Equal(first, other.Find(".kv.last-commit .chip").TextContent.Trim());
+
+        // files saved since are not in a commit yet: the line says so
+        repo.Write("openspec/changes/add-health-check/proposal.md", repo.Read("openspec/changes/add-health-check/proposal.md") + "\nNot committed yet.\n");
+        OpenSpecStore.OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher: the version the uncommitted answer is kept under moves
+        IRenderedComponent<WorkItemPage> dirty = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        Assert.Equal("uncommitted", dirty.Find(".kv.last-commit .chip").TextContent.Trim());
+
+        // the examine panel has the one line
+        UiService popups = ctx.Services.GetRequiredService<UiService>();
+        IRenderedComponent<ExaminePanel> panel = ctx.Render<ExaminePanel>();
+        popups.Examine((repo.Root, 107));
+        panel.WaitForAssertion(() => Assert.Equal($"{second} · Reword the export", panel.Find("[data-line='last commit'] b").TextContent.Trim()));
+        popups.Examine((repo.Root, 123));
+        panel.WaitForAssertion(() => Assert.Equal("uncommitted changes", panel.Find("[data-line='last commit'] b").TextContent.Trim()));
     }
 }

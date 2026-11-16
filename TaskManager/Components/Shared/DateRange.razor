@@ -1,6 +1,6 @@
-@* One control for a start and an end day. The button reads "2 Nov – 8 Nov"; it opens a month where the first day clicked is
+@* One control for a start and an end day. The button reads "2–8 Nov" (Ui.Period); it opens a month where the first day clicked is
    the start and the second the end (picked backwards, they swap), then it saves and closes. Clear removes both. *@
-@using TaskManager.Board
+@using TaskManager.Components.Pages
 <Menu @ref="menu" Label="@Label" Class="range">
     <Activator>
         <button type="button" class="box dd mini dates-btn @(Picked ? "is-on" : "is-off")" data-sk aria-label="@Label" @onclick="Open">@Text</button>
@@ -9,11 +9,11 @@
         <div class="range-pop" @onclick:stopPropagation="true">
             <div class="range-h">
                 <button type="button" class="ic" aria-label="Previous month" @onclick="() => month = month.AddMonths(-1)">‹</button>
-                <b>@month.ToString("MMMM yyyy")</b>
+                <b>@Ui.MonthLong(month)</b>
                 <button type="button" class="ic" aria-label="Next month" @onclick="() => month = month.AddMonths(1)">›</button>
             </div>
             <div class="range-grid">
-                @foreach (string d in new[] { "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" }) { <span class="rdow">@d</span> }
+                @foreach (string d in Ui.WeekdayHeads) { <span class="rdow">@d</span> }
                 @foreach (DateOnly day in RoadmapModel.Weeks(month).SelectMany(w => w))
                 {
                     <button type="button" class="rd @Look(day)" data-day="@day.ToString("yyyy-MM-dd")" @onclick="() => Pick(day)">@day.Day</button>
@@ -27,7 +27,7 @@
                 </div>
             }
             <div class="range-f">
-                <span class="muted">@(pending is DateOnly p ? $"from {p:d MMM}: pick the end" : "pick the start")</span>
+                <span class="muted">@(pending is DateOnly p ? $"from {Ui.Day(p)}: pick the end" : "pick the start")</span>
                 @if (ClearLabel is null) { <button type="button" class="add range-clear" @onclick="Clear">Clear</button> }
                 else if (Start is not null || End is not null) { <button type="button" class="add range-clear" @onclick="Clear">@ClearLabel</button> }
             </div>
@@ -55,33 +55,21 @@
 
     private Menu? menu;
     private bool Picked => Start is not null || End is not null;
-    private static string Format(TimeOnly? t) => t?.ToString("HH\\:mm") ?? "";
+    private static string Format(TimeOnly? t) => t is TimeOnly v ? Ui.Time(v) : "";
 
     private async Task TimeChanged(ChangeEventArgs e, bool from)
     {
         TimeOnly? t = TimeOnly.TryParse(e.Value?.ToString(), out TimeOnly parsed) ? parsed : null;
         await TimesChanged.InvokeAsync(from ? (t, EndTime) : (StartTime, t));
     }
-    private DateOnly month = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    [Inject] private IServiceProvider Services { get; set; } = default!;
+    private DateOnly? monthShown;   // the month the popup shows; the clock's month until one is chosen
+    private DateOnly month { get => monthShown ?? new(Today.Year, Today.Month, 1); set => monthShown = value; }
     private DateOnly? pending;   // the start, between the first click and the second
-    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly Today => Ui.Today(Ui.ClockOf(Services));
 
-    private string Text => (Start, End) switch
-    {
-        (DateOnly s, DateOnly e) when WithTime && s == e => (StartTime, EndTime) switch
-        {
-            (TimeOnly a, TimeOnly b) => $"{s:d MMM} {Format(a)} – {Format(b)}",
-            (TimeOnly a, null) => $"{s:d MMM} from {Format(a)}",
-            (null, TimeOnly b) => $"{s:d MMM} until {Format(b)}",
-            _ => s.ToString("d MMM"),
-        },
-        (DateOnly s, DateOnly e) when WithTime => $"{s:d MMM}{(StartTime is null ? "" : " " + Format(StartTime))} – {e:d MMM}{(EndTime is null ? "" : " " + Format(EndTime))}",
-        (DateOnly s, DateOnly e) when s == e => s.ToString("d MMM"),
-        (DateOnly s, DateOnly e) => $"{s:d MMM} – {e:d MMM}",
-        (DateOnly s, null) => $"from {s:d MMM}",
-        (null, DateOnly e) => $"due {e:d MMM}",
-        _ => Empty,
-    };
+    /// <summary>The button's text: Ui's period (with the times of day when <see cref="WithTime"/>), <see cref="Empty"/> with neither day.</summary>
+    private string Text => Picked ? Ui.Period(Start, End, WithTime ? StartTime : null, WithTime ? EndTime : null) : Empty;
 
     private void Open()
     {

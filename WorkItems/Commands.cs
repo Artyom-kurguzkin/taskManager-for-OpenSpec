@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using OpenSpecStore;
+using OpenSpecStore.PublicDTOs;
 using WorkItems.BusinessRules;
 using WorkItems.Infrastructure;
 using WorkItems.PublicDTOs;
@@ -487,10 +488,9 @@ internal static partial class Commands
                 Rtm meta = Metadata.TryRead<Rtm>(yaml, out string? problem);
                 if (problem is not null) continue;   // does not parse: left as it is until fixed, and the warning stays
                 int newId = OpenSpecStoreApi.Allocate("work-item", roots => roots.Max(r => Queries.MaxIdUnder(r)));
-                Regex own = OwnReference(w.Id);
-                FollowId(w.Path, own, newId);
+                FollowId(w.Path, w.Id, newId);
                 meta.Id = newId;
-                if (meta.Title is not null) meta.Title = own.Replace(meta.Title, $"#wi{newId}");
+                if (meta.Title is not null) meta.Title = OpenSpecStoreApi.RenameReference(meta.Title, "item", w.Id, newId);
                 if (!Metadata.Write(yaml, meta).Success) continue;
                 EventLog.Append(w.Path, Actor(), [("renumbered", $"#wi{w.Id} -> #wi{newId}: the id was taken by \"{twins[0].Title}\" ({twins[0].Folder}) after a merge")]);
                 renumbered.Add((w.Id, newId, w.Folder));
@@ -499,17 +499,14 @@ internal static partial class Commands
         }
     }
 
-    /// <summary>#wiN for one N, not when more digits follow (#wi1234 is not #wi123).</summary>
-    private static Regex OwnReference(int id) => new($@"#wi{id}(?!\d)");
-
     /// <summary>Rewrites the references to the old number in what the change wrote about itself: proposal, tasks, notes and events.</summary>
-    private static void FollowId(string dir, Regex own, int newId)
+    private static void FollowId(string dir, int oldId, int newId)
     {
         string notes = Path.Combine(dir, "notes");
         foreach (string file in (IEnumerable<string>)[Path.Combine(dir, "proposal.md"), Path.Combine(dir, "tasks.md"), EventLog.PathIn(dir), .. (Directory.Exists(notes) ? Directory.EnumerateFiles(notes, "n*.md") : [])])
         {
             if (!File.Exists(file)) continue;
-            string text = OpenSpecStoreApi.ReadText(file), now = own.Replace(text, $"#wi{newId}");
+            string text = OpenSpecStoreApi.ReadText(file), now = OpenSpecStoreApi.RenameReference(text, "item", oldId, newId);
             if (now != text) OpenSpecStoreApi.WriteText(file, now);
         }
     }
@@ -594,6 +591,11 @@ internal static partial class Commands
 
     /// <summary>Merges the items into one that keeps the title and description of <paramref name="into"/>; the other descriptions become notes on it.</summary>
     internal static (bool Success, string Message, int Id) Merge(IReadOnlyList<int> ids, int into)
+    {
+        lock (OpenSpecStoreApi.StepsGate) return MergeSteps(ids, into);   // readers that repair note ids wait: halfway through, a note is in two folders
+    }
+
+    private static (bool Success, string Message, int Id) MergeSteps(IReadOnlyList<int> ids, int into)
     {
         List<WorkItem> items = ids.Select(Queries.Get).OfType<WorkItem>().ToList();
         if (items.Count < 2) return (false, "Select at least two work items to merge", 0);
@@ -763,15 +765,14 @@ internal static partial class Commands
 
     internal static (bool Success, string Message) EditLanes(string column, Action<List<string>> edit)
     {
-        if (OpenSpecStoreApi.OpenSpecRoot is not string root) return (false, "No repository is open");
-        string yaml = Path.Combine(root, "config.yaml");
-        Dictionary<string, List<string>> all;
-        try { all = Metadata.ReadSection<Dictionary<string, List<string>>>(yaml, "lanes") ?? []; }
-        catch (MetadataException e) { return (false, e.Message); }   // not written over
+        if (OpenSpecStoreApi.RepoRoot is null) return (false, "No repository is open");
+        ConfigSection<Dictionary<string, List<string>>> read = OpenSpecStoreApi.ReadConfigSection<Dictionary<string, List<string>>>("lanes");
+        if (read.Problem is not null) return (false, read.Problem);   // not written over
+        Dictionary<string, List<string>> all = read.Value ?? [];
         List<string> lanes = all.TryGetValue(column, out List<string>? l) ? l : all[column] = [];
         edit(lanes);
         if (lanes.Count == 0) all.Remove(column);
-        return Metadata.WriteSection(yaml, "lanes", all.Count == 0 ? null : all);
+        return OpenSpecStoreApi.WriteConfigSection("lanes", all.Count == 0 ? null : all, flowLists: true);
     }
 
     // ── The project's statuses (x-rtm.statuses in openspec/config.yaml) ──
@@ -781,17 +782,16 @@ internal static partial class Commands
     /// <summary>Reads the project's list, lets <paramref name="edit"/> change it (returning a reason to refuse, or null) and saves it; the built-in list is saved as no line at all.</summary>
     private static (bool Success, string Message) EditStatuses(Func<List<string>, string?> edit)
     {
-        if (OpenSpecStoreApi.OpenSpecRoot is not string root) return (false, "No repository is open");
-        string yaml = Path.Combine(root, "config.yaml");
-        List<string> list;
-        try { list = [.. Queries.Normalise(Metadata.ReadSection<List<string>>(yaml, "statuses"))]; }
-        catch (MetadataException e) { return (false, e.Message); }   // not written over
+        if (OpenSpecStoreApi.RepoRoot is null) return (false, "No repository is open");
+        ConfigSection<List<string>> read = OpenSpecStoreApi.ReadConfigSection<List<string>>("statuses");
+        if (read.Problem is not null) return (false, read.Problem);   // not written over
+        List<string> list = [.. Queries.Normalise(read.Value)];
         if (edit(list) is string refusal) return (false, refusal);
         IReadOnlyList<string> saved = Queries.Normalise(list);
-        return Metadata.WriteSection(yaml, "statuses", saved.SequenceEqual(WorkItemsApi.Statuses) ? null : saved.ToList());
+        return OpenSpecStoreApi.WriteConfigSection("statuses", saved.SequenceEqual(WorkItemsApi.Statuses) ? null : saved.ToList(), flowLists: true);
     }
 
-    internal static (bool Success, string Message) AddStatus(string name)
+    internal static (bool Success, string Message) AddStatus(string name, bool beforeCompleted = false)
     {
         name = (name ?? "").Trim();
         if (name.Length == 0) return (false, "Type a name first");
@@ -800,7 +800,8 @@ internal static partial class Commands
         return EditStatuses(l =>
         {
             if (l.Contains(name)) return $"This project has a status \"{name}\" already";
-            l.Add(name);
+            if (beforeCompleted && l.Count > 0 && l[^1] == "Completed") l.Insert(l.Count - 1, name);   // Completed means archived: it stays last
+            else l.Add(name);
             return null;
         });
     }

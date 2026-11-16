@@ -1,0 +1,18 @@
+2026-11-16T22:42:17 | Claude | created | Board view on the render rules: a click redraws the cards it changed
+2026-11-16T22:42:17 | Claude | status | Planned -> In Progress
+2026-11-16T22:42:17 | Claude | description-edited | proposal.md
+2026-11-16T22:42:17 | Claude | label | none -> enhancement
+2026-11-16T22:42:17 | Claude | plan-linked | DevResources/plans/universal-ui-structure-2026-11-16.md
+2026-11-16T22:42:17 | Claude | dependency-added | #wi183
+2026-11-16T22:42:17 | Claude | dependency-added | #wi189
+2026-11-16T22:42:17 | Claude | subtask-added | 1.1 WorkItemCard RenderKey and cached callbacks
+2026-11-16T22:42:17 | Claude | subtask-added | 1.2 non-rendering header clicks
+2026-11-16T22:42:18 | Claude | subtask-added | 1.3 render-budget tests: examine and Shift-click redraw 1-2 cards
+2026-11-17T06:31:48 | Claude | status | In Progress -> In Review
+2026-11-17T06:31:48 | Claude | test-linked | BoardRenderBudgetTests / Examining a card redraws only that card and the one it left
+2026-11-17T06:31:48 | Claude | test-linked | BoardRenderBudgetTests / Shift-clicking a card redraws only that card
+2026-11-17T06:31:48 | Claude | test-linked | BoardRenderBudgetTests / Opening a column menu does not redraw the cards
+2026-11-17T06:31:48 | Claude | test-linked | BoardRenderBudgetTests / A plain click on a project name redraws nothing
+2026-11-17T06:31:48 | Claude | subtask-done | 1.1 WorkItemCard RenderKey and cached callbacks
+2026-11-17T06:31:48 | Claude | subtask-done | 1.2 non-rendering header clicks
+2026-11-17T06:31:48 | Claude | subtask-done | 1.3 render-budget tests: examine and Shift-click redraw 1-2 cards

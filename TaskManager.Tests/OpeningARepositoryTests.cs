@@ -2,8 +2,10 @@ using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using OpenSpecStore;
 using Radzen;
+using TaskManager.AppState;
 using TaskManager.Components.Pages;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.Helpers;
 using WorkItems;
 
 namespace TaskManager.Tests;
@@ -32,10 +34,10 @@ public sealed class OpeningARepositoryTests
 
         Assert.True(OpenSpecStoreApi.Use(a.Root));
         Assert.Equal("Monthly remittance export", WorkItemsApi.Get(107)!.Title);
-        int loads = WorkItemsModule.Loads;
+        int loads = ItemsCache.Loads;
         OpenSpecStoreApi.Use(b.Root); WorkItemsApi.Get(107);
         OpenSpecStoreApi.Use(a.Root); WorkItemsApi.Get(107);
-        Assert.Equal(loads, WorkItemsModule.Loads);   // switching costs no parse: each repository keeps its own cache
+        Assert.Equal(loads, ItemsCache.Loads);   // switching costs no parse: each repository keeps its own cache
         Assert.False(OpenSpecStoreApi.Use(Path.GetTempPath()));   // not open
 
         Assert.True(OpenSpecStoreApi.Open(a.Root).Success);

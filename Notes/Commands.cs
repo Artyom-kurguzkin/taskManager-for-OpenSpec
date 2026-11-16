@@ -114,7 +114,7 @@ internal static class Commands
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
     }
 
-    internal const string DefaultAttachmentsDir = "local/task-tracking";
+    internal const string DefaultAttachmentsDir = OpenSpecStoreApi.DefaultAttachmentsDir;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> AttachDirs = new(StringComparer.OrdinalIgnoreCase);
 
     private static string DirKey(string root) => Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

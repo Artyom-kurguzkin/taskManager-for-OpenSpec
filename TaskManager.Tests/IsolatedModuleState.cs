@@ -10,18 +10,19 @@ namespace TaskManager.Tests;
 /// Gives every test its own module state. The modules keep their state in statics (the app has one of each); each module also has an
 /// AsyncLocal seam, <c>Isolated</c>, that replaces that state for the code running from where it is set. Setting it once per test case,
 /// before the test class is constructed, means everything the test runs (its constructor, its awaits, the tasks and timers it starts)
-/// sees the test's own open repositories, caches, swapped steps and counters, and tests in different classes can run at the same time.
+/// sees the test's own open repositories, caches (the host's, in AppState/), swapped steps and counters, and tests in different classes can run at the same time.
 /// </summary>
 internal static class IsolatedModuleState
 {
     internal static void Begin()
     {
+        TaskManager.AppState.Caches.Install();   // once per process: the modules answer from the caches below
+        TaskManager.AppState.Caches.Isolated.Value = new();
         OpenSpecStore.OpenSpecStoreModule.Isolated.Value = new();
         WorkItems.WorkItemsModule.Isolated.Value = new();
         Notes.NotesModule.Isolated.Value = new();
-        Features.FeaturesModule.Isolated.Value = new();
-        GitHistory.GitHistoryModule.Isolated.Value = new();
-        LinkedTestRuns.LinkedTestRunsModule.Isolated.Value = new(StringComparer.OrdinalIgnoreCase);
+        GitHistory.GitHistoryModule.Isolated.Value = new() { RealWatchers = false };   // no test starts a file system watcher on .git; the ones that cover it drive a watcher themselves
+        TaskManager.Components.RenderCounts.Isolated.Value = new();
     }
 }
 

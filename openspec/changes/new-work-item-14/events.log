@@ -52,3 +52,13 @@
 2026-11-16T09:41:13 | Artyom-kurguzkin | attachment-added | n446: pasted-20261116-094113.png
 2026-11-16T09:44:45 | Artyom-kurguzkin | subtask-added | 1.2 view subtask #n446
 2026-11-16T09:44:45 | Artyom-kurguzkin | converted | note #n446 -> subtask 1.2
+2026-11-16T11:11:31 | Claude chunk menu2 | status | In Progress -> In Review
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / With every feed filter on, clicking one shows only that kind, and later clicks add kinds
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / The examine panel lists the examined item's subtasks
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / The board's subtask view stays reachable from the examine panel, and Filters offers the way back to work items while it is on
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / Clicking a subtask in the examine panel asks whether to make it a work item of its own or one this item waits on, and does it
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / Starting to drag a subtask in the examine panel asks the same question
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / New work item is a filled red button and the menu's buttons share one edge and height
+2026-11-16T11:11:31 | Claude chunk menu2 | subtask-done | 1.1 work item feed filter cr #n444
+2026-11-16T11:11:31 | Claude chunk menu2 | subtask-done | 1.2 view subtask #n446
+2026-11-16T13:02:19 | Claude | log | Integrated menu2 into main with four other chunks plus test fixes (self-deadlocking delete-feature clicks, examine-panel click, toast lifetime seam, render-queue waits). One run: Passed 1083, Failed 0, 3 m 32 s.

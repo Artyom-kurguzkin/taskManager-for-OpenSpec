@@ -1,0 +1,19 @@
+2026-11-16T18:46:28 | Claude | created | One reader for config.yaml and one grammar for #wi / #n / [[doc]]
+2026-11-16T18:46:28 | Claude | status | Planned -> In Progress
+2026-11-16T18:46:28 | Claude | description-edited | proposal.md
+2026-11-16T18:46:28 | Claude | label | none -> enhancement
+2026-11-16T18:46:28 | Claude | plan-linked | DevResources/plans/universal-ui-structure-2026-11-16.md
+2026-11-16T18:46:28 | Claude | dependency-added | #wi181
+2026-11-16T18:46:28 | Claude | subtask-added | 1.1 config.yaml sections: one reader/writer with defaults
+2026-11-16T18:46:28 | Claude | subtask-added | 1.2 reference grammar: one parser/formatter, all callers moved
+2026-11-16T20:20:10 | Claude | log | Chunk W2a merged with no conflicts: OpenSpecStore is the single config.yaml reader and writer, the path is built in one place, and a broken section reads as defaults with a warning. Full suite to follow after the other wave-2 merges.
+2026-11-16T20:22:07 | Claude | log | Chunk W2b merged with no conflicts. The reference grammar lives in OpenSpecStore (one boundary rule), and the note page, worklog and documents link #wi/#n/[[doc]] the same way. 9 new tests.
+2026-11-16T22:02:27 | Claude | status | In Progress -> In Review
+2026-11-16T22:02:27 | Claude | test-linked | ReadingProjectSettingsFromConfigTests / A project with a broken config.yaml section still opens with default lanes and statuses and says what is wrong
+2026-11-16T22:02:27 | Claude | test-linked | ReadingProjectSettingsFromConfigTests / The config.yaml path is built in one place only
+2026-11-16T22:02:27 | Claude | test-linked | ReadingProjectSettingsFromConfigTests / Changing the files folder in Settings writes only that key
+2026-11-16T22:02:27 | Claude | test-linked | LinkingReferencesEverywhereTests / A note that mentions #wi12, #n3 and [[guide]] shows the same links on the note page, in the worklog and in a document
+2026-11-16T22:02:27 | Claude | test-linked | LinkingReferencesEverywhereTests / Renumbering an item rewrites #wi12 but not #wi123
+2026-11-16T22:02:27 | Claude | test-linked | LinkingReferencesEverywhereTests / An agent's board_note mentioning #wi123 links the same way as one written in the app
+2026-11-16T22:02:27 | Claude | subtask-done | 1.1 config.yaml sections: one reader/writer with defaults
+2026-11-16T22:02:27 | Claude | subtask-done | 1.2 reference grammar: one parser/formatter, all callers moved

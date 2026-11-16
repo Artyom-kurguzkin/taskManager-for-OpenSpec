@@ -1,0 +1,17 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-16
+x-rtm:
+  id: 191
+  title: 'Board view on the render rules: a click redraws the cards it changed'
+  status: In Review
+  contributors: [Claude]
+  features: [organise-work-items]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-17
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: BoardRenderBudgetTests, test: Examining a card redraws only that card and the one it left}, {suite: BoardRenderBudgetTests, test: Shift-clicking a card redraws only that card}, {suite: BoardRenderBudgetTests, test: Opening a column menu does not redraw the cards}, {suite: BoardRenderBudgetTests, test: A plain click on a project name redraws nothing}]
+  dependsOn: [183, 189]
+  agentBy: Claude check W5
+  agentAt: 2026-11-17T07:22:09

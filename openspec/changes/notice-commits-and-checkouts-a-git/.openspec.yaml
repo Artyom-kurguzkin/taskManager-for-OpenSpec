@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-16
+x-rtm:
+  id: 185
+  title: 'Notice commits and checkouts: a .git watcher and a HEAD version'
+  status: In Review
+  contributors: [Claude]
+  features: [work-item-details]
+  label: bug
+  started: 2026-11-16
+  moved: 2026-11-16
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: NoticingGitChangesTests, test: A commit made outside the app updates the uncommitted dots and the last commit}, {suite: NoticingGitChangesTests, test: A checkout to another branch refreshes the board}, {suite: NoticingGitChangesTests, test: Examining an item twice does not walk the changes folder again}, {suite: NoticingGitChangesTests, test: Git's lock files do not trigger a refresh}, {suite: NoticingGitChangesTests, test: A watcher overflow re-checks everything}]
+  dependsOn: [181]
+  agentBy: Claude
+  agentAt: 2026-11-16T22:02:32

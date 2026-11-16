@@ -1,0 +1,18 @@
+2026-11-16T18:02:34 | Claude | created | One base component for every component, with a render counter
+2026-11-16T18:02:34 | Claude | status | Planned -> In Progress
+2026-11-16T18:02:34 | Claude | description-edited | proposal.md
+2026-11-16T18:02:35 | Claude | label | none -> enhancement
+2026-11-16T18:02:35 | Claude | plan-linked | DevResources/plans/universal-ui-structure-2026-11-16.md
+2026-11-16T18:02:35 | Claude | subtask-added | 1.1 RtmComponent in legacy mode with counter and RenderKey
+2026-11-16T18:02:35 | Claude | subtask-added | 1.2 all components inherit it; RepoPage derives from it
+2026-11-16T18:02:35 | Claude | subtask-added | 1.3 architecture test with allowlist
+2026-11-16T18:49:05 | Claude | status | In Progress -> In Review
+2026-11-16T18:49:06 | Claude | test-linked | ComponentRulesTests / Every component we write derives from the base component
+2026-11-16T18:49:06 | Claude | test-linked | ComponentRulesTests / A strict component does not redraw after a click that changed nothing
+2026-11-16T18:49:06 | Claude | test-linked | ComponentRulesTests / A legacy component still redraws after every click
+2026-11-16T18:49:06 | Claude | test-linked | ComponentRulesTests / A component with an unchanged render key skips a parameter redraw
+2026-11-16T18:49:06 | Claude | test-linked | ComponentRulesTests / An exception in a strict component's handler reaches the error boundary
+2026-11-16T18:49:06 | Claude | test-linked | ComponentRulesTests / Render counts in one test do not leak into another
+2026-11-16T18:49:06 | Claude | subtask-done | 1.1 RtmComponent in legacy mode with counter and RenderKey
+2026-11-16T18:49:06 | Claude | subtask-done | 1.2 all components inherit it; RepoPage derives from it
+2026-11-16T18:49:06 | Claude | subtask-done | 1.3 architecture test with allowlist

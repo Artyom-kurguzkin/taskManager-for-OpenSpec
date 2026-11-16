@@ -11,5 +11,5 @@
 
     /// <summary>The tooltip of anything that marks agent work as reviewed on a click.</summary>
     public static string TipFor(string? by, DateTime? at) =>
-        $"Added or changed by {by ?? "an agent"}{(at is DateTime t ? $" · {t:d MMM HH:mm}" : "")} — click to mark as reviewed";
+        $"Added or changed by {by ?? "an agent"}{(at is DateTime t ? $" · {Ui.DayTime(t)}" : "")} — click to mark as reviewed";
 }

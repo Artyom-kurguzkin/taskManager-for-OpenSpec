@@ -1,20 +1,18 @@
 namespace WorkItems;
 
-/// <summary>The module's state: what is cached per repository, the swappable steps, and the counters tests read.</summary>
+/// <summary>The module's state: the swappable steps and the counters tests read. It keeps no cache of the board: that lives in the host (see <see cref="WorkItemsModule.Board"/>).</summary>
 internal sealed class WorkItemsState
 {
     public Func<string, IReadOnlyList<string>, (bool Success, string Message, bool CouldRun)> Archive = Infrastructure.OpenSpecCli.Archive;
-    public readonly Dictionary<string, RepoCache> Cache = new(StringComparer.OrdinalIgnoreCase);
-    public readonly object Gate = new();
     public int GitEpoch;
     public Func<(string Token, Func<string, IReadOnlyList<string>> AuthorsOf)?>? Git;
     public Func<string?>? Actor;
-    public int Loads, FolderParses, DuplicateScans;
+    public int FolderParses, DuplicateScans;
 }
 
 /// <summary>
 /// Process-wide state. Only the archive step is swappable (tests replace the CLI call).
-/// The app has one such state; a test runs against its own (<see cref="Isolated"/>), so tests that run at the same time never share a cache, a step or a counter.
+/// The app has one such state; a test runs against its own (<see cref="Isolated"/>), so tests that run at the same time never share a step or a counter.
 /// </summary>
 internal static class WorkItemsModule
 {
@@ -28,11 +26,9 @@ internal static class WorkItemsModule
     /// <summary>Runs <c>openspec archive &lt;folder&gt; --yes</c> with the extra flags; CouldRun is false when the CLI never decided (see OpenSpecCli.Archive).</summary>
     internal static Func<string, IReadOnlyList<string>, (bool Success, string Message, bool CouldRun)> Archive { get => S.Archive; set => S.Archive = value; }
 
-    /// <summary>Parsed work items per repository: the assembled list is valid while that repository's content version is unchanged, and each change folder keeps its own parsed item while its files are unchanged.</summary>
-    internal static Dictionary<string, RepoCache> Cache => S.Cache;
-
-    /// <summary>Guards <see cref="Cache"/>: the UI thread and the file watcher's timer both read the board.</summary>
-    internal static object Gate => S.Gate;
+    /// <summary>The host's cached read of the board, and its look at the board without refreshing it (see WorkItemsApi.UseBoard); null = read afresh on every call. Not per test: the reads they point to find the test's own caches.</summary>
+    internal static Func<PublicDTOs.BoardRead>? Board;
+    internal static Func<PublicDTOs.BoardRead?>? LastSeen;
 
     /// <summary>Goes up when the contributor source is replaced, so every item takes its commit authors again (without parsing a folder).</summary>
     internal static int GitEpoch { get => S.GitEpoch; set => S.GitEpoch = value; }
@@ -41,10 +37,24 @@ internal static class WorkItemsModule
     internal static Func<(string Token, Func<string, IReadOnlyList<string>> AuthorsOf)?>? Git { get => S.Git; set => S.Git = value; }
 
     /// <summary>Who an event is recorded as (the host sets it); null = nobody configured.</summary>
-    internal static Func<string?>? Actor { get => S.Actor; set => S.Actor = value; }
+    internal static Func<string?>? Actor { get => ScopedActor.Value ?? S.Actor; set => S.Actor = value; }
 
-    /// <summary>How many times the repo was parsed (tests use it to prove reads are cached).</summary>
-    internal static int Loads { get => S.Loads; set => S.Loads = value; }
+    /// <summary>The actor of one call (an agent's tool call), set for the code running from where it was set; null = the configured one, the app's.</summary>
+    private static readonly AsyncLocal<Func<string?>?> ScopedActor = new();
+
+    /// <summary>Signs what the code running from here writes as <paramref name="who"/> until the scope is disposed; the configured actor, and every other call's, stay as they are.</summary>
+    internal static IDisposable ActingAs(string who)
+    {
+        Func<string?>? before = ScopedActor.Value;
+        ScopedActor.Value = () => who;
+        return new Undo(() => ScopedActor.Value = before);
+    }
+
+    private sealed class Undo(Action undo) : IDisposable
+    {
+        private Action? undo = undo;
+        public void Dispose() => Interlocked.Exchange(ref undo, null)?.Invoke();
+    }
 
     /// <summary>How many change folders were parsed (tests use it to prove an edit re-parses only its own folder).</summary>
     internal static int FolderParses { get => S.FolderParses; set => S.FolderParses = value; }

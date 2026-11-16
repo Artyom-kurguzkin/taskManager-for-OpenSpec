@@ -8,7 +8,9 @@ using Notes.PublicDTOs;
 using OpenSpecStore;
 using Radzen;
 using TaskManager.Components.Pages;
-using TaskManager.Services;
+using TaskManager.AppState;
+using TaskManager.BackgroundJobs;
+using TaskManager.Helpers;
 using WorkItems;
 using WorkItems.PublicDTOs;
 
@@ -42,7 +44,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
     {
         public readonly TestRepo Repo = new();
         public readonly string Data;
-        public readonly UiService Ui = new();
+        public readonly UiService Ui = new() { ToastLifetime = Timeout.InfiniteTimeSpan };   // a toast the test asserts on must not expire on the wall clock of a busy machine
         /// <summary>This computer's app settings: where the project's attachments folder is read from.</summary>
         public readonly SettingsStore App;
         public BoardStorageSettings Settings { get; private set; }
@@ -275,7 +277,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         foreach (string file in Directory.EnumerateFiles(c.Data, "*", SearchOption.AllDirectories))
             if (OperatingSystem.IsWindows()) Assert.DoesNotContain(secret, File.ReadAllText(file));   // protected for the current user, not plain text
 
-        TaskManager.Services.BoardStorageSettings again = new(c.Data, StorageProviders.Builtin);       // a restart
+        TaskManager.AppState.BoardStorageSettings again = new(c.Data, StorageProviders.Builtin);       // a restart
         Assert.Equal(secret, again.ComputerValue(c.Root, "secretKey"));
         Assert.True(again.IsSet(c.Root, "secretKey"));
 
@@ -609,6 +611,15 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.False(File.Exists(Path.Combine(b.Root, Yaml)));
     }
 
+    [Fact(DisplayName = "A service whose toasts have no lifetime keeps every toast, so a slow machine never takes one away from a test")]
+    public void ToastsWithoutALifetimeStay()
+    {
+        UiService ui = new() { ToastLifetime = Timeout.InfiniteTimeSpan };
+        ui.Toast("Sync failed: first");
+        ui.Toast("Sync failed: second");
+        Assert.Equal(["Sync failed: first", "Sync failed: second"], ui.Toasts.Select(t => t.Text));
+    }
+
     [Fact(DisplayName = "A failing storage shows the reason in the state line and does not toast on every attempt")]
     public async Task FailingStorageToastsOnce()
     {
@@ -661,7 +672,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.Empty(a.Seen[^1].EditedInApp!);
     }
 
-    [Fact(DisplayName = "Paths the board server wrote in its own process are passed as app edits too")]
+    [Fact(DisplayName = "Paths an older board server logged in its own process are still passed as app edits, once")]
     public async Task BoardServerWritesAreAppEdits()
     {
         Computer a = NewComputer("a");
@@ -678,21 +689,23 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.False(File.Exists(Path.Combine(a.Data, "server-writes.log")));   // read once and cleared
     }
 
-    [Fact(DisplayName = "The board server records the paths it writes so the desktop app can tell them from git's")]
-    public void BoardServerRecordsItsWrites()
+    [Fact(DisplayName = "A write made by an agent's tool call in the app's process is recorded like the window's, with no log file, so the sync counts it as an app edit")]
+    public void AnAgentsWriteIsRecordedInProcess()
     {
         Computer a = NewComputer("a");
         long cursor = OpenSpecStoreApi.ChangesSince(long.MaxValue).Cursor;
         string file = a.Repo.PathOf(Proposal);
-        OpenSpecStoreApi.ReadText(file);
-        Assert.True(OpenSpecStoreApi.WriteText(file, "# Written by a tool call\n").Success);
+        using (OpenSpecStoreApi.AsCaller())
+        {
+            OpenSpecStoreApi.ReadText(file);
+            Assert.True(OpenSpecStoreApi.WriteText(file, "# Written by a tool call\n").Success);
+        }
 
-        long next = ServerWrites.Flush(a.Data, cursor);
+        (IReadOnlyList<string> paths, long next) = OpenSpecStoreApi.ChangesSince(cursor);
 
         Assert.True(next > cursor);
-        Assert.Equal([Path.GetFullPath(file)], File.ReadAllLines(Path.Combine(a.Data, ServerWrites.FileName)));
-        Assert.Equal(next, ServerWrites.Flush(a.Data, next));          // nothing new: nothing appended
-        Assert.Single(File.ReadAllLines(Path.Combine(a.Data, ServerWrites.FileName)));
+        Assert.Equal([Path.GetFullPath(file)], paths.Distinct().ToArray());
+        Assert.False(File.Exists(Path.Combine(a.Data, ServerWrites.FileName)));   // nothing writes the old log any more
     }
 
     [Fact(DisplayName = "The git folder is passed to the sync, whether it is a directory or a worktree's file")]
@@ -1164,33 +1177,6 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         await a.Sync.Attach(other.Root);
         Assert.Contains(PlainProposal, a.Seen.Last(o => o.LocalRoot.StartsWith(other.Root)).EditedInApp!);
         Assert.False(File.Exists(ServerLog(a)));
-    }
-
-    [Fact(DisplayName = "A server log at its size cap is cut down to its distinct paths before it stops growing")]
-    public void TheServerLogIsCompactedAtItsCap()
-    {
-        Computer a = NewComputer("a");
-        string old = a.Repo.PathOf(Proposal);
-        Directory.CreateDirectory(a.Data);
-        File.WriteAllLines(ServerLog(a), Enumerable.Repeat(Path.GetFullPath(old), 30_000));         // the same path at every flush: over 1 MB
-        Assert.True(new System.IO.FileInfo(ServerLog(a)).Length > 1_000_000);
-
-        long cursor = OpenSpecStoreApi.ChangesSince(long.MaxValue).Cursor;
-        string changed = a.Repo.PathOf(Yaml);
-        OpenSpecStoreApi.ReadText(changed);
-        Assert.True(OpenSpecStoreApi.WriteText(changed, a.Read(Yaml) + "# touched\n").Success);
-        ServerWrites.Flush(a.Data, cursor);
-
-        Assert.Equal([Path.GetFullPath(old), Path.GetFullPath(changed)], File.ReadAllLines(ServerLog(a)));   // nothing was lost, and the new path fits
-
-        File.WriteAllLines(ServerLog(a), Enumerable.Range(0, 40_000).Select(i => Path.Combine(temp, $"distinct-{i}-padding-padding.md")));   // distinct paths that alone are over the cap
-        long size = new System.IO.FileInfo(ServerLog(a)).Length;
-        Assert.True(size > 1_000_000);
-        OpenSpecStoreApi.ReadText(changed);
-        Assert.True(OpenSpecStoreApi.WriteText(changed, a.Read(Yaml) + "# touched again\n").Success);
-        ServerWrites.Flush(a.Data, cursor);
-
-        Assert.Equal(size, new System.IO.FileInfo(ServerLog(a)).Length);                                      // it stops growing; what is not recorded looks like an outside edit
     }
 
     // ── git ──

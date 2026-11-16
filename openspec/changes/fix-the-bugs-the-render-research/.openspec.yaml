@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-16
+x-rtm:
+  id: 182
+  title: Fix the bugs the render research found
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [organise-work-items]
+  label: bug
+  started: 2026-11-16
+  moved: 2026-11-16
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: ShowingAttachedImagesSafelyTests, test: An image attached through a junction outside the repository is not shown in the worklog}, {suite: ShowingAttachedImagesSafelyTests, test: An image larger than the limit is not shown on the note page}, {suite: ShowingAttachedImagesSafelyTests, test: Typing in a note does not read its attached images again}, {suite: OpeningSettingsWithoutSideEffectsTests, test: Opening Settings and redrawing it three times writes no file}, {suite: ListBugFixesTests, test: Opening a pill in the list with the menu expanded does not examine the row}, {suite: ListBugFixesTests, test: Shift-clicking a pill in the list still selects its row}, {suite: EditingWorkItemsTests, test: 'A merge is invisible to a note reader running at the same time: the merged-in note is always there afterwards'}, {suite: OpeningSettingsWithoutSideEffectsTests, test: Settings shows the sync state after a sync pass without reading it again on every redraw}, {suite: ListBugFixesTests, test: An archived row in a two-project list shows its own project's status name}]
+  agentBy: Claude
+  agentAt: 2026-11-16T22:02:27

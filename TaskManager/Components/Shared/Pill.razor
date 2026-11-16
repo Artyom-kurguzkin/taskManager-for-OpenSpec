@@ -18,8 +18,15 @@ else
     /// <summary>The statuses to offer (a status pill): the project of the item shown. Without it the open project's own list.</summary>
     [Parameter] public IReadOnlyList<string>? Statuses { get; set; }
 
-    private Func<string, string> Colour => Kind switch { "label" => Ui.LabelColor, "priority" => Ui.PriorityColor, _ => Ui.Band };
-    private IReadOnlyList<(string Value, string Label)> Options => Kind switch { "label" => Ui.LabelOptions, "priority" => Ui.PriorityOptions, _ => (Statuses ?? WorkItems.WorkItemsApi.GetStatuses()).Select(s => (s, s)).ToList() };
-    private string Fill => $"--fill:var({Colour(Value)})";
-    private string Text => Options.FirstOrDefault(o => o.Value == Value).Label ?? Value;
+    // static: the list draws its cells as plain buttons with one shared picker (BoardPage) and takes the same colours and options
+    public static Func<string, string> ColourOf(string kind) => kind switch { "label" => Ui.LabelColor, "priority" => Ui.PriorityColor, _ => Ui.Band };
+    public static IReadOnlyList<(string Value, string Label)> OptionsOf(string kind, IReadOnlyList<string>? statuses = null) =>
+        kind switch { "label" => Ui.LabelOptions, "priority" => Ui.PriorityOptions, _ => (statuses ?? WorkItems.WorkItemsApi.GetStatuses()).Select(s => (s, s)).ToList() };
+    public static string FillOf(string kind, string value) => $"--fill:var({ColourOf(kind)(value)})";
+    public static string TextOf(string kind, string value, IReadOnlyList<string>? statuses = null) => OptionsOf(kind, statuses).FirstOrDefault(o => o.Value == value).Label ?? value;
+
+    private Func<string, string> Colour => ColourOf(Kind);
+    private IReadOnlyList<(string Value, string Label)> Options => OptionsOf(Kind, Statuses);
+    private string Fill => FillOf(Kind, Value);
+    private string Text => TextOf(Kind, Value, Statuses);
 }

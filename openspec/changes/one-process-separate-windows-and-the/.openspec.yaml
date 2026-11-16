@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-16
+x-rtm:
+  id: 188
+  title: 'One process: separate windows and the MCP listener inside the app'
+  status: In Review
+  contributors: [Claude]
+  features: [integration-with-agents]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-17
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: OpeningSeparateWindowsTests, test: 'Opening an item in a separate window opens a window of this process on that item and project, with its own dialogs, and starts no other process'}, {suite: OpeningSeparateWindowsTests, test: A toast shows only in the window that caused it}, {suite: OpeningSeparateWindowsTests, test: Both windows see an edit made in the other}, {suite: ServingAgentsFromTheAppTests, test: 'The app serves agents itself: no second process'}, {suite: ServingAgentsFromTheAppTests, test: An agent's write shows in the open window without a refresh}, {suite: ServingAgentsFromTheAppTests, test: An edit made in the app after an agent's write is not lost and does not overwrite it}, {suite: ServingAgentsFromTheAppTests, test: A second app instance leaves the first one serving}, {suite: ServingAgentsFromTheAppTests, test: 'With the app closed, an agent is told to open it'}]
+  dependsOn: [181]
+  agentBy: Claude
+  agentAt: 2026-11-17T07:34:32

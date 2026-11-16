@@ -6,19 +6,11 @@ namespace Features;
 
 internal static class Queries
 {
-    /// <summary>Capabilities with a spec.md, plus features listed in config.yaml that have no spec yet. Cached per content version.</summary>
-    internal static IReadOnlyList<Feature> GetAll()
-    {
-        long version = OpenSpecStoreApi.Version;
-        string root = OpenSpecStoreApi.RepoRoot ?? "";
-        if (FeaturesModule.Cache.TryGetValue(root, out var c) && c.Version == version) return c.Features;
-        IReadOnlyList<Feature> features = Load();
-        FeaturesModule.Cache[root] = (version, features);
-        FeaturesModule.Loads++;
-        return features;
-    }
+    /// <summary>The features: from the host's cache when it installed one (see FeaturesApi.UseReader), else read afresh.</summary>
+    internal static IReadOnlyList<Feature> GetAll() => FeaturesModule.Reader?.Invoke() ?? Load();
 
-    private static IReadOnlyList<Feature> Load()
+    /// <summary>Capabilities with a spec.md, plus features listed in config.yaml that have no spec yet. Read from disk, kept nowhere.</summary>
+    internal static IReadOnlyList<Feature> Load()
     {
         if (OpenSpecStoreApi.OpenSpecRoot is not string root) return [];
         string specs = Path.Combine(root, "specs");

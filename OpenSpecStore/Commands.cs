@@ -4,6 +4,7 @@ internal static class Commands
 {
     internal const string StaleMessage = "This file changed on disk; your edit was not saved";
     private static long opened;
+    internal static long NextOpened() => Interlocked.Increment(ref opened);
 
     /// <summary>Opens a repository and makes it the one the module Apis read and write. Unless asked to keep the others, every
     /// other open repository is closed (the single-repository case, and what tests do).</summary>
@@ -17,7 +18,7 @@ internal static class Commands
         {
             Directory.CreateDirectory(Path.Combine(openSpec, "specs"));
             Directory.CreateDirectory(Path.Combine(openSpec, "changes", "archive"));
-            File.WriteAllText(Path.Combine(openSpec, "config.yaml"), $"schema: spec-driven\n\n# What this repository is, for the agents that work in it (see openspec/REPO-TASKS.md).\ncontext: |\n  {Path.GetFileName(root)}.\n");
+            File.WriteAllText(Queries.ConfigFile(root), $"schema: spec-driven\n\n# What this repository is, for the agents that work in it (see openspec/REPO-TASKS.md).\ncontext: |\n  {Path.GetFileName(root)}.\n");
             setUp = $"Set up openspec/ in {Path.GetFileName(root)}: config.yaml, specs/ and changes/archive/. Describe the project in config.yaml's context.";
         }
         lock (OpenSpecStoreModule.Repos)
@@ -25,8 +26,9 @@ internal static class Commands
             if (!keepOthers) Keep([root]);
             if (!OpenSpecStoreModule.Repos.TryGetValue(root, out Repo? repo))
             {
-                repo = new Repo(root, OpenSpecStoreModule.State) { Opened = Interlocked.Increment(ref opened) };
+                repo = new Repo(root, OpenSpecStoreModule.State) { Opened = NextOpened() };
                 OpenSpecStoreModule.Repos[root] = repo;
+                OpenSpecStoreModule.State.Guests.Remove(root);   // a repository that was only a call's guest is now open: from here on its version and watcher are the open one's
                 OpenSpecStoreModule.StartWatching(repo);
             }
             OpenSpecStoreModule.Current = repo;
@@ -55,7 +57,7 @@ internal static class Commands
             {
                 OpenSpecStoreModule.StopWatching(repo);
                 OpenSpecStoreModule.Repos.Remove(repo.Root);
-                if (ReferenceEquals(OpenSpecStoreModule.Current, repo)) OpenSpecStoreModule.Current = null;
+                if (ReferenceEquals(OpenSpecStoreModule.State.Current, repo)) OpenSpecStoreModule.Current = null;
             }
         }
     }
@@ -63,6 +65,7 @@ internal static class Commands
     internal static void Close()
     {
         Keep([]);
+        lock (OpenSpecStoreModule.Repos) OpenSpecStoreModule.State.Guests.Clear();
         OpenSpecStoreModule.LastSeen.Clear();
     }
 
@@ -163,6 +166,27 @@ internal static class Commands
         string full = Path.GetFullPath(yamlPath);
         string current = OpenSpecStoreModule.LastSeen.TryGetValue(full, out string? seen) ? seen ?? "" : Queries.ReadText(full);
         string block = RtmBlock.Replace(RtmBlock.Extract(current) ?? "", key, sectionYaml);
+        return WriteText(full, RtmBlock.Replace(current, RtmBlock.Root, block.Trim().Length == 0 ? null : block));
+    }
+
+    /// <summary>Replaces one section of the project's config.yaml with <paramref name="value"/> (lists as [a, b] when asked); null removes it. Everything else in the file stays as it was.</summary>
+    internal static (bool Success, string Message) WriteConfigSection<T>(string key, T? value, bool flowLists, string? repoRoot)
+    {
+        if (Queries.ConfigFileOf(repoRoot) is not string file) return (false, "No repository is open");
+        return WriteRtmSection(file, key, value is null ? null : YamlText.Writer(model: true, flowLists).Serialize(value));
+    }
+
+    /// <summary>
+    /// Sets one plain value of the project's config.yaml on a single <c>key: value</c> line in its x-rtm block; null removes the key. Nothing else in the file changes. The file is read from disk
+    /// first, so a pull since the store last looked is not mistaken for an outside edit during the write.
+    /// </summary>
+    internal static (bool Success, string Message) WriteConfigValue(string key, string? value, string? repoRoot)
+    {
+        if (Queries.ConfigFileOf(repoRoot) is not string file) return (false, "No repository is open");
+        string full = Path.GetFullPath(file);
+        string current = Queries.ReadText(full);
+        string? line = value is null ? null : YamlText.Writer(model: false, flowLists: false).Serialize(new Dictionary<string, string> { [key] = value }).Replace("\r\n", "\n").TrimEnd('\n');
+        string block = RtmBlock.ReplaceInline(RtmBlock.Extract(current) ?? "", key, line);
         return WriteText(full, RtmBlock.Replace(current, RtmBlock.Root, block.Trim().Length == 0 ? null : block));
     }
 

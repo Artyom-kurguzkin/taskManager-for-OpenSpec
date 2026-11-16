@@ -10,43 +10,19 @@ internal static partial class Queries
 {
     internal static IReadOnlyList<WorkItem> GetAll(bool includeHidden) => All().Where(w => includeHidden || !w.Hidden).ToList();
 
-    /// <summary>
-    /// Every work item. The list is assembled once per OpenSpecStore content version (own write, outside edit or repo switch) and git commit,
-    /// and each change folder is parsed only when its files changed (see <see cref="FolderEntry"/>): the others keep their objects.
-    /// </summary>
-    private static IReadOnlyList<WorkItem> All()
+    /// <summary>Every work item: from the host's cache of the board when it installed one (see WorkItemsApi.UseBoard), else read afresh.</summary>
+    private static IReadOnlyList<WorkItem> All() => Board().Items;
+
+    private static BoardRead Board() => WorkItemsModule.Board?.Invoke() ?? ReadBoard();
+
+    /// <summary>The whole board read from disk now, nothing kept: every change folder parsed, numbered, given its commit authors and a status the project has.</summary>
+    internal static BoardRead ReadBoard()
     {
-        lock (WorkItemsModule.Gate)
-        {
-            long version = OpenSpecStoreApi.Version;
-            string root = OpenSpecStoreApi.RepoRoot ?? "";
-            long generation = OpenSpecStoreApi.RepoGeneration;   // a repository closed and opened again starts empty: the store forgot what the app had read of it
-            var git = WorkItemsModule.Git?.Invoke();
-            string token = git?.Token ?? "";
-            int epoch = WorkItemsModule.GitEpoch;
-            if (!WorkItemsModule.Cache.TryGetValue(root, out RepoCache? c) || c.Generation != generation)
-                WorkItemsModule.Cache[root] = c = new RepoCache { Generation = generation };
-            if (c.Version == version && c.Git == token && c.GitEpoch == epoch) return c.Items;
-
-            (IReadOnlyList<string> touched, long cursor) = OpenSpecStoreApi.ChangesSince(c.Cursor);   // asked before reading: a write that lands meanwhile shows next time
-            c.Ordered = ReadFolders(c.Ordered, touched);
-
-            // Changes without a stored number get a provisional one, written on their first edit.
-            int next = c.Ordered.Select(e => e.Meta.Id ?? 0).DefaultIfEmpty(0).Max();
-            IReadOnlyList<string> statuses = GetStatuses();   // the project's list: an item with a status outside it (a pull brought it) shows in Backlog
-            List<WorkItem> items = [];
-            foreach (FolderEntry e in c.Ordered)
-            {
-                int id = e.Meta.Id ?? ++next;
-                if (e.Item.Id != id) e.Item = e.Item with { Id = id };
-                // Commit authors only stand in until someone edits the list in the app (x-rtm.contributors, possibly []).
-                WorkItem shown = e.WithAuthors(git, token, epoch);
-                items.Add(statuses.Contains(shown.Status) ? shown : shown with { Status = "Backlog" });
-            }
-            (c.Version, c.Git, c.GitEpoch, c.Cursor, c.Items) = (version, token, epoch, cursor, items);
-            WorkItemsModule.Loads++;
-            return items;
-        }
+        List<FolderRead> folders = [.. ListFolders().Select(f => ReadFolder(f.Dir, f.Archived)).OfType<FolderRead>()];
+        IReadOnlyList<int> ids = Number(folders);
+        IReadOnlyList<string> statuses = GetStatuses();   // the project's list: an item with a status outside it (a pull brought it) shows in Backlog
+        var git = WorkItemsModule.Git?.Invoke();
+        return new BoardRead([.. folders.Select((f, i) => Present(f, ids[i], statuses, git))], folders);
     }
 
     /// <summary>
@@ -60,35 +36,42 @@ internal static partial class Queries
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
-    /// <summary>The change folders in board order, each from <paramref name="old"/> when nothing in it changed and else read again; folders that are gone drop out.</summary>
-    private static List<FolderEntry> ReadFolders(List<FolderEntry> old, IReadOnlyList<string> touched)
+    /// <summary>The change folders in board order: open changes by folder name, then archived ones.</summary>
+    internal static IReadOnlyList<(string Dir, bool Archived)> ListFolders()
     {
         if (OpenSpecStoreApi.OpenSpecRoot is not string root) return [];
         string changes = Path.Combine(root, "changes");
         if (!Directory.Exists(changes)) return [];
         string archive = Path.Combine(changes, "archive");
 
-        List<(string Dir, bool Archived)> folders =
+        return
         [
             .. Directory.GetDirectories(changes).Where(d => !Path.GetFileName(d).Equals("archive", StringComparison.OrdinalIgnoreCase)).Order().Select(d => (d, false)),
             .. (Directory.Exists(archive) ? Directory.GetDirectories(archive) : []).Order().Select(d => (d, true)),
         ];
-        Dictionary<string, FolderEntry> before = old.ToDictionary(e => e.Dir, StringComparer.OrdinalIgnoreCase);
-        List<FolderEntry> now = [];
-        foreach ((string dir, bool archived) in folders)
-            if (Tolerant(() => Fresh(dir, archived, before.GetValueOrDefault(dir), touched)) is FolderEntry entry) now.Add(entry);
-        return now;
     }
 
-    /// <summary>
-    /// The folder's entry: <paramref name="old"/> when its files look the same and the app did not write in it, else a new one parsed from disk.
-    /// The look of a folder is the name, size and modified time of every file in it, from one directory pass that reads no file.
-    /// </summary>
-    private static FolderEntry Fresh(string dir, bool archived, FolderEntry? old, IReadOnlyList<string> touched)
+    /// <summary>The folder parsed from disk now; null when it is being moved or written (see <see cref="Tolerant{T}"/>).</summary>
+    internal static FolderRead? ReadFolder(string dir, bool archived) => Tolerant(() => Parse(dir, archived));
+
+    /// <summary>The number each folder shows, in the order given: its stored x-rtm.id, else the next free one after the highest stored (provisional until its first edit).</summary>
+    internal static IReadOnlyList<int> Number(IReadOnlyList<FolderRead> folders)
+    {
+        int next = folders.Select(f => f.StoredId ?? 0).DefaultIfEmpty(0).Max();
+        return [.. folders.Select(f => f.StoredId ?? ++next)];
+    }
+
+    /// <summary>What the folder shows as: its number, the commit authors standing in as contributors until the list is edited in the app (x-rtm.contributors, possibly []), and Backlog for a status the project does not have.</summary>
+    internal static WorkItem Present(FolderRead folder, int id, IReadOnlyList<string> statuses, (string Token, Func<string, IReadOnlyList<string>> AuthorsOf)? git)
+    {
+        WorkItem item = folder.Item.Id == id ? folder.Item : folder.Item with { Id = id };
+        if (git is { } g && item.Assigned is null) item = item with { Contributors = [.. g.AuthorsOf(item.Folder)] };
+        return statuses.Contains(item.Status) ? item : item with { Status = "Backlog" };
+    }
+
+    private static FolderRead Parse(string dir, bool archived)
     {
         List<FileSystemInfo> infos = [.. new DirectoryInfo(dir).EnumerateFileSystemInfos("*", SearchOption.AllDirectories)];
-        string fingerprint = Fingerprint(dir, infos);   // taken before reading, so a write during the read shows as a change next time
-        if (old is not null && old.Archived == archived && old.Fingerprint == fingerprint && !Written(dir, touched)) return old;
         WorkItemsModule.FolderParses++;
         string? problem = null;
         Rtm meta;
@@ -99,33 +82,14 @@ internal static partial class Queries
             problem = e.Message + "; fix it and the item's fields will show";
             meta = new Rtm { Id = StoredIdIn(OpenSpecStoreApi.ReadText(Yaml(dir))) };   // its number, when the line can still be found, so links to #wiN hold
         }
-        return new FolderEntry(dir, archived, fingerprint, meta, Build(dir, archived, meta, meta.Id ?? 0, [.. infos.OfType<FileInfo>()], problem));
+        return new FolderRead { Dir = dir, Archived = archived, StoredId = meta.Id, Meta = meta, Item = Build(dir, archived, meta, meta.Id ?? 0, [.. infos.OfType<FileInfo>()], problem) };
     }
-
-    private static string Fingerprint(string dir, List<FileSystemInfo> infos)
-    {
-        System.Text.StringBuilder sb = new();
-        foreach (FileSystemInfo info in infos)
-        {
-            sb.Append(info.FullName, dir.Length, info.FullName.Length - dir.Length);
-            if (info is FileInfo f) sb.Append('|').Append(f.Length).Append('|').Append(f.LastWriteTimeUtc.Ticks);
-            sb.Append('\n');
-        }
-        return sb.ToString();
-    }
-
-    /// <summary>True when the app itself wrote, deleted or moved this folder or something in it (the store keeps that record).</summary>
-    internal static bool Written(string dir, IReadOnlyList<string> touched) =>
-        touched.Any(p => p.StartsWith(dir, StringComparison.OrdinalIgnoreCase) && (p.Length == dir.Length || p[dir.Length] is '\\' or '/'));
 
     /// <summary>Changes that carry no x-rtm.id of their own, so their number is provisional until their first edit; ResolveDuplicateIds writes it down.</summary>
     internal static IReadOnlyList<WorkItem> WithoutStoredId()
     {
-        lock (WorkItemsModule.Gate)
-        {
-            All();
-            return WorkItemsModule.Cache.TryGetValue(OpenSpecStoreApi.RepoRoot ?? "", out RepoCache? c) ? [.. c.Ordered.Where(e => e.Meta.Id is null).Select(e => e.Item)] : [];
-        }
+        BoardRead board = Board();
+        return [.. board.Folders.Select((f, i) => (f, i)).Where(x => x.f.StoredId is null).Select(x => board.Items[x.i])];
     }
 
     /// <summary>Changes whenever a change folder appears, goes, is renamed or archived, or a number moves: what the duplicate-number scan needs to know. Names and numbers only, from the cached items.</summary>
@@ -140,8 +104,7 @@ internal static partial class Queries
     /// </summary>
     internal static string? PathOf(int id)
     {
-        lock (WorkItemsModule.Gate)
-            if (WorkItemsModule.Cache.TryGetValue(OpenSpecStoreApi.RepoRoot ?? "", out RepoCache? c) && c.Items.FirstOrDefault(w => w.Id == id) is { } known && Directory.Exists(known.Path)) return known.Path;
+        if (WorkItemsModule.LastSeen?.Invoke() is { } seen && seen.Items.FirstOrDefault(w => w.Id == id) is { } known && Directory.Exists(known.Path)) return known.Path;
         return Get(id)?.Path;
     }
 
@@ -174,6 +137,7 @@ internal static partial class Queries
         All().GroupBy(w => w.Id).Where(g => g.Count() > 1)
             .Select(g => $"#wi{g.Key} is used by {string.Join(" and ", g.Select(w => w.Folder))}")
             .Concat(GetAll(false).Where(w => w.Warning is not null).Select(w => $"#wi{w.Id}: {w.Warning}"))
+            .Concat(GetConfigProblems())
             .ToList();
 
     internal static string GetDescription(int id) =>
@@ -181,9 +145,15 @@ internal static partial class Queries
 
     internal static IReadOnlyDictionary<string, IReadOnlyList<string>> GetLanes()
     {
-        if (OpenSpecStoreApi.OpenSpecRoot is not string root) return new Dictionary<string, IReadOnlyList<string>>();
-        try { return (Metadata.ReadSection<Dictionary<string, List<string>>>(Path.Combine(root, "config.yaml"), "lanes") ?? []).ToDictionary(k => k.Key, k => (IReadOnlyList<string>)k.Value); }
-        catch (MetadataException) { return new Dictionary<string, IReadOnlyList<string>>(); }   // lanes that do not parse: the board shows none until the file is fixed
+        // lanes that do not parse: the board shows none until the file is fixed (the warning says so, see GetConfigProblems)
+        return (OpenSpecStoreApi.ReadConfigSection<Dictionary<string, List<string>>>("lanes").Value ?? []).ToDictionary(k => k.Key, k => (IReadOnlyList<string>)k.Value);
+    }
+
+    /// <summary>What is wrong with the project's lanes and statuses in config.yaml (each reads as its default until the file is fixed); none when both are fine.</summary>
+    internal static IEnumerable<string> GetConfigProblems()
+    {
+        if (OpenSpecStoreApi.ReadConfigSection<Dictionary<string, List<string>>>("lanes") is { Unavailable: false, Problem: { } lanes }) yield return lanes;
+        if (OpenSpecStoreApi.ReadConfigSection<List<string>>("statuses") is { Unavailable: false, Problem: { } statuses }) yield return statuses;
     }
 
     /// <summary>
@@ -192,11 +162,7 @@ internal static partial class Queries
     /// </summary>
     internal static IReadOnlyList<string> GetStatuses()
     {
-        if (OpenSpecStoreApi.OpenSpecRoot is not string root) return WorkItemsApi.Statuses;
-        List<string>? saved;
-        try { saved = Metadata.ReadSection<List<string>>(Path.Combine(root, "config.yaml"), "statuses"); }
-        catch (MetadataException) { return WorkItemsApi.Statuses; }   // a list that does not parse: the built-in one until the file is fixed
-        return Normalise(saved);
+        return Normalise(OpenSpecStoreApi.ReadConfigSection<List<string>>("statuses").Value);   // a list that does not parse reads as none: the built-in one until the file is fixed
     }
 
     internal static IReadOnlyList<string> Normalise(IEnumerable<string?>? saved)

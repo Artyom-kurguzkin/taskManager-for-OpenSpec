@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-16
+x-rtm:
+  id: 186
+  title: One place for dates, periods and colours on one clock
+  status: In Review
+  contributors: [Claude]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-16
+  plan: DevResources/plans/universal-ui-structure-2026-11-16.md
+  tests: [{suite: ShowingDatesAndColoursOneWayTests, test: The period picker and the side menu name a period across a year end the same way}, {suite: ShowingDatesAndColoursOneWayTests, test: "Pages count 'today' from the app's clock: the roadmap, the period picker, the worklog, the due columns and the analytics weeks"}, {suite: ShowingDatesAndColoursOneWayTests, test: 'A status has the same colour on the board, in the list and in analytics, and a priority the same colour and name'}, {suite: ShowingDatesAndColoursOneWayTests, test: "No date format string and no 'today' of the system is left in the components or the board's view models, except in Ui.cs"}]
+  agentBy: Claude
+  agentAt: 2026-11-16T22:02:35

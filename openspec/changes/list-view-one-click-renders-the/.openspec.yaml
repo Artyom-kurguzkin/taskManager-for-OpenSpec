@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-16
+x-rtm:
+  id: 179
+  title: 'List view: one click renders the whole grid; make clicks cheap'
+  status: In Review
+  contributors: [Claude]
+  features: [organise-work-items]
+  label: enhancement
+  started: 2026-11-16
+  moved: 2026-11-16
+  plan: DevResources/plans/list-render-cost-2026-11-16.md
+  tests: [{suite: UsingTheBoardTests, test: An examine click in the list renders the page once}, {suite: UsingTheBoardTests, test: A Shift-click in the list renders the page once}, {suite: UsingTheBoardTests, test: A background click with nothing selected does not render the list}, {suite: ListPillsTests, test: The list renders no pill editors until a pill is clicked}, {suite: ListPillsTests, test: "A list pill looks like the read-only pill: its colour fill, its text, and a menu of the field's values"}, {suite: ListPillsTests, test: Picking a status from a list pill sets it}, {suite: ListPillsTests, test: Picking a label or a priority from a list pill sets it}, {suite: ListPillsTests, test: Picking Completed from a list pill still asks first}, {suite: ListPillsTests, test: A list pill opens its picker from the keyboard}, {suite: ListPillsTests, test: A Shift-click on a list pill selects the row and does not open the picker}, {suite: ListPillsTests, test: "An archived item's status in the list is a read-only pill, its other pills open pickers"}]
+  agentBy: Claude
+  agentAt: 2026-11-16T15:04:58

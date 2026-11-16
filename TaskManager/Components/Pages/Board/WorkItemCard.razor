@@ -1,0 +1,89 @@
+@namespace TaskManager.Components.Pages
+@* A work item on the board: coloured title band (by the colour field, status unless changed),features, a plain meta row ("15:34. 16 Nov 26" on its own line, then people · done/total), tags. *@
+@using TaskManager.Components.Pages
+@using WorkItems.PublicDTOs
+@inject TaskManager.AppState.Workspace Workspace
+@inject IServiceProvider Services
+
+@* data-id: the drag script (wwwroot/js/app.js) animates cards from their old to their new place by it *@
+<article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @(Item.Hidden ? "hidden-item" : "") @Examine" data-sk data-id="@Item.Id" data-examined="@(Examine == "ex-on" ? "" : null)"
+         @ondragstart="() => OnDragStart.InvokeAsync(Item)" @onclick="OnClick"
+         @ondrop="() => OnDrop.InvokeAsync(Item)" @ondrop:stopPropagation="true">
+    <span class="band" style="--band:var(@BoardModel.ColourOf(Item, Options.ColorBy, Day, Colours))">@if (Uncommitted) { <i class="dirty-dot" title="Uncommitted changes"></i> }@Item.Title</span>
+    @if (!Options.Compact)
+    {
+        @* features as chips (the column already is the feature when grouped by feature, so the status goes there) *@
+        <span class="card-features">
+            @if (Options.GroupBy == "feature") { <span class="muted">@Item.Status</span> }
+            else if (Item.Features.Count == 0) { <span class="muted">no feature</span> }
+            else { @foreach (string name in FeatureNames) { <span class="feat">@name</span> } }
+        </span>
+        <span class="meta-row">
+            <span class="stamp">@Ui.Stamp(Item.Modified)</span>
+            @* the column already names the contributor when grouped by contributor, and the label when grouped by label *@
+            @if (Options.GroupBy != "contributor" && Item.Contributors.Count > 0) { <span class="who-list">@string.Join(", ", Item.Contributors)</span> }
+            @if (Item.Subtasks.Count > 0) { @if (Options.GroupBy != "contributor" && Item.Contributors.Count > 0) { <text> · </text> }<span class="subs">@Item.Subtasks.Count(s => s.Done)/@Item.Subtasks.Count</span> }
+        </span>
+        <span class="tags">
+            @if (Item.Label is not null && Options.GroupBy != "label") { <span class="tag lbl" style="--fill:var(@Ui.LabelColor(Item.Label))">@Item.Label</span> }
+            @if (Item.Started is not null || Item.Due is not null)
+            {
+                @* started and due as one period; it wears the due colour once the due day is past *@
+                bool late = Item.Due is DateOnly due && due < Day && !Item.Archived;
+                <span class="tag dates @(Item.Due is null ? "" : "due") @(late ? "overdue hot" : "")" title="@DatesTip">@Ui.Period(Item.Started, Item.Due)</span>
+            }
+            @if (Failing) { <span class="tag hot tests-failing" title="A linked test failed in the latest run">tests failing</span> }
+            @if (Item.Warning is not null) { <span class="tag hot" title="@Item.Warning">!</span> }
+        </span>
+    }
+</article>
+
+@code {
+    // The board hands its own answer in (TestsFailing, Today): a card that is drawn reads no service, no results file and no clock. Standing alone
+    // (no value given) it asks: any linked test failed in the newest results file (LinkedTestRuns caches the file).
+    private bool Failing => TestsFailing ?? (Item.Tests is { Count: > 0 } links && TestResultsCache.Get().Results.Any(r => r.Outcome == "failed" && links.Any(t => t.Suite == r.Suite && t.Test == r.Test)));
+
+    /// <summary>The day by the page's clock (a registered <see cref="TimeProvider"/>, the system's otherwise): a test moves it by hand.</summary>
+    private DateOnly Day => Today ?? Ui.Today(Ui.ClockOf(Services));
+
+    private string DatesTip => string.Join(" – ", new[] { Item.Started is DateOnly s ? "Started " + Ui.DayLong(s) : null, Item.Due is DateOnly d ? "Due " + Ui.DayLong(d) : null }.OfType<string>());
+
+    [Parameter, EditorRequired] public WorkItem Item { get; set; } = default!;
+    [Parameter, EditorRequired] public BoardOptions Options { get; set; } = default!;
+    [Parameter] public bool Selected { get; set; }
+    /// <summary>The item has files that are not committed yet: a small muted dot before the title.</summary>
+    [Parameter] public bool Uncommitted { get; set; }
+    /// <summary>While an item is examined: ex-on (this one), ex-waits (it waits on the examined one), ex-needs (the examined one waits on it); the shadows are in app.css.</summary>
+    [Parameter] public string? Examine { get; set; }
+    /// <summary>The board's load this card was made for: its callbacks (and the columns they act on) are of that load, so a new one redraws the card.</summary>
+    [Parameter] public long Version { get; set; }
+    /// <summary>Any linked test failed in the newest results; null = the card asks for itself.</summary>
+    [Parameter] public bool? TestsFailing { get; set; }
+    /// <summary>The day the card measures lateness by; null = the page's clock.</summary>
+    [Parameter] public DateOnly? Today { get; set; }
+    [Parameter] public EventCallback<MouseEventArgs> OnClick { get; set; }
+    [Parameter] public EventCallback<WorkItem> OnDragStart { get; set; }
+    [Parameter] public EventCallback<WorkItem> OnDrop { get; set; }   // another card dropped onto this one
+    [Parameter] public EventCallback<WorkItem> OnReview { get; set; } // the agent chip was clicked
+    /// <summary>Feature path → name of the card's own project; the active project's names when not given.</summary>
+    [Parameter] public IReadOnlyDictionary<string, string>? Names { get; set; }
+    /// <summary>The colour of each feature or contributor in the card's own project (<see cref="BoardModel.ColourMap"/>); a value missing from it gets a stable pick.</summary>
+    [Parameter] public IReadOnlyDictionary<string, string>? Colours { get; set; }
+    /// <summary>The ids that changed in the board's changed period; the others show neutral. Null = no period set.</summary>
+
+    // A draw by itself only changes the card's own look: the board's click handlers are the board's (EventCallbacks to it), so no event draws the card.
+    protected override bool Strict => true;
+
+    /// <summary>Everything the card shows, and the load its handlers are of. A parameter set that leaves it equal draws nothing; the board's fresh lambdas do not count, the cached ones do not change.</summary>
+    protected override object? RenderKey => Environment.GetEnvironmentVariable("RTM_NOKEY") is not null ? null : new Shown(Version, Item, Options, Names, Colours, Selected, Uncommitted, Examine, TestsFailing, Today);
+
+    private readonly record struct Shown(long Version, object Item, object Options, object? Names, object? Colours, bool Selected, bool Uncommitted, string? Examine, bool? TestsFailing, DateOnly? Today)
+    {
+        // the objects by identity: a reload makes new ones, and a record's value equality would walk them
+        public bool Equals(Shown o) => Version == o.Version && ReferenceEquals(Item, o.Item) && ReferenceEquals(Options, o.Options) && ReferenceEquals(Names, o.Names) && ReferenceEquals(Colours, o.Colours)
+            && Selected == o.Selected && Uncommitted == o.Uncommitted && Examine == o.Examine && TestsFailing == o.TestsFailing && Today == o.Today;
+        public override int GetHashCode() => HashCode.Combine(Version, Selected, Uncommitted, Examine);
+    }
+
+    private IEnumerable<string> FeatureNames => Item.Features.Select(f => (Names ?? Workspace.FeatureNames).GetValueOrDefault(f.Path, f.Path));
+}

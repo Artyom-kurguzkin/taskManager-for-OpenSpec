@@ -1,0 +1,35 @@
+2026-11-16T15:07:54 | Claude | created | One UI state and render model for every screen
+2026-11-16T15:07:54 | Claude | status | Planned -> In Progress
+2026-11-16T15:07:54 | Claude | description-edited | proposal.md
+2026-11-16T15:07:54 | Claude | label | none -> enhancement
+2026-11-16T15:07:54 | Claude | dependency-added | #wi179
+2026-11-16T15:07:54 | Claude | subtask-added | 1.1 principles: state and render models with sources
+2026-11-16T15:07:54 | Claude | subtask-added | 1.2 open-source projects: how they do it in code
+2026-11-16T15:07:54 | Claude | subtask-added | 1.3 map of this app's state, events and render triggers
+2026-11-16T15:07:54 | Claude | subtask-added | 1.4 measured cost per screen (board, side menu, pages)
+2026-11-16T15:07:54 | Claude | subtask-added | 2.1 plan file with the model, migration chunks and enforcement
+2026-11-16T15:14:56 | Claude | subtask-done | 1.1 principles: state and render models with sources
+2026-11-16T15:14:56 | Claude | subtask-done | 1.3 map of this app's state, events and render triggers
+2026-11-16T15:15:28 | Claude | subtask-done | 1.2 open-source projects: how they do it in code
+2026-11-16T15:40:04 | Claude | title | One UI state and render model for every screen -> One universal UI structure: rendering, caching and shared low-level functions
+2026-11-16T15:40:04 | Claude | subtask-added | 2.2 caching model: central invalidation by change signals, no IO in render paths
+2026-11-16T15:40:05 | Claude | subtask-added | 2.3 inventory of duplicated low-level helpers and building blocks
+2026-11-16T15:48:54 | Claude | subtask-done | 2.2 caching model: central invalidation by change signals, no IO in render paths
+2026-11-16T15:48:54 | Claude | subtask-done | 2.3 inventory of duplicated low-level helpers and building blocks
+2026-11-16T15:50:45 | Claude | plan-linked | DevResources/plans/universal-ui-structure-2026-11-16.md
+2026-11-16T15:50:45 | Claude | subtask-done | 2.1 plan file with the model, migration chunks and enforcement
+2026-11-16T15:57:39 | Claude | subtask-done | 1.4 measured cost per screen (board, side menu, pages)
+2026-11-16T20:31:30 | Claude | log | Waves 1 and 2 are merged in main; the full suite passes 1152 of 1154. The 2 failures are in UsingThePagesTests (last commit after an edit; open item beside the list) and went to chunk G.
+2026-11-17T07:22:48 | Claude | subtask-added | 2.4 subtask tick on the item page still 244-310 ms (baseline 130-244) with an occasional second redraw 1.5 s later: the tick reloads the whole page; patch the changed subtask in place
+2026-11-17T07:22:49 | Claude | subtask-added | 2.5 period filter back to 'any time' redraws every list row (12k mutations, ~1 s)
+2026-11-17T07:36:47 | Claude | test-linked | CachingInAppStateTests / A second read of the board with nothing changed reads no file
+2026-11-17T07:36:47 | Claude | test-linked | CachingInAppStateTests / An edit to one item re-reads that item's folder and no other
+2026-11-17T07:36:47 | Claude | test-linked | CachingInAppStateTests / A reopened repository is not served from the old repository's cache
+2026-11-17T07:36:47 | Claude | test-linked | CachingInAppStateTests / An equal reload keeps the same item instances so nothing redraws
+2026-11-17T07:36:47 | Claude | test-linked | PagesRenderBudgetTests / Typing in a worklog note redraws only the editor
+2026-11-17T07:36:47 | Claude | test-linked | PagesRenderBudgetTests / A click inside the calendar does not let go of the examined item
+2026-11-17T07:36:47 | Claude | test-linked | PagesRenderBudgetTests / Analytics does not rebuild its charts when nothing they show changed
+2026-11-17T07:36:47 | Claude | test-linked | ComponentRulesTests / Every component we write derives from the base component
+2026-11-17T07:36:47 | Claude | subtask-added | 2.6 AgentGuide, GitAttributes, WorklogTracking from Helpers/ into OpenSpecStore; BoardSyncService rules into the BoardSync module (timer loop stays in BackgroundJobs/); BoardOptions into AppState/
+2026-11-17T07:36:47 | Claude | subtask-added | 2.7 real file watcher off by default in tests: ~15 tests call Refresh() before Notify()
+2026-11-17T07:41:33 | Claude | status | In Progress -> In Review

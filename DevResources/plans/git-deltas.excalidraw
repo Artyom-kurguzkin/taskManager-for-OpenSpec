@@ -1,0 +1,274 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "id": "t",
+   "type": "text",
+   "x": 40,
+   "y": 20,
+   "fontSize": 18,
+   "text": "Which work items a commit (or the working tree) touched",
+   "width": 544.5,
+   "height": 22.5
+  },
+  {
+   "id": "g",
+   "type": "rectangle",
+   "x": 40,
+   "y": 60,
+   "width": 260,
+   "height": 110,
+   "backgroundColor": "#e9ecef",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "g-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "g-label",
+   "containerId": "g",
+   "text": "git\nshow --name-only <commit>\nstatus --porcelain (uncommitted)",
+   "originalText": "git\nshow --name-only <commit>\nstatus --porcelain (uncommitted)",
+   "fontSize": 13,
+   "x": 55.599999999999994,
+   "y": 90.625,
+   "width": 228.8,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "m",
+   "type": "rectangle",
+   "x": 360,
+   "y": 60,
+   "width": 260,
+   "height": 110,
+   "backgroundColor": "#fff3bf",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "m-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "m-label",
+   "containerId": "m",
+   "text": "paths under openspec/changes/<folder>/\n(archive included)\n→ the work item of that folder",
+   "originalText": "paths under openspec/changes/<folder>/\n(archive included)\n→ the work item of that folder",
+   "fontSize": 13,
+   "x": 354.15,
+   "y": 90.625,
+   "width": 271.70000000000005,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "a1",
+   "type": "arrow",
+   "x": 300,
+   "y": 115,
+   "width": 60,
+   "height": 0,
+   "strokeColor": "#1e1e1e",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     60,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "c",
+   "type": "rectangle",
+   "x": 680,
+   "y": 60,
+   "width": 220,
+   "height": 110,
+   "backgroundColor": "#d3f9d8",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "c-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "c-label",
+   "containerId": "c",
+   "text": "cached per HEAD\n(no git per render)",
+   "originalText": "cached per HEAD\n(no git per render)",
+   "fontSize": 13,
+   "x": 722.075,
+   "y": 98.75,
+   "width": 135.85000000000002,
+   "height": 32.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "a2",
+   "type": "arrow",
+   "x": 620,
+   "y": 115,
+   "width": 60,
+   "height": 0,
+   "strokeColor": "#1e1e1e",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     60,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "s",
+   "type": "rectangle",
+   "x": 40,
+   "y": 220,
+   "width": 260,
+   "height": 120,
+   "backgroundColor": "#ffffff",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "s-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "s-label",
+   "containerId": "s",
+   "text": "Filters › commit:\nany (grey) · uncommitted ·\n2ee9a45 ui bugs… · d74e2cc …",
+   "originalText": "Filters › commit:\nany (grey) · uncommitted ·\n2ee9a45 ui bugs… · d74e2cc …",
+   "fontSize": 13,
+   "x": 69.89999999999999,
+   "y": 255.625,
+   "width": 200.20000000000002,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "f",
+   "type": "rectangle",
+   "x": 360,
+   "y": 220,
+   "width": 260,
+   "height": 120,
+   "backgroundColor": "#ffffff",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "f-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "f-label",
+   "containerId": "f",
+   "text": "board, list, calendar\nshow only the items\nthat commit touched",
+   "originalText": "board, list, calendar\nshow only the items\nthat commit touched",
+   "fontSize": 13,
+   "x": 414.925,
+   "y": 255.625,
+   "width": 150.15,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "a3",
+   "type": "arrow",
+   "x": 300,
+   "y": 280,
+   "width": 60,
+   "height": 0,
+   "strokeColor": "#1e1e1e",
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     60,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "d",
+   "type": "rectangle",
+   "x": 680,
+   "y": 220,
+   "width": 220,
+   "height": 120,
+   "backgroundColor": "#ffffff",
+   "strokeColor": "#1e1e1e",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "d-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "d-label",
+   "containerId": "d",
+   "text": "item page + examine panel:\nLast commit: 2ee9a45 · subject\nor \"uncommitted changes\"",
+   "originalText": "item page + examine panel:\nLast commit: 2ee9a45 · subject\nor \"uncommitted changes\"",
+   "fontSize": 13,
+   "x": 682.75,
+   "y": 255.625,
+   "width": 214.50000000000003,
+   "height": 48.75,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "id": "n",
+   "type": "text",
+   "x": 40,
+   "y": 370,
+   "fontSize": 13,
+   "text": "With the selector on \"any\", items with uncommitted changes carry a small muted dot by the title.",
+   "width": 686.4000000000001,
+   "height": 16.25
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

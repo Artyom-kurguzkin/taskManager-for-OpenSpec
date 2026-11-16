@@ -1,4 +1,4 @@
-<!-- repo-tasks-guide v17 plans=DevResources/plans attachments=local/task-tracking -->
+<!-- repo-tasks-guide v18 plans=DevResources/plans attachments=local/task-tracking -->
 # Repo Tasks: conventions for agents
 
 This repository's `openspec/` folder is shown and edited by the **Repo Tasks** app, a board of work items.
@@ -29,7 +29,7 @@ The Repo Tasks app serves this board to agents over MCP (Model Context Protocol)
 - That path is the Repo Tasks exe **on the machine that wrote this file**; it is not the same on another machine. A `.mcp.json` that is committed can name an override: `"command": "${RTM_APP:-C:/Users/artyo/Documents/5-mine/repo-task-manager/dist/TaskManager-small.exe}"` runs the exe that the `RTM_APP` environment variable names, and this one otherwise.
 - The same in one command: `claude mcp add repo-tasks -- C:/Users/artyo/Documents/5-mine/repo-task-manager/dist/TaskManager-small.exe --mcp` (add `--scope project` to write `.mcp.json`, and `--env RTM_AGENT=<your name>` before the name to sign as yourself).
 - `RTM_AGENT` is the name the tools sign with (section 1); a tool's `agent` argument overrides it.
-- The app's server runs while the app is open; the stdio entry only connects to it, so the user has to open the app first (a tool call made while it is closed returns an error saying so). A client that only speaks HTTP: run `TaskManager.exe --serve` (headless; it exits after three idle hours) or use the one the app started, and point the client at `http://127.0.0.1:7431/mcp` with the header `Authorization: Bearer <token>`, where the token is the content of the file `%LOCALAPPDATA%/RepoTaskManager/token` (created on first use, yours alone: never commit or paste it).
+- The app's server runs while the app is open; the stdio entry only connects to it, so the user has to open the app first (a tool call made while it is closed returns an error saying so). The app serves agents itself, in its own process (there is no separate server to start). A client that only speaks HTTP: point it at `http://127.0.0.1:7431/mcp` while the app is open, with the header `Authorization: Bearer <token>`, where the token is the content of the file `%LOCALAPPDATA%/RepoTaskManager/token` (created on first use, yours alone: never commit or paste it).
 
 **Use them.** Every tool takes an optional `repo` (any path inside the repository; the default is the directory you work in).
 
@@ -250,7 +250,7 @@ The API SHALL refuse a key's requests beyond 100 in one minute with status 429.
 
 - Validate before you stop: `npx -y @fission-ai/openspec@1.14.3 validate <change-name> --strict`.
 - A wrong heading (section 3) or a MODIFIED block that lacks a scenario the main spec has since gained makes the item invalid. The app repairs both when the user completes the item, but until then every reader of the item sees it wrong: get it right when you write it.
-- Statuses: Backlog, Planned, Confirmed, In Progress, Blocked, In Review, Completed. `Completed` means archived: archive with the OpenSpec CLI (`openspec archive <change-name> --yes`), never set it by hand.
+- Statuses: Backlog, Planned, Confirmed, In Progress, Blocked, In Review, Completed unless the project lists its own under `x-rtm.statuses` in `openspec/config.yaml` (Backlog, In Progress and Completed are always there; the tools' error names the project's list). `Completed` means archived: archive with the OpenSpec CLI (`openspec archive <change-name> --yes`), never set it by hand.
 - Keep `x-rtm` keys, comments and formatting you did not change. Lists stay on one line: `features: [a, b]`. A work item has one feature.
 - Quote a value that contains `:` or `#`, or that starts with a special character (`-`, `*`, `&`, `!`, `[`, `{`, `"`, `'`, `%`, `@`), or that is `yes`, `no`, `null` or a number: `title: "Fix: the thing"`. An unquoted one is not valid YAML; the app reads the common cases as text and quotes them on its next save, but the OpenSpec CLI does not.
 - Subtasks keep their `1.1`, `1.2`… numbers; add new ones at the end of their group.

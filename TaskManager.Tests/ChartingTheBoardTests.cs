@@ -1,5 +1,5 @@
 using Features.PublicDTOs;
-using TaskManager.Board;
+using TaskManager.Components.Pages;
 using WorkItems.PublicDTOs;
 
 namespace TaskManager.Tests;

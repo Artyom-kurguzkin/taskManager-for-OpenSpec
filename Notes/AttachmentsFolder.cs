@@ -36,7 +36,7 @@ internal static partial class AttachmentsFolder
     }
 
     /// <summary>The default files folder of a project: <c>images</c> and <c>plans</c> go inside it.</summary>
-    internal const string DefaultFilesDir = "attachments";
+    internal const string DefaultFilesDir = OpenSpecStoreApi.DefaultFilesDir;
 
     /// <summary>A project's files folder: the same rules as <see cref="Check"/>, but empty means <see cref="DefaultFilesDir"/>.</summary>
     internal static (bool Ok, string Dir, string Message) CheckFiles(string? dir) =>
@@ -45,14 +45,8 @@ internal static partial class AttachmentsFolder
     /// <summary>The project's files folder: <c>x-rtm.filesDir</c> in its openspec/config.yaml, tidied; null when the key is missing, empty, not allowed or the file cannot be read (the old layout then).</summary>
     internal static string? ProjectFilesDir(string repoRoot)
     {
-        string file = Path.Combine(repoRoot, "openspec", "config.yaml");
-        try
-        {
-            if (!File.Exists(file) || OpenSpecStoreApi.ReadRtmSection(file, "filesDir") is not { } yaml) return null;
-            string value = new YamlDotNet.Serialization.DeserializerBuilder().Build().Deserialize<string?>(yaml) ?? "";
-            return value.Trim().Length > 0 && Check(value) is { Ok: true } c ? c.Dir : null;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or YamlDotNet.Core.YamlException) { return null; }
+        string value = OpenSpecStoreApi.ReadConfigSection<string>("filesDir", repoRoot).Value ?? "";   // unreadable or locked reads as none: the old layout
+        return value.Trim().Length > 0 && Check(value) is { Ok: true } c ? c.Dir : null;
     }
 
     private static string Abs(string root, string dir) => Path.Combine(root, dir.Replace('/', Path.DirectorySeparatorChar));

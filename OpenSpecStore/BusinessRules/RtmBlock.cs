@@ -39,6 +39,20 @@ internal static class RtmBlock
         return before + block + after;
     }
 
+    /// <summary>
+    /// Sets <paramref name="key"/> to one inline line (<paramref name="line"/> is the whole <c>key: value</c> text); null removes the key. The key keeps its place when it is there
+    /// (a value that was hand-written over several lines goes with it), else the line is appended. Every other line stays byte-for-byte.
+    /// </summary>
+    internal static string ReplaceInline(string yaml, string key, string? line)
+    {
+        if (line is null) return Replace(yaml, key, null);
+        string[] lines = Split(yaml, out string nl);
+        int start = Find(lines, key);
+        if (start < 0) return (yaml.Length == 0 || yaml.EndsWith('\n') ? yaml : yaml + nl) + line + nl;
+        int end = BlockEnd(lines, start);
+        return string.Concat(lines[..start].Select(l => l + nl)) + line + nl + string.Concat(lines[end..].Select(l => l + nl));
+    }
+
     private static int Find(string[] lines, string key) =>
         Array.FindIndex(lines, l => l.StartsWith(key + ":", StringComparison.Ordinal));
 

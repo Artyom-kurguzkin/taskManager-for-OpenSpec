@@ -20,12 +20,18 @@ internal sealed class Repo(string root, StoreState owner)
 internal sealed class StoreState
 {
     public readonly Dictionary<string, Repo> Repos = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Repositories a call works in without them being open (an agent's tool call on a repository that is no tab): read and written like an open one, but no watcher, and never listed as open. Guarded by <see cref="Repos"/>.</summary>
+    public readonly Dictionary<string, Repo> Guests = new(StringComparer.OrdinalIgnoreCase);
     public Repo? Current;
     public Action? Changed;
+    /// <summary>A test seam: false = <see cref="OpenSpecStoreModule.StartWatching"/> starts no file system watcher, so a late event from the disk cannot reload a page in the middle of a test. The app always has it on.</summary>
+    public bool RealWatcher = true;
     /// <summary>Content of each file as the app last read or wrote it; null = the file did not exist.</summary>
     public readonly ConcurrentDictionary<string, string?> LastSeen = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Every path the app wrote, deleted or moved, in order (see <see cref="OpenSpecStoreModule.Touch"/>).</summary>
     public readonly List<string> Touches = [];
+    /// <summary>Held by an operation that changes several files that only make sense together, and by readers that repair what they find; see <see cref="OpenSpecStoreApi.StepsGate"/>.</summary>
+    public readonly object StepsGate = new();
 }
 
 /// <summary>
@@ -43,7 +49,35 @@ internal static class OpenSpecStoreModule
     internal static StoreState State => Isolated.Value ?? Shared;
 
     internal static Dictionary<string, Repo> Repos => State.Repos;
-    internal static Repo? Current { get => State.Current; set => State.Current = value; }
+    /// <summary>A call's own repository, set for the code running from where <see cref="InRepo"/> was called (a tool call, a read of another tab); null = the process-wide current.</summary>
+    private static readonly AsyncLocal<Repo?> Scoped = new();
+
+    /// <summary>The repository the module Apis read and write for this call: the one the call was scoped to, else the process-wide current one.</summary>
+    internal static Repo? Current { get => Scoped.Value ?? State.Current; set => State.Current = value; }
+
+    /// <summary>Makes <paramref name="root"/> the current repository for the code running from here until the scope is disposed, and for that code only: other threads and calls keep theirs.
+    /// An open repository is used as it is (one version, one watcher); any other becomes a guest.</summary>
+    internal static IDisposable InRepo(string root)
+    {
+        string full = Path.GetFullPath(root);
+        StoreState state = State;
+        Repo repo;
+        lock (state.Repos)
+        {
+            if (!state.Repos.TryGetValue(full, out Repo? found) && !state.Guests.TryGetValue(full, out found))
+                state.Guests[full] = found = new Repo(full, state) { Opened = Commands.NextOpened() };
+            repo = found;
+        }
+        Repo? before = Scoped.Value;
+        Scoped.Value = repo;
+        return new Undo(() => Scoped.Value = before);
+    }
+
+    private sealed class Undo(Action undo) : IDisposable
+    {
+        private Action? undo = undo;
+        public void Dispose() => Interlocked.Exchange(ref undo, null)?.Invoke();
+    }
     internal static event Action? Changed
     {
         add { StoreState s = State; lock (s.Repos) s.Changed += value; }
@@ -54,8 +88,22 @@ internal static class OpenSpecStoreModule
     internal static long Version => Current is { } c ? Interlocked.Read(ref c.Version) : 0;
     internal static void Bump() { if (Current is { } c) Interlocked.Increment(ref c.Version); }
 
-    /// <summary>Content of each file as the app last read or wrote it; null = the file did not exist.</summary>
-    internal static ConcurrentDictionary<string, string?> LastSeen => State.LastSeen;
+    /// <summary>What an agent's tool call has read of the files, for that call alone; null = the process-wide record, the window's.</summary>
+    private static readonly AsyncLocal<ConcurrentDictionary<string, string?>?> CallSeen = new();
+
+    /// <summary>
+    /// Content of each file as the caller last read or wrote it; null = the file did not exist. The window has one record; each tool call in the same process has its own
+    /// (<see cref="AsCaller"/>), so a call's write never makes the window's older read look current: the window's later write on that read is refused as stale.
+    /// </summary>
+    internal static ConcurrentDictionary<string, string?> LastSeen => CallSeen.Value ?? State.LastSeen;
+
+    /// <summary>From here until disposed, what this code reads and writes is recorded apart from the window's.</summary>
+    internal static IDisposable AsCaller()
+    {
+        ConcurrentDictionary<string, string?>? before = CallSeen.Value;
+        CallSeen.Value = new(StringComparer.OrdinalIgnoreCase);
+        return new Undo(() => CallSeen.Value = before);
+    }
 
     private static readonly ConcurrentDictionary<string, DateTime> OwnWrites = new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeSpan OwnWriteWindow = TimeSpan.FromMilliseconds(1500);
@@ -96,6 +144,7 @@ internal static class OpenSpecStoreModule
 
     internal static void StartWatching(Repo repo)
     {
+        if (!repo.Owner.RealWatcher) return;
         FileSystemWatcher watcher = new(repo.OpenSpec)
         {
             IncludeSubdirectories = true,

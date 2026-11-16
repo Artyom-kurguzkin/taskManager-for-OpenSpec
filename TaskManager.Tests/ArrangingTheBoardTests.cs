@@ -1,5 +1,5 @@
 using Features.PublicDTOs;
-using TaskManager.Board;
+using TaskManager.Components.Pages;
 using WorkItems.PublicDTOs;
 
 namespace TaskManager.Tests;
@@ -625,7 +625,7 @@ public sealed class ArrangingTheBoardTests
         BoardOptions old = System.Text.Json.JsonSerializer.Deserialize<BoardOptions>("{\"ChangedFrom\":\"2026-11-02\",\"ChangedTo\":\"2026-11-03\"}")!;
         Assert.Equal((null, null), (old.ChangedFromTime, old.ChangedToTime));
         Assert.Equal("changed 2 Nov 14:00 – 3 Nov 09:30", BoardModel.ChangedLabel(o));
-        Assert.Equal("changed 2 Nov – 3 Nov", BoardModel.ChangedLabel(old));
+        Assert.Equal("changed 2–3 Nov", BoardModel.ChangedLabel(old));
     }
 
     [Fact(DisplayName = "An item created on the first day before the window's start time is not counted by its creation alone")]
@@ -651,29 +651,30 @@ public sealed class ArrangingTheBoardTests
     [Fact(DisplayName = "Arrow keys at a group's edge send the selected rows to the neighbouring group's end or start, and inside the group they only step")]
     public void ArrowAtTheEdgeCrossesIntoTheNeighbouringGroup()
     {
-        IReadOnlyList<BoardColumn> groups = [.. Build(new BoardOptions(GroupBy: "status", SortBy: "id")).SelectMany(s => s.Columns)];
-        BoardColumn Group(string key) => groups.Single(c => c.Key == key);
-        BoardColumn inProgress = Group("In Progress");   // items 2 and 3; the group above it (Blocked / In Review order) is whatever comes before it in the list
-        int at = groups.ToList().IndexOf(inProgress);
-        Assert.True(at > 0 && at < groups.Count - 1);
+        BoardSection section = Build(new BoardOptions(GroupBy: "status", SortBy: "id")).Single();
+        IReadOnlyList<BoardCell> cells = BoardModel.Cells(section);   // no rows: one cell per group
+        BoardCell Group(string key) => cells.Single(c => section.Columns[c.Column].Key == key);
+        BoardCell inProgress = Group("In Progress");   // items 2 and 3; the group above it (Blocked / In Review order) is whatever comes before it in the list
+        int at = inProgress.Column;
+        Assert.True(at > 0 && at < cells.Count - 1);
 
         // the top row going up lands at the end of the group above; the bottom row going down at the start of the one below
-        (BoardColumn Column, int? Before)? up = BoardModel.EdgeMove(groups, inProgress, [2], -1);
-        Assert.Equal((groups[at - 1], (int?)null), up);
-        (BoardColumn Column, int? Before)? down = BoardModel.EdgeMove(groups, inProgress, [3], +1);
-        Assert.Equal(groups[at + 1], down!.Value.Column);
-        Assert.Equal(groups[at + 1].Items.FirstOrDefault()?.Id, down.Value.Before);
+        ArrowMove? up = BoardModel.EdgeMove(cells, inProgress, [2], -1, list: true);
+        Assert.Equal((cells[at - 1], (int?)null), (up!.Target, up.Before));
+        ArrowMove? down = BoardModel.EdgeMove(cells, inProgress, [3], +1, list: true);
+        Assert.Equal(cells[at + 1], down!.Target);
+        Assert.Equal(cells[at + 1].Items.Items.FirstOrDefault()?.Id, down.Before);
 
         // inside the group, or scattered (the step gathers them first): no crossing
-        Assert.Null(BoardModel.EdgeMove(groups, inProgress, [3], -1));
-        Assert.Null(BoardModel.EdgeMove(groups, inProgress, [2], +1));
-        BoardColumn wide = inProgress with { Items = [.. inProgress.Items, Items[0], Items[3]] };   // 2, 3, 1, 4: 2 and 1 are not together
-        Assert.Null(BoardModel.EdgeMove(groups, wide, [2, 1], -1));
-        Assert.Equal(groups[at - 1], BoardModel.EdgeMove(groups, wide, [2, 3], -1)!.Value.Column);   // together at the top: they cross
+        Assert.Null(BoardModel.EdgeMove(cells, inProgress, [3], -1, list: true));
+        Assert.Null(BoardModel.EdgeMove(cells, inProgress, [2], +1, list: true));
+        BoardCell wide = inProgress with { Items = inProgress.Items with { Items = [.. inProgress.Items.Items, Items[0], Items[3]] } };   // 2, 3, 1, 4: 2 and 1 are not together
+        Assert.Null(BoardModel.EdgeMove(cells, wide, [2, 1], -1, list: true));
+        Assert.Equal(cells[at - 1], BoardModel.EdgeMove(cells, wide, [2, 3], -1, list: true)!.Target);   // together at the top: they cross
 
         // no group beyond the first or the last: nothing to cross into
-        Assert.Null(BoardModel.EdgeMove(groups, groups[0], [.. groups[0].Items.Select(i => i.Id).Take(1)], -1));
-        Assert.Null(BoardModel.EdgeMove(groups, groups[^1], [.. groups[^1].Items.Select(i => i.Id).TakeLast(1)], +1));
+        Assert.Null(BoardModel.EdgeMove(cells, cells[0], [.. cells[0].Items.Items.Select(i => i.Id).Take(1)], -1, list: true));
+        Assert.Null(BoardModel.EdgeMove(cells, cells[^1], [.. cells[^1].Items.Items.Select(i => i.Id).TakeLast(1)], +1, list: true));
     }
 
     // ── Statuses of several projects, and merging look-alikes ──
@@ -755,5 +756,131 @@ public sealed class ArrangingTheBoardTests
         WorkItem[] items = [W(1, "Review ready", [], []), W(2, "Backlog", [], [])];
         Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed", "Review ready"], BoardModel.Build(items, Features, Lanes, new BoardOptions()).Single().Columns.Select(c => c.Key));
         Assert.Equal([2, 1], BoardModel.Sort(items, new BoardOptions(SortBy: "status")).Select(i => i.Id));
+    }
+
+    // ---- git-deltas chunk ----
+
+    /// <summary>A temp git repository holding the change folders f1..f4 of <see cref="Items"/>: c1 touched f1 and f2, c2 touched f2 and f3, f1 is edited since and f4 is new.</summary>
+    private sealed class DeltaRepo : IDisposable
+    {
+        private readonly string root = Directory.CreateTempSubdirectory("rtm-delta").FullName;
+        public readonly string C1, C2;
+
+        public DeltaRepo()
+        {
+            TempGit.Init(root);
+            GitHistory.GitHistoryApi.Configure(root);
+            Put("f1", "one"); Put("f2", "one");
+            TempGit.Commit(root, "2026-11-01T10:00:00+00:00", "First: f1 and f2");
+            C1 = GitHistory.GitHistoryApi.Recent(1)[0].Hash;
+            Put("f2", "two"); Put("f3", "one");
+            TempGit.Commit(root, "2026-11-02T10:00:00+00:00", "Second: f2 and f3");
+            C2 = GitHistory.GitHistoryApi.Recent(1)[0].Hash;
+            Put("f1", "edited again"); Put("f4", "brand new");
+        }
+
+        private void Put(string folder, string text)
+        {
+            string dir = Path.Combine(root, "openspec", "changes", folder);
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "proposal.md"), text);
+        }
+
+        public void Dispose()
+        {
+            foreach (string f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
+            try { Directory.Delete(root, true); } catch (IOException) { }
+        }
+    }
+
+    [Fact(DisplayName = "The commit filter shows only the chosen commit's items on the board, the list and the calendar, and any shows all")]
+    public void CommitFilterShowsOnlyThatCommitsItems()
+    {
+        using DeltaRepo git = new();
+        DateOnly today = new(2026, 11, 4);
+        int[] Ids(IEnumerable<WorkItem> items) => [.. items.Select(i => i.Id).Order()];
+        BoardOptions any = new(), c1 = new(Commit: git.C1), c2 = new(Commit: git.C2), dirty = new(Commit: BoardModel.UncommittedCommit);
+
+        Assert.Equal("any", any.Commit);
+        Assert.Equal([1, 2, 3, 4], Ids(BoardModel.Filtered(Items, any, today)));
+        Assert.Equal([1, 2], Ids(BoardModel.Filtered(Items, c1, today)));
+        Assert.Equal([2, 3], Ids(BoardModel.Filtered(Items, c2, today)));
+        Assert.Equal([1, 4], Ids(BoardModel.Filtered(Items, dirty, today)));
+        Assert.Empty(BoardModel.Filtered(Items, new BoardOptions(Commit: "deadbee"), today));          // a commit this branch does not have: nothing
+        Assert.Equal([2], Ids(BoardModel.Filtered(Items, c1 with { Who = "Artyom" }, today)));          // the other filters still apply with it
+
+        // board columns, list rows and the calendar's groups are built from the same filtered sections
+        BoardSection board = Assert.Single(BoardModel.Build(Items, Features, Lanes, c2, today));
+        Assert.Equal([2, 3], Ids(board.Columns.SelectMany(c => c.Items)));
+        Assert.Equal([2, 3], Ids(BoardModel.Rows([board], new Dictionary<string, string>()).Where(r => r.Item is not null).Select(r => r.Item!)));
+        Assert.Equal([2, 3], Ids(RoadmapModel.Groups([new RoadmapSource("/repo", "repo", [board])], false).SelectMany(g => g.Rows).Select(r => r.Item)));
+        Assert.Equal([1, 2, 3, 4], Ids(BoardModel.Build(Items, Features, Lanes, any, today).SelectMany(s => s.Columns).SelectMany(c => c.Items)));
+
+        // the menu's words: nothing for any, the short hash for a commit, "uncommitted" for the work in progress; saved with the board's options
+        Assert.Null(BoardModel.CommitLabel(any));
+        Assert.Equal("commit: " + git.C1, BoardModel.CommitLabel(c1));
+        Assert.Equal("commit: uncommitted", BoardModel.CommitLabel(dirty));
+        BoardOptions back = System.Text.Json.JsonSerializer.Deserialize<BoardOptions>(System.Text.Json.JsonSerializer.Serialize(c2))!;
+        Assert.Equal(git.C2, back.Commit);
+        Assert.Equal("any", System.Text.Json.JsonSerializer.Deserialize<BoardOptions>("{\"Who\":\"Tom\"}")!.Commit);   // options saved before the filter existed
+    }
+
+    [Fact(DisplayName = "The items the uncommitted marker is for are the ones whose change folders are changed or new")]
+    public void UncommittedItemsAreMarked()
+    {
+        using DeltaRepo git = new();
+        Assert.Equal([1, 4], BoardModel.Uncommitted(Items).Order());   // f1 is edited, f4 is new; f2 and f3 are as committed
+        Assert.Empty(BoardModel.Uncommitted([]));
+    }
+
+    // ---- arrows chunk ----
+
+    private static (BoardSection Section, IReadOnlyList<BoardCell> Cells) Subgrouped()
+    {
+        // Backlog: 1 high, 2 and 3 lower; Planned: 4 lower only; Confirmed: none; In Progress: 6 high, 7 lower
+        WorkItem[] items = [W(1, "Backlog", [], [], "high"), W(2, "Backlog", [], []), W(3, "Backlog", [], []), W(4, "Planned", [], []), W(6, "In Progress", [], [], "high"), W(7, "In Progress", [], [])];
+        BoardSection section = BoardModel.Build(items, Features, Lanes, new BoardOptions(GroupBy: "status", Swimlane: "priority", SortBy: "id")).Single();
+        return (section, BoardModel.Cells(section));
+    }
+
+    [Fact(DisplayName = "With subgroups an arrow at a subgroup's edge crosses into the neighbouring subgroup, then at the group's edge into the neighbouring group; on the board it crosses rows only")]
+    public void ArrowCrossesSubgroupsThenGroups()
+    {
+        (BoardSection section, IReadOnlyList<BoardCell> cells) = Subgrouped();
+        BoardCell Cell(string group, string row) => cells.Single(c => section.Columns[c.Column].Key == group && c.Swim == row);
+        (BoardCell, int?)? Edge(BoardCell from, int[] moving, int dir, bool list) => BoardModel.EdgeMove(cells, from, moving, dir, list) is { } m ? (m.Target, m.Before) : null;
+
+        // the cell is what the key steps in: a subgroup's own items, in the shown order
+        Assert.Equal([2, 3], Cell("Backlog", "low").Items.Items.Select(i => i.Id));
+        Assert.Equal([1], Cell("Backlog", "high").Items.Items.Select(i => i.Id));
+
+        // list: up from the top of the lower subgroup lands at the end of the subgroup above; not at the top, it only steps
+        Assert.Equal((Cell("Backlog", "high"), (int?)null), Edge(Cell("Backlog", "low"), [2], -1, list: true));
+        Assert.Null(Edge(Cell("Backlog", "low"), [3], -1, list: true));
+        Assert.Null(Edge(Cell("Backlog", "high"), [1], -1, list: true));   // the first group's first subgroup: nothing above
+        // down from the only row of a subgroup lands at the start of the one below
+        Assert.Equal((Cell("Backlog", "low"), (int?)2), Edge(Cell("Backlog", "high"), [1], +1, list: true));
+        // down from the group's last subgroup enters the group below at its first shown subgroup (Planned has only a lower one)
+        Assert.Equal((Cell("Planned", "low"), (int?)4), Edge(Cell("Backlog", "low"), [3], +1, list: true));
+        // up from there goes to the end of the group above's last shown subgroup
+        Assert.Equal((Cell("Backlog", "low"), (int?)null), Edge(Cell("Planned", "low"), [4], -1, list: true));
+        // an empty group beyond has no subgroup to enter: the row keeps its own, in that group's cell for it
+        Assert.Equal((Cell("Confirmed", "low"), (int?)null), Edge(Cell("Planned", "low"), [4], +1, list: true));
+        BoardCell inProgress = Cell("In Progress", "high");
+        Assert.Equal((Cell("Confirmed", "high"), (int?)null), Edge(inProgress, [6], -1, list: true));
+
+        // board: up and down cross into the neighbouring row (an empty cell is shown, so it counts) and stop at the first and last row; never another column
+        Assert.Equal((Cell("Backlog", "high"), (int?)null), Edge(Cell("Backlog", "low"), [2], -1, list: false));
+        Assert.Equal((Cell("Planned", "high"), (int?)null), Edge(Cell("Planned", "low"), [4], -1, list: false));
+        Assert.Equal((Cell("Backlog", "low"), (int?)2), Edge(Cell("Backlog", "high"), [1], +1, list: false));
+        Assert.Null(Edge(Cell("Backlog", "high"), [1], -1, list: false));
+        Assert.Null(Edge(Cell("Backlog", "low"), [3], +1, list: false));
+
+        // the cell holding the selection, and the cell beside it
+        Assert.Equal(Cell("Backlog", "low"), BoardModel.CellOf(cells, [2, 3]));
+        Assert.Null(BoardModel.CellOf(cells, [1, 2]));   // two subgroups: no one cell holds both
+        Assert.Equal(Cell("Planned", "low"), BoardModel.CellBeside(cells, Cell("Backlog", "low"), +1));
+        Assert.Equal(Cell("Confirmed", "low"), BoardModel.CellBeside(cells, Cell("In Progress", "low"), -1));   // the same subgroup in the group before
+        Assert.Null(BoardModel.CellBeside(cells, Cell("Backlog", "low"), -1));
     }
 }
