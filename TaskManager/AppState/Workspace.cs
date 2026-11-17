@@ -19,7 +19,9 @@ public sealed class Workspace : IDisposable
     private readonly UiService ui;   // the first window's: where a dialog asked for without a window goes
     private readonly List<UiService> windows = [];   // every open window's dialogs and toasts: a notice goes to all of them
     private readonly BoardSyncService? sync;   // null where no storage can be connected (tests that do not register it)
-    private bool resolving;
+    private readonly object scanGate = new();   // held while the duplicate scan runs: a Notify from the scan's own writes (same thread) sees it and does not start another, any other thread waits its turn
+    private readonly object pendingGate = new();
+    private Task pending = Task.CompletedTask;
     private string? guideNotice;
 
     /// <summary>What to tell the user about agent guides the app just created or refreshed (once), or null.</summary>
@@ -153,7 +155,7 @@ public sealed class Workspace : IDisposable
         sync?.Attach(root);
         OpenTabs(root);
         KeepTabs();
-        Notify();
+        Notify(wait: true);   // a project being opened has its duplicate numbers repaired before its first page reads it
         return (true, "");
     }
 
@@ -265,48 +267,108 @@ public sealed class Workspace : IDisposable
         return result;
     }
 
+    /// <summary>The duplicate scan of the last <see cref="Notify"/> calls, finished or not: what a test awaits (the app never does).</summary>
+    public Task Resolved { get { lock (pendingGate) return pending; } }
+
     /// <summary>
-    /// Any change (an edit here, a file from outside, a folder copied in) first resolves numbers used twice, so a duplicate
-    /// never reaches a page: the later change is renumbered, told in a toast, and gets a note saying what happened.
+    /// Runs a module command on the thread pool, one at a time in the order asked (two quick edits of one file would otherwise read the same text and
+    /// the later write would drop the earlier one), then refreshes the UI as <see cref="Do"/> does. The caller keeps the window free meanwhile.
+    /// <paramref name="written"/> runs on the pool after a successful command and before the refresh.
     /// </summary>
-    public void Notify()
+    public async Task<(bool Success, string Message)> DoLater(Func<(bool Success, string Message)> command, Action? written = null)
     {
-        if (PlansState != plansSeen) RefreshGuides();   // config.yaml changed from outside (a pull): the attachments folder follows
-        if (!resolving)   // the writes below raise Changed again
+        // Task.Run carries the caller's ambient state (the AsyncLocal repository scope, the test's module state) to the pool thread.
+        // The refresh (Do) runs after the write is down and the queue is free: it draws on the window's thread, which is gone once the window closed, and must not hold the next write or Drain.
+        TaskCompletionSource landed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<(bool Success, string Message)> run = Task.Run(async () =>
         {
-            resolving = true;
+            (bool Success, string Message) result;
+            await writes.WaitAsync().ConfigureAwait(false);
             try
             {
-                foreach (string project in OpenSpecStoreApi.OpenRoots)
-                    try { In(project, () =>
-                    {
-                        // Numbers can only collide when a change folder appeared, came from outside or moved: an ordinary edit of one item's files never does.
-                        string stamp = WorkItemsApi.FolderStamp();
-                        bool folders = ItemsCache.ScannedStamp(project) != stamp;
-                        // One repair for every caller (an agent's tool call runs the same): the work items when a folder moved, then the notes, which can collide without any folder changing (a merge adds a file to a folder both sides had).
-                        DuplicateRepairs repaired = NotesApi.RepairDuplicates(folders);
-                        foreach (RenumberedItem item in repaired.Items)
-                            Say($"#wi{item.OldId} was used twice: {item.Folder} is now #wi{item.NewId}", ToastKind.Warning);
-                        if (folders) ItemsCache.Scanned(project, WorkItemsApi.FolderStamp());   // after the renumbering, which moved numbers
-                        foreach ((int oldId, int newId, string path) in repaired.Notes.Select(n => (n.OldId, n.NewId, n.Path)))
-                            Say($"#n{oldId} was used twice: {Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(path)))} has a note that is now #n{newId}", ToastKind.Warning);
-                    }); }
-                    // Notify runs on the file watcher's timer: an error here would be thrown on a background thread and end the app.
-                    // Files moving under the read (a merge, an archive, Explorer) are the usual cause, and the next change refreshes again.
-                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                    {
-                        Say($"Couldn't read {Path.GetFileName(project)} just now ({e.Message}); it refreshes on the next change.", ToastKind.Warning);
-                    }
-                    // A file the readers did not foresee must never end the app (this also runs inside Open at startup): the board shows what it can.
-                    catch (Exception e)
-                    {
-                        Say($"Couldn't check {Path.GetFileName(project)} for duplicate numbers ({e.Message}).", ToastKind.Warning);
-                    }
+                result = command();
+                if (result.Success) written?.Invoke();
             }
-            finally { resolving = false; }
+            finally { writes.Release(); landed.SetResult(); }
+            return Do(result);
+        });
+        lock (laterGate) later = later.IsCompleted ? landed.Task : Task.WhenAll(later, landed.Task);   // registered before the first await: Drain sees every command asked so far
+        return await run;
+    }
+
+    private readonly SemaphoreSlim writes = new(1, 1);
+    private readonly object laterGate = new();
+    private Task later = Task.CompletedTask;
+
+    /// <summary>
+    /// Waits for the commands <see cref="DoLater"/> has queued or is running to write (not for the refresh that follows each), up to <paramref name="limit"/> (on <paramref name="time"/>, the system clock by default);
+    /// false when the limit passed first. The app calls it when the last window closes, so a status or tick asked just before closing is written. A command is never cancelled.
+    /// </summary>
+    public async Task<bool> DrainAsync(TimeSpan limit, TimeProvider? time = null)
+    {
+        Task all;
+        lock (laterGate) all = later;
+        try { await all.WaitAsync(limit, time ?? TimeProvider.System).ConfigureAwait(false); return true; }
+        catch (TimeoutException) { return false; }
+        catch (Exception) { return true; }   // a command that failed reached its own caller; it is not left waiting
+    }
+
+    /// <summary>
+    /// Any change (an edit here, a file from outside, a folder copied in) tells the pages at once; numbers used twice are resolved afterwards on the
+    /// thread pool (<see cref="Resolved"/>): the later change is renumbered, told in a toast, gets a note saying what happened, and the pages are told again.
+    /// </summary>
+    public void Notify() => Notify(wait: false);
+
+    private void Notify(bool wait)
+    {
+        if (Monitor.IsEntered(scanGate) || wait)   // the scan's own writes raise this again (its caller reads when it is done); a project being opened needs the numbers repaired before it goes on
+        {
+            if (wait && !Monitor.IsEntered(scanGate)) Resolve();
+            sync?.BoardChanged();
+            Changed?.Invoke();
+            return;
         }
         sync?.BoardChanged();   // the one place the board's content is reported changing: connected projects sync two quiet minutes after
         Changed?.Invoke();
+        Task scan = Task.Run(() => { if (Resolve()) { sync?.BoardChanged(); Changed?.Invoke(); } });
+        lock (pendingGate) pending = Task.WhenAll(pending, scan);
+    }
+
+    /// <summary>The guides check and the duplicate scan of every open project; true when a number was changed. Under <see cref="scanGate"/>: Notify is called from the watcher's timer, tool calls and the window at once.</summary>
+    private bool Resolve()
+    {
+        bool renumbered = false;
+        lock (scanGate)
+        {
+            if (PlansState != plansSeen) RefreshGuides();   // config.yaml changed from outside (a pull): the attachments folder follows
+            foreach (string project in OpenSpecStoreApi.OpenRoots)
+                try { In(project, () =>
+                {
+                    // Numbers can only collide when a change folder appeared, came from outside or moved: an ordinary edit of one item's files never does.
+                    string stamp = WorkItemsApi.FolderStamp();
+                    bool folders = ItemsCache.ScannedStamp(project) != stamp;
+                    // One repair for every caller (an agent's tool call runs the same): the work items when a folder moved, then the notes, which can collide without any folder changing (a merge adds a file to a folder both sides had).
+                    DuplicateRepairs repaired = NotesApi.RepairDuplicates(folders);
+                    foreach (RenumberedItem item in repaired.Items)
+                        Say($"#wi{item.OldId} was used twice: {item.Folder} is now #wi{item.NewId}", ToastKind.Warning);
+                    if (folders) ItemsCache.Scanned(project, WorkItemsApi.FolderStamp());   // after the renumbering, which moved numbers
+                    foreach ((int oldId, int newId, string path) in repaired.Notes.Select(n => (n.OldId, n.NewId, n.Path)))
+                        Say($"#n{oldId} was used twice: {Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(path)))} has a note that is now #n{newId}", ToastKind.Warning);
+                    renumbered |= repaired.Items.Count > 0 || repaired.Notes.Count > 0;
+                }); }
+                // Notify runs on the file watcher's timer and the pool: an error here would be thrown on a background thread and end the app.
+                // Files moving under the read (a merge, an archive, Explorer) are the usual cause, and the next change refreshes again.
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    Say($"Couldn't read {Path.GetFileName(project)} just now ({e.Message}); it refreshes on the next change.", ToastKind.Warning);
+                }
+                // A file the readers did not foresee must never end the app (this also runs inside Open at startup): the board shows what it can.
+                catch (Exception e)
+                {
+                    Say($"Couldn't check {Path.GetFileName(project)} for duplicate numbers ({e.Message}).", ToastKind.Warning);
+                }
+        }
+        return renumbered;
     }
 
     /// <summary>A commit, checkout or staging made outside the app: pages re-read what git says (dots, last commit, contributors). No board file changed, so nothing is renumbered or synced.</summary>

@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-17
+x-rtm:
+  id: 194
+  title: Arrow keys move a list row to the wrong place
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  label: bug
+  started: 2026-11-17
+  moved: 2026-11-17
+  tests: [{suite: MovingRowsWithArrowKeysTests, test: 'In the list, an arrow key swaps the selected row with the row shown next to it, across the priority groups, and no other row moves(groupBy: "none", pick: 1, key: "ArrowDown")'}, {suite: MovingRowsWithArrowKeysTests, test: 'In the list, an arrow key swaps the selected row with the row shown next to it, across the priority groups, and no other row moves(groupBy: "none", pick: 2, key: "ArrowUp")'}, {suite: MovingRowsWithArrowKeysTests, test: 'In the list, an arrow key swaps the selected row with the row shown next to it, across the priority groups, and no other row moves(groupBy: "none", pick: 3, key: "ArrowUp")'}, {suite: MovingRowsWithArrowKeysTests, test: 'In the list, an arrow key swaps the selected row with the row shown next to it, across the priority groups, and no other row moves(groupBy: "status", pick: 1, key: "ArrowDown")'}, {suite: MovingRowsWithArrowKeysTests, test: 'In the list, an arrow key swaps the selected row with the row shown next to it, across the priority groups, and no other row moves(groupBy: "status", pick: 2, key: "ArrowUp")'}, {suite: MovingRowsWithArrowKeysTests, test: 'In a list sorted by one of its columns, an arrow key swaps the selected row with the row shown next to it, and no other row moves(groupBy: "none", key: "ArrowDown")'}, {suite: MovingRowsWithArrowKeysTests, test: 'In a list sorted by one of its columns, an arrow key swaps the selected row with the row shown next to it, and no other row moves(groupBy: "none", key: "ArrowUp")'}, {suite: MovingRowsWithArrowKeysTests, test: "In a group of six rows mixing high and low priority, an arrow key on a middle row swaps it with the row shown next to it, with or without a saved order that holds other columns' cards(staleOrder: False, key: \"ArrowUp\")"}, {suite: MovingRowsWithArrowKeysTests, test: "In a group of six rows mixing high and low priority, an arrow key on a middle row swaps it with the row shown next to it, with or without a saved order that holds other columns' cards(staleOrder: True, key: \"ArrowUp\")"}, {suite: MovingRowsWithArrowKeysTests, test: "In a group of six rows mixing high and low priority, an arrow key on a middle row swaps it with the row shown next to it, with or without a saved order that holds other columns' cards(staleOrder: True, key: \"ArrowDown\")"}]
+  agentBy: Claude
+  agentAt: 2026-11-17T10:24:02

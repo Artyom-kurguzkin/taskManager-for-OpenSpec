@@ -57,6 +57,9 @@ public static class GitHistoryApi
         remove => GitHistoryModule.S.Changed -= value;
     }
 
+    /// <summary>Tells the listeners of <see cref="Changed"/> that what git says changed, for the host's own refresh of a cached answer (the uncommitted set read in the background).</summary>
+    public static void RaiseChanged() => GitHistoryModule.S.RaiseChanged();
+
     /// <summary>Moves (never back) each time the repository's git files changed since <see cref="Watch"/>; 0 while nothing changed or nothing is watched. A cached answer about git is valid while it stays the same.</summary>
     public static long HeadVersion(string repoRoot)
     {

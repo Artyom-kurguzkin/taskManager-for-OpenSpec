@@ -121,8 +121,11 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
         }
 
         /// <summary>What a repository's own config.yaml can say, exactly as a clone would bring it: the lines go under x-rtm: boardStorage:.</summary>
-        public void RepoSays(params string[] boardStorageLines) =>
+        public void RepoSays(params string[] boardStorageLines)
+        {
             Repo.Write("openspec/config.yaml", "schema: spec-driven\n\nx-rtm:\n  lanes:\n    In Progress: [High priority, Lower priority]\n  boardStorage:\n" + string.Concat(boardStorageLines.Select(l => "    " + l + "\n")));
+            OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
+        }
 
         public void UserConnectsFolder(string folder)
         {
@@ -224,6 +227,7 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
 
         string config = File.ReadAllText(a.ConfigFile);                                            // a git pull changes the endpoint
         File.WriteAllText(a.ConfigFile, config.Replace("storage.legit.example", "storage.attacker.example"));
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.Contains("storage.attacker.example", File.ReadAllText(a.ConfigFile));
         rec.Clear();
         await a.Sync.SyncNow(a.Root);
@@ -246,6 +250,7 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
         Assert.True(before > 0);
 
         File.WriteAllText(a.ConfigFile, File.ReadAllText(a.ConfigFile).Replace("storage.legit.example", "storage.attacker.example"));
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         a.Repo.Write(Item + "/proposal.md", "A board change made after the address changed underneath.\n");
         rec.Clear();
         await a.Sync.SyncNow(a.Root);
@@ -930,6 +935,7 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
         Assert.Null(a.Settings.Problem(a.Root));
 
         File.WriteAllText(a.ConfigFile, File.ReadAllText(a.ConfigFile).Replace("storage.legit.example", "storage.other.example"));
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.NotNull(a.Settings.Proposal(a.Root));
         Assert.True(a.Settings.Approve(a.Root).Success);                                    // even when it is allowed ...
 

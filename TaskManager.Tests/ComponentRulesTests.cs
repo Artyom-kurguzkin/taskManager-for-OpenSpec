@@ -71,6 +71,7 @@ public sealed class ComponentRulesTests
         string[] offenders = [.. typeof(RtmComponent).Assembly.GetTypes()
             .Where(t => typeof(IComponent).IsAssignableFrom(t) && t != typeof(RtmComponent))   // third-party components live in other assemblies
             .Where(t => !typeof(RtmComponent).IsAssignableFrom(t))
+            .Where(t => t.BaseType!.Assembly == typeof(RtmComponent).Assembly)   // a thin subclass of a third-party component (GroupOrderedGrid over Radzen's grid) cannot derive from ours and adds no markup
             .Select(t => t.FullName!)
             .Order()];
 

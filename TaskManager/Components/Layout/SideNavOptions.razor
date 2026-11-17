@@ -56,7 +56,7 @@
     <div class="field"><label>contributor</label><Dropdown Label="contributor" Class="@Look(o.Who, "all")" Options="people" Value="@o.Who" ValueChanged="v => Set(Saved with { Who = v })" /></div>
     <div class="field"><label>period</label><Dropdown Label="period" Class="@Look(o.Period, "all")" Options="BoardPage.Periods" Value="@o.Period" ValueChanged="v => Set(Saved with { Period = v })" /></div>
     @* the filter: only the work items one commit (or the work tree) changed *@
-    <div class="field commit"><label>commit</label><Dropdown Label="commit" Class="@Look(o.Commit, "any")" Options="commits" Value="@o.Commit" ValueChanged="v => Set(Saved with { Commit = v })" /></div>
+    <div class="field commit"><label>commit</label><Dropdown Label="commit" Class="@Look(o.Commit, "any")" PopupStyle="max-width: 224px; min-width: 0 !important" Options="commits" Value="@o.Commit" ValueChanged="v => Set(Saved with { Commit = v })" /></div>
     @* the filter: only work that changed between two days is shown *@
     <div class="field changed"><label>changed</label>
         <DateRange Label="changed" Empty="any time" ClearLabel="Show all" WithTime="true" Start="@o.ChangedFrom" End="@o.ChangedTo" StartTime="@o.ChangedFromTime" EndTime="@o.ChangedToTime"

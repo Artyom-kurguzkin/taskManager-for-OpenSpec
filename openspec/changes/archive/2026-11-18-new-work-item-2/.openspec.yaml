@@ -1,0 +1,17 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-10-18
+x-rtm:
+  id: 9
+  title: not all items are showing in different views
+  status: Confirmed
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [organise-work-items]
+  lanes:
+    board: test-2
+  label: bug
+  started: 2026-11-18
+  due: 2026-11-18
+  moved: 2026-11-18
+  hidden: true

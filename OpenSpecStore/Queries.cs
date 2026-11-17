@@ -8,6 +8,21 @@ internal static class Queries
     internal static string ReadText(string path)
     {
         string full = Path.GetFullPath(path);
+        // A write of this file in flight (on the thread pool, since the pages write there) records what it wrote itself; a read that overlapped it must not record the older text after it.
+        SemaphoreSlim gate = Commands.GateOf(full);
+        bool free = gate.Wait(0);
+        try
+        {
+            string? text = ReadShared(full);
+            if (free) OpenSpecStoreModule.LastSeen[full] = text;
+            return text ?? "";
+        }
+        finally { if (free) gate.Release(); }
+    }
+
+    /// <summary>The read of the writer that already holds the path's gate (<c>Commands.HoldPath</c>): nothing else records meanwhile, and the gate is not re-entrant, so it records without taking it.</summary>
+    internal static string ReadTextHeld(string full)
+    {
         string? text = ReadShared(full);
         OpenSpecStoreModule.LastSeen[full] = text;
         return text ?? "";
@@ -38,18 +53,81 @@ internal static class Queries
     private static readonly YamlDotNet.Serialization.IDeserializer ConfigReader = new YamlDotNet.Serialization.DeserializerBuilder()
         .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.CamelCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
 
+    /// <summary>The open (or guest) repository at <paramref name="root"/>, the call's current one without a root; null when it is none of them (read afresh, nothing is kept for it).</summary>
+    private static Repo? RepoFor(string? root)
+    {
+        if (root is null) return OpenSpecStoreModule.Current;
+        string full = Path.GetFullPath(root);
+        StoreState state = OpenSpecStoreModule.State;
+        lock (state.Repos) return state.Repos.TryGetValue(full, out Repo? open) ? open : state.Guests.GetValueOrDefault(full);
+    }
+
+    /// <summary>
+    /// Brings the repository's config.yaml up to date. It is read again only when something outside the app's own writes may have changed it (the watcher or a Refresh moved <see cref="Repo.Outside"/>)
+    /// or the app wrote to it (the record of touched paths, asked every time: a write to another open project's config.yaml does not move this project's version). An item written by the app
+    /// moves neither, so its page loads read nothing. A file read again that says the same keeps its sections. Call it holding <paramref name="c"/>.
+    /// </summary>
+    private static void Refresh(Repo repo, ConfigCache c)
+    {
+        long outside = Interlocked.Read(ref repo.Outside);
+        (IReadOnlyList<string> touched, long cursor) = OpenSpecStoreModule.TouchesSince(c.Cursor);   // asked before reading: a write that lands meanwhile shows next time
+        string file = Path.GetFullPath(ConfigFile(repo.Root));
+        if (c.Read && c.Outside == outside && !touched.Contains(file, StringComparer.OrdinalIgnoreCase)) { c.Cursor = cursor; return; }
+        string? text = null;
+        c.Unavailable = null;
+        try { if (File.Exists(file)) { text = ReadShared(file); repo.Owner.ConfigReads++; } }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            c.Unavailable = $"openspec/config.yaml could not be opened ({e.Message.TrimEnd('.')})";
+            c.Read = false;   // not kept: the next call looks again
+            return;
+        }
+        if (!c.Read || c.Text != text) { c.Changes++; c.Sections.Clear(); }
+        (c.Text, c.Read, c.Outside, c.Cursor) = (text, true, outside, cursor);
+    }
+
+    /// <summary>Moves each time the repository's config.yaml turned out different from what was read before (0 without a repository); a cache of what is derived from the file goes by it.</summary>
+    internal static long ConfigVersion(string? repoRoot)
+    {
+        if (RepoFor(repoRoot) is not Repo repo) return 0;
+        lock (repo.Config) { Refresh(repo, repo.Config); return repo.Config.Changes; }
+    }
+
     /// <summary>
     /// The one rule for every section of config.yaml: whatever is wrong with it, the call never throws. A section that is missing or empty gives no value and no problem;
     /// one that cannot be read (not valid YAML, not the shape the caller asked for) gives no value and a problem that names it, so the caller uses its default and can say why.
     /// A file that cannot be opened right now (another process holds it) is <see cref="ConfigSection{T}.Unavailable"/>.
+    /// The file is read and its sections cut out once for each time it changed, for the repositories the store has open (see <see cref="Refresh"/>); any other repository is read afresh.
     /// </summary>
     internal static ConfigSection<T> ReadConfigSection<T>(string key, string? repoRoot)
     {
+        if (RepoFor(repoRoot) is Repo repo)
+        {
+            ConfigCache c = repo.Config;
+            lock (c)
+            {
+                Refresh(repo, c);
+                if (c.Unavailable is not null) return new(default, c.Unavailable, Unavailable: true);
+                if (c.Text is null) return new(default);   // a file that is not there is not "seen as missing": a writer that creates it later is no conflict
+                OpenSpecStoreModule.LastSeen[Path.GetFullPath(ConfigFile(repo.Root))] = c.Text;   // as ReadText does: a later write is checked against what this call saw
+                if (!c.Sections.TryGetValue(key, out string? yaml)) c.Sections[key] = yaml = Section(c.Text, key);
+                return Parse<T>(yaml, key);
+            }
+        }
         if (ConfigFileOf(repoRoot) is not string file || !File.Exists(file)) return new(default);   // a file that is not there is not "seen as missing": a writer that creates it later is no conflict
         string text;
         try { text = ReadText(file); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return new(default, $"openspec/config.yaml could not be opened ({e.Message.TrimEnd('.')})", Unavailable: true); }
-        if (RtmBlock.Extract(text) is not string block || RtmBlock.Extract(block, key) is not string yaml || yaml.Trim().Length == 0) return new(default);
+        return Parse<T>(Section(text, key), key);
+    }
+
+    /// <summary>The text of <c>x-rtm.&lt;key&gt;</c> in a config.yaml; null when the section is missing or empty.</summary>
+    private static string? Section(string text, string key) =>
+        RtmBlock.Extract(text) is string block && RtmBlock.Extract(block, key) is string yaml && yaml.Trim().Length > 0 ? yaml : null;
+
+    private static ConfigSection<T> Parse<T>(string? yaml, string key)
+    {
+        if (yaml is null) return new(default);
         try { return new(ConfigReader.Deserialize<T>(yaml.Replace("\r\n", "\n").Replace('\r', '\n'))); }
         catch (Exception e) when (e is YamlDotNet.Core.YamlException or FormatException or InvalidCastException or InvalidOperationException)
         {

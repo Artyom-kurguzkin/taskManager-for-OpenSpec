@@ -579,11 +579,31 @@ The expanded side menu SHALL have a period filter on the due date: any time, ove
 - **THEN** only items due before today remain in every column
 
 ### Requirement: Dates on cards and rows
-A card SHALL show "due d MMM" as a tag, filled red while the item is overdue and not completed. The list SHALL have Started and Due columns.
+An expanded card SHALL show its planned dates as one period pill built from the item's start and due days, and SHALL show neither the work item's id nor an agent badge. The period always says what it is: "9–16 Nov" inside one month, "28 Oct – 3 Nov" across months, "9 Nov 25 – 3 Jan 26" across years, "from 9 Nov" with only a start, "due 16 Nov" with only a due day, and "due 16 Nov" for a one-day period (start and due on the same day), never a bare "16 Nov". Its tooltip SHALL be the long form ("Started 9 November 2026 – Due 16 November 2026"). The pill SHALL be in the overdue colour (peach, the colour the board gives an overdue item by due date) while the item has a due day that is past and is not completed; a compact card and an item with neither day show no pill. The card's first line SHALL read the time of the item's last change as "updated 15:34. 16 Nov 26" (a muted caption "updated", then time, dot, day, month, two-digit year) with the tooltip "Last changed 15:34, 16 Nov 2026". The card's subtask count SHALL read "11/12 subtasks" (the word muted) with the tooltip "11 of 12 subtasks done". These captions add no frame and no second meta row. The list SHALL have Updated, Started and Due as three separate columns, present by default and in that order, beside "In status since": Updated is when the work item was last changed and reads "15:34. 16 Nov 26" like the card; Started is its planned start day and Due its planned end day, each as "9 Nov". The columns are named by their headers, so the list carries no captions. The list row SHALL carry no agent badge.
+
+#### Scenario: One period pill
+- **WHEN** an item started on 9 Nov and is due on 16 Nov
+- **THEN** its expanded card's pill reads "9–16 Nov"; started 28 Oct and due 3 Nov reads "28 Oct – 3 Nov"; started 9 Nov 2025 and due 3 Jan 2026 reads "9 Nov 25 – 3 Jan 26"; only a start reads "from 9 Nov"; only a due day reads "due 16 Nov"; started and due on 11 Nov reads "due 11 Nov"
 
 #### Scenario: Overdue card
 - **WHEN** #wi123 was due yesterday
-- **THEN** its card's due tag is red; an item due in two days has a plain due tag; an item without a due date has none
+- **THEN** its period pill is peach; an item due today or in two days has a plain pill; an item that is only started has a plain pill; an item without dates has none
+
+#### Scenario: No id and no agent badge
+- **WHEN** an agent changed #wi123 three minutes ago and the user has not reviewed it
+- **THEN** its card shows no "#wi123" pill and no "Claude, 3 min ago" line, and neither does its list row
+
+#### Scenario: Modified with its time
+- **WHEN** the newest change of #wi123 was at 15:34 on 16 Nov 2026
+- **THEN** the card's first line reads "updated 15:34. 16 Nov 26" and the list's Updated cell reads "15:34. 16 Nov 26"
+
+#### Scenario: Numbers say what they are
+- **WHEN** an expanded card has 11 of 12 subtasks done
+- **THEN** its meta row reads "11/12 subtasks" with the tooltip "11 of 12 subtasks done", in the same single meta row as the updated stamp and the people
+
+#### Scenario: Three dates in the list
+- **WHEN** the user opens the list on a fresh repository
+- **THEN** the headers read Updated, Started and Due, in that order, each its own column
 
 ### Requirement: Show or hide a project from the project switcher
 With several projects open, each project in the side menu's project switcher SHALL have an eye that hides it from the board, list and calendar, or shows it again, without switching to it and without closing the menu (the same setting as "Hide project" in the project's menu, so a hidden one is also listed under Hidden). There SHALL be no second list of projects in the view options.
@@ -748,3 +768,124 @@ The list SHALL open with the board's current grouping even when its saved list s
 #### Scenario: A second project opened later
 - **WHEN** the list's settings were saved with one project open and the user opens the list with two
 - **THEN** the rows are grouped by project and the side menu keeps working
+
+### Requirement: Statuses per project
+Each project SHALL keep its own ordered list of statuses in its openspec/config.yaml under x-rtm.statuses, and the board's columns, the list's groups, the status pills and the commands that set a status SHALL use that list. A project without the line SHALL have the built-in list.
+
+#### Scenario: A project with its own list
+- **WHEN** a project's config.yaml lists statuses Backlog, Planned, In Progress, Review ready, Completed
+- **THEN** its board shows those five columns in that order and a work item with status Review ready is in the fourth
+
+#### Scenario: No list
+- **WHEN** a project's config.yaml has no x-rtm.statuses
+- **THEN** its board shows Backlog, Planned, Confirmed, In Progress, Blocked, In Review and Completed
+
+### Requirement: Fixed statuses and removing a status
+Backlog, In Progress and Completed SHALL always be in a project's list and SHALL NOT be removed or renamed; Completed still means archived. Any other status SHALL be removable, and only when no work item has it: otherwise the Settings page SHALL ask which status the work items move to, move them and then remove it.
+
+#### Scenario: Fixed statuses stay
+- **WHEN** the user looks at a project's status list in Settings
+- **THEN** Backlog, In Progress and Completed have no remove button, and every status can be moved up and down
+
+#### Scenario: Removing a status that work items have
+- **WHEN** the user removes a status that work items have
+- **THEN** the app asks which status they move to, moves them there and then removes the status
+
+### Requirement: Merging status columns across projects
+With several projects open and the board grouped by status, the board SHALL show one column per distinct status of the projects' lists, and the user SHALL be able to Shift-select two or more status column headers and choose Merge from a header menu. The merged column SHALL hold the work items of every merged status in every project and be named after the first selected column unless another name is typed. Unmerge on its header SHALL show the statuses as separate columns again.
+
+#### Scenario: Merging completed and Completed
+- **WHEN** one project has the status completed, another has Completed, and the user Shift-selects both headers and chooses Merge
+- **THEN** one column Completed shows the work items of both statuses
+
+#### Scenario: Unmerge
+- **WHEN** the user chooses Unmerge on the merged column's header
+- **THEN** the two statuses are separate columns again
+
+#### Scenario: Dropping a card into a merged column
+- **WHEN** the user drops a card into a merged column and its project has more than one of the merged statuses
+- **THEN** the app asks which of them to use; with one it uses that one, and with none it says so and changes nothing
+
+### Requirement: A merge is a view setting
+A merge SHALL be saved per user and per board in the user's settings (BoardOptions.Merges), SHALL match statuses by their exact text in each project, and SHALL NOT change any project's files or work items.
+
+#### Scenario: Nothing in the projects changes
+- **WHEN** the user merges two status columns
+- **THEN** the user's settings file records the merge and no project's config.yaml or work item changes
+
+### Requirement: Look-alikes of the fixed statuses
+A status that equals Backlog, In Progress or Completed when case, spaces and dashes are ignored (completed, InProgress, in progress) SHALL be offered in its column header menu as Merge with the fixed status, and the fixed status's column SHALL offer Merge look-alikes, each merging in one click.
+
+#### Scenario: One click
+- **WHEN** the user chooses Merge with Completed in the menu of the completed column
+- **THEN** completed and Completed become one column called Completed
+
+### Requirement: Adding a status from the board
+When the board's columns are statuses, a "+ status" button SHALL follow the last column header, like "+ feature", ask for a name and add the status to the project's list before Completed, so the new empty column appears at once.
+
+#### Scenario: Adding a status
+- **WHEN** the board is grouped by status and the user chooses + status and types Review ready
+- **THEN** the project's list has Review ready before Completed and the board shows an empty Review ready column before Completed
+
+#### Scenario: Several projects
+- **WHEN** the board shows several projects under one shared header row and the user chooses + status
+- **THEN** the app asks which project, or All projects, before it asks for the name
+
+#### Scenario: A name that exists
+- **WHEN** the user types the name of a status the project has already, spelled exactly
+- **THEN** the app refuses it with a message and the list does not change
+
+### Requirement: The menu has a commit selector
+The menu's Filters section SHALL have a commit selector whose choices are any (the default), uncommitted, and the newest commits of the repository (short hash, subject, day). The choice SHALL be saved with the board's other options, and the folded Filters header SHALL name it.
+
+#### Scenario: Choosing a commit
+- **WHEN** a commit is chosen in the selector
+- **THEN** the choice is saved with the board and the Filters header says commit and its short hash
+
+### Requirement: The board shows only the work items of the chosen commit
+WHEN a commit is chosen, the board, the list and the calendar SHALL show only the work items whose change folder holds a file that commit changed, an archived change counting under its archived folder. WHEN uncommitted is chosen they SHALL show only the work items whose files are changed or new in the work tree. Any SHALL leave no work item out.
+
+#### Scenario: A commit is chosen
+- **WHEN** the selector is set to a commit
+- **THEN** only the work items that commit changed are shown, together with the other filters
+
+#### Scenario: Uncommitted is chosen
+- **WHEN** the selector is set to uncommitted
+- **THEN** only the work items with changed or new files are shown
+
+#### Scenario: Any
+- **WHEN** the selector is set to any
+- **THEN** no work item is left out for it
+
+### Requirement: Work items with uncommitted changes are marked
+WHILE the commit selector is on any, a card of a work item whose files are changed or new in the work tree SHALL carry one small muted dot before its title.
+
+#### Scenario: One item is edited
+- **WHEN** a work item's files have uncommitted changes and no commit is chosen
+- **THEN** its card shows the dot and the cards of committed items do not
+
+### Requirement: A work item shows its last contributing commit
+The work item page header and the examine panel SHALL show the newest commit that changed the item's folder (short hash, with the subject), or that the item has uncommitted changes while its files are changed or new; nothing when git knows nothing of it.
+
+#### Scenario: Opening an item
+- **WHEN** a work item's folder was last changed by a commit
+- **THEN** its page header shows that commit's short hash and the examine panel shows the hash and subject
+
+#### Scenario: An item is edited since
+- **WHEN** a work item has files that are not committed yet
+- **THEN** both show that it has uncommitted changes
+
+### Requirement: Updated is the last change in the worklog
+A work item's updated time (the list's Updated column, the "date modified" sort, the card's date and the changed-period filter) SHALL be the time of the last change in its worklog: the newest line of its events.log or the newest note's created time. The time its files were written SHALL only stand in for an item with no worklog, because a checkout or sync rewrites every file.
+
+#### Scenario: Files rewritten by a checkout
+- **WHEN** a work item's events.log ends on 20 Oct and all its files were written on 1 Nov
+- **THEN** its Updated is 20 Oct
+
+#### Scenario: A note after the last event
+- **WHEN** a note was created on 25 Oct and the last event is from 6 Oct
+- **THEN** its Updated is 25 Oct
+
+#### Scenario: No worklog
+- **WHEN** a work item has neither events nor notes
+- **THEN** its Updated is the time its files were last written

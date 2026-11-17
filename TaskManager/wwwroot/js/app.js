@@ -282,7 +282,7 @@ function _synthetic(type) { return new DragEvent(type, { bubbles: true, cancelab
 // selected rows, data-selected-groups: of the selected project rows). The grid's rows carry no mark: a selection must not draw them again.
 function _marked(name) { try { return JSON.parse(document.querySelector("style[data-rowmarks]")?.dataset[name] ?? "[]"); } catch { return []; } }
 function _rowSelected(tr) { return !!tr && tr.matches("tr[data-id]") && _marked("selected").includes(tr.dataset.row); }
-function _groupSelected(tr) { return !!tr && tr.matches("tr[data-group^='proj:']") && _marked("selectedGroups").includes(tr.dataset.group); }
+function _groupSelected(tr) { return !!tr && tr.matches("tr[data-group]") && _marked("selectedGroups").includes(tr.dataset.group); }
 function _selectedRows() { const keys = new Set(_marked("selected")); return keys.size ? [...document.querySelectorAll("tr[data-id][data-row]")].filter(tr => keys.has(tr.dataset.row)) : []; }
 function _anyRowSelected() { return _marked("selected").length > 0 || _marked("selectedGroups").length > 0; }
 

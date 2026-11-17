@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-17
+x-rtm:
+  id: 196
+  title: Arrow keys at a group edge with a header sort or a stale manual order
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  label: bug
+  started: 2026-11-17
+  moved: 2026-11-17
+  tests: [{suite: MovingRowsWithArrowKeysTests, test: "With the grid's header sort on, an arrow key that has nowhere to move a row changes nothing: the shown order stays and the sort stays on(groupBy: \"none\", key: \"ArrowUp\")"}, {suite: MovingRowsWithArrowKeysTests, test: "With the grid's header sort on, an arrow key that has nowhere to move a row changes nothing: the shown order stays and the sort stays on(groupBy: \"none\", key: \"ArrowDown\")"}, {suite: MovingRowsWithArrowKeysTests, test: "With the grid's header sort on, an arrow key that has nowhere to move a row changes nothing: the shown order stays and the sort stays on(groupBy: \"priority\", key: \"ArrowUp\")"}, {suite: MovingRowsWithArrowKeysTests, test: "With the grid's header sort on, an arrow key that has nowhere to move a row changes nothing: the shown order stays and the sort stays on(groupBy: \"priority\", key: \"ArrowDown\")"}, {suite: MovingRowsWithArrowKeysTests, test: "With the grid's header sort on, a row first in the board's order but shown last in its group swaps with the row shown above it on Up, and the same on Down for the one shown first(key: \"ArrowUp\")"}, {suite: MovingRowsWithArrowKeysTests, test: "With the grid's header sort on, a row first in the board's order but shown last in its group swaps with the row shown above it on Up, and the same on Down for the one shown first(key: \"ArrowDown\")"}, {suite: MovingRowsWithArrowKeysTests, test: 'With no header sort, an arrow key that takes a row across a group edge moves that row only: every other group keeps its shown order, whatever the saved order holds(key: "ArrowUp")'}, {suite: MovingRowsWithArrowKeysTests, test: 'With no header sort, an arrow key that takes a row across a group edge moves that row only: every other group keeps its shown order, whatever the saved order holds(key: "ArrowDown")'}, {suite: MovingRowsWithArrowKeysTests, test: 'After an arrow key took the header sort away, a click on the Updated header sorts the list again'}, {suite: MovingRowsWithArrowKeysTests, test: 'Up on the first row of a group that cannot leave (archived) with a header sort on changes nothing: the shown order and the sort stay'}, {suite: MovingRowsWithArrowKeysTests, test: 'With no header sort, a refused cross-group move leaves the saved order and the shown order unchanged'}]
+  agentBy: Claude
+  agentAt: 2026-11-18T09:19:48

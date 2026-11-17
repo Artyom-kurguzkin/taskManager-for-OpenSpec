@@ -247,7 +247,7 @@ public sealed class RepairingDuplicateIdsTests : IDisposable
         Twin();   // a git pull brings a folder in ...
         repo.Write("openspec/changes/export-remittances/notes/n123.md", "---\nid: 123\nby: Tom\ncreated: 2026-10-05T10:00:00\n---\n# Twin note\n");   // ... and a note into a folder that was there
         OpenSpecStoreApi.Refresh();
-        workspace.Notify();   // what the file watcher's callback does
+        workspace.Notify(); workspace.Resolved.Wait();   // what the file watcher's callback does
 
         Assert.Equal(scans + 1, WorkItemsModule.DuplicateScans);
         Assert.Equal("second-check", WorkItemsApi.Get(126)!.Folder);
@@ -255,7 +255,7 @@ public sealed class RepairingDuplicateIdsTests : IDisposable
         Assert.Single(Events(107, "renumbered"));
         string log = repo.Read(Second + "/events.log");
 
-        for (int i = 0; i < 3; i++) { workspace.Notify(); OpenSpecStoreApi.Refresh(); workspace.Notify(); }   // the app's own writes come back as changes
+        for (int i = 0; i < 3; i++) { workspace.Notify(); workspace.Resolved.Wait(); OpenSpecStoreApi.Refresh(); workspace.Notify(); workspace.Resolved.Wait(); }   // the app's own writes come back as changes
 
         Assert.Equal(scans + 1, WorkItemsModule.DuplicateScans);
         Assert.Equal(log, repo.Read(Second + "/events.log"));

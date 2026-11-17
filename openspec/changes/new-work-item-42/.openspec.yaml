@@ -1,0 +1,14 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-18
+x-rtm:
+  id: 200
+  title: custom status is broken
+  status: In Progress
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [organise-work-items]
+  label: bug
+  started: 2026-11-18
+  due: 2026-11-18
+  moved: 2026-11-18

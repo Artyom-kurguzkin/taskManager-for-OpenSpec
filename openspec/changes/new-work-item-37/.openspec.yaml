@@ -4,10 +4,10 @@ created: 2026-11-16
 x-rtm:
   id: 178
   title: logging review
-  status: Backlog
+  status: Research
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [maintainability]
   started: 2026-11-16
   due: 2026-11-23
-  moved: 2026-11-16
+  moved: 2026-11-18

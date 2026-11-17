@@ -16,7 +16,7 @@
 
 @* view options, Board/List and "+ new work item" live in the side menu (Layout/SideNav) *@
 
-@foreach (string w in WorkItemsApi.GetWarnings()) { <p class="warning">@w</p> }
+@foreach (string w in warnings) { <p class="warning">@w</p> }
 
 @if (projects.Count == 0)
 {
@@ -46,7 +46,7 @@ else if (View == "list")
     <div class="scx"><div class="tbl-wrap" tabindex="0" @onkeydown="KeyDown" @onclick="BackgroundClickHandler">
         <div class="hdr-path" aria-hidden="true"></div>
         <RenderBoundary Version="listVersion">
-        <RadzenDataGrid @ref="grid" TItem="GridRow" Data="rows" KeyProperty="Key" Density="Density.Compact" Groups="groupDescriptors"
+        <GroupOrderedGrid @ref="grid" Data="rows" KeyProperty="Key" Density="Density.Compact" Groups="groupDescriptors"
                         AllowSorting="true" AllowMultiColumnSorting="true" AllowFiltering="true" FilterMode="FilterMode.Advanced"
                         FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" AllowColumnResize="true" AllowColumnReorder="true"
                         GroupFootersAlwaysVisible="false" ExpandMode="DataGridExpandMode.Multiple" ShowExpandColumn="false"
@@ -82,7 +82,7 @@ else if (View == "list")
                         {
                             <div class="subrow"><span class="muted num">@s.Number</span>
                                 <label class="check @(s.Done ? "done" : "")"><input type="checkbox" checked="@s.Done"
-                                    @onchange="e => Run(Workspace.In(row.Root, () => WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!)))" /> @s.Text</label>
+                                    @onchange="e => RunInBackground(() => Workspace.In(row.Root, () => WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!)))" /> @s.Text</label>
                                 @if (s.Agent is not null) { <AgentChip By="@s.Agent" OnReview="() => Run(Workspace.In(row.Root, () => WorkItemsApi.MarkSubtaskReviewed(it.Id, s.Number)))" /> }</div>
                         }
                     </div>
@@ -130,7 +130,7 @@ else if (View == "list")
                     </Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Label" Title="Label" Visible="@Shown("Label")" HeaderTemplate="@Head("Label")" Width="172px">
-                    <Template Context="row">@if (row.Item is WorkItem it) { <ListPill Kind="label" Value="@(it.Label ?? "")" Pressed="PillPressed" ValueChanged="v => Run(Workspace.In(row.Root, () => WorkItemsApi.SetLabel(it.Id, v)))" /> }</Template>
+                    <Template Context="row">@if (row.Item is WorkItem it) { <ListPill Kind="label" Value="@(it.Label ?? "")" Pressed="PillPressed" ValueChanged="v => SetLabel(ProjectOf(row.Root), it, v)" /> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Feature" Title="Feature" Visible="@Shown("Feature")" HeaderTemplate="@Head("Feature")" Width="132px">
                     <Template Context="row">@if (row.Feature.Length > 0) { <span class="feat feat-one clip" title="@row.Feature">@row.Feature</span> }</Template>
@@ -139,7 +139,7 @@ else if (View == "list")
                     <Template Context="row"><span class="clip" title="@row.Contributors">@row.Contributors</span></Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Priority" Title="Priority" Visible="@Shown("Priority")" HeaderTemplate="@Head("Priority")" Width="100px">
-                    <Template Context="row">@if (row.Item is WorkItem it) { <ListPill Kind="priority" Value="@it.Priority" Pressed="PillPressed" ValueChanged="v => Run(Workspace.In(row.Root, () => WorkItemsApi.SetPriority(it.Id, v)))" /> }</Template>
+                    <Template Context="row">@if (row.Item is WorkItem it) { <ListPill Kind="priority" Value="@it.Priority" Pressed="PillPressed" ValueChanged="v => SetPriority(ProjectOf(row.Root), it, v)" /> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Progress" Title="Progress" Visible="@Shown("Progress")" HeaderTemplate="@Head("Progress")" Width="96px" Filterable="false">
                     <Template Context="row">@if (row.Item is WorkItem it) { <span class="pcell"><span class="prog"><i style="width:@(row.Progress)%"></i></span> <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span></span> }</Template>
@@ -157,7 +157,7 @@ else if (View == "list")
                     <Template Context="row"><span class="clip" title="@Day(row.Moved)">@Day(row.Moved)</span></Template>
                 </RadzenDataGridColumn>
             </Columns>
-        </RadzenDataGrid>
+        </GroupOrderedGrid>
         </RenderBoundary>
     </div></div>
 }
@@ -376,7 +376,7 @@ else if (View != "analytics" && (View == "list" || O.Unit == "tasks"))
                     <article class="card subcard @(s.Done ? "done" : "")" data-sk @onclick="() => OpenItem(p, it.Id)">
                         <span class="band" style="--band:var(@BoardModel.ColourOf(it, O.ColorBy, today, p.Colours))">
                             <input type="checkbox" checked="@s.Done" @onclick:stopPropagation="true"
-                                   @onchange="e => Run(Workspace.In(p.Root, () => WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!)))" aria-label="Done" />@s.Text
+                                   @onchange="e => RunInBackground(() => Workspace.In(p.Root, () => WorkItemsApi.SetSubtaskDone(it.Id, s.Number, (bool)e.Value!)))" aria-label="Done" />@s.Text
                         </span>
                         @if (!O.Compact) { <span class="muted">#wi@(it.Id) · @it.Title</span> }
                     </article>

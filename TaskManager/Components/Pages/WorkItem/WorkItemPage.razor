@@ -21,7 +21,7 @@
     <div class="head">
         <h2 class="num">#wi@(item.Id)</h2>
         <input class="title-in hov" data-sk value="@item.Title" aria-label="Title"
-               @onchange="e => Run(WorkItemsApi.SetTitle(item.Id, (string)e.Value!))" />
+               @onchange="e => SetTitle((string)e.Value!)" />
         @if (item.Hidden)
         {
             <button class="btn ghost hide-item" title="Shows it on the board again" @onclick="() => Run(WorkItemsApi.Unhide(item.Id))">Restore</button>
@@ -73,8 +73,8 @@
                         OnPick="AddContributor" OnTyped="AddContributor"><ItemTemplate Context="p">@p</ItemTemplate></PickerMenu>
         </div>
         <div class="kv status-field"><label>status</label><Pill Kind="status" Value="@item.Status" ReadOnly="item.Archived" ValueChanged="SetStatus" /></div>
-        <div class="kv"><label>priority</label><Pill Kind="priority" Value="@item.Priority" ValueChanged="v => Run(WorkItemsApi.SetPriority(item.Id, v))" /></div>
-        <div class="kv"><label>label</label><Pill Kind="label" Value="@(item.Label ?? "")" ValueChanged="v => Run(WorkItemsApi.SetLabel(item.Id, v))" /></div>
+        <div class="kv"><label>priority</label><Pill Kind="priority" Value="@item.Priority" ValueChanged="SetPriority" /></div>
+        <div class="kv"><label>label</label><Pill Kind="label" Value="@(item.Label ?? "")" ValueChanged="SetLabel" /></div>
         @* start and due as one range *@
         <div class="kv"><label>dates</label><DateRange Start="item.Started" End="item.Due" Changed="SetDates" /></div>
         <div class="kv moved-field"><label>in @item.Status since</label><span class="chip">@Ui.Day(item.Moved ?? DateOnly.FromDateTime(item.Created))</span></div>
@@ -314,15 +314,45 @@
             Run(await Popups.Busy($"Archiving #wi{item.Id} with the OpenSpec CLI…", () => WorkItemsApi.SetStatus(Id, status)));
             return;
         }
-        Run(WorkItemsApi.SetStatus(Id, status));
+        DateOnly today = Ui.Today(Time);
+        await RunInBackground(() => WorkItemsApi.SetStatus(Id, status), () => Project(i => i with
+        {
+            Status = status, Moved = i.Status == status ? i.Moved : today, Started = status == "In Progress" ? i.Started ?? today : i.Started,
+        }));
     }
+
+    /// <summary>
+    /// Puts a field's expected value into the shown item (and the "uncommitted" mark a write leaves) before the write that makes it so; the write's own echo is not read.
+    /// A failed write reads the page back, and <see cref="Load"/> shows whatever is on disk.
+    /// </summary>
+    private void Project(Func<WorkItem, WorkItem> change)
+    {
+        if (item is null) return;
+        item = change(item);
+        (subGroups, dirty) = (null, true);
+    }
+
+    private Task SetTitle(string title) =>
+        RunInBackground(() => WorkItemsApi.SetTitle(Id, title), title.Trim().Length == 0 ? null : () => Project(i => i with { Title = title.Trim() }));   // a blank one is refused: nothing to show ahead
+
+    private Task SetPriority(string priority) => RunInBackground(() => WorkItemsApi.SetPriority(Id, priority), () => Project(i => i with { Priority = priority }));
+
+    private Task SetLabel(string label) => RunInBackground(() => WorkItemsApi.SetLabel(Id, label), () => Project(i => i with { Label = label.Length == 0 ? null : label }));
+
+    private Task Tick(string number, bool done) =>
+        RunInBackground(() => WorkItemsApi.SetSubtaskDone(Id, number, done), () => Project(i => i with { Subtasks = [.. i.Subtasks.Select(s => s.Number == number ? s with { Done = done } : s)] }));
 
     private int featureKey;   // a new key rebuilds the dropdown, so it drops the "New feature" row it kept as its value
     private const string NewFeature = "\0new-feature";   // the last option of the feature list; never a feature path
 
     private async Task SetFeature(string path)
     {
-        if (path != NewFeature) { Run(WorkItemsApi.MoveFeature(Id, path.Length == 0 ? null : path)); return; }
+        if (path != NewFeature)
+        {
+            await RunInBackground(() => WorkItemsApi.MoveFeature(Id, path.Length == 0 ? null : path),
+                () => Project(i => i with { Features = path.Length == 0 ? [] : [new FeatureLink(path, false)] }));
+            return;
+        }
         // the board's "+ feature" dialog; the new feature then goes on this item
         if (await Popups.Prompt("New feature", "e.g. Exports", "Create") is not string name) { featureKey++; return; }
         (bool ok, string message, Features.PublicDTOs.Feature? created) = Features.FeaturesApi.CreateFeature(Features.FeaturesApi.Ungrouped, name);
@@ -369,9 +399,9 @@
     private void ToggleFold(string group) { if (!subUnfolded.Remove(group)) subUnfolded.Add(group); }
 
     /// <summary>One subtask row: its box, its text (click edits it, Shift-click selects it) and its number at the end of the line.</summary>
-    private RenderFragment SubRow(Subtask s) => @<div class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "") @(flashSub == s.Number ? "flash" : "")" data-sk data-sub="@s.Number">
+    private RenderFragment SubRow(Subtask s) => @<div @key="s.Number" class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "") @(flashSub == s.Number ? "flash" : "")" data-sk data-sub="@s.Number">
         <input type="checkbox" id="sub-@s.Number.Replace('.', '-')" checked="@s.Done"
-               @onchange="e => Run(WorkItemsApi.SetSubtaskDone(item!.Id, s.Number, (bool)e.Value!))" aria-label="Done" />
+               @onchange="e => Tick(s.Number, (bool)e.Value!)" aria-label="Done" />
         @if (editingSub == s.Number)
         {
             @* Enter or leaving the box saves, Esc cancels *@

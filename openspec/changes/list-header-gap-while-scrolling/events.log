@@ -1,0 +1,6 @@
+2026-11-17T12:56:12 | Claude | created | List header floats below a gap while scrolling
+2026-11-17T12:56:12 | Claude | status | Planned -> In Progress
+2026-11-17T12:56:12 | Claude | description-edited | proposal.md
+2026-11-17T12:56:12 | Claude | priority | low -> high
+2026-11-17T12:56:12 | Claude | label | none -> bug
+2026-11-17T13:09:20 | Claude chunk O | log | chunk O, css reverted to HEAD: ListBugFixesTests|ListRenderBudgetTests|UsingTheBoardTests Passed! 171/171

@@ -39,10 +39,12 @@ public sealed class KeepingProjectStatusesTests : IDisposable
         Assert.Equal(Defaults, WorkItemsApi.GetStatuses());   // no line: the built-in list
 
         repo.Write(Config, Yaml().Replace("x-rtm:\n", "x-rtm:\n  statuses: [Backlog, Todo, in progress, In Progress, completed, Completed]\n"));
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.Equal(["Backlog", "Todo", "in progress", "In Progress", "completed", "Completed"], WorkItemsApi.GetStatuses());   // spelling is kept: look-alikes are separate statuses
 
         // a hand edit that leaves the fixed three out: they are put back, where they belong
         repo.Write(Config, Yaml().Replace("  statuses: [Backlog, Todo, in progress, In Progress, completed, Completed]\n", "  statuses: [Todo, Done, Todo]\n"));
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.Equal(["Backlog", "In Progress", "Todo", "Done", "Completed"], WorkItemsApi.GetStatuses());   // and a name listed twice counts once
         Assert.Contains("  lanes:", Yaml());   // the rest of the block is not touched
     }

@@ -465,7 +465,8 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
 
         // the folder changed from outside (a git pull): the guide and the Notes module follow
         repo.Write("openspec/config.yaml", "schema: spec-driven\n\nx-rtm:\n  filesDir: media/files\n");
-        workspace.Notify();
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
+        workspace.Notify(); workspace.Resolved.Wait();   // the scan and the guides check run after Changed, on the pool
         Assert.Contains("plans=media/files/plans attachments=media/files/images", File.ReadLines(guide).First());
         Assert.Equal(Path.GetFullPath(repo.PathOf("media/files/images")), NotesApi.AttachmentsRoot(repo.Root));
     }
@@ -544,6 +545,7 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
 
         // another computer moved the files folder; a pull brought the new config.yaml here
         repo.Write("openspec/config.yaml", Config().Replace("filesDir: attachments", "filesDir: media"));   // the connected storage stays in it
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         sync.BoardChanged();
         await sync.QuietElapsed(repo.Root);
 

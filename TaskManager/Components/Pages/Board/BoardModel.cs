@@ -76,7 +76,7 @@ public sealed record ArrowMove(BoardCell Target, int? Before);
 /// An empty column gets one row with no item, so the column still shows as a group. The flat properties feed the grid's
 /// sorting and filtering.
 /// </summary>
-public sealed record GridRow(int Group, BoardColumn Column, string? Category, WorkItem? Item, int Position, string Feature, string Root = "", string Project = "", string Swim = "", string SwimLabel = "")
+public sealed record GridRow(int Group, BoardColumn Column, string? Category, WorkItem? Item, int Position, string Feature, string Root = "", string Project = "", string Swim = "", string SwimLabel = "", int SwimIndex = 0)
 {
     public string Key => $"{Group}:{Swim}:{Item?.Id ?? 0}";   // an item in two row values of one column (features, people) is two rows
     public int Id => Item?.Id ?? 0;
@@ -301,9 +301,13 @@ public static class BoardModel
         {
             BoardColumn c = s.Columns[ci];
             int first = rows.Count;
+            int lane = 0;
             foreach (SwimRow swim in Swimlanes(s))
+            {
                 foreach (WorkItem it in swim.Columns[ci].Items)
-                    rows.Add(new(group, c, s.Category, it, position++, FeatureOf(it), root, project, swim.Key, swim.Label));
+                    rows.Add(new(group, c, s.Category, it, position++, FeatureOf(it), root, project, swim.Key, swim.Label, lane));
+                lane++;
+            }
             if (rows.Count == first) rows.Add(new(group, c, s.Category, null, position++, "", root, project));
             group++;
         }
@@ -537,6 +541,16 @@ public static class BoardModel
         return list.SequenceEqual(siblings) ? o : o with { Order = [.. (o.Order ?? []).Except(list), .. list] };
     }
 
+    /// <summary>
+    /// "My order" taken from what is shown: every cell's cards (ids in their shown order) are written to the saved order, after anything else it holds, so switching to "my order"
+    /// changes nothing on screen. ponytail: a card in several cells keeps the place of its first one (the order is per card).
+    /// </summary>
+    public static BoardOptions SeedOrder(BoardOptions o, IEnumerable<IReadOnlyList<int>> cells)
+    {
+        List<string> seed = [.. cells.SelectMany(c => c).Select(ItemKey).Distinct()];
+        return o with { Order = [.. (o.Order ?? []).Except(seed), .. seed] };
+    }
+
     /// <summary>Key of a card in the saved order (same list as column keys; the prefixes never collide).</summary>
     public static string ItemKey(int id) => "item:" + id;
 
@@ -588,9 +602,10 @@ public static class BoardModel
     /// group's first (last) one; a group with no rows has no subgroup to enter, so the rows keep theirs, in that group's cell for it. Null when they only step
     /// (inside the cell, or scattered: the step gathers them first) or when there is nothing beyond.
     /// </summary>
-    public static ArrowMove? EdgeMove(IReadOnlyList<BoardCell> cells, BoardCell from, IReadOnlyList<int> moving, int dir, bool list)
+    public static ArrowMove? EdgeMove(IReadOnlyList<BoardCell> cells, BoardCell from, IReadOnlyList<int> moving, int dir, bool list, Func<BoardCell, IReadOnlyList<int>>? shown = null)
     {
-        List<int> ids = [.. from.Items.Items.Select(i => i.Id)];
+        shown ??= c => [.. c.Items.Items.Select(i => i.Id)];   // the ids of a cell as the user sees them (the list's header sort reorders them); the board's order when not given
+        List<int> ids = [.. shown(from)];
         List<int> at = [.. ids.Select((id, n) => (id, n)).Where(x => moving.Contains(x.id)).Select(x => x.n)];
         if (at.Count == 0 || at[^1] - at[0] + 1 != at.Count) return null;
         if (dir < 0 ? at[0] != 0 : at[^1] != ids.Count - 1) return null;
@@ -605,7 +620,7 @@ public static class BoardModel
                 target = Shown(cells.Where(c => c.Column == from.Column + step).OrderBy(c => c.Row))
                     ?? cells.First(c => c.Column == from.Column + step && c.Row == from.Row);
         }
-        return target is null ? null : new(target, dir < 0 ? null : target.Items.Items.FirstOrDefault()?.Id);
+        return target is null ? null : new(target, dir < 0 ? null : shown(target).Cast<int?>().FirstOrDefault());
     }
 
     /// <summary>The key a block (in <paramref name="all"/>'s order) lands in front of after one step up (-1) or down (+1), null for the end.</summary>

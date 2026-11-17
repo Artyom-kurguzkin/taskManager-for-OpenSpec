@@ -4,6 +4,7 @@ created: 2026-11-16
 x-rtm:
   id: 173
   title: diff between two selected commits
-  status: Planned
+  status: Research
   contributors: [Artyom-kurguzkin, Claude]
   features: [work-item-details]
+  moved: 2026-11-18

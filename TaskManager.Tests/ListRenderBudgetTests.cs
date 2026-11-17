@@ -171,6 +171,33 @@ public sealed class ListRenderBudgetTests : IDisposable
         Assert.Equal(2 * GridRows(board), after.RowRenders - before.RowRenders);   // Radzen's two passes over that one draw
     }
 
+    [Fact(DisplayName = "A label pill renders once before the write")]
+    public async Task ALabelPillRendersOnceBeforeTheWrite()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = await ListWithItems(ctx, 20);
+        Counts before = Counts.Of(board);
+        OpenSpecStore.FolderLock.WaitLimit.Value = TimeSpan.FromSeconds(10);   // the write waits for the holder; the test releases it long before
+        IDisposable held = OpenSpecStore.FolderLock.Hold(repo.Root, WorkItemsApi.Get(107)!.Folder);   // the write of the label waits on the pool
+        try
+        {
+            await board.InvokeAsync(() => Row(board, 107).QuerySelector("button[data-pill=label]")!.Click());
+            await board.InvokeAsync(() => board.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "bug").Click());
+            board.WaitForAssertion(() => Assert.Empty(board.FindAll(".menu-pop")));
+            await board.InvokeAsync(() => { });
+
+            Assert.Contains("bug", Row(board, 107).QuerySelector("button[data-pill=label]")!.TextContent);   // shown ...
+            Assert.Null(WorkItemsApi.Get(107)!.Label);   // ... before the write
+            Assert.Equal(1, Counts.Of(board).Boundary - before.Boundary);
+        }
+        finally { held.Dispose(); }
+
+        board.WaitForAssertion(() => Assert.Equal("bug", WorkItemsApi.Get(107)!.Label));
+        await ctx.Services.GetRequiredService<Workspace>().Resolved;
+        await board.InvokeAsync(() => { });
+        Assert.Equal(1, Counts.Of(board).Boundary - before.Boundary);   // the write's echo drew nothing more
+    }
+
     [Fact(DisplayName = "Switching to the list builds each pill once")]
     public async Task SwitchingToTheListBuildsEachPillOnce()
     {
@@ -197,6 +224,27 @@ public sealed class ListRenderBudgetTests : IDisposable
 
         // Radzen's two passes over the rows of the one draw; the page's after-render step had nothing to collapse or expand, so it asked for no draw of its own
         Assert.Equal(2 * GridRows(board), board.Instance.RowRenders);
+    }
+
+    [Fact(DisplayName = "ArrowUp renders the page once and reads no repository folder")]
+    public async Task ArrowUpRendersThePageOnceAndReadsNothing()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = await ListWithItems(ctx, 20);
+        List<int> shown = [.. board.FindAll("tr[data-id]").Select(r => int.Parse(r.GetAttribute("data-id")!))];
+        int pick = shown[shown.Count / 2], above = shown[shown.Count / 2 - 1];
+        await board.InvokeAsync(() => Row(board, pick).QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
+        board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, Row(board, pick))));
+        await board.InvokeAsync(() => { });
+        (int reads, int loads, int folders, int page) = (board.Instance.Reads, board.Instance.Loads, ItemsCache.FolderReads, RenderCounts.Of<BoardPage>());
+
+        await board.InvokeAsync(() => board.Find(".tbl-wrap").KeyDown("ArrowUp"));
+        board.WaitForAssertion(() => Assert.Equal(pick, int.Parse(board.FindAll("tr[data-id]")[shown.Count / 2 - 1].GetAttribute("data-id")!)));
+        await board.InvokeAsync(() => { });
+
+        Assert.Equal(above, int.Parse(board.FindAll("tr[data-id]")[shown.Count / 2].GetAttribute("data-id")!));   // swapped with the row above
+        Assert.Equal((reads, loads, folders), (board.Instance.Reads, board.Instance.Loads, ItemsCache.FolderReads));   // the order is arranged from what the page holds
+        Assert.Equal(1, RenderCounts.Of<BoardPage>() - page);
     }
 
     [Fact(DisplayName = "A render-budget test's store runs no real file watcher")]

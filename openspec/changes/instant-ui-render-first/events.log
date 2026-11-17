@@ -13,3 +13,53 @@
 2026-11-17T08:46:04 | Claude | subtask-added | 3.2 config.yaml reads cached behind the store version; GetWarnings leaves the board markup; FeaturesCache keyed on the specs stamp
 2026-11-17T08:46:04 | Claude | subtask-added | 4.1 New-DemoRepo -Used preset: list grouping, header sort, stale Order, mixed-priority group with ties
 2026-11-17T08:46:04 | Claude | subtask-added | 4.2 hidden-app.ps1 helpers ListRows, Select, Press, Assert-Swap, Set-ListGrouping, Set-GridSort; tests/exploratory.ps1 checklist
+2026-11-17T08:59:10 | Claude | status | Planned -> In Progress
+2026-11-17T09:34:12 | Claude chunk 1 | subtask-done | 1.1 Set skips equal options, re-sorts in memory, renders, saves settings debounced on the thread pool
+2026-11-17T09:34:12 | Claude chunk 1 | subtask-done | 1.2 Land projects the moved cards before MoveInto writes; one Load, one version bump; mismatch reloads
+2026-11-17T09:34:13 | Claude chunk 1 | subtask-done | 1.3 Load bumps loadVersion/listVersion only when the projection changed; render-budget tests for ArrowUp and drop
+2026-11-17T09:41:59 | Claude chunk 3 | subtask-done | 3.1 GitCache.Uncommitted returns the last known set and refreshes on the thread pool
+2026-11-17T09:41:59 | Claude chunk 3 | subtask-done | 3.2 config.yaml reads cached behind the store version; GetWarnings leaves the board markup; FeaturesCache keyed on the specs stamp
+2026-11-17T10:09:18 | Claude chunk 2 | subtask-done | 2.1 RepoPage.Run applies the projection, renders, yields, then Workspace.Do on the thread pool; rollback and toast on failure
+2026-11-17T10:09:18 | Claude chunk 2 | subtask-done | 2.2 Notify fires Changed first, runs the duplicate scan and PlansState afterwards under a lock; OnChanged skips the page's own echo
+2026-11-17T10:09:18 | Claude chunk 2 | subtask-done | 2.3 Per-path write semaphore in OpenSpecStore; AsyncLocal repo scope captured in background work; WritingWithoutBlockingTests
+2026-11-17T10:22:28 | Claude chunk 4 | subtask-done | 4.1 New-DemoRepo -Used preset: list grouping, header sort, stale Order, mixed-priority group with ties
+2026-11-17T10:22:28 | Claude chunk 4 | subtask-done | 4.2 hidden-app.ps1 helpers ListRows, Select, Press, Assert-Swap, Set-ListGrouping, Set-GridSort; tests/exploratory.ps1 checklist
+2026-11-17T10:40:03 | Claude | test-linked | WritingWithoutBlockingTests / Notify called from three threads at once runs the duplicate scan once, after Changed
+2026-11-17T10:40:03 | Claude | test-linked | WritingWithoutBlockingTests / The page's own echo causes no second Load, and a change from outside still does
+2026-11-17T10:40:03 | Claude | test-linked | WritingWithoutBlockingTests / A read that overlaps a write of the same file records nothing, so the write's own record stands
+2026-11-17T10:40:03 | Claude | test-linked | WritingWithoutBlockingTests / A failed write restores the previous projection and shows why in a toast
+2026-11-17T10:40:03 | Claude | test-linked | WritingWithoutBlockingTests / A command whose folder lock is held draws within one dispatcher turn and finishes when the lock is released
+2026-11-17T10:40:03 | Claude | test-linked | CachingInAppStateTests / A status change reads config.yaml zero times and spawns no git process before the page renders
+2026-11-17T10:40:03 | Claude | test-linked | CachingInAppStateTests / A config.yaml write from outside is seen by the next GetStatuses
+2026-11-17T10:40:03 | Claude | test-linked | CachingInAppStateTests / An item write leaves FeaturesCache untouched
+2026-11-17T10:40:03 | Claude | test-linked | CachingInAppStateTests / Uncommitted returns the last set at once and raises Changed when the refreshed set differs
+2026-11-17T10:40:03 | Claude | test-linked | BoardRenderBudgetTests / A drop renders once and runs one Load
+2026-11-17T10:40:03 | Claude | test-linked | BoardRenderBudgetTests / The echo of the page's own write bumps no version
+2026-11-17T10:40:03 | Claude | test-linked | ListRenderBudgetTests / ArrowUp renders the page once and reads no repository folder
+2026-11-17T10:40:03 | Claude | test-linked | KeepingMyArrangementsTests / An arrow press saves the board settings once after the debounce, not per press, and an unchanged press saves nothing
+2026-11-17T10:40:03 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of mixed priority, with or without the grid's header sort on Updated, an arrow key on a middle row swaps it with the row shown next to it and no other row moves(groupBy: "none", headerSort: False, key: "ArrowUp")
+2026-11-17T10:40:03 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of mixed priority, with or without the grid's header sort on Updated, an arrow key on a middle row swaps it with the row shown next to it and no other row moves(groupBy: "none", headerSort: False, key: "ArrowDown")
+2026-11-17T10:40:03 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of mixed priority, with or without the grid's header sort on Updated, an arrow key on a middle row swaps it with the row shown next to it and no other row moves(groupBy: "none", headerSort: True, key: "ArrowUp")
+2026-11-17T10:40:03 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of mixed priority, with or without the grid's header sort on Updated, an arrow key on a middle row swaps it with the row shown next to it and no other row moves(groupBy: "none", headerSort: True, key: "ArrowDown")
+2026-11-17T10:40:03 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of mixed priority, with or without the grid's header sort on Updated, an arrow key on a middle row swaps it with the row shown next to it and no other row moves(groupBy: "status", headerSort: False, key: "ArrowUp")
+2026-11-17T10:40:03 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of mixed priority, with or without the grid's header sort on Updated, an arrow key on a middle row swaps it with the row shown next to it and no other row moves(groupBy: "status", headerSort: False, key: "ArrowDown")
+2026-11-17T10:40:03 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of mixed priority, with or without the grid's header sort on Updated, an arrow key on a middle row swaps it with the row shown next to it and no other row moves(groupBy: "status", headerSort: True, key: "ArrowUp")
+2026-11-17T10:40:03 | Claude | test-linked | MovingRowsWithArrowKeysTests / In a group of mixed priority, with or without the grid's header sort on Updated, an arrow key on a middle row swaps it with the row shown next to it and no other row moves(groupBy: "status", headerSort: True, key: "ArrowDown")
+2026-11-17T10:49:19 | Claude | status | In Progress -> In Review
+2026-11-17T10:49:19 | Claude | test-linked | WritingWithoutBlockingTests / A writer that holds the path gate reads and records its own LastSeen
+2026-11-17T10:49:51 | Claude | status | In Review -> In Progress
+2026-11-17T11:22:23 | Claude | test-linked | KeepingMyArrangementsTests / A pending board save is written by Flush before the debounce elapses
+2026-11-17T11:22:23 | Claude | test-linked | WritingWithoutBlockingTests / Drain waits for a queued command's write to land
+2026-11-17T11:22:23 | Claude | test-linked | WritingWithoutBlockingTests / Drain returns false when a command holds past the limit
+2026-11-17T11:22:23 | Claude | test-linked | WritingWithoutBlockingTests / Drain does not wait for the refresh a closed window can no longer run
+2026-11-17T11:22:23 | Claude | test-linked | BoardRenderBudgetTests / A drop into a feature column renders once before the write and runs one Load
+2026-11-17T11:22:23 | Claude | test-linked | BoardRenderBudgetTests / A swimlane drop renders once before the write
+2026-11-17T11:22:23 | Claude | test-linked | ListRenderBudgetTests / A label pill renders once before the write
+2026-11-17T11:22:23 | Claude | test-linked | UsingTheBoardTests / A projected card shows the current time as Modified
+2026-11-17T11:22:23 | Claude | test-linked | UsingTheBoardTests / A change from outside during a drop is loaded once after it
+2026-11-17T11:22:23 | Claude | test-linked | UsingTheBoardTests / A drop into Completed asks before it archives, shows nothing ahead of the answer, and a refusal moves nothing
+2026-11-17T11:22:23 | Claude | test-linked | PagesRenderBudgetTests / Ticking a subtask renders the item page once before the write
+2026-11-17T11:22:23 | Claude | test-linked | PagesRenderBudgetTests / A status pill on the item page renders once before the write
+2026-11-17T11:22:23 | Claude | test-linked | PagesRenderBudgetTests / Saving a note renders the worklog once before the write and reads the note once
+2026-11-17T11:46:13 | Claude | status | In Progress -> In Review
+2026-11-17T11:46:13 | Claude | test-linked | OpeningSeparateWindowsTests / A status change from the separate window writes to its own project while the main window is on another

@@ -19,6 +19,8 @@ public static class GitCache
         internal readonly Dictionary<string, CommitInfo?> Singles = [];   // older commits looked up one by one, kept until HEAD moves (with the log they are older than)
         internal (string Head, PeopleRead Value)? People;
         internal (string Head, long Fingerprint, IReadOnlySet<string> Names)? Dirty;
+        internal (string Head, long Fingerprint)? Wanted;   // what the running refresh still has to catch up with
+        internal bool Refreshing;
     }
 
     internal sealed class State
@@ -26,6 +28,9 @@ public static class GitCache
         public readonly Dictionary<string, Entry> Entries = new(StringComparer.OrdinalIgnoreCase);
         public readonly object Gate = new();
         public int Reads;
+
+        /// <summary>Where a refresh of the uncommitted set runs: the thread pool; a test queues it instead and runs it when it chooses.</summary>
+        public Func<Action, Task> Background = work => Task.Run(work);
     }
 
     /// <summary>How many times git was asked for a history, a log, authors or the uncommitted set (a test counts them).</summary>
@@ -103,8 +108,10 @@ public static class GitCache
 
     /// <summary>
     /// The changes with files modified, staged, deleted or new in the work tree. Saving a file does not move HEAD, so the answer is kept under HEAD, the index and the board's content version
-    /// (<paramref name="contentVersion"/>), or without one under a fingerprint of the files in the changes folder; git is asked again only when one of them moves.
+    /// (<paramref name="contentVersion"/>), or without one under a fingerprint of the files in the changes folder. The first read of a repository asks git now; after that a moved stamp
+    /// returns the set known so far at once and asks git on the thread pool, and <see cref="GitHistoryApi.Changed"/> is raised when the answer differs, so the dots follow through the normal reload.
     /// </summary>
+    // ponytail: a stale set shows for as long as one `git status` takes (tens to hundreds of ms); ceiling is a dirty dot that lags its write by that much, and one pool thread per repository at a time.
     public static IReadOnlySet<string> Uncommitted(long? contentVersion)
     {
         State s = Caches.S.Git;
@@ -114,13 +121,49 @@ public static class GitCache
             string root = GitHistoryApi.RepoRoot ?? "";
             string head = contentVersion is null ? GitHistoryApi.HeadToken() : $"v:{GitHistoryApi.HeadToken()}|{GitHistoryApi.IndexStamp()}|{(root.Length == 0 ? 0 : GitHistoryApi.HeadVersion(root))}";
             long fingerprint = contentVersion ?? GitHistoryApi.ChangesFingerprint();
-            if (e.Dirty is { } cached && cached.Head == head && cached.Fingerprint == fingerprint) return cached.Names;
-            IReadOnlySet<string> names = GitHistoryApi.ReadUncommitted();
-            if (e.Dirty is { } before && before.Names.SetEquals(names)) names = before.Names;
-            e.Dirty = (head, fingerprint, names);
-            s.Reads++;
-            return names;
+            if (e.Dirty is not { } cached)
+            {
+                IReadOnlySet<string> first = GitHistoryApi.ReadUncommitted();
+                e.Dirty = (head, fingerprint, first);
+                s.Reads++;
+                return first;
+            }
+            if (cached.Head == head && cached.Fingerprint == fingerprint) return cached.Names;
+            e.Wanted = (head, fingerprint);
+            if (!e.Refreshing)
+            {
+                e.Refreshing = true;
+                s.Background(() => RefreshDirty(s, e));
+            }
+            return e.Dirty!.Value.Names;   // the set known so far; a background that already ran (a test's) has made it the new one
         }
+    }
+
+    /// <summary>Asks git for the uncommitted set until it has caught up with the last stamp asked for; raises GitHistory's Changed when the set differs from the one that was shown.</summary>
+    private static void RefreshDirty(State s, Entry e)
+    {
+        bool finished = false;
+        try
+        {
+            while (!finished)
+            {
+                (string Head, long Fingerprint) want;
+                lock (s.Gate) want = e.Wanted!.Value;
+                IReadOnlySet<string> names = GitHistoryApi.ReadUncommitted();   // outside the lock: git blocks nobody's cache hit
+                bool changed, live;
+                lock (s.Gate)
+                {
+                    IReadOnlySet<string>? before = e.Dirty?.Names;
+                    changed = before is null || !before.SetEquals(names);
+                    e.Dirty = (want.Head, want.Fingerprint, changed ? names : before!);
+                    s.Reads++;
+                    live = s.Entries.ContainsValue(e);   // a repository opened afresh meanwhile has its own entry: nothing to tell anybody
+                    if (e.Wanted == want) { e.Wanted = null; e.Refreshing = false; finished = true; }
+                }
+                if (changed && live) GitHistoryApi.RaiseChanged();
+            }
+        }
+        finally { if (!finished) lock (s.Gate) e.Refreshing = false; }   // git failed to run: the next call asks again
     }
 
     /// <summary>The names of the changes with files not committed yet; recomputed only when git's files or the board's content version moved.</summary>

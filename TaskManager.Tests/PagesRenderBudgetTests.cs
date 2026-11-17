@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using Notes;
+using OpenSpecStore;
 using Radzen;
 using TaskManager.Components.Pages;
 using TaskManager.Components;
@@ -97,8 +98,11 @@ public sealed class PagesRenderBudgetTests : IDisposable
         Assert.Equal(0, RenderCounts.Of<Worklog>() - logs);    // the keystrokes only store the text: nothing else drew
 
         // what was typed is what leaving the editor saves
+        TaskCompletionSource written = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ctx.Services.GetRequiredService<Workspace>().Changed += () => written.TrySetResult();
         log.Find(".wk-edit textarea").FocusOut();
         log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+        await written.Task.WaitAsync(TimeSpan.FromSeconds(30));   // written on the pool, after the editor closed
         Assert.Equal("abc", NotesApi.Get(ids[3])!.Body.Trim());
         Assert.Equal("A new title", NotesApi.Get(ids[3])!.Title);
     }
@@ -155,8 +159,8 @@ public sealed class PagesRenderBudgetTests : IDisposable
 
         page.InvokeAsync(() => page.Find(".item-views input[value='linked']").ChangeAsync("linked")).GetAwaiter().GetResult();
         page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".tile[data-tile='subtasks']")));
-        page.Find("#sub-2-1").Change(true);                       // saved, the page and the feed read again
-        Assert.Contains("- [x] 2.1", repo.Read("openspec/changes/add-health-check/tasks.md"));
+        page.Find("#sub-2-1").Change(true);                       // saved (on the thread pool, after the page drew), the page and the feed read again
+        page.WaitForAssertion(() => Assert.Contains("- [x] 2.1", repo.Read("openspec/changes/add-health-check/tasks.md")));
         page.InvokeAsync(() => page.Find(".item-views input[value='worklog']").ChangeAsync("worklog")).GetAwaiter().GetResult();
         page.WaitForAssertion(() => Assert.Equal(7, page.FindAll(".wk-note").Count));
 
@@ -168,6 +172,111 @@ public sealed class PagesRenderBudgetTests : IDisposable
         ctx.Services.GetRequiredService<Workspace>().Notify();
         page.WaitForAssertion(() => Assert.Contains("Changed", page.Markup));
         Assert.Equal(rendered + 1, page.Instance.NoteHtml.Renders);
+    }
+
+    /// <summary>Holds the folder of item 123 so its writes wait on the pool: what a page shows meanwhile is what it drew before the write.</summary>
+    private static IDisposable HoldItemFolder(string root)
+    {
+        FolderLock.WaitLimit.Value = TimeSpan.FromSeconds(10);   // the write waits for the holder; the test releases it long before
+        return FolderLock.Hold(root, "add-health-check");
+    }
+
+    private const string Tasks = "openspec/changes/add-health-check/tasks.md", Yaml = "openspec/changes/add-health-check/.openspec.yaml";
+
+    [Fact(DisplayName = "Ticking a subtask renders the item page once before the write")]
+    public async Task TickingASubtaskRendersTheItemPageOnceBeforeTheWrite()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        page.InvokeAsync(() => page.Find(".item-views input[value='linked']").ChangeAsync("linked")).GetAwaiter().GetResult();
+        page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll("#sub-2-1")));
+        Assert.Contains("2 of 4 done", page.Find(".tile[data-tile='subtasks'] .tile-h").TextContent);
+        await page.InvokeAsync(() => { });
+        int loads = page.Instance.Loads, drawn = RenderCounts.Of<WorkItemPage>();
+        using IDisposable held = HoldItemFolder(repo.Root);
+
+        Task tick = page.InvokeAsync(() => page.Find("#sub-2-1").ChangeAsync(true));
+        await page.InvokeAsync(() => { });   // the dispatcher's next turn: the write is waiting on the pool
+
+        Assert.False(tick.IsCompleted);
+        Assert.Contains("3 of 4 done", page.Find(".tile[data-tile='subtasks'] .tile-h").TextContent);   // the count shows the tick ...
+        Assert.Empty(page.FindAll("#sub-2-1"));                                                         // ... the subtask moved to the done ones
+        Assert.Equal(1, RenderCounts.Of<WorkItemPage>() - drawn);
+        Assert.Equal(loads, page.Instance.Loads);                                                        // nothing was read: it is a projection
+        Assert.Contains("- [ ] 2.1", repo.Read(Tasks));                                                  // and nothing was written yet
+
+        held.Dispose();
+        await tick;
+        Assert.Contains("- [x] 2.1", repo.Read(Tasks));
+        await ctx.Services.GetRequiredService<Workspace>().Resolved;
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.Equal(loads, page.Instance.Loads);                                                        // its own echo did not read the page again
+    }
+
+    [Fact(DisplayName = "A status pill on the item page renders once before the write")]
+    public async Task AStatusPillOnTheItemPageRendersOnceBeforeTheWrite()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        Assert.Equal("in In Progress since", page.Find(".moved-field label").TextContent.Trim());
+        await page.InvokeAsync(() => { });
+        int loads = page.Instance.Loads, drawn = RenderCounts.Of<WorkItemPage>();
+        using IDisposable held = HoldItemFolder(repo.Root);
+
+        page.Find(".status-field .dd").Click();
+        Task pick = page.InvokeAsync(() => page.FindAll(".status-field .rz-dropdown-item").First(i => i.TextContent.Trim() == "In Review").ClickAsync(new MouseEventArgs()));
+        await page.InvokeAsync(() => { });
+
+        Assert.False(pick.IsCompleted);
+        Assert.Equal("in In Review since", page.Find(".moved-field label").TextContent.Trim());   // the page already says so
+        Assert.Equal(loads, page.Instance.Loads);
+        Assert.Contains("status: In Progress", repo.Read(Yaml));                                  // nothing was written yet
+
+        held.Dispose();
+        await pick;
+        Assert.Contains("status: In Review", repo.Read(Yaml));
+        await ctx.Services.GetRequiredService<Workspace>().Resolved;
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.Equal(loads, page.Instance.Loads);
+    }
+
+    [Fact(DisplayName = "Saving a note renders the worklog once before the write and reads the note once")]
+    public async Task SavingANoteRendersTheWorklogOnceBeforeTheWriteAndReadsTheNoteOnce()
+    {
+        await using BunitContext ctx = NewContext();
+        int[] ids = Notes(3);
+        IRenderedComponent<Worklog> log = ctx.Render<Worklog>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Root, repo.Root));
+        OpenEditor(log, ids[1]);
+        log.Find(".wk-edit input.wk-title-in").Input("A brand new title");
+        log.Find(".wk-edit textarea").Input("Brand new words");
+        await log.InvokeAsync(() => { });
+        int loads = log.Instance.Loads, drawn = RenderCounts.Of<Worklog>();
+        string file = $"openspec/changes/add-health-check/notes/n{ids[1]}.md";
+        using IDisposable held = HoldItemFolder(repo.Root);
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        int reads = NotesModule.FolderReads;
+        TaskCompletionSource written = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        workspace.Changed += () => written.TrySetResult();
+
+        Task save = log.InvokeAsync(() => log.Find(".wk-edit textarea").FocusOutAsync(new FocusEventArgs()));
+        await log.InvokeAsync(() => { });
+
+        Assert.Empty(log.FindAll(".wk-edit"));
+        Assert.Contains("Brand new words", log.Find($".wk-note[data-note='{ids[1]}'] .wk-body").TextContent);   // the entry shows what was typed ...
+        Assert.Contains("A brand new title", log.Find($".wk-note[data-note='{ids[1]}'] .wk-title").TextContent);
+        Assert.Equal(1, RenderCounts.Of<Worklog>() - drawn);
+        Assert.Equal(loads, log.Instance.Loads);
+        Assert.DoesNotContain("Brand new words", repo.Read(file));                                              // ... before anything was written
+
+        held.Dispose();
+        await save;
+        await written.Task.WaitAsync(TimeSpan.FromSeconds(30));   // written on the pool, after the entry drew
+        Assert.Contains("Brand new words", repo.Read(file));
+        Assert.Contains("A brand new title", repo.Read(file));
+        await workspace.Resolved;
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        Assert.Equal(loads, log.Instance.Loads);   // its own echo did not read the worklog again
+        Assert.Equal(1, NotesModule.FolderReads - reads);   // the notes folder was read once for the whole save (was once before each step, and again by the duplicate scan)
     }
 
     /// <summary>Item 123 with dates, the calendar view shown, the side menu expanded (a click then examines).</summary>

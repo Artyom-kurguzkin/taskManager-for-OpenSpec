@@ -652,7 +652,7 @@
     }
 
     /// <summary>Saves the open editor and closes it: the text when it changed, the title when it changed and is not blank. False when there was nothing open.</summary>
-    private bool SaveEdit()
+    private bool SaveEdit(bool leaving = false)
     {
         if (editDesc)
         {
@@ -666,28 +666,44 @@
         editExpanded = editCapped = false;
         if (notes.FirstOrDefault(n => n.Id == id) is Note n)
         {
-            // the text first: the title rewrites the same file. The workspace is told once, after both.
-            bool saved = false;
-            if (editBody.Replace("\r\n", "\n") != n.Body) saved |= Write(NotesApi.SaveBody(id, editBody));
-            if (editTitle.Trim() is { Length: > 0 } title && title != n.Title) saved |= Write(NotesApi.SetTitle(id, title));
-            // then the checkboxes in it: each unticked one becomes a subtask (and the feed gets its "added subtask" event)
-            (bool promoted, string why, IReadOnlyList<string> made) = NotesApi.PromoteSubtasks(id);
-            if (!promoted) Popups.Toast(why, ToastKind.Warning);
-            if (made.Count > 0)
+            // one command: the text and the title written once, then each unticked checkbox in it becomes a subtask (and the feed gets its "added subtask" event)
+            string? body = editBody.Replace("\r\n", "\n") != n.Body ? editBody : null;
+            string? title = editTitle.Trim() is { Length: > 0 } t && t != n.Title ? t : null;
+            IReadOnlyList<string> made = [];
+            if (body is not null || title is not null)
             {
-                saved = true;
-                Popups.Toast($"Created {made.Count} subtask{(made.Count == 1 ? "" : "s")} from the note", ToastKind.Info);
+                if (!leaving) { _ = SaveNote(id, body, title, () => ShowNote(n, body, title)); return true; }   // the entry shows the saved note now, the write follows
+                (bool ok, string why, made) = NotesApi.SaveEdit(id, body, title);
+                if (!ok) Popups.Toast(why, ToastKind.Warning);
+                Run((true, ""));
             }
-            if (saved) Run((true, ""));
+            else
+            {
+                (bool promoted, string why, made) = NotesApi.SaveEdit(id, null, null);   // nothing typed: the checkboxes only
+                if (!promoted) Popups.Toast(why, ToastKind.Warning);
+                if (made.Count > 0) Run((true, ""));
+            }
+            if (made.Count > 0) Popups.Toast(CreatedText(made.Count), ToastKind.Info);
         }
         return true;
     }
 
-    /// <summary>A write whose failure is a toast; its success is announced by the caller (one notice for several writes).</summary>
-    private bool Write((bool Success, string Message) result)
+    private static string CreatedText(int count) => $"Created {count} subtask{(count == 1 ? "" : "s")} from the note";
+
+    private async Task SaveNote(int id, string? body, string? title, Action show)
     {
-        if (!result.Success) Popups.Toast(result.Message, ToastKind.Warning);
-        return result.Success;
+        IReadOnlyList<string> made = [];
+        bool ok = await RunInBackground(() => { (bool done, string why, made) = NotesApi.SaveEdit(id, body, title); return (done, why); }, show);
+        if (ok && made.Count > 0) { Popups.Toast(CreatedText(made.Count), ToastKind.Info); Refresh(); }   // subtasks and their events are more than the entry shows: read again
+    }
+
+    /// <summary>Puts the saved text and title into the entry (the feed's row and the notes read) and draws, before the write that makes it so.</summary>
+    private void ShowNote(Note n, string? body, string? title)
+    {
+        Note shown = n with { Body = body?.Replace("\r\n", "\n") ?? n.Body, Title = title ?? n.Title };
+        notes = [.. notes.Select(x => x.Id == n.Id ? shown : x)];
+        foreach (Row r in days.SelectMany(d => d.Rows).Concat(earlier).Where(r => r.Note?.Id == n.Id))
+            (r.Note, r.Html) = (shown, BodyOf(shown) is { Length: > 0 } text ? Html.Of(shown.Id, text, Root ?? Workspace.Root) : null);
     }
 
     /// <summary>Called by rtm.pasteImages with a clipboard image: it becomes an attachment of the note being edited, as on the note page.</summary>
@@ -1005,7 +1021,7 @@
         base.Dispose();
         Popups.WorklogChanged -= OnFilters;
         if (actions is not null) Popups.CloseWorklog(actions);   // the side menu's Worklog block goes
-        SaveEdit();   // leaving the view with the editor open keeps what was typed
+        SaveEdit(leaving: true);   // leaving the view with the editor open keeps what was typed (no page left to draw first)
         if (self is null) return;
         if (pasting.Length > 0) _ = StopPaste(pasting);
         pasting = "";

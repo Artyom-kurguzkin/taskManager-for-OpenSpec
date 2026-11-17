@@ -35,6 +35,7 @@ public sealed class ReadingProjectSettingsFromConfigTests : IDisposable
     public void ABrokenSectionReadsAsDefaultsAndIsReported()
     {
         repo.Write(Config, "schema: spec-driven\n\nx-rtm:\n  lanes: [not, a: mapping\n  statuses: [Todo, {broken\n  filesDir: attachments\n");
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         OpenSpecStoreApi.Open(repo.Root);
 
         Assert.Equal(Defaults, WorkItemsApi.GetStatuses());     // the built-in list
@@ -59,6 +60,7 @@ public sealed class ReadingProjectSettingsFromConfigTests : IDisposable
         Assert.Empty(WorkItemsApi.GetWarnings().Where(w => w.Contains("config.yaml")));
 
         repo.Write(Config, "x-rtm:\n  statuses: [a, {broken\n  features: [billing, banking]\n  testResults: [\"results/*.trx\"]\n");
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.Null(OpenSpecStoreApi.ReadConfigSection<List<string>>("statuses").Value);
         Assert.Contains("x-rtm.statuses", OpenSpecStoreApi.ReadConfigSection<List<string>>("statuses").Problem);
         Assert.Equal(["billing", "banking"], OpenSpecStoreApi.ReadConfigSection<List<string>>("features").Value);
@@ -89,6 +91,7 @@ public sealed class ReadingProjectSettingsFromConfigTests : IDisposable
     public void ChangingTheFilesFolderWritesOnlyThatKey()
     {
         repo.Write(Config, "# kept\nschema: spec-driven\n\nx-rtm:\n  # my comment\n  lanes:\n    In Progress: [High priority]\n  statuses: [Backlog, Todo, In Progress, Completed]\n  attachmentsDir: pics/old\n  features:\n  - billing\ncontext: |\n  The project.\n");
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         SettingsStore settings = NewSettings();
 
         Assert.True(settings.SetFilesDir(repo.Root, "files").Success);
@@ -113,17 +116,20 @@ public sealed class ReadingProjectSettingsFromConfigTests : IDisposable
         Assert.Equal(OpenSpecStoreApi.DefaultFilesDir, NotesApi.CheckFilesDir("").Dir);
 
         repo.Write(Config, "x-rtm:\n  filesDir: files/all\n");
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.Equal("files/all", settings.FilesDir(repo.Root));
         Assert.Equal("files/all", NotesApi.ProjectFilesDir(repo.Root));
         Assert.Equal("files/all/plans", settings.PlansDir(repo.Root));
         Assert.Equal("files/all/images", settings.AttachmentsDir(repo.Root));
 
         repo.Write(Config, "x-rtm:\n  filesDir: ../outside\n  attachmentsDir: pics\n");   // not allowed: every screen falls to the next level
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.Null(settings.FilesDir(repo.Root));
         Assert.Null(NotesApi.ProjectFilesDir(repo.Root));
         Assert.Equal("pics", settings.AttachmentsDir(repo.Root));
 
         repo.Write(Config, "x-rtm:\n  filesDir: [broken\n");                                  // unreadable: the same
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.Null(settings.FilesDir(repo.Root));
         Assert.Null(NotesApi.ProjectFilesDir(repo.Root));
         Assert.Equal(OpenSpecStoreApi.DefaultAttachmentsDir, settings.AttachmentsDir(repo.Root));

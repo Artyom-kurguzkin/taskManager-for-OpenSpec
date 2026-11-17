@@ -1,0 +1,56 @@
+2026-11-16T07:33:06 | Artyom-kurguzkin | created | New work item
+2026-11-16T07:33:25 | Artyom-kurguzkin | title | New work item -> add/ remove status labels
+2026-11-16T07:35:49 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-16T07:35:56 | Artyom-kurguzkin | status | Backlog -> In Progress
+2026-11-16T07:35:57 | Artyom-kurguzkin | priority | low -> high
+2026-11-16T07:36:00 | Artyom-kurguzkin | label | none -> enhancement
+2026-11-16T07:36:06 | Artyom-kurguzkin | feature | none -> organise-work-items
+2026-11-16T08:14:48 | Claude chunk statuses | plan-linked | DevResources/plans/per-project-statuses-and-merge-2026-11-16.md
+2026-11-16T08:14:48 | Claude chunk statuses | subtask-added | 1.1 WorkItems: x-rtm.statuses read and write, fixed three, remove with move, project list in SetStatus, Create and item read
+2026-11-16T08:14:48 | Claude chunk statuses | subtask-added | 1.2 MCP and agent guide: validation and error text from the project's list
+2026-11-16T08:14:48 | Claude chunk statuses | subtask-added | 1.3 BoardModel: columns from a list, union across projects, merges, look-alikes of the fixed three
+2026-11-16T08:14:48 | Claude chunk statuses | subtask-added | 1.4 BoardOptions.Merges saved per board in the user settings
+2026-11-16T08:14:48 | Claude chunk statuses | subtask-added | 1.5 Settings page: per project status list with add, remove (move items first), reorder
+2026-11-16T08:14:49 | Claude chunk statuses | subtask-added | 1.6 Board: Shift-select headers, Merge, Unmerge, Merge with look-alike, drop into a merged column, pills with the project's statuses
+2026-11-16T08:14:49 | Claude chunk statuses | subtask-added | 1.7 Verify in the hidden app, light and dark, and attach shots
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | KeepingProjectStatusesTests / A project's status list comes from x-rtm.statuses and defaults to the built-in list
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | KeepingProjectStatusesTests / Backlog, In Progress and Completed cannot be removed, another status can when no item has it
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | KeepingProjectStatusesTests / A status moves up and down the list, and a status that work items have is removed after they are moved to the status picked
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | KeepingProjectStatusesTests / A status outside the project's list is refused with the list named, and an item that has one shows in Backlog until the list has it
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | KeepingProjectStatusesTests / Names that look like a fixed status are told: completed, InProgress and in progress stand for Completed and In Progress, Completed itself for none
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | KeepingProjectStatusesTests / The Settings page lists a project's statuses; the fixed ones cannot be removed, a new one is added at the end, moved up and removed again
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | KeepingProjectStatusesTests / Removing a status that work items have asks where they go, moves them there and then removes it
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | ArrangingTheBoardTests / Several projects' status columns are the union of their lists, a status another project adds placed after the one before it in its own list
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | ArrangingTheBoardTests / A merge folds the statuses it names into one column, at the place of the first of them, matching items by exact status text
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | ArrangingTheBoardTests / Merging columns, merging into a merged column and unmerging change only the board's merges
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | ArrangingTheBoardTests / A card dropped in a column gets the status its project has: the column's own, the one of a merge it has, or none
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | ArrangingTheBoardTests / A column that looks like a fixed status offers to merge with it, with every look-alike; the fixed column offers the look-alikes; others offer nothing
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | ArrangingTheBoardTests / Without a project's list the status columns are the built-in ones and any other status an item has, and an unknown status sorts after the built-in ones
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | RememberingSettingsTests / A board's merged status columns are saved with the board, per repository, and come back
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | UsingTheBoardOverMcpTests / The MCP tools use the project's statuses: board_update names them when it refuses one, and board_create and board_update accept one the project added
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | UsingTheBoardTests / The board and the list use the project's statuses: its columns in its order, and the work item in the status it has
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | UsingTheBoardTests / Shift-selecting two status columns and choosing Merge shows one column with both statuses' items, saved per board, and Unmerge splits it again
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | UsingTheBoardTests / A column that looks like a fixed status offers "Merge with" it in its menu, and one click merges them
+2026-11-16T08:38:21 | Claude chunk statuses | test-linked | UsingTheBoardTests / Dropping a card into a merged column uses the status its project has, and asks which when it has more than one
+2026-11-16T08:38:36 | Claude chunk statuses | status | In Progress -> In Review
+2026-11-16T08:38:37 | Claude chunk statuses | subtask-done | 1.1 WorkItems: x-rtm.statuses read and write, fixed three, remove with move, project list in SetStatus, Create and item read
+2026-11-16T08:38:37 | Claude chunk statuses | subtask-done | 1.2 MCP and agent guide: validation and error text from the project's list
+2026-11-16T08:38:38 | Claude chunk statuses | subtask-done | 1.3 BoardModel: columns from a list, union across projects, merges, look-alikes of the fixed three
+2026-11-16T08:38:38 | Claude chunk statuses | subtask-done | 1.4 BoardOptions.Merges saved per board in the user settings
+2026-11-16T08:38:38 | Claude chunk statuses | subtask-done | 1.5 Settings page: per project status list with add, remove (move items first), reorder
+2026-11-16T08:38:39 | Claude chunk statuses | subtask-done | 1.6 Board: Shift-select headers, Merge, Unmerge, Merge with look-alike, drop into a merged column, pills with the project's statuses
+2026-11-16T08:38:39 | Claude chunk statuses | subtask-done | 1.7 Verify in the hidden app, light and dark, and attach shots
+2026-11-16T08:43:16 | Claude | feature | integration-with-agents -> organise-work-items
+2026-11-16T10:38:32 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T10:39:14 | Artyom-kurguzkin | attachment-added | n448: pasted-20261116-103914.png
+2026-11-16T10:39:28 | Artyom-kurguzkin | converted | note #n448 -> bug
+2026-11-16T11:00:52 | Claude chunk add-status | subtask-added | 1.8 Board: + status button after the last column when grouped by status (shared header row asks which project), refused when the name exists
+2026-11-16T11:01:09 | Claude chunk add-status | test-linked | UsingTheBoardTests / Grouped by status the board has a + status button after the last column, like + feature, and it adds the status to the project's list
+2026-11-16T11:01:09 | Claude chunk add-status | test-linked | UsingTheBoardTests / With several projects shown, + status asks which project
+2026-11-16T11:01:09 | Claude chunk add-status | test-linked | UsingTheBoardTests / A status name that exists already is refused
+2026-11-16T11:01:09 | Claude chunk add-status | test-linked | KeepingProjectStatusesTests / A status added before Completed goes left of it, one that exists already is refused whatever the position, and Completed stays last
+2026-11-16T11:01:09 | Claude chunk add-status | subtask-done | 1.8 Board: + status button after the last column when grouped by status (shared header row asks which project), refused when the name exists
+2026-11-16T11:01:18 | Claude chunk add-status | status | In Progress -> In Review
+2026-11-16T13:02:20 | Claude | log | Integrated the add-status chunk into main (+ status in the header, before Completed, asks which project). One run with all chunks and test fixes: Passed 1083, Failed 0, 3 m 32 s.
+2026-11-17T13:07:14 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-17T13:09:37 | Artyom-kurguzkin | status | In Progress -> Completed

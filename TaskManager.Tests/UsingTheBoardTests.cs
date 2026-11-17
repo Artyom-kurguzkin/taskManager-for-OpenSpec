@@ -1085,15 +1085,15 @@ public sealed class UsingTheBoardTests : IDisposable
         Col(board, "Planned").QuerySelectorAll("article.card")[2].Click(new MouseEventArgs { ShiftKey = true });
 
         board.Find(".board-wrap").KeyDown("ArrowUp");
-        Assert.Equal([before[0], before[2], before[1]], CardsIn(board, "Planned"));
+        board.WaitForAssertion(() => Assert.Equal([before[0], before[2], before[1]], CardsIn(board, "Planned")));   // a key's handler can still be running when the call returns on a busy machine
 
         board.Find(".board-wrap").KeyDown("ArrowRight");   // Confirmed is empty, so it lands there as the only card
-        Assert.Equal([before[0], before[1]], CardsIn(board, "Planned"));
-        Assert.Equal([before[2]], CardsIn(board, "Confirmed"));
-        Assert.Equal("Confirmed", WorkItemsApi.GetAll().Single(i => i.Title == before[2]).Status);
+        board.WaitForAssertion(() => Assert.Equal([before[0], before[1]], CardsIn(board, "Planned")));
+        board.WaitForAssertion(() => Assert.Equal([before[2]], CardsIn(board, "Confirmed")));
+        board.WaitForAssertion(() => Assert.Equal("Confirmed", WorkItemsApi.GetAll().Single(i => i.Title == before[2]).Status));   // the frame goes out first, the write follows
 
         board.Find(".board-wrap").KeyDown("ArrowLeft");   // back at row 0: the top of Planned
-        Assert.Equal([before[2], before[0], before[1]], CardsIn(board, "Planned"));
+        board.WaitForAssertion(() => Assert.Equal([before[2], before[0], before[1]], CardsIn(board, "Planned")));
         Assert.Single(board.FindAll("article.card.selected"));   // still selected, so the next arrow moves it again
     }
 
@@ -1296,7 +1296,8 @@ public sealed class UsingTheBoardTests : IDisposable
     [Fact(DisplayName = "Shift-selecting two status columns and choosing Merge shows one column with both statuses' items, saved per board, and Unmerge splits it again")]
     public async Task MergeAndUnmergeStatusColumns()
     {
-        await using BunitContext ctx = NewContext();
+        FakeTimeProvider time = new();   // the settings file follows an arrangement after a pause: the test moves it
+        await using BunitContext ctx = NewContext(time);
         TwoProjectsWithLookAlikes(ctx);
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         string[] split = ["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed", "completed"];
@@ -1324,6 +1325,7 @@ public sealed class UsingTheBoardTests : IDisposable
         StatusMerge merge = Assert.Single(settings.Board(repo.Root).Merges!);
         Assert.Equal("Completed", merge.Name);
         Assert.Equal(["Completed", "completed"], merge.Statuses);
+        time.Advance(TimeSpan.FromMilliseconds(250));
         Assert.Equal("Completed", Assert.Single(new SettingsStore(settingsFile).Board(repo.Root).Merges!).Name);   // it is in the user's settings file
         Assert.DoesNotContain("erge", repo2.Read("openspec/config.yaml"));   // and in no project
         Assert.Equal("completed", ctx.Services.GetRequiredService<Workspace>().In(repo2.Root, () => WorkItemsApi.Get(107)!.Status));   // no item changed
@@ -1385,6 +1387,79 @@ public sealed class UsingTheBoardTests : IDisposable
         overlays.FindAll(".dialog .choice").Single(c => c.TextContent.Trim() == "Todo").Click();
         board.WaitForAssertion(() => Assert.Equal("Todo", ws.In(repo2.Root, () => WorkItemsApi.Get(123)!.Status)));
         Assert.Equal("Planned", ws.In(repo.Root, () => WorkItemsApi.Get(123)!.Status));   // the other project's card stayed where it was dropped
+    }
+
+    private IDisposable HoldWrites(int id)
+    {
+        OpenSpecStore.FolderLock.WaitLimit.Value = TimeSpan.FromSeconds(10);   // the write waits for the holder; the test releases it long before
+        return OpenSpecStore.FolderLock.Hold(repo.Root, WorkItemsApi.Get(id)!.Folder);
+    }
+
+    private static IElement CardOf(IRenderedComponent<BoardPage> board, string column, int id) =>
+        Col(board, column).QuerySelectorAll("article.card").Single(c => c.GetAttribute("data-id") == id.ToString());
+
+    [Fact(DisplayName = "A projected card shows the current time as Modified")]
+    public async Task AProjectedCardShowsTheCurrentTimeAsModified()
+    {
+        FakeTimeProvider clock = new(new DateTimeOffset(2031, 3, 4, 5, 6, 0, TimeSpan.Zero));
+        await using BunitContext ctx = NewContext(clock);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        string now = Ui.Stamp(clock.GetLocalNow().DateTime);
+        Assert.NotEqual(now, CardOf(board, "In Progress", 123).QuerySelector(".stamp")!.TextContent.Trim());
+        await board.InvokeAsync(() => CardOf(board, "In Progress", 123).DragStart());
+        IDisposable held = HoldWrites(123);
+        try
+        {
+            await board.InvokeAsync(() => Col(board, "Blocked").Drop());
+            await board.InvokeAsync(() => { });
+
+            Assert.Equal("In Progress", WorkItemsApi.Get(123)!.Status);   // not written yet
+            Assert.Equal(now, CardOf(board, "Blocked", 123).QuerySelector(".stamp")!.TextContent.Trim());   // and already stamped as just changed
+        }
+        finally { held.Dispose(); }
+        board.WaitForAssertion(() => Assert.Equal("Blocked", WorkItemsApi.Get(123)!.Status));
+    }
+
+    [Fact(DisplayName = "A change from outside during a drop is loaded once after it")]
+    public async Task AChangeFromOutsideDuringADropIsLoadedOnceAfterIt()
+    {
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        int reads = board.Instance.Reads, fired = 0;
+        workspace.Changed += () =>
+        {
+            if (Interlocked.Increment(ref fired) == 1) Assert.True(WorkItemsApi.SetTitle(107, "Retitled from outside").Success);   // another writer, right after the drop's own write
+        };
+
+        await board.InvokeAsync(() => CardOf(board, "In Progress", 123).DragStart());
+        await board.InvokeAsync(() => Col(board, "Blocked").Drop());
+
+        board.WaitForAssertion(() => Assert.Equal("Blocked", WorkItemsApi.Get(123)!.Status));
+        board.WaitForAssertion(() => Assert.Equal(2, board.Instance.Reads - reads));   // the drop's own read, and the one the change from outside calls for
+        board.WaitForAssertion(() => Assert.Contains("Retitled from outside", Col(board, "Planned").TextContent));
+        await board.InvokeAsync(() => { });
+        Assert.Equal(2, board.Instance.Reads - reads);
+    }
+
+    [Fact(DisplayName = "A drop into Completed asks before it archives, shows nothing ahead of the answer, and a refusal moves nothing")]
+    public async Task ADropIntoCompletedAsksAndARefusalMovesNothing()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        await board.InvokeAsync(() => CardOf(board, "In Progress", 123).DragStart());
+
+        await board.InvokeAsync(() => Col(board, "Completed").Drop());
+        overlays!.WaitForAssertion(() => Assert.Contains("Complete and archive?", overlays.Markup));
+        Assert.NotNull(CardOf(board, "In Progress", 123));   // archiving is not shown before it is confirmed
+        Assert.DoesNotContain(Col(board, "Completed").QuerySelectorAll("article.card"), c => c.GetAttribute("data-id") == "123");
+
+        await overlays.InvokeAsync(() => overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Cancel").Click());
+        await board.InvokeAsync(() => { });
+
+        Assert.NotNull(CardOf(board, "In Progress", 123));
+        Assert.Equal("In Progress", WorkItemsApi.Get(123)!.Status);
+        Assert.False(WorkItemsApi.Get(123)!.Archived);
     }
 
     private static List<string> Columns(IRenderedComponent<BoardPage> board) => board.FindAll("section.col h3").Select(h => h.TextContent).ToList();
@@ -3580,7 +3655,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Equal("9–16 Nov", Pill(item with { Started = D(2026, 11, 9), Due = D(2026, 11, 16) }));
         Assert.Equal("28 Oct – 3 Nov", Pill(item with { Started = D(2026, 10, 28), Due = D(2026, 11, 3) }));
         Assert.Equal("9 Nov 25 – 3 Jan 26", Pill(item with { Started = D(2025, 11, 9), Due = D(2026, 1, 3) }));
-        Assert.Equal("16 Nov", Pill(item with { Started = D(2026, 11, 16), Due = D(2026, 11, 16) }));   // one day
+        Assert.Equal("due 16 Nov", Pill(item with { Started = D(2026, 11, 16), Due = D(2026, 11, 16) }));   // one day: a bare "16 Nov" could be a start or a due day
         Assert.Equal("from 9 Nov", Pill(item with { Started = D(2026, 11, 9) }));
         Assert.Equal("due 16 Nov", Pill(item with { Due = D(2026, 11, 16) }));
         Assert.Null(Pill(item));
@@ -3596,6 +3671,22 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.DoesNotContain("overdue", Card(item with { Started = D(2026, 11, 9) }).Find(".tags .tag.dates").ClassName);
     }
 
+    [Fact(DisplayName = "The card's numbers say what they are: updated 15:34. 16 Nov 26, 11/12 subtasks, with long titles")]
+    public async Task CardNumbersAreCaptioned()
+    {
+        await using BunitContext ctx = NewContext();
+        List<Subtask> subs = [.. Enumerable.Range(1, 12).Select(n => new Subtask($"1.{n}", $"step {n}", n <= 11, "1. Tasks"))];
+        WorkItem item = WorkItemsApi.Get(123)! with { Modified = new DateTime(2026, 11, 16, 15, 34, 0), Subtasks = subs };
+        IRenderedComponent<WorkItemCard> card = ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, item).Add(c => c.Options, new BoardOptions()));
+
+        string meta = card.Find(".meta-row").TextContent;
+        Assert.Contains("updated 15:34. 16 Nov 26", meta);
+        Assert.Contains("11/12 subtasks", meta);
+        Assert.Equal("Last changed 15:34, 16 Nov 2026", card.Find(".meta-row [title^='Last changed']").GetAttribute("title"));
+        Assert.Equal("11 of 12 subtasks done", card.Find(".meta-row .subs").GetAttribute("title"));
+        Assert.Single(card.FindAll(".meta-row"));   // still one meta row, no frame
+    }
+
     [Fact(DisplayName = "The modified time reads 15:34. 16 Nov 26 on the card and in the list's Updated column")]
     public async Task ModifiedReadsTimeThenDay()
     {
@@ -3607,8 +3698,8 @@ public sealed class UsingTheBoardTests : IDisposable
         WorkItem item = WorkItemsApi.Get(123)!;
         Assert.Equal(new DateTime(2026, 11, 16, 15, 34, 0), item.Modified);
         IRenderedComponent<WorkItemCard> card = ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, item).Add(c => c.Options, new BoardOptions()));
-        Assert.StartsWith("15:34. 16 Nov 26", card.Find(".meta-row").TextContent.Trim());
-        Assert.StartsWith("09:05. 3 Jan 26", ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, item with { Modified = new DateTime(2026, 1, 3, 9, 5, 0) }).Add(c => c.Options, new BoardOptions())).Find(".meta-row").TextContent.Trim());   // zero-padded hour, plain day
+        Assert.StartsWith("updated 15:34. 16 Nov 26", card.Find(".meta-row").TextContent.Trim());
+        Assert.StartsWith("updated 09:05. 3 Jan 26", ctx.Render<WorkItemCard>(p => p.Add(c => c.Item, item with { Modified = new DateTime(2026, 1, 3, 9, 5, 0) }).Add(c => c.Options, new BoardOptions())).Find(".meta-row").TextContent.Trim());   // zero-padded hour, plain day
 
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
@@ -3869,6 +3960,71 @@ public sealed class UsingTheBoardTests : IDisposable
         board.WaitForAssertion(() => Assert.True(CardIds(board).Count > 2));
     }
 
+    [Fact(DisplayName = "Every Organise and Filters row is a label column and a pill column, so all the pills share one left edge")]
+    public async Task OptionRowsAreOneGridWithSharedLabelColumn()
+    {
+        await using BunitContext ctx = NewContext();
+        ctx.Render<BoardPage>();
+        nav!.Find("button.nav-toggle").Click();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { View = "list", ChangedFrom = new DateOnly(2026, 11, 9), ChangedTo = new DateOnly(2026, 11, 17) });
+        nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-filters .field.changed")));
+
+        // in the markup a row is its label and one control, nothing else
+        IElement[] rows = [.. nav.FindAll(".organise .field, .nav-filters .field")];
+        Assert.True(rows.Length >= 8, "sort by, groups, subgroups, colour, contributor, period, commit, changed");
+        Assert.All(rows, r => { Assert.Equal(2, r.Children.Length); Assert.Equal("LABEL", r.Children[0].TagName); });
+
+        // in the style one rule gives every row the same two columns, a label column of one width (the changed row and the commit row included)
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        string rule = System.Text.RegularExpressions.Regex.Matches(css, @"nav\.side \.nav-view \.field[^{}]*\{(?<b>[^}]*)\}").Select(m => m.Groups["b"].Value).First(b => b.Contains("display: grid"));
+        Assert.Matches(@"grid-template-columns:\s*var\(--opt-label\)\s+minmax\(0,\s*1fr\)", rule);
+        Assert.DoesNotContain("flex: 0 0 100%", css[css.IndexOf("nav.side .field.changed", StringComparison.Ordinal)..][..300]);   // the changed label is no longer stacked above its pill
+        // a pill that is too long ends in an ellipsis inside itself, every pill alike (no rule only for the commit's)
+        Assert.Matches(@"nav\.side \.field \.dd\.nav-dd[^{}]*\{[^}]*min-width: 0", css);
+        Assert.Matches(@"nav\.side \.field \.dd \.rz-dropdown-label > \*[^{}]*\{[^}]*text-overflow: ellipsis", css);
+    }
+
+    [Fact(DisplayName = "Add entry is the same filled red button as New work item")]
+    public async Task AddEntryIsTheRedButton()
+    {
+        await using BunitContext ctx = NewContext();
+        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
+        ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
+        nav!.Find("button.nav-toggle").Click();
+        OpenWorklog(ctx);
+        nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-worklog button.nav-add")));
+        IElement add = nav.Find(".nav-worklog button.nav-add");
+        Assert.Contains("nav-btn", add.ClassList);
+        Assert.Contains("nav-new", add.ClassList);   // the class that carries the --alert fill, the text on it and the darker hover
+        Assert.NotNull(add.QuerySelector(":scope > svg"));   // the + glyph stays
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        // no rule of its own paints it another colour
+        Assert.DoesNotMatch(@"\.nav-add\s*\{[^}]*(background|color):", css);
+        Assert.DoesNotMatch(@"\.nav-add:hover[^{}]*\{", css);
+    }
+
+    [Fact(DisplayName = "The commit list opens as a popup no wider than the menu, one row per commit, ending in an ellipsis")]
+    public async Task CommitPopupIsMenuWide()
+    {
+        MakeGitHistory();
+        await using BunitContext ctx = NewContext();
+        ctx.Render<BoardPage>();
+        nav!.Find("button.nav-toggle").Click();
+        NavDropdown("commit").Click();
+        IElement field() => nav.FindAll(".nav-view .field").First(f => f.QuerySelector("label")!.TextContent.Trim() == "commit");
+        nav.WaitForAssertion(() => Assert.NotEmpty(field().QuerySelectorAll(".rz-dropdown-item")));
+
+        // the popup's own width is set, the way a dropdown sets one (Dropdown's PopupStyle), and is not "as wide as its longest row"
+        string style = field().QuerySelector(".rz-dropdown-panel .rz-dropdown-items-wrapper")!.GetAttribute("style") ?? "";
+        Assert.Matches(@"max-width:\s*\d+px", style);
+        Assert.Contains("min-width: 0", style);
+
+        string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
+        Assert.Matches(@"\.rz-dropdown-item > span[^{}]*\{[^}]*text-overflow: ellipsis", css);   // a row ends in an ellipsis instead of widening the popup
+        Assert.Matches(@"\.rz-dropdown-items-wrapper[^{}]*\{[^}]*max-height: min\(60vh, 400px\)", css);   // about 12 rows, then it scrolls
+    }
+
     // ---- arrows chunk ----
 
     [Fact(DisplayName = "Arrow up in the list swaps the selected row within its subgroup, then crosses into the subgroup above, then into the group above; arrow down brings it back")]
@@ -3960,7 +4116,7 @@ public sealed class UsingTheBoardTests : IDisposable
         // sideways it goes to the next column, in the same row, and back at the same height
         await Press("ArrowRight");
         board.WaitForAssertion(() => Assert.Equal([lowB], Cell("high", "In Progress").Where(id => id == lowB).ToList()));
-        Assert.Equal("In Progress", WorkItemsApi.Get(lowB)!.Status);
+        board.WaitForAssertion(() => Assert.Equal("In Progress", WorkItemsApi.Get(lowB)!.Status));   // the write follows the frame, on the thread pool
         Assert.Equal("high", WorkItemsApi.Get(lowB)!.Priority);
         await Press("ArrowLeft");
         board.WaitForAssertion(() => Assert.Equal([lowB, high], Cell("high", "Confirmed")));

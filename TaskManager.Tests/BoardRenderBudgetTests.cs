@@ -183,6 +183,119 @@ public sealed class BoardRenderBudgetTests : IDisposable
         board.WaitForAssertion(() => Assert.Contains("selected", board.FindAll(".swim-h")[0].ClassName));
     }
 
+    private static IElement Column(IRenderedComponent<BoardPage> board, string name) =>
+        board.FindAll("section.col").Single(c => c.QuerySelector("h3")!.TextContent == name);
+
+    [Fact(DisplayName = "A drop renders once and runs one Load")]
+    public async Task ADropRendersOnceAndRunsOneLoad()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = await BoardWithItems(ctx, 6);
+        int moving = int.Parse(Column(board, "Backlog").QuerySelectorAll("article.card")[0].GetAttribute("data-id")!);
+        (int reads, long versions) = (board.Instance.Reads, board.Instance.Versions);
+
+        await board.InvokeAsync(() => Column(board, "Backlog").QuerySelectorAll("article.card")[0].DragStart());
+        await board.InvokeAsync(() => Column(board, "In Progress").Drop());
+        board.WaitForAssertion(() => Assert.Contains(Column(board, "In Progress").QuerySelectorAll("article.card"), c => c.GetAttribute("data-id") == moving.ToString()));   // shown first ...
+        board.WaitForAssertion(() => Assert.Equal(1, board.Instance.Reads - reads));   // ... then written, and read back once
+        await board.InvokeAsync(() => { });
+
+        Assert.Equal("In Progress", WorkItemsApi.Get(moving)!.Status);
+        Assert.Equal(1, board.Instance.Reads - reads);          // one Load for the whole drop
+        Assert.Equal(2, board.Instance.Versions - versions);    // and one stamp bump each for the cards and the grid
+    }
+
+    /// <summary>The write lock of an item's change folder, held by the test: the page's write waits on the pool for it, so a step can be checked "before the write" with no timing.</summary>
+    private IDisposable HoldWrites(int id)
+    {
+        OpenSpecStore.FolderLock.WaitLimit.Value = TimeSpan.FromSeconds(10);   // the write waits for the holder; the test releases it long before
+        return OpenSpecStore.FolderLock.Hold(repo.Root, WorkItemsApi.Get(id)!.Folder);
+    }
+
+    [Fact(DisplayName = "A drop into a feature column renders once before the write and runs one Load")]
+    public async Task AFeatureDropRendersOnceBeforeTheWriteAndRunsOneLoad()
+    {
+        await using BunitContext ctx = NewContext();
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = "feature" });
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        await board.InvokeAsync(() => { });
+        IElement CardOf(string column) => Column(board, column).QuerySelectorAll("article.card").First(c => c.GetAttribute("data-id") == A.ToString());
+        await board.InvokeAsync(() => CardOf("Security").DragStart());
+        (int reads, long versions, int page) = (board.Instance.Reads, board.Instance.Versions, RenderCounts.Of<BoardPage>());
+        IDisposable held = HoldWrites(A);
+        try
+        {
+            await board.InvokeAsync(() => Column(board, "Banking").Drop());
+            await board.InvokeAsync(() => { });
+
+            Assert.Contains(Column(board, "Banking").QuerySelectorAll("article.card"), c => c.GetAttribute("data-id") == A.ToString());   // shown ...
+            Assert.DoesNotContain(Column(board, "Security").QuerySelectorAll("article.card"), c => c.GetAttribute("data-id") == A.ToString());
+            Assert.Equal(["non-functional/security"], WorkItemsApi.Get(A)!.Features.Select(f => f.Path));   // ... before the write
+            Assert.Equal(reads, board.Instance.Reads);
+            Assert.Equal(2, board.Instance.Versions - versions);   // one stamp bump each for the cards and the grid
+            Assert.Equal(1, RenderCounts.Of<BoardPage>() - page);
+        }
+        finally { held.Dispose(); }
+
+        board.WaitForAssertion(() => Assert.Equal(["functional/banking"], WorkItemsApi.Get(A)!.Features.Select(f => f.Path)));
+        board.WaitForAssertion(() => Assert.Equal(1, board.Instance.Reads - reads));   // written, then read back once
+        await board.InvokeAsync(() => { });
+        Assert.Equal(1, board.Instance.Reads - reads);
+        Assert.Equal(2, board.Instance.Versions - versions);   // the written card is the shown one: nothing drawn again
+    }
+
+    [Fact(DisplayName = "A swimlane drop renders once before the write")]
+    public async Task ASwimlaneDropRendersOnceBeforeTheWrite()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.SetLabel(B, "bug").Success);   // a "bug" row for the card to cross to
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Swimlane = "label" });
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        await board.InvokeAsync(() => { });
+        string status = WorkItemsApi.Get(A)!.Status;
+        IElement Cell(string row) => board.Find($".swim[data-swim='{row}'] section.col[data-cell='{status}']");
+        bool Has(string row) => Cell(row).QuerySelectorAll("article.card").Any(c => c.GetAttribute("data-id") == A.ToString());
+        Assert.True(Has(BoardModel.NoRow));
+        await board.InvokeAsync(() => Cell(BoardModel.NoRow).QuerySelectorAll("article.card").First(c => c.GetAttribute("data-id") == A.ToString()).DragStart());
+        (int reads, long versions) = (board.Instance.Reads, board.Instance.Versions);
+        IDisposable held = HoldWrites(A);
+        try
+        {
+            await board.InvokeAsync(() => Cell("bug").QuerySelector(".lane")!.Drop());
+            await board.InvokeAsync(() => { });
+
+            Assert.True(Has("bug"));   // shown in the other row ...
+            Assert.False(Has(BoardModel.NoRow));
+            Assert.Null(WorkItemsApi.Get(A)!.Label);   // ... before the write
+            Assert.Equal(reads, board.Instance.Reads);
+            Assert.Equal(2, board.Instance.Versions - versions);
+        }
+        finally { held.Dispose(); }
+
+        board.WaitForAssertion(() => Assert.Equal("bug", WorkItemsApi.Get(A)!.Label));
+        board.WaitForAssertion(() => Assert.Equal(1, board.Instance.Reads - reads));
+        await board.InvokeAsync(() => { });
+        Assert.Equal(2, board.Instance.Versions - versions);
+    }
+
+    [Fact(DisplayName = "The echo of the page's own write bumps no version")]
+    public async Task TheEchoOfThePagesOwnWriteBumpsNoVersion()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> board = await BoardWithItems(ctx, 6);
+        (int reads, long versions, int cards) = (board.Instance.Reads, board.Instance.Versions, RenderCounts.Of<WorkItemCard>());
+
+        await board.InvokeAsync(() => ctx.Services.GetRequiredService<Workspace>().Do((true, "")));   // the workspace says "changed", as it does after the page's own write
+        await board.InvokeAsync(() => { });
+        await board.InvokeAsync(() => { });
+
+        Assert.Equal(1, board.Instance.Reads - reads);          // it read ...
+        Assert.Equal(versions, board.Instance.Versions);        // ... found what it already shows, and stamped nothing
+        Assert.Equal(cards, RenderCounts.Of<WorkItemCard>());
+    }
+
     public void Dispose()
     {
         repo.Dispose();

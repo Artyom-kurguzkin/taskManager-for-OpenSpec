@@ -107,12 +107,33 @@ internal static class Commands
         }
     }
 
+    // One writer per file in this process: a write queued behind another of the same file waits for it, so its stale check sees what that write left in LastSeen, never half of it.
+    // The wait (like the folder lock's and MoveOver's) blocks only the thread that writes: the pages run their commands on the thread pool.
+    // ponytail: one semaphore per path ever written, kept for the process (a few hundred bytes each); evict when a session writes more files than that is worth.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> PathGates = new(StringComparer.OrdinalIgnoreCase);
+
+    internal static SemaphoreSlim GateOf(string full) => PathGates.GetOrAdd(full, _ => new SemaphoreSlim(1, 1));
+
+    internal static IDisposable HoldPath(string full)
+    {
+        SemaphoreSlim gate = GateOf(full);
+        gate.Wait();
+        return new Release(gate);
+    }
+
+    private sealed class Release(SemaphoreSlim gate) : IDisposable
+    {
+        private SemaphoreSlim? gate = gate;
+        public void Dispose() => Interlocked.Exchange(ref gate, null)?.Release();
+    }
+
     /// <summary>Writes the file if what the app last read of it is still on disk. The change folder is locked from the check to the move, so another process cannot slip a write in between; a lock that is not released in time is a refusal with its reason.</summary>
     internal static (bool Success, string Message) WriteText(string path, string content)
     {
         string full = Path.GetFullPath(path);
         try
         {
+            using (HoldPath(full))
             using (FolderLock.ForPath(full)) return WriteLocked(full, content);
         }
         catch (TimeoutException e) { return (false, e.Message); }
@@ -127,7 +148,8 @@ internal static class Commands
         string full = Path.GetFullPath(path);
         try
         {
-            using (FolderLock.ForPath(full)) return WriteLocked(full, edit(Queries.ReadText(full)));
+            using (HoldPath(full))
+            using (FolderLock.ForPath(full)) return WriteLocked(full, edit(Queries.ReadTextHeld(full)));
         }
         catch (TimeoutException e) { return (false, e.Message); }
     }

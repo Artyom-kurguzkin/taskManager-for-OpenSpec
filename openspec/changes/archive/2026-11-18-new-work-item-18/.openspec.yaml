@@ -1,0 +1,17 @@
+schema: spec-driven
+created: 2026-11-11
+x-rtm:
+  id: 156
+  title: dates display
+  status: In Review
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-09
+  due: 2026-11-16
+  moved: 2026-11-18
+  plan: DevResources/plans/in-progress-ui-fixes-2026-11-18.md
+  tests: [{suite: UsingTheBoardTests, test: 'An expanded card shows its due date and the list shows updated, started and due apart'}, {suite: ReadingWorkItemsTests, test: "A work item's updated time is the last change in its worklog (events and notes), not the time its files were written"}, {suite: UsingTheBoardTests, test: A card shows no id pill and no agent badge}, {suite: UsingTheBoardTests, test: "A card's dates are one period: 9–16 Nov, across months and years, from or due alone"}, {suite: UsingTheBoardTests, test: "The modified time reads 15:34. 16 Nov 26 on the card and in the list's Updated column"}, {suite: UsingTheBoardTests, test: "The card's numbers say what they are: updated 15:34. 16 Nov 26, 11/12 subtasks, with long titles"}]
+  agentBy: Claude
+  agentAt: 2026-11-18T09:19:51

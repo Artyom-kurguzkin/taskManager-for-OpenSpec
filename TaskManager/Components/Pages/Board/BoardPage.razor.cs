@@ -74,7 +74,7 @@ public partial class BoardPage
     /// <summary>Shift / Ctrl / ⌘-click on a status column's header selects it (a plain click opens its menu); "Merge" in the menu then folds the selected ones into one column.</summary>
     private void ColumnClick(string key, MouseEventArgs e)
     {
-        if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) return;
+        if (!(e.ShiftKey || e.CtrlKey || e.MetaKey) || key == BoardModel.Unassigned) return;   // the unassigned column has no place in the order
         selected.Clear();   // columns, projects, rows or cards, never mixed
         selectedProjects.Clear();
         selectedRows.Clear();
@@ -108,6 +108,14 @@ public partial class BoardPage
     }
 
     private readonly HashSet<string> selectedRows = [];   // swimlane headers Shift-clicked (BoardModel.RowKey), to move with the arrow keys
+    /// <summary>Arrow keys on selected column headers or list groups: up / down past the unselected neighbour, among the columns of the one section that holds them all; the order is the board's column order.</summary>
+    private void MoveColumns(int dir)
+    {
+        if (projects.SelectMany(p => p.Sections).Select(s => s.Columns.Select(c => c.Key).Where(k => k != BoardModel.Unassigned).ToList()).FirstOrDefault(k => selectedColumns.All(k.Contains)) is not { } keys) return;
+        List<string> siblings = [.. keys.Select(k => BoardModel.ColumnKey(Opt, k))];
+        Set(BoardModel.StepKeys(O, siblings, [.. keys.Where(selectedColumns.Contains).Select(k => BoardModel.ColumnKey(Opt, k))], dir));
+    }
+
     private (IReadOnlyList<string> Siblings, IReadOnlyList<string> Moving)? draggingRow;   // a swimlane header being dragged, or every selected one
 
     private List<string> RowKeys(BoardSection sec) => [.. BoardModel.Swimlanes(sec).Select(r => BoardModel.RowKey(Opt.Swimlane, r.Key))];
@@ -203,26 +211,83 @@ public partial class BoardPage
         BoardOptions o = Workspace.ViewRoot is string root ? Settings.Board(root) : O;
         if (o == O && ProjectState == projectState) return;
         O = o;
+        bool projectsChanged = ProjectState != projectState;
         projectState = ProjectState;
         Load();
+        if (projectsChanged) listVersion++;   // a project folded or unfolded changes no read, but the list's group rows are told their state again (GroupRowRender) only when the grid draws
         StateHasChanged();
     });
 
     /// <summary>The board reads once, then on a workspace or settings change: its parameters (embedded, the open item) only mark rows.</summary>
     protected override object? LoadKey => "board";
 
+    /// <summary>How many times the page read the repositories (every <see cref="Load"/>): a test checks that an arrow key or a drop reads none, or once.</summary>
+    public int Reads { get; private set; }
+
+    /// <summary>The stamps the cards and the grid draw by, added: a test checks that a load which changed nothing bumps neither.</summary>
+    public long Versions => loadVersion + listVersion;
+
+    /// <summary>What one project's read of the repository gave: the page projects from it again, with no read, when only the options change.</summary>
+    private sealed record Read(string Root, IReadOnlyList<WorkItem> Items, IReadOnlyList<Feature> Features, IReadOnlyDictionary<string, string> Names,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> Lanes, IReadOnlyList<string> Statuses, IReadOnlySet<int> Dirty, IReadOnlySet<int> Failing);
+
+    private List<Read> reads = [];
+    private (bool ShowHidden, string Commit) readFor;   // the options the reads were made for: the ones that change what is read
+    private BoardOptions? projectedFor;                  // the options the projects were built with (null: nothing projected yet)
+    private IReadOnlyList<string> warnings = [];
+
+    /// <summary>The items a drop or a pill showed before the write was made, by project and number, as they were shown: the persisted item may differ from the shown one in the stamps the change wrote only.</summary>
+    private readonly Dictionary<(string Root, int Id), WorkItem> shown = [];
+
+    /// <summary>A drop's writes raise <see cref="Workspace.Changed"/> inside it: the drop reads once, itself, when they are done.</summary>
+    private int landing;
+    protected override void OnChanged() { if (landing == 0) base.OnChanged(); }
+
     protected override void Load()
     {
+        Reads++;
         List<string> roots = [.. Workspace.Projects.Where(r => O.ShowHidden || !Settings.ProjectHidden(r))];
-        var read = roots.Select(r => Workspace.In(r, () => (Items: ItemsCache.All(includeHidden: O.ShowHidden), Features: FeaturesCache.Get(), Names: Workspace.FeatureNames,
-            Lanes: WorkItemsApi.GetLanes(), Statuses: WorkItemsApi.GetStatuses()))).ToList();
+        List<Read> fresh = [.. roots.Select(r => Workspace.In(r, () =>
+        {
+            IReadOnlyList<WorkItem> items = ItemsCache.All(includeHidden: O.ShowHidden);
+            return new Read(r, items, FeaturesCache.Get(), Workspace.FeatureNames, WorkItemsApi.GetLanes(), WorkItemsApi.GetStatuses(),
+                O.Commit == "any" ? BoardModel.Uncommitted(items) : new HashSet<int>(),   // the uncommitted marker reads the project's own git history and files (the commit filter)
+                FailingTests(items));
+        }))];
+        warnings = WorkItemsApi.GetWarnings();   // read here, not in the markup: a render reads no file
+        if (projectedFor == O && SameReads(reads, fresh, null)) return;   // what the page shows is what the repositories hold: the echo of its own write
+        if (projectedFor == O && shown.Count > 0 && SameReads(reads, fresh, shown)) { reads = fresh; shown.Clear(); return; }   // the drop it showed, as written
+        reads = fresh;
+        readFor = (O.ShowHidden, O.Commit);
+        shown.Clear();
+        Reproject();
+    }
+
+    /// <summary>Whether two reads hold the same: items by instance (the cache keeps an unchanged item's), the rest by value. <paramref name="drops"/>: items a drop showed ahead of its write.</summary>
+    private static bool SameReads(List<Read> a, List<Read> b, Dictionary<(string Root, int Id), WorkItem>? drops) =>
+        a.Count == b.Count && a.Zip(b).All(t => t.First.Root == t.Second.Root
+            && (ReferenceEquals(t.First.Items, t.Second.Items) || t.First.Items.Count == t.Second.Items.Count && t.First.Items.Zip(t.Second.Items).All(i =>
+                ReferenceEquals(i.First, i.Second) || drops is not null && i.First.Id == i.Second.Id && drops.TryGetValue((t.First.Root, i.Second.Id), out WorkItem? want) && Agrees(want, i.Second)))
+            && t.First.Features.SequenceEqual(t.Second.Features)
+            && t.First.Names.Count == t.Second.Names.Count && !t.First.Names.Except(t.Second.Names).Any()
+            && t.First.Lanes.Count == t.Second.Lanes.Count && t.First.Lanes.All(l => t.Second.Lanes.TryGetValue(l.Key, out IReadOnlyList<string>? o) && l.Value.SequenceEqual(o))
+            && t.First.Statuses.SequenceEqual(t.Second.Statuses)
+            && t.First.Dirty.SetEquals(t.Second.Dirty) && t.First.Failing.SetEquals(t.Second.Failing));
+
+    /// <summary>Whether the persisted item holds the fields a projection changed as it was shown (the stamps the write made are not compared).</summary>
+    private static bool Agrees(WorkItem shown, WorkItem written) =>
+        shown.Status == written.Status && shown.Priority == written.Priority && (shown.Label ?? "") == (written.Label ?? "")
+        && shown.Contributors.SequenceEqual(written.Contributors) && shown.Features.Select(f => f.Path).SequenceEqual(written.Features.Select(f => f.Path));
+
+    /// <summary>Builds the columns, rows and cards from what was read, for the current options; no repository read. Stamps the cards and the grid, which draw again for it.</summary>
+    private void Reproject()
+    {
         // the status columns: each project's own list, or with several projects the union of their lists with the user's merges folded in
-        IReadOnlyList<FieldValue> statusColumns = BoardModel.StatusColumns(read.Select(x => x.Statuses), roots.Count > 1 ? O.Merges : null);
-        // Build and the uncommitted marker read the project's own git history and files (the commit filter), so they run inside it
-        projects = roots.Select((r, n) => new Project(r, Path.GetFileName(r), read[n].Items, read[n].Features, read[n].Names,
-            Workspace.In(r, () => BoardModel.Build(read[n].Items, read[n].Features, read[n].Lanes, Opt, Today, statusColumns)), BoardModel.ColourMap(O.ColorBy, read[n].Items, read[n].Features), read[n].Statuses,
-            O.Commit == "any" ? Workspace.In(r, () => BoardModel.Uncommitted(read[n].Items)) : new HashSet<int>(),
-            Workspace.In(r, () => FailingTests(read[n].Items)))).ToList();
+        IReadOnlyList<FieldValue> statusColumns = BoardModel.StatusColumns(reads.Select(x => x.Statuses), reads.Count > 1 ? O.Merges : null);
+        // Build reads the project's own git history and files (the commit filter), so it runs inside it
+        projects = reads.Select(x => new Project(x.Root, Path.GetFileName(x.Root), x.Items, x.Features, x.Names,
+            Workspace.In(x.Root, () => BoardModel.Build(x.Items, x.Features, x.Lanes, Opt, Today, statusColumns)), BoardModel.ColourMap(O.ColorBy, x.Items, x.Features), x.Statuses, x.Dirty, x.Failing)).ToList();
+        projectedFor = O;
         loadVersion++;
         cardHandlers.Clear();   // the callbacks act on this load's project and columns; the cards are drawn again for the new ones
         selectedColumns.RemoveWhere(k => !HeadColumns.Contains(k));
@@ -231,7 +296,12 @@ public partial class BoardPage
         if (!Embedded && Popups.Examined is (string xr, int xi) && !projects.Any(p => p.Root == xr && p.Items.Any(i => i.Id == xi))) Popups.Examine(null);
         selectedProjects.RemoveWhere(r => !Multi || !projects.Any(p => p.Root == r));
         selectedRows.RemoveWhere(k => !projects.Any(p => p.Sections.Any(s => RowKeys(s).Contains(k))));   // a hidden row, or another row field
-        rows = [.. projects.SelectMany((p, n) => BoardModel.Rows(p.Sections, p.Names, p.Root, p.Name, n * 1000))];
+        // a row that is what it was (same item, place and column content) keeps its instance, so the grid has nothing new to build for it
+        Dictionary<string, GridRow> was = [];
+        foreach (GridRow r in rows) was.TryAdd(r.Key, r);
+        rows = [.. projects.SelectMany((p, n) => BoardModel.Rows(p.Sections, p.Names, p.Root, p.Name, n * 1000))
+            .Select(r => was.TryGetValue(r.Key, out GridRow? old) && old with { Column = r.Column } == r && old.Column.Key == r.Column.Key && old.Column.Label == r.Column.Label
+                && old.Column.Items.SequenceEqual(r.Column.Items) ? old : r)];
         groups = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => (g.First().Column, g.First().Category, g.First().Root));
         if (gridSettings is null && O.ListSettings is string json)
             try { gridSettings = System.Text.Json.JsonSerializer.Deserialize<DataGridSettings>(json); ForgetVisibility(gridSettings); } catch (System.Text.Json.JsonException) { }
@@ -288,11 +358,18 @@ public partial class BoardPage
 
     private Project ProjectOf(string root) => projects.First(p => p.Root == root);
 
+    /// <summary>New options: nothing when they are the current ones; otherwise the columns and rows are built again from what the page holds (no repository read) and the settings are saved after a pause.</summary>
     private void Set(BoardOptions options)
     {
+        if (options == O) return;
+        Remember(options);
+        if (options.ShowHidden != readFor.ShowHidden || options.Commit != readFor.Commit) Load(); else Reproject();   // what is read depends on those two
+    }
+
+    private void Remember(BoardOptions options)
+    {
         O = options;
-        if (Workspace.ViewRoot is string root) Settings.SaveBoard(root, O);
-        Load();
+        if (Workspace.ViewRoot is string root) Settings.SaveBoardSoon(root, O, Time);
     }
 
     // ── Calendar view: the Roadmap component draws the board's columns as groups, or the rows with the columns inside them ──
@@ -400,6 +477,8 @@ public partial class BoardPage
         }
         foreach (string root in selectedProjects)
             if (projects.FirstOrDefault(p => p.Root == root) is { } gp) marks.Add(new("data-group", "proj:" + gp.Name, RowMarks.Mark.Selected));
+        marks.AddRange(selectedColumns.Select(k => new RowMarks.RowMark("data-group", k, RowMarks.Mark.Selected)));   // selected group headers (the list's groups)
+        marks.AddRange(selectedRows.Select(k => new RowMarks.RowMark("data-group", "swim:" + k[BoardModel.RowKey(Opt.Swimlane, "").Length..], RowMarks.Mark.Selected)));   // ... and subgroup headers
         return marks;
     }
 
@@ -432,6 +511,7 @@ public partial class BoardPage
             {
                 args.Attributes["data-group"] = "swim:" + value;
                 args.Attributes["data-path-swim"] = first.SwimLabel;
+                args.Attributes["onclick"] = Quiet(e => RowClick(BoardModel.RowKey(Opt.Swimlane, value), e));   // Shift-click selects the subgroup, as a swimlane header; a plain click is the grid's (fold)
                 if (shutGroups.Contains(ShutKey(args.Group!))) args.Expanded = false;
             }
             return;
@@ -439,6 +519,7 @@ public partial class BoardPage
         (BoardColumn col, _, string root) = GroupOf(args.Group!);
         args.Attributes["data-group"] = col.Key;
         args.Attributes["data-path-col"] = col.Label;
+        args.Attributes["onclick"] = Quiet(e => ColumnClick(col.Key, e));   // Shift-click selects the group, as a column header; a plain click is the grid's (fold)
         if (Opt.GroupBy == "status") args.Attributes["data-path-fill"] = $"var({Ui.Band(col.Label)})";   // the status pill's colour, as the group header wears it
         args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(ProjectOf(root), col, null));   // the column's end; the item keeps its row value
         // only ever false: Radzen takes Expanded = true as "keep open" and ignores the chevron; the collapse/expand events keep shutGroups current
@@ -606,7 +687,34 @@ public partial class BoardPage
                 yes: "Archive")) return false;
             return Run(await Popups.Busy($"Archiving #wi{it.Id} with the OpenSpec CLI…", () => Workspace.In(p.Root, () => WorkItemsApi.SetStatus(it.Id, status))));
         }
-        return Run(Workspace.In(p.Root, () => WorkItemsApi.SetStatus(it.Id, status)));
+        // A pill (not a drop, which shows its own move in Land) shows the new status before the write; the write and the refresh run on the thread pool.
+        return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetStatus(it.Id, status)),
+            status != it.Status ? () => ShowItems(p, [it with { Status = status, Modified = Ui.Now(Time) }]) : null);
+    }
+
+    /// <summary>The list's label pill: the new value is shown first, the write follows on the thread pool.</summary>
+    private Task<bool> SetLabel(Project p, WorkItem it, string label) => RunInBackground(() => Workspace.In(p.Root, () => WorkItemsApi.SetLabel(it.Id, label)),
+        (it.Label ?? "") != label ? () => ShowItems(p, [it with { Label = label == "" ? null : label, Modified = Ui.Now(Time) }]) : null);
+
+    /// <summary>The list's priority pill, as <see cref="SetLabel"/>.</summary>
+    private Task<bool> SetPriority(Project p, WorkItem it, string priority) => RunInBackground(() => Workspace.In(p.Root, () => WorkItemsApi.SetPriority(it.Id, priority)),
+        priority != it.Priority ? () => ShowItems(p, [it with { Priority = priority, Modified = Ui.Now(Time) }]) : null);
+
+    /// <summary>Puts the items into what the page read and draws, before the write that makes them so; <see cref="Load"/> finds them written, or shows what is there.</summary>
+    private void ShowItems(Project p, IReadOnlyList<WorkItem> items)
+    {
+        foreach (WorkItem i in items) shown[(p.Root, i.Id)] = i;
+        reads = [.. reads.Select(r => r.Root != p.Root ? r : r with { Items = [.. r.Items.Select(i => items.FirstOrDefault(x => x.Id == i.Id) ?? i)] })];
+        Reproject();
+    }
+
+    /// <summary>One write of the page: on the thread pool, one at a time. A write inside a drop notes the store version it produced, to tell what moved the store after it from itself.</summary>
+    private async Task<bool> Write(Func<(bool Success, string Message)> command, Action? show = null)
+    {
+        if (landing == 0) return await RunInBackground(command, show);
+        (bool ok, string message) = await Workspace.DoLater(command, () => landedAt = OpenSpecStore.OpenSpecStoreApi.TotalVersion);
+        if (ok) Popups.Saved(); else Popups.Toast(message, ToastKind.Warning);
+        return ok;
     }
 
     // The drag script in wwwroot/js/app.js delivers every drop to what sits right after the gap it opened:
@@ -657,14 +765,67 @@ public partial class BoardPage
     }
 
     /// <summary>Moves cards into a column, then places the ones that made it at the gap (in front of <paramref name="before"/>, or last).</summary>
-    private async Task Land(Project p, IEnumerable<(WorkItem Item, string From, string? FromRow)> moving, BoardColumn col, int? before, string? swim = null)
+    private async Task<int> Land(Project p, IEnumerable<(WorkItem Item, string From, string? FromRow)> moving, BoardColumn col, int? before, string? swim = null, IReadOnlyList<int>? shownColumn = null)
     {
-        List<int> landed = [];
-        foreach ((WorkItem it, string from, string? fromRow) in moving)
-            if (await MoveInto(p, it, from, fromRow, col, swim)) landed.Add(it.Id);
-        // ponytail: "my order" keys cards by number, so two projects' same-numbered cards share a place; per-project keys if that shows
-        if (landed.Count > 0) Set(BoardModel.PlaceCards(O, col.Items.Select(i => i.Id).ToList(), landed, before));
+        List<(WorkItem Item, string From, string? FromRow)> cards = [.. moving];
+        List<int> column = [.. shownColumn ?? [.. col.Items.Select(i => i.Id)]];   // the column as shown: a header sort of the list is not the board's order
+        BoardOptions was = O;
+        int landedCount = 0;   // how many cards made it, for a caller that undoes what it did ahead when none did
+        landing++;
+        landedAt = null;
+        try
+        {
+            // The move is shown before it is written: the cards take the field values of the target cell in memory, the page draws, and then the writes run on the thread pool.
+            // ponytail: a part of the drop the page can't show ahead (a status the user is asked to pick, Completed which archives, a due period) makes the whole drop write first.
+            List<WorkItem>? ahead = Projected(p, cards, col, swim);
+            if (ahead is { Count: > 0 })
+            {
+                Remember(BoardModel.PlaceCards(was, column, [.. cards.Select(c => c.Item.Id)], before));
+                ShowItems(p, ahead);
+                StateHasChanged();   // the writes below run on the thread pool: this frame goes out while they do
+            }
+            List<int> landed = [];
+            foreach ((WorkItem it, string from, string? fromRow) in cards)
+                if (await MoveInto(p, it, from, fromRow, col, swim)) landed.Add(it.Id);
+            landedCount = landed.Count;
+            // ponytail: "my order" keys cards by number, so two projects' same-numbered cards share a place; per-project keys if that shows
+            if (ahead is not { Count: > 0 }) { if (landed.Count > 0) Remember(BoardModel.PlaceCards(O, column, landed, before)); }
+            else if (landed.Count < cards.Count) { shown.Clear(); Remember(landed.Count > 0 ? BoardModel.PlaceCards(was, column, landed, before) : was); }   // a card did not make it: what was shown is put right by the read below
+            Load();   // the one read of the drop: it finds what was shown written, or shows what is there
+        }
+        finally { landing--; }
+        // The page held every change back while the drop ran; one that moved the store after the drop's last write (not its own) is read now.
+        if (landedAt is long own && OpenSpecStore.OpenSpecStoreApi.TotalVersion != own) base.OnChanged();
+        return landedCount;
     }
+
+    private long? landedAt;   // the store version the last write of the running drop produced
+
+    /// <summary>The cards as the drop leaves them, to show before it is written; null when a part of it can't be shown ahead.</summary>
+    private List<WorkItem>? Projected(Project p, List<(WorkItem Item, string From, string? FromRow)> cards, BoardColumn col, string? swim)
+    {
+        DateTime now = Ui.Now(Time);
+        List<WorkItem> moved = [];
+        foreach ((WorkItem it, string from, string? fromRow) in cards)
+        {
+            WorkItem next = it;
+            foreach ((string field, string was, string value) in Steps(it, from, fromRow, col, swim))
+                if (Show(p, next, field, was, value) is { } changed) next = changed; else return null;
+            if (!ReferenceEquals(next, it)) moved.Add(next with { Modified = now });
+        }
+        return moved;
+    }
+
+    /// <summary>The item with a field changed as <see cref="SetField"/> will write it, or null when that is not known before the write.</summary>
+    private WorkItem? Show(Project p, WorkItem it, string field, string from, string value) => field switch
+    {
+        "status" => !it.Archived && BoardModel.StatusesFor(O, p.Statuses, value) is [string only] && only != "Completed" ? it with { Status = only } : null,
+        "feature" => it with { Features = value == BoardModel.Unassigned ? [] : [new FeatureLink(value, false)] },
+        "label" => it with { Label = value == BoardModel.Unassigned ? null : value },
+        "contributor" => it with { Contributors = [.. it.Contributors.Where(x => x != from).Append(value).Where(x => x != BoardModel.Unassigned).Distinct()] },
+        "priority" => it with { Priority = value },
+        _ => null,
+    };
 
     /// <summary>The ids of a cell in the order they are shown: the list's grid may sort or filter them (rows it hides go last), the board shows them as they are.</summary>
     private List<int> ShownIds(Project p, BoardCell cell)
@@ -676,10 +837,12 @@ public partial class BoardPage
         return [.. ids.OrderBy(id => at.GetValueOrDefault(id, int.MaxValue))];
     }
 
+    private bool GridSorted => gridSettings?.Columns?.Any(c => c.SortOrder is not null) == true;
+
     /// <summary>A column sort of the list's grid would hide the order the arrow keys just made, so arranging by hand drops it (the grid takes the settings back with no sort).</summary>
     private void DropGridSort()
     {
-        if (gridSettings?.Columns?.Any(c => c.SortOrder is not null) != true) return;
+        if (!GridSorted) return;
         DataGridSettings fresh = System.Text.Json.JsonSerializer.Deserialize<DataGridSettings>(System.Text.Json.JsonSerializer.Serialize(gridSettings))!;
         foreach (DataGridColumnSettings c in fresh.Columns!) { c.SortOrder = null; c.SortIndex = null; }
         SaveGridSettings(fresh);
@@ -694,6 +857,7 @@ public partial class BoardPage
         int dir = e.Key switch { "ArrowUp" => -1, "ArrowDown" => 1, "ArrowLeft" => -2, "ArrowRight" => 2, _ => 0 };
         if (selectedProjects.Count > 0 && Math.Abs(dir) == 1) { Workspace.MoveTabs(selectedProjects, dir); return; }   // projects first: their headings are what is selected
         if (selectedRows.Count > 0 && Math.Abs(dir) == 1) { MoveRows(dir); return; }   // then rows
+        if (selectedColumns.Count > 0 && Math.Abs(dir) == 1 && View == "list") { MoveColumns(dir); return; }   // then the list's groups (the board's columns move by drag)
         if (dir == 0 || selected.Count == 0 || O.Unit == "subtasks") return;
         Project? p = projects.FirstOrDefault(x => selected.All(s => s.Root == x.Root));
         List<int> picked = [.. selected.Select(s => s.Id)];
@@ -702,12 +866,30 @@ public partial class BoardPage
         List<int> ids = ShownIds(p, at);
         bool Picked(int id) => selected.Contains((p.Root, id));
         IEnumerable<(WorkItem, string, string?)> Moving() => at.Items.Items.Where(i => Picked(i.Id)).Select(i => (i, at.Items.Key, at.Swim));
-        if (Math.Abs(dir) == 1 && BoardModel.EdgeMove(cells, at, picked, dir, View == "list") is { } edge)   // at the cell's edge the cards move on, as a drop there
+        if (Math.Abs(dir) == 1)
         {
-            await Land(p, Moving(), edge.Target.Items, edge.Before, edge.Target.Swim);
+            // The keys work on what is shown. The target is worked out first from the shown order; a press that moves nothing changes nothing (no sort dropped, nothing saved).
+            ArrowMove? edge = BoardModel.EdgeMove(cells, at, picked, dir, View == "list", c => ShownIds(p, c));   // at the cell's edge the cards move on, as a drop there
+            if (edge is null && ReferenceEquals(BoardModel.Step(O, ids, ids.Where(Picked).ToList(), dir), O)) return;
+            // A card the write is sure to refuse (an archived one can't change status) makes the press a no-op, decided before anything is touched.
+            if (edge is not null && Moving().Any(m => m.Item1.Archived && Steps(m.Item1, m.Item2, m.Item3, edge.Target.Items, edge.Target.Swim).Any(s => s.Field == "status"))) return;
+            BoardOptions priorOptions = O;
+            DataGridSettings? priorGrid = gridSettings;
+            // A real move: "my order" starts from the whole shown order (every group, not only the one pressed in), the header sort goes, and the one step is made on top of that, so the moved row is the only change.
+            if (O.SortBy != "manual" || GridSorted) Remember(BoardModel.SeedOrder(O, cells.Select(c => ShownIds(p, c))));
+            DropGridSort();
+            if (edge is not null)
+            {
+                if (await Land(p, Moving(), edge.Target.Items, edge.Before, edge.Target.Swim, ShownIds(p, edge.Target)) == 0)   // nothing moved (a refusal only the write could tell): the options and the header sort come back
+                {
+                    Remember(priorOptions);
+                    if (priorGrid is not null && !ReferenceEquals(gridSettings, priorGrid)) SaveGridSettings(priorGrid);
+                    Reproject();
+                }
+            }
+            else Set(BoardModel.Step(O, ids, ids.Where(Picked).ToList(), dir));
             return;
         }
-        if (Math.Abs(dir) == 1) { DropGridSort(); Set(BoardModel.Step(O, ids, ids.Where(Picked).ToList(), dir)); return; }
 
         if (BoardModel.CellBeside(cells, at, Math.Sign(dir)) is not { } target) return;
         int row = ids.FindIndex(Picked);
@@ -720,13 +902,18 @@ public partial class BoardPage
     /// </summary>
     private async Task<bool> MoveInto(Project p, WorkItem it, string from, string? fromRow, BoardColumn col, string? swim)
     {
-        bool ok = from == col.Key || await SetField(p, it, Opt.GroupBy, from, col.Key);
-        if (ok && swim is not null && swim != fromRow)   // dropped into another row: the card takes that row's value too
-        {
-            string toValue = swim == BoardModel.NoRow ? BoardModel.Unassigned : swim;
-            if (!HasValue(it, Opt.Swimlane, toValue)) await SetField(p, it, Opt.Swimlane, fromRow is null or BoardModel.NoRow ? BoardModel.Unassigned : fromRow, toValue);
-        }
-        return ok;
+        foreach ((string field, string was, string value) in Steps(it, from, fromRow, col, swim))
+            if (!await SetField(p, it, field, was, value) && from != col.Key && field == Opt.GroupBy) return false;   // the row's value is set only when the column's was
+        return true;
+    }
+
+    /// <summary>The field changes a drop makes to a card: the column's value, and when dropped into another row the row's value too.</summary>
+    private IEnumerable<(string Field, string From, string Value)> Steps(WorkItem it, string from, string? fromRow, BoardColumn col, string? swim)
+    {
+        if (from != col.Key) yield return (Opt.GroupBy, from, col.Key);
+        string toValue = swim == BoardModel.NoRow ? BoardModel.Unassigned : swim ?? "";
+        if (swim is not null && swim != fromRow && !HasValue(it, Opt.Swimlane, toValue))
+            yield return (Opt.Swimlane, fromRow is null or BoardModel.NoRow ? BoardModel.Unassigned : fromRow, toValue);
     }
 
     /// <summary>Whether a work item already has a value of a field (<see cref="BoardModel.Unassigned"/>: none).</summary>
@@ -749,10 +936,10 @@ public partial class BoardPage
     {
         switch (field)
         {
-            case "feature": return Run(Workspace.In(p.Root, () => WorkItemsApi.MoveFeature(it.Id, value == BoardModel.Unassigned ? null : value)));
-            case "label": return Run(Workspace.In(p.Root, () => WorkItemsApi.SetLabel(it.Id, value == BoardModel.Unassigned ? null : value)));
-            case "contributor": return Run(Workspace.In(p.Root, () => WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(x => x != from).Append(value).Where(x => x != BoardModel.Unassigned))));
-            case "priority": return Run(Workspace.In(p.Root, () => WorkItemsApi.SetPriority(it.Id, value)));
+            case "feature": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.MoveFeature(it.Id, value == BoardModel.Unassigned ? null : value)));
+            case "label": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetLabel(it.Id, value == BoardModel.Unassigned ? null : value)));
+            case "contributor": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(x => x != from).Append(value).Where(x => x != BoardModel.Unassigned))));
+            case "priority": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetPriority(it.Id, value)));
             case "due" or "started":
                 Popups.Toast("A due or start period can't be set by dropping; change the date on the work item", ToastKind.Info);
                 return false;

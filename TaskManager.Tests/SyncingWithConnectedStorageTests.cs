@@ -298,6 +298,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
     {
         Computer c = NewComputer("a");
         c.Repo.Write("openspec/config.yaml", c.Read("openspec/config.yaml") + "  boardStorage:\n    provider: s3\n    endpoint: https://acct.r2.cloudflarestorage.com\n    bucket: board\n");   // what git brought
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.True(c.Settings.Approve(c.Root).Success);                           // the repository only proposes it: this computer has allowed it
         c.Sync.BoardChanged();
         await c.Sync.Attach(c.Root);
@@ -1344,6 +1345,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
     {
         Computer c = NewComputer("a");
         c.Repo.Write("openspec/config.yaml", c.Read("openspec/config.yaml") + "  boardStorage:\n    provider: folder\n    path: '" + Storage.Replace("'", "''") + "'\n");   // what git brought: only proposed
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         c.WriteAttachment(Pic, Png);
         await c.Sync.Attach(c.Root);
         c.Sync.BoardChanged();
@@ -1452,6 +1454,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
 
         // another computer's repository says "off" for a storage this computer allowed: still allowed, and off
         a.Repo.Write("openspec/config.yaml", a.Read("openspec/config.yaml").Replace("provider: folder", "provider: folder\n    attachments: false"));
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         Assert.Null(a.Settings.Proposal(a.Root));
         Assert.False(a.Settings.SyncAttachments(a.Root));
         Assert.Equal(before, a.Settings.AddressHash(a.Root));

@@ -244,6 +244,8 @@
   .nav-opts { display: contents; }   /* keeps the option blocks in the menu's layout; hidden (not removed) while an item is examined */
   .nav-view { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 4px 0; padding: 8px 6px; border-block: 2px dashed var(--line-soft); }
   .nav-view .field { gap: 6px; }
+  /* every "label: pill" row of the menu (Organise, Filters, the worklog's who) is a label column of one width and a pill column, so the pills share one left edge */
+  nav.side .nav-view .field { --opt-label: 88px; display: grid; grid-template-columns: var(--opt-label) minmax(0, 1fr); align-items: center; column-gap: 6px; align-self: stretch; min-width: 0; }
   .nav-sep { align-self: stretch; margin-block: 2px; border-top: 2px dashed var(--line-soft); }   /* between the organise block, the sort and filters, and the display switches */
   /* Worklog: the open feed's filters (check rows in two columns), who, and the day menu's actions for today; no frames, like the rest of the menu */
   .nav-worklog { align-self: stretch; }
@@ -670,10 +672,11 @@
   .rz-dropdown-panel, .rz-overlaypanel { position: absolute; z-index: 60; min-width: 160px; padding: 6px; background: var(--card); color: var(--ink);
     border: 2px solid var(--line); border-radius: 12px; box-shadow: 4px 4px 0 var(--shadow); }
   .rz-dropdown-panel { min-width: max-content !important; }   /* Radzen writes the trigger's width and min-width inline; the options are wider than a pill */
-  .rz-dropdown-panel .rz-dropdown-items-wrapper { max-height: 60vh !important; }   /* Radzen writes 200px inline */
+  .rz-dropdown-panel .rz-dropdown-items-wrapper { max-height: min(60vh, 400px) !important; overflow: hidden auto; }   /* Radzen writes 200px inline; 400px is about 12 rows, then the list scrolls */
   .rz-dropdown-items { list-style: none; margin: 0; padding: 0; }
   .rz-dropdown-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; font-size: 14px; white-space: nowrap; cursor: pointer; }
-  .rz-dropdown-item > span { display: inline-flex; align-items: center; gap: 8px; }
+  .rz-dropdown-item > span { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+  .rz-dropdown-item > span > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* in a popup given a width (the commit list) a long row ends in an ellipsis */
   .rz-dropdown-item:hover, .rz-dropdown-item.rz-state-highlight { background: var(--stone); color: var(--on-fill); }
   .rz-grid-filter { display: flex; flex-direction: column; gap: 8px; }
   .rz-grid-filter-label { font: 700 12px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
@@ -1053,13 +1056,9 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   nav.side .dd.is-on:hover, nav.side .dd.is-off:hover { filter: brightness(.95); color: var(--on-fill); }
   nav.side .dd.is-on:focus-visible, nav.side .dd.is-off:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   /* the one Add entry button of the Worklog block */
-  .nav-add-menu { align-self: flex-start; }
-  .nav-add { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 14px; border: 2px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--ink); font: 600 14px var(--f-body); cursor: pointer; }
-  .nav-add svg { width: 14px; height: 14px; }
-  .nav-add:hover, .nav-add:focus-visible { background: var(--sage); color: var(--on-fill); outline: none; }
+  .nav-add-menu { align-self: flex-start; }   /* the button itself is a .nav-btn.nav-new: the red one, like New work item */
   /* the changed period can carry times ("10 Nov 20:00 – 11 Nov 06:00"): wrap onto a second line in the narrow menu instead of clipping */
-  nav.side .field.changed { flex-wrap: wrap; align-items: flex-start; max-width: 100%; }
-  nav.side .field.changed > label { flex: 0 0 100%; }
+  nav.side .field.changed { align-items: start; }
   nav.side .field.changed .dates-btn { max-width: 100%; height: auto; text-align: left; white-space: normal; overflow-wrap: anywhere; }
   nav.side .legend .lg.head { white-space: normal; overflow-wrap: anywhere; }
   /* the collapse icon shares the first row of the expanded menu: the "N open" button takes the width, the icon ends the row;
@@ -1117,7 +1116,9 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 
 /* card dates */
 @layer page {
-  .meta-row .stamp { flex-basis: 100%; }   /* "15:34. 16 Nov 26" fills its own line; people and the subtask count follow */
+  .meta-row .stamp-line { flex-basis: 100%; }   /* "updated 15:34. 16 Nov 26" fills its own line; people and the subtask count follow */
+  .meta-row .subs { white-space: nowrap; }   /* "11/12 subtasks" wraps as one piece */
+  .meta-row .cap { color: var(--ink-2); }   /* the muted word that says what a number is: updated, subtasks */
   .tag.dates { white-space: nowrap; }   /* "9–16 Nov": one period pill, never wrapped; wears .hot (peach) once its due day is past */
 }
 
@@ -1217,9 +1218,6 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
     nav.side .nav-sec-h:hover { background: var(--stone); color: var(--on-fill); }
     .nav-sec-chev { width: 16px; height: 16px; justify-content: center; align-items: center; }
     .nav-sec-chev svg { width: 14px; height: 14px; }
-    nav.side .nav-add { display: flex; width: 100%; background: none; font-weight: 500; }
-    .nav-add svg { width: 16px; height: 16px; flex: none; }
-    .nav-add:hover, .nav-add:focus-visible { background: var(--stone); color: var(--on-fill); }
   }
 }
 
@@ -1230,11 +1228,10 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 }
 
 @layer nav {
-  /* a chosen commit is a long label (hash and subject): the pill shrinks to the menu and ends in an ellipsis */
-  nav.side .field.commit { min-width: 0; max-width: 100%; }
-  nav.side .field.commit .dd.nav-dd { min-width: 0; flex: 0 1 auto; max-width: 100%; }
-  nav.side .field.commit .dd .rz-dropdown-label { min-width: 0; max-width: 100%; }
-  nav.side .field.commit .dd .rz-dropdown-label > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* a value can be long (a contributor, a commit's hash and subject): its pill shrinks to its column and the text ends in an ellipsis inside it */
+  nav.side .field .dd.nav-dd { min-width: 0; max-width: 100%; justify-self: start; }
+  nav.side .field .dd .rz-dropdown-label { min-width: 0; max-width: 100%; }
+  nav.side .field .dd .rz-dropdown-label > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 /* ───────────────────────────────────────────── list pills ───────────────────────────────────────────── */

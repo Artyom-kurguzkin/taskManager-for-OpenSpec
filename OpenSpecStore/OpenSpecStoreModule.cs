@@ -11,9 +11,24 @@ internal sealed class Repo(string root, StoreState owner)
     public StoreState Owner { get; } = owner;
     /// <summary>Goes up whenever the repo's content may have changed (own write, outside edit).</summary>
     public long Version;
+    /// <summary>Goes up when something outside the app's own writes may have changed the content (the watcher noticed an edit, or the host said so with Refresh): what the app wrote itself is in the record of touched paths instead.</summary>
+    public long Outside;
     public FileSystemWatcher? Watcher;
     public Timer? Debounce;
     public long Opened;   // order of opening (a dictionary reuses freed slots, so its order is not that)
+    /// <summary>What was read and parsed of this repository's config.yaml, kept while its content version and the file look the same (see <see cref="Queries.ReadConfigSection{T}"/>).</summary>
+    public readonly ConfigCache Config = new();
+}
+
+/// <summary>config.yaml as last read: its text, the sections cut out of it, and what the store knew of outside changes and of the app's own writes when it was.</summary>
+internal sealed class ConfigCache
+{
+    public long Outside = -1, Cursor;
+    public bool Read;
+    public string? Text;   // null = the file is not there
+    public string? Unavailable;   // why the file could not be opened at the last look (never kept: the next call looks again)
+    public long Changes;   // how many times the text turned out different from before
+    public readonly Dictionary<string, string?> Sections = [];   // x-rtm.<key> as YAML text (null = none); callers get a fresh object parsed from it, as they change what they are given
 }
 
 /// <summary>Which repositories are open, which one is current, what the app last read of their files, and who listens for outside edits.</summary>
@@ -26,6 +41,8 @@ internal sealed class StoreState
     public Action? Changed;
     /// <summary>A test seam: false = <see cref="OpenSpecStoreModule.StartWatching"/> starts no file system watcher, so a late event from the disk cannot reload a page in the middle of a test. The app always has it on.</summary>
     public bool RealWatcher = true;
+    /// <summary>How many times a config.yaml was read from disk (a test counts them).</summary>
+    public int ConfigReads;
     /// <summary>Content of each file as the app last read or wrote it; null = the file did not exist.</summary>
     public readonly ConcurrentDictionary<string, string?> LastSeen = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Every path the app wrote, deleted or moved, in order (see <see cref="OpenSpecStoreModule.Touch"/>).</summary>
@@ -85,8 +102,12 @@ internal static class OpenSpecStoreModule
     }
 
     internal static string? RepoRoot => Current?.Root;
+    internal static int ConfigReads => State.ConfigReads;
     internal static long Version => Current is { } c ? Interlocked.Read(ref c.Version) : 0;
     internal static void Bump() { if (Current is { } c) Interlocked.Increment(ref c.Version); }
+    /// <summary>The host says files may have changed behind the app's back (a sync pull, a tool call starting): a version bump, and what is kept apart from the app's own writes is read again.</summary>
+    internal static void BumpOutside() { if (Current is { } c) { Interlocked.Increment(ref c.Outside); Interlocked.Increment(ref c.Version); } }
+    internal static long Outside => Current is { } c ? Interlocked.Read(ref c.Outside) : 0;
 
     /// <summary>What an agent's tool call has read of the files, for that call alone; null = the process-wide record, the window's.</summary>
     private static readonly AsyncLocal<ConcurrentDictionary<string, string?>?> CallSeen = new();
@@ -176,6 +197,7 @@ internal static class OpenSpecStoreModule
         repo.Debounce?.Dispose();
         repo.Debounce = new Timer(_ =>
         {
+            Interlocked.Increment(ref repo.Outside);
             Interlocked.Increment(ref repo.Version);
             Action? changed;
             lock (repo.Owner.Repos) changed = repo.Owner.Changed;

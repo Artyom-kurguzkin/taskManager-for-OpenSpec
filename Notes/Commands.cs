@@ -37,9 +37,40 @@ internal static class Commands
     /// Every unticked checkbox line of the note (outside code fences, not yet marked) becomes a subtask of its work item, and the line stays in the
     /// note with " (created subtask)" after it. The note is written once, and only when something was made.
     /// </summary>
-    internal static (bool Success, string Message, IReadOnlyList<string> Created) PromoteSubtasks(int id)
+    internal static (bool Success, string Message, IReadOnlyList<string> Created) PromoteSubtasks(int id) =>
+        NotesApi.Get(id) is Note note ? PromoteSubtasks(note) : (false, NotFound, []);
+
+    /// <summary>
+    /// What the editor saves, in one command: the text and the title (each null when unchanged) in one write, then the checkboxes of the text become subtasks.
+    /// The note is read once, not again before every step; the later steps work on what was just written.
+    /// </summary>
+    internal static (bool Success, string Message, IReadOnlyList<string> Created) SaveEdit(int id, string? body, string? title)
     {
         if (NotesApi.Get(id) is not Note note) return (false, NotFound, []);
+        if (body is not null || title is not null)
+        {
+            title = title is null ? null : string.Join(' ', title.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+            if (title is { Length: 0 }) return (false, "A note needs a title", []);
+            (string front, string old) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
+            string text = body?.Replace("\r\n", "\n") ?? old;
+            string whole = front + text;
+            if (title is not null)
+            {
+                NoteMeta meta = NoteFile.Meta(front);
+                if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again", []);   // never written over
+                (meta.Id, meta.Title) = (id, title);
+                whole = NoteFile.Compose(meta, text);
+            }
+            (bool ok, string message) = OpenSpecStoreApi.WriteText(note.Path, whole);
+            if (!ok) return (false, message, []);
+            note = note with { Body = text };
+        }
+        return PromoteSubtasks(note);
+    }
+
+    private static (bool Success, string Message, IReadOnlyList<string> Created) PromoteSubtasks(Note note)
+    {
+        int id = note.Id;
         string[] lines = note.Body.Split('\n');
         List<string> created = [];
         string failure = "";

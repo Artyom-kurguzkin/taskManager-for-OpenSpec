@@ -522,7 +522,7 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
         page.Find("#sub-2-1").Change(true);
-        Assert.Contains("- [x] 2.1", repo.Read("openspec/changes/add-health-check/tasks.md"));
+        page.WaitForAssertion(() => Assert.Contains("- [x] 2.1", repo.Read("openspec/changes/add-health-check/tasks.md")));   // the write runs on the thread pool, after the page drew
     }
 
     [Fact(DisplayName = "Clicking a subtask's text edits it in place; Enter saves it to tasks.md")]
@@ -1650,6 +1650,8 @@ public sealed class UsingThePagesTests : IDisposable
         TempGit.Commit(repo.Root, "2026-11-02T10:00:00+00:00", "Reword the export");
         string second = TempGit.Run(repo.Root, null, "log", "-1", "--format=%h").Trim(), first = TempGit.Run(repo.Root, null, "log", "--format=%h", "--skip=1", "-1").Trim();
         await using BunitContext ctx = NewContext();
+        List<Action> gitRefreshes = [];
+        TaskManager.AppState.Caches.S.Git.Background = work => { gitRefreshes.Add(work); return Task.CompletedTask; };   // git's answer about the work tree arrives after the frame: the test delivers it
 
         // #wi107 was last touched by the second commit, #wi123 by the first
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
@@ -1662,7 +1664,15 @@ public sealed class UsingThePagesTests : IDisposable
         repo.Write("openspec/changes/add-health-check/proposal.md", repo.Read("openspec/changes/add-health-check/proposal.md") + "\nNot committed yet.\n");
         OpenSpecStore.OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher: the version the uncommitted answer is kept under moves
         IRenderedComponent<WorkItemPage> dirty = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Assert.Equal("uncommitted", dirty.Find(".kv.last-commit .chip").TextContent.Trim());
+        Assert.Equal(first, dirty.Find(".kv.last-commit .chip").TextContent.Trim());   // the answer known so far comes at once ...
+        for (int turns = 0; gitRefreshes.Count > 0; turns++)   // ... and git's new one reloads the page, which may queue the next one: take them one at a time until the queue is empty
+        {
+            Assert.True(turns < 10, "a refresh keeps queueing another although nothing changed");
+            Action work = gitRefreshes[0];
+            gitRefreshes.RemoveAt(0);
+            work();
+        }
+        dirty.WaitForAssertion(() => Assert.Equal("uncommitted", dirty.Find(".kv.last-commit .chip").TextContent.Trim()));
 
         // the examine panel has the one line
         UiService popups = ctx.Services.GetRequiredService<UiService>();

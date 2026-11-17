@@ -179,7 +179,30 @@ public sealed class OpeningSeparateWindowsTests : IDisposable
 
         page.Find("input.title-in").Change("Renamed in the separate window");
         page.WaitForAssertion(() => Assert.Equal("Renamed in the separate window", page.Find("input.title-in").GetAttribute("value")));
-        Assert.Equal("Renamed in the separate window", workspace.In(repo.Root, () => WorkItemsApi.Get(123)!.Title));
+        // the page shows the title ahead of the write, which lands on the thread pool: wait for the file, not for the screen
+        page.WaitForAssertion(() => Assert.Equal("Renamed in the separate window", workspace.In(repo.Root, () => WorkItemsApi.Get(123)!.Title)));
         Assert.Equal("The other project's item", workspace.In(second.Root, () => WorkItemsApi.Get(123)!.Title));
+    }
+
+    [Fact(DisplayName = "A status change from the separate window writes to its own project while the main window is on another")]
+    public async Task StatusChangeWritesToItsOwnProject()
+    {
+        using TestRepo second = new();
+        await using BunitContext main = MainWindow(out _);
+        Workspace workspace = main.Services.GetRequiredService<Workspace>();
+        Assert.True(Windows(main).Open(repo.Root, 123).Success);
+        await using BunitContext other = SeparateWindow(main, built[0], out _);
+        Assert.True(workspace.OpenTab(second.Root).Success);
+        string secondStatus = workspace.In(second.Root, () => WorkItemsApi.Get(123)!.Status);
+
+        IRenderedComponent<WorkItemPage> page = other.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        string ownStatus = workspace.In(repo.Root, () => WorkItemsApi.Get(123)!.Status);
+        string target = ownStatus == "Blocked" ? "In Review" : "Blocked";
+        Assert.NotEqual(secondStatus, target);
+
+        page.Find(".status-field .dd").Click();
+        page.FindAll(".status-field .rz-dropdown-item").First(i => i.TextContent.Trim() == target).Click();
+        page.WaitForAssertion(() => Assert.Equal(target, workspace.In(repo.Root, () => WorkItemsApi.Get(123)!.Status)));
+        Assert.Equal(secondStatus, workspace.In(second.Root, () => WorkItemsApi.Get(123)!.Status));
     }
 }

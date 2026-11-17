@@ -1,16 +1,13 @@
 schema: spec-driven
-created: 2026-11-11
+skip_specs: true
+created: 2026-11-18
 x-rtm:
-  id: 153
-  title: list view moving tasks
-  status: In Review
+  id: 205
+  title: merge work items
+  status: In Progress
   priority: high
   contributors: [Artyom-kurguzkin]
-  features: [general-ux]
+  features: [organise-work-items]
   label: bug
-  started: 2026-11-11
-  due: 2026-11-11
-  moved: 2026-11-16
-  tests: [{suite: UsingTheBoardTests, test: Dropping a list row on another group moves the work item there}, {suite: UsingTheBoardTests, test: Dropping a list row above another row in my order reorders them}, {suite: UsingTheBoardTests, test: 'In the list view only a Shift-click selected row is a drag handle: it drags after a few pixels wherever the press lands'}, {suite: UsingTheBoardTests, test: Dragging a selected list row moves every selected row to the drop group in their order}, {suite: UsingTheBoardTests, test: A press on an unselected list row selects cells and never starts a drag}, {suite: UsingTheBoardTests, test: 'The list always has a Status column, whatever the grouping'}, {suite: UsingTheBoardTests, test: The colour-by value tints the whole list row and the text stays readable}, {suite: UsingTheBoardTests, test: Arrow keys move the selected list rows within their group and into the next group at the edge}, {suite: ArrangingTheBoardTests, test: "Arrow keys at a group's edge send the selected rows to the neighbouring group's end or start, and inside the group they only step"}, {suite: UsingTheBoardTests, test: 'What the list is grouped by is not repeated, except the Status column: no Label column by label, no Features by bucket, no Contributors by contributor'}, {suite: UsingTheBoardTests, test: "List cells wear their colours: status, label and priority are filled pills, and a status group's name wears its band"}, {suite: UsingTheBoardTests, test: "The list's sticky column headers paint the strip band above them over the whole table width, so no row shows above the headers when the table is scrolled sideways"}, {suite: UsingTheBoardTests, test: 'Arrow up in the list swaps the selected row within its subgroup, then crosses into the subgroup above, then into the group above; arrow down brings it back'}, {suite: UsingTheBoardTests, test: "Arrow keys on the board move a selected card one place per press and keep it selected, within its row's cell, then into the row above, and sideways into the next column's cell"}, {suite: UsingTheBoardTests, test: 'After an arrow move app.js scrolls the moved card or row into view once the board has re-rendered, clear of the sticky header and the action bar'}, {suite: ArrangingTheBoardTests, test: "With subgroups an arrow at a subgroup's edge crosses into the neighbouring subgroup, then at the group's edge into the neighbouring group; on the board it crosses rows only"}]
-  agentBy: Claude chunk arrows
-  agentAt: 2026-11-16T11:31:22
+  started: 2026-11-18
+  moved: 2026-11-18

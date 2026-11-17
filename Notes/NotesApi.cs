@@ -79,6 +79,11 @@ public static class NotesApi
     /// note with " (created subtask)" appended. Created lists the new subtask numbers; nothing is written when nothing qualified.
     /// </summary>
     public static (bool Success, string Message, IReadOnlyList<string> Created) PromoteSubtasks(int noteId) => Commands.PromoteSubtasks(noteId);
+    /// <summary>
+    /// What the note editor saves, as one command: the text and the title (each null when unchanged) written once, then <see cref="PromoteSubtasks"/> on the text.
+    /// The note is read once. Created lists the subtasks made from its checkboxes.
+    /// </summary>
+    public static (bool Success, string Message, IReadOnlyList<string> Created) SaveEdit(int id, string? body, string? title) => Commands.SaveEdit(id, body, title);
 
     public static (bool Success, string Message) AddManualLink(int id, string link) => Commands.AddManualLink(id, link);
     public static (bool Success, string Message) SetLinkedCommits(int id, IEnumerable<string> hashes) => Commands.SetLinkedCommits(id, hashes);

@@ -17,7 +17,7 @@ public static class OpenSpecStoreApi
     /// <summary>What the open repositories' content versions add up to: unlike <see cref="Version"/> it moves when a write lands in a repository that is open but not the current one.</summary>
     public static long TotalVersion { get { lock (OpenSpecStoreModule.Repos) return OpenSpecStoreModule.Repos.Values.Sum(r => Interlocked.Read(ref r.Version)); } }
     /// <summary>Makes every module read the current repository from disk again on its next call, for a caller that cannot wait for the watcher (a tool call right after an outside edit).</summary>
-    public static void Refresh() => OpenSpecStoreModule.Bump();
+    public static void Refresh() => OpenSpecStoreModule.BumpOutside();
     public static string? OpenSpecRoot => OpenSpecStoreModule.RepoRoot is null ? null : Path.Combine(OpenSpecStoreModule.RepoRoot, "openspec");
     /// <summary>Opens a repository and makes it current. With <paramref name="keepOthers"/> the other open ones stay open (tabs); otherwise they close.</summary>
     public static (bool Success, string Message) Open(string repoRoot, bool keepOthers = false) => Commands.Open(repoRoot, keepOthers);
@@ -126,9 +126,15 @@ public static class OpenSpecStoreApi
     /// <summary>
     /// One section of the project's config.yaml (<c>x-rtm.&lt;key&gt;</c>) as <typeparamref name="T"/> (a string, a list of strings, a mapping, ...), of the open project or of <paramref name="repoRoot"/>.
     /// One rule for every section: it never throws. Missing or empty gives no value and no problem; a section that cannot be read gives no value and a problem that names it, so the caller uses its
-    /// default and shows the problem; a file that is locked right now is <see cref="PublicDTOs.ConfigSection{T}.Unavailable"/>. Nothing is cached here.
+    /// default and shows the problem; a file that is locked right now is <see cref="PublicDTOs.ConfigSection{T}.Unavailable"/>. For an open project the file is read and parsed once per change of the file, not per call.
     /// </summary>
     public static PublicDTOs.ConfigSection<T> ReadConfigSection<T>(string key, string? repoRoot = null) => Queries.ReadConfigSection<T>(key, repoRoot);
+
+    /// <summary>Moves each time the open project's files may have changed behind the app's back (the file watcher noticed an edit, or <see cref="Refresh"/>); the app's own writes do not move it, they are in <see cref="ChangesSince"/>.</summary>
+    public static long OutsideVersion => OpenSpecStoreModule.Outside;
+
+    /// <summary>Moves each time the open project's config.yaml turned out different from what was read before: what is derived from the file stays valid while it holds still (0 without a project).</summary>
+    public static long ConfigVersion => Queries.ConfigVersion(null);
 
     /// <summary>
     /// Replaces one section of config.yaml with <paramref name="value"/> (null removes it); lists go on one line as [a, b] when <paramref name="flowLists"/>. Sibling sections, comments and the rest of the file

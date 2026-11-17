@@ -19,9 +19,10 @@ public sealed class KeepingMyArrangementsTests : IDisposable
 
     private IRenderedComponent<SideNav>? nav;
 
-    private BunitContext NewContext()
+    private BunitContext NewContext(TimeProvider? time = null)
     {
         BunitContext ctx = new();
+        if (time is not null) ctx.Services.AddSingleton(time);
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddSingleton<UiService>();
         ctx.Services.AddRadzenComponents();
@@ -46,6 +47,63 @@ public sealed class KeepingMyArrangementsTests : IDisposable
     private void Settle() => nav!.InvokeAsync(() => { }).GetAwaiter().GetResult();
 
     private static List<string> Columns(IRenderedComponent<BoardPage> board) => board.FindAll("section.col h3").Select(h => h.TextContent).ToList();
+
+    [Fact(DisplayName = "An arrow press saves the board settings once after the debounce, not per press, and an unchanged press saves nothing")]
+    public async Task ArrowPressesSaveOnceAfterTheDebounce()
+    {
+        Microsoft.Extensions.Time.Testing.FakeTimeProvider time = new();
+        await using BunitContext ctx = NewContext(time);
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        Workspace ws = ctx.Services.GetRequiredService<Workspace>();
+        int[] ids = [.. Enumerable.Range(0, 5).Select(_ => ws.CreateItem("Planned").Id)];
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        Show("List");
+        settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ListGroupBy = "none", ListSwimlane = "none" });
+        await board.InvokeAsync(() => { });
+        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
+        List<int> Shown() => [.. board.FindAll("tr[data-id]").Select(r => int.Parse(r.GetAttribute("data-id")!))];
+        int pick = Shown()[2];
+        await board.InvokeAsync(() => board.FindAll("tr[data-id]").First(r => r.GetAttribute("data-id") == pick.ToString()).QuerySelector("td.num")!.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
+        int writes = settings.Writes;
+
+        for (int press = 0; press < 3; press++)   // up, up, and the third is at the top already
+        {
+            await board.InvokeAsync(() => board.Find(".tbl-wrap").KeyDown("ArrowUp"));
+            await board.InvokeAsync(() => { });
+        }
+        Assert.Equal(pick, Shown()[0]);
+        Assert.Equal(writes, settings.Writes);                  // nothing yet: each press moved the pause on
+        time.Advance(TimeSpan.FromMilliseconds(249));
+        Assert.Equal(writes, settings.Writes);
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        Assert.Equal(writes + 1, settings.Writes);              // one write for the three presses
+        Assert.Equal("manual", new SettingsStore(settingsFile).Board(repo.Root).SortBy);
+        Assert.Contains("item:" + pick, new SettingsStore(settingsFile).Board(repo.Root).Order!);
+
+        await board.InvokeAsync(() => board.Find(".tbl-wrap").KeyDown("ArrowUp"));   // already first: nothing changes
+        await board.InvokeAsync(() => { });
+        time.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(writes + 1, settings.Writes);
+    }
+
+    [Fact(DisplayName = "A pending board save is written by Flush before the debounce elapses")]
+    public void AFlushWritesThePendingBoardSave()
+    {
+        Microsoft.Extensions.Time.Testing.FakeTimeProvider clock = new();
+        SettingsStore settings = new(settingsFile);
+        int writes = settings.Writes;
+        settings.SaveBoardSoon(repo.Root, settings.Board(repo.Root) with { SortBy = "manual", Order = ["item:7", "item:3"] }, clock);
+        clock.Advance(TimeSpan.FromMilliseconds(100));   // the window closes inside the pause
+        Assert.Equal(writes, settings.Writes);
+
+        settings.Flush();
+
+        Assert.Equal(writes + 1, settings.Writes);
+        Assert.Equal(["item:7", "item:3"], new SettingsStore(settingsFile).Board(repo.Root).Order);
+        settings.Flush();                                  // nothing pending: idempotent
+        clock.Advance(TimeSpan.FromSeconds(5));            // and the cancelled timer does not write again
+        Assert.Equal(writes + 1, settings.Writes);
+    }
 
     [Fact(DisplayName = "Hidden columns stay hidden after adding a work item and visiting the list, the calendar and a work item page")]
     public async Task HiddenColumnsSurviveAWalkAround()

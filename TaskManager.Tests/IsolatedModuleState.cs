@@ -18,6 +18,7 @@ internal static class IsolatedModuleState
     {
         TaskManager.AppState.Caches.Install();   // once per process: the modules answer from the caches below
         TaskManager.AppState.Caches.Isolated.Value = new();
+        TaskManager.AppState.Caches.S.Git.Background = work => { work(); return Task.CompletedTask; };   // git's answer about the work tree arrives on the thread pool in the app; a test gets it at once, and the ones that cover the hand-over queue it themselves
         OpenSpecStore.OpenSpecStoreModule.Isolated.Value = new();
         WorkItems.WorkItemsModule.Isolated.Value = new();
         Notes.NotesModule.Isolated.Value = new();

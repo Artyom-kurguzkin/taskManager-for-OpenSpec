@@ -1,0 +1,19 @@
+2026-11-17T10:23:36 | Claude | created | Arrow keys at a group edge with a header sort or a stale manual order
+2026-11-17T10:23:36 | Claude | description-edited | proposal.md
+2026-11-17T10:23:36 | Claude | priority | low -> high
+2026-11-17T10:23:36 | Claude | label | none -> bug
+2026-11-17T10:23:37 | Claude | dependency-added | #wi195
+2026-11-17T10:29:44 | Claude | dependency-removed | #wi195
+2026-11-17T10:29:49 | Claude | status | Backlog -> In Progress
+2026-11-17T11:45:53 | Claude | test-linked | MovingRowsWithArrowKeysTests / With the grid's header sort on, an arrow key that has nowhere to move a row changes nothing: the shown order stays and the sort stays on(groupBy: "none", key: "ArrowUp")
+2026-11-17T11:45:53 | Claude | test-linked | MovingRowsWithArrowKeysTests / With the grid's header sort on, an arrow key that has nowhere to move a row changes nothing: the shown order stays and the sort stays on(groupBy: "none", key: "ArrowDown")
+2026-11-17T11:45:53 | Claude | test-linked | MovingRowsWithArrowKeysTests / With the grid's header sort on, an arrow key that has nowhere to move a row changes nothing: the shown order stays and the sort stays on(groupBy: "priority", key: "ArrowUp")
+2026-11-17T11:45:53 | Claude | test-linked | MovingRowsWithArrowKeysTests / With the grid's header sort on, an arrow key that has nowhere to move a row changes nothing: the shown order stays and the sort stays on(groupBy: "priority", key: "ArrowDown")
+2026-11-17T11:45:53 | Claude | test-linked | MovingRowsWithArrowKeysTests / With the grid's header sort on, a row first in the board's order but shown last in its group swaps with the row shown above it on Up, and the same on Down for the one shown first(key: "ArrowUp")
+2026-11-17T11:45:53 | Claude | test-linked | MovingRowsWithArrowKeysTests / With the grid's header sort on, a row first in the board's order but shown last in its group swaps with the row shown above it on Up, and the same on Down for the one shown first(key: "ArrowDown")
+2026-11-17T11:45:53 | Claude | test-linked | MovingRowsWithArrowKeysTests / With no header sort, an arrow key that takes a row across a group edge moves that row only: every other group keeps its shown order, whatever the saved order holds(key: "ArrowUp")
+2026-11-17T11:45:53 | Claude | test-linked | MovingRowsWithArrowKeysTests / With no header sort, an arrow key that takes a row across a group edge moves that row only: every other group keeps its shown order, whatever the saved order holds(key: "ArrowDown")
+2026-11-17T11:45:53 | Claude | test-linked | MovingRowsWithArrowKeysTests / After an arrow key took the header sort away, a click on the Updated header sorts the list again
+2026-11-17T11:57:03 | Claude | status | In Progress -> In Review
+2026-11-18T09:19:39 | Claude | test-linked | MovingRowsWithArrowKeysTests / Up on the first row of a group that cannot leave (archived) with a header sort on changes nothing: the shown order and the sort stay
+2026-11-18T09:19:39 | Claude | test-linked | MovingRowsWithArrowKeysTests / With no header sort, a refused cross-group move leaves the saved order and the shown order unchanged

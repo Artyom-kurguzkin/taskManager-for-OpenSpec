@@ -1,0 +1,77 @@
+2026-11-10T20:36:19 | Artyom-kurguzkin | created | New work item
+2026-11-10T20:36:32 | Artyom-kurguzkin | title | New work item -> patch menu
+2026-11-10T20:37:19 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-10T20:38:00 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-10T20:38:13 | Artyom-kurguzkin | feature | none -> general-ux
+2026-11-10T20:38:17 | Artyom-kurguzkin | status | Backlog -> Planned
+2026-11-10T20:38:21 | Artyom-kurguzkin | priority | low -> high
+2026-11-10T20:38:25 | Artyom-kurguzkin | dates | none -> 10 Nov – 16 Nov
+2026-11-11T06:08:12 | Artyom-kurguzkin | attachment-added | n227: pasted-20261111-060812.png
+2026-11-11T06:14:47 | Artyom-kurguzkin | attachment-added | n228: pasted-20261111-061447.png
+2026-11-11T07:34:41 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-11T07:41:54 | Claude menu | log | Started: side-menu patch (pills instead of checkboxes, Add entry menu, sort by first, split-only top section).
+2026-11-11T07:46:49 | Claude menu | log | Tests red: 10 failed in UsingTheBoardTests (menu patch tests + updated worklog/hidden tests), before implementing SideNav changes.
+2026-11-11T07:58:31 | Claude menu | log | Suite: Passed! - Failed: 0, Passed: 582, Skipped: 0, Total: 582 (menu patch; real-app check next).
+2026-11-11T08:04:57 | Claude menu | log | Menu patch done: Passed! - Failed: 0, Passed: 582, Total: 582; real app checked light/dark on hidden desktop (board, item, Add entry menu, pills, split).
+2026-11-11T08:14:17 | Claude | status | In Progress -> In Review
+2026-11-11T08:14:17 | Claude | test-linked | UsingTheBoardTests / The side menu has no checkboxes: filters and options are pills, filled when on and underlined when off
+2026-11-11T08:14:17 | Claude | test-linked | UsingTheBoardTests / Sort by is the first field under Organise, and show all hidden sits under the Hidden header
+2026-11-11T08:14:17 | Claude | test-linked | UsingTheBoardTests / The Worklog block has one Add entry button whose menu offers note, decision, bug, subtask and the three links
+2026-11-11T08:14:17 | Claude | test-linked | UsingTheBoardTests / With a work item filling the window the menu hides the projects, layout and new item rows, and shows them again in split view
+2026-11-11T08:14:17 | Claude | test-linked | UsingTheBoardTests / The side menu's top row is a collapse icon without the repository name
+2026-11-11T08:37:17 | Artyom-kurguzkin | converted | note #n228 -> bug
+2026-11-11T08:38:17 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-11T08:38:45 | Artyom-kurguzkin | attachment-added | n252: pasted-20261111-083845.png
+2026-11-11T09:10:27 | Claude | log | Read bug note n252 (wasted space at the top of the menu). Agent started: collapse icon moves to the end of the first row, blank space above it goes.
+2026-11-11T09:10:32 | Claude menu | log | Started: collapse icon moves into the first row of the expanded menu; rail keeps it on top. Patch base applied cleanly.
+2026-11-11T09:15:52 | Claude menu | log | Test red first (aria-expanded absent when false, icon still its own row); now green after SideNav.razor Toggle fragment + nav-row CSS. Full suite next, then real-app shots.
+2026-11-11T10:18:48 | Claude menu | log | Menu top fix done: icon ends the first row (N open / Worklog header), top pad 2px (was 6+34 icon row). Suite 591/593, the 2 failures differ each run (flaky: Several Changed events, Arrow keys) and pass alone. Shots in tests/out/shots/menutop-*-after.png.
+2026-11-11T10:19:44 | Claude | log | Menu-top fix applied to the main tree (3 files, clean): the collapse icon ends the first row; first text row moved up about 40 px. Agent's suite: 591 of 593, two failures it calls unrelated; main-tree suite follows with the grid and crash chunks.
+2026-11-12T05:11:57 | Claude | status | In Progress -> In Review
+2026-11-12T05:11:57 | Claude | test-unlinked | UsingTheBoardTests / The side menu's top row is a collapse icon without the repository name
+2026-11-12T05:11:57 | Claude | test-linked | UsingTheBoardTests / The expanded side menu has no row of its own for the collapse icon: it sits at the end of the first row, and the collapsed rail keeps it on top
+2026-11-16T07:16:53 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T07:19:03 | Artyom-kurguzkin | attachment-added | n405: pasted-20261116-071903.png
+2026-11-16T07:45:50 | Artyom-kurguzkin | label | none -> enhancement
+2026-11-16T07:50:15 | Artyom-kurguzkin | attachment-added | n411: pasted-20261116-075015.png
+2026-11-16T08:20:59 | Claude chunk menu | test-linked | UsingTheBoardTests / The menu's Organise, Filters and Hidden sections are collapsed by default and remember being opened
+2026-11-16T08:20:59 | Claude chunk menu | test-linked | UsingTheBoardTests / A collapsed section's header summarises a filter that is not neutral
+2026-11-16T08:20:59 | Claude chunk menu | test-linked | UsingTheBoardTests / Shift-clicking days in the Worklog block filters the feed to those days and Show all days clears it
+2026-11-16T08:20:59 | Claude chunk menu | test-linked | UsingTheBoardTests / The collapsed rail has a New work item button, and the expanded one is red while the view switcher is plain
+2026-11-16T08:32:45 | Claude chunk examine | status | In Progress -> In Review
+2026-11-16T08:32:45 | Claude chunk examine | test-linked | UsingTheBoardTests / With the menu expanded one click examines a card and shows its metadata and counts in the menu, the second click opens it
+2026-11-16T08:32:45 | Claude chunk examine | test-linked | UsingTheBoardTests / An examined item has the yellow mark, its dependents red and its dependencies blue, and only one item is examined at a time
+2026-11-16T08:32:45 | Claude chunk examine | test-linked | UsingTheBoardTests / Clicking outside any work item clears the examined state and the menu's blocks come back
+2026-11-16T08:32:45 | Claude chunk examine | test-linked | UsingTheBoardTests / With the menu collapsed one click opens the item as before
+2026-11-16T08:32:45 | Claude chunk examine | test-linked | UsingTheBoardTests / In the list a click on a row's title examines it with the menu expanded, a second click opens it, and Shift-click still selects
+2026-11-16T08:43:35 | Claude | log | Integrated the menu and examine chunks into main (SideNav, UiService, BoardPage merged three-way). One test adapted: the menu's expanded state is now shared, so a second SideNav opens expanded. Suite: Passed 1059, Failed 0.
+2026-11-16T09:25:29 | Artyom-kurguzkin | attachment-added | n444: pasted-20261116-092529.png
+2026-11-16T09:26:44 | Artyom-kurguzkin | subtask-added | 1.1 work item feed filter cr #n444
+2026-11-16T09:26:44 | Artyom-kurguzkin | converted | note #n444 -> subtask 1.1
+2026-11-16T09:27:01 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T09:41:13 | Artyom-kurguzkin | attachment-added | n446: pasted-20261116-094113.png
+2026-11-16T09:44:45 | Artyom-kurguzkin | subtask-added | 1.2 view subtask #n446
+2026-11-16T09:44:45 | Artyom-kurguzkin | converted | note #n446 -> subtask 1.2
+2026-11-16T11:11:31 | Claude chunk menu2 | status | In Progress -> In Review
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / With every feed filter on, clicking one shows only that kind, and later clicks add kinds
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / The examine panel lists the examined item's subtasks
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / The board's subtask view stays reachable from the examine panel, and Filters offers the way back to work items while it is on
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / Clicking a subtask in the examine panel asks whether to make it a work item of its own or one this item waits on, and does it
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / Starting to drag a subtask in the examine panel asks the same question
+2026-11-16T11:11:31 | Claude chunk menu2 | test-linked | UsingTheBoardTests / New work item is a filled red button and the menu's buttons share one edge and height
+2026-11-16T11:11:31 | Claude chunk menu2 | subtask-done | 1.1 work item feed filter cr #n444
+2026-11-16T11:11:31 | Claude chunk menu2 | subtask-done | 1.2 view subtask #n446
+2026-11-16T13:02:19 | Claude | log | Integrated menu2 into main with four other chunks plus test fixes (self-deadlocking delete-feature clicks, examine-panel click, toast lifetime seam, render-queue waits). One run: Passed 1083, Failed 0, 3 m 32 s.
+2026-11-17T13:02:00 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-17T13:02:32 | Artyom-kurguzkin | attachment-added | n693: pasted-20261117-130232.png
+2026-11-17T13:14:32 | Artyom-kurguzkin | attachment-added | n698: pasted-20261117-131432.png
+2026-11-17T13:14:40 | Artyom-kurguzkin | subtask-added | 1.3 add entry button should be red as well #n698
+2026-11-17T13:14:40 | Artyom-kurguzkin | converted | note #n698 -> subtask 1.3
+2026-11-17T13:14:49 | Artyom-kurguzkin | converted | note #n693 -> bug
+2026-11-18T08:28:08 | Claude | plan-linked | DevResources/plans/in-progress-ui-fixes-2026-11-18.md
+2026-11-18T08:44:07 | Claude chunk menu | subtask-done | 1.3 add entry button should be red as well #n698
+2026-11-18T08:59:25 | Claude | test-linked | UsingTheBoardTests / Every Organise and Filters row is a label column and a pill column, so all the pills share one left edge
+2026-11-18T08:59:25 | Claude | test-linked | UsingTheBoardTests / Add entry is the same filled red button as New work item
+2026-11-18T08:59:25 | Claude | test-linked | UsingTheBoardTests / The commit list opens as a popup no wider than the menu, one row per commit, ending in an ellipsis
+2026-11-18T09:19:48 | Claude | status | In Progress -> In Review
+2026-11-18T09:28:39 | Artyom-kurguzkin | status | In Review -> Completed

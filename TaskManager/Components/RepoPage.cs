@@ -59,11 +59,19 @@ public abstract class RepoPage : RtmComponent, IDisposable
     private ITimer? window;
     private bool windowOpen, dirty, disposed;
 
+    // The store's stamp when this page's own background write finished, once the page showed that write's result itself: the Changed it raises is the page's own echo.
+    private (string?, long)? ownStamp;
+
     protected virtual void OnChanged()
     {
         lock (gate)
         {
             if (disposed) return;
+            if (ownStamp is { } own)   // one echo only: a later change, from outside or the same page, reads as usual
+            {
+                ownStamp = null;
+                using (WindowScope()) if (Stamp() == own) { loadedStamp = own; return; }
+            }
             if (windowOpen) { dirty = true; return; }
             windowOpen = true;
             window = Time.CreateTimer(_ => WindowEnded(), null, TimeSpan.FromMilliseconds(CoalesceMs), Timeout.InfiniteTimeSpan);
@@ -99,6 +107,27 @@ public abstract class RepoPage : RtmComponent, IDisposable
         Popups.Toast(result.Message, ToastKind.Warning);
         return false;
     }
+
+    /// <summary>
+    /// Runs a module command on the thread pool: the page draws at once (after <paramref name="show"/>, which puts the command's expected result into what the page shows),
+    /// and the file write, its lock wait and the refresh of every page follow without holding the window. A failed command puts the page right by reading and shows a toast.
+    /// With <paramref name="show"/> the page's own echo of the write is skipped: it already shows the result. Pass the command as a call (<c>() =&gt; Api.Do(...)</c>), not its result.
+    /// </summary>
+    protected async Task<bool> RunInBackground(Func<(bool Success, string Message)> command, Action? show = null)
+    {
+        if (show is not null) { show(); StateHasChanged(); }
+        (bool ok, string message) = await Workspace.DoLater(command, show is null ? null : () =>
+        {
+            using (WindowScope()) { (string?, long) stamp = Stamp(); lock (gate) ownStamp = stamp; }
+        });
+        if (ok) { Popups.Saved(); return true; }
+        if (show is not null) Refresh();   // what was shown ahead of the write is put right by what is written
+        Popups.Toast(message, ToastKind.Warning);
+        return false;
+    }
+
+    /// <summary>Reads again and draws: for a page whose background command made more than <c>show</c> projected (its own echo was skipped).</summary>
+    protected void Refresh() { LoadNow(); StateHasChanged(); }
 
     /// <summary>Like <see cref="Run"/>, for a command that saved or removed an attachment file: the connected storage's sync follows even when no board file moved.</summary>
     protected bool RunAttachment((bool Success, string Message) result)

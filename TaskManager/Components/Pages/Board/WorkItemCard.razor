@@ -19,10 +19,10 @@
             else { @foreach (string name in FeatureNames) { <span class="feat">@name</span> } }
         </span>
         <span class="meta-row">
-            <span class="stamp">@Ui.Stamp(Item.Modified)</span>
+            <span class="stamp-line" title="Last changed @Ui.Time(Item.Modified), @Ui.DayWithYear(DateOnly.FromDateTime(Item.Modified))"><span class="cap">updated</span> <span class="stamp">@Ui.Stamp(Item.Modified)</span></span>
             @* the column already names the contributor when grouped by contributor, and the label when grouped by label *@
             @if (Options.GroupBy != "contributor" && Item.Contributors.Count > 0) { <span class="who-list">@string.Join(", ", Item.Contributors)</span> }
-            @if (Item.Subtasks.Count > 0) { @if (Options.GroupBy != "contributor" && Item.Contributors.Count > 0) { <text> · </text> }<span class="subs">@Item.Subtasks.Count(s => s.Done)/@Item.Subtasks.Count</span> }
+            @if (Item.Subtasks.Count > 0) { @if (Options.GroupBy != "contributor" && Item.Contributors.Count > 0) { <text> · </text> }<span class="subs" title="@Item.Subtasks.Count(s => s.Done) of @Item.Subtasks.Count subtasks done">@Item.Subtasks.Count(s => s.Done)/@Item.Subtasks.Count <span class="cap">subtasks</span></span> }
         </span>
         <span class="tags">
             @if (Item.Label is not null && Options.GroupBy != "label") { <span class="tag lbl" style="--fill:var(@Ui.LabelColor(Item.Label))">@Item.Label</span> }
@@ -30,7 +30,7 @@
             {
                 @* started and due as one period; it wears the due colour once the due day is past *@
                 bool late = Item.Due is DateOnly due && due < Day && !Item.Archived;
-                <span class="tag dates @(Item.Due is null ? "" : "due") @(late ? "overdue hot" : "")" title="@DatesTip">@Ui.Period(Item.Started, Item.Due)</span>
+                <span class="tag dates @(Item.Due is null ? "" : "due") @(late ? "overdue hot" : "")" title="@DatesTip">@PeriodText</span>
             }
             @if (Failing) { <span class="tag hot tests-failing" title="A linked test failed in the latest run">tests failing</span> }
             @if (Item.Warning is not null) { <span class="tag hot" title="@Item.Warning">!</span> }
@@ -45,6 +45,9 @@
 
     /// <summary>The day by the page's clock (a registered <see cref="TimeProvider"/>, the system's otherwise): a test moves it by hand.</summary>
     private DateOnly Day => Today ?? Ui.Today(Ui.ClockOf(Services));
+
+    /// <summary>Always says what it is: "9–16 Nov", "from 9 Nov", "due 16 Nov"; one day (start = due) is a due day, a bare "11 Nov" could be either.</summary>
+    private string PeriodText => Item.Started is DateOnly s && Item.Due is DateOnly d && s == d ? Ui.Period(null, d) : Ui.Period(Item.Started, Item.Due);
 
     private string DatesTip => string.Join(" – ", new[] { Item.Started is DateOnly s ? "Started " + Ui.DayLong(s) : null, Item.Due is DateOnly d ? "Due " + Ui.DayLong(d) : null }.OfType<string>());
 

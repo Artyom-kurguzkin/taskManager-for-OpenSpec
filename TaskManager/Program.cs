@@ -89,6 +89,19 @@ internal static class Program
         catch (Exception) { }
 
         main.Run();
+        // What the window asked a moment before closing is written first: an arrangement still in its 250 ms pause, a status or tick still in the write queue.
+        try { settings.Flush(); }
+        catch (Exception e) { LogCrash("Saving the last board arrangement on exit failed; the app closes anyway. " + e); }
+        try
+        {
+            if (!workspace.DrainAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult())   // ponytail: bounded at 5 s so a stuck lock cannot keep the process open
+            {
+                const string late = "A write was still waiting after 5 seconds on exit; the app closes anyway.";
+                Console.Error.WriteLine(late);
+                LogCrash(late);
+            }
+        }
+        catch (Exception e) { LogCrash("Waiting for the last writes on exit failed; the app closes anyway. " + e); }
         try { agents?.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5)); }
         catch (Exception e) { LogCrash("Stopping the agent endpoint failed; the app closes anyway. " + e); }
         try { main.Services.GetService<BoardSyncService>()?.SyncOnExit().GetAwaiter().GetResult(); }   // what has not been synced yet goes now, for at most 15 seconds

@@ -1,0 +1,17 @@
+schema: spec-driven
+created: 2026-11-16
+x-rtm:
+  id: 176
+  title: show git deltas
+  status: In Review
+  contributors: [Artyom-kurguzkin, Claude, Claude chunk git-deltas]
+  features: [organise-work-items]
+  label: enhancement
+  started: 2026-11-16
+  due: 2026-11-16
+  moved: 2026-11-18
+  plan: DevResources/plans/git-deltas-2026-11-16.md
+  tests: [{suite: ReadingGitHistoryTests, test: "A commit's work items are the change folders its files are in, archived ones included"}, {suite: ReadingGitHistoryTests, test: Uncommitted lists the work items whose files are changed or new}, {suite: ArrangingTheBoardTests, test: "The commit filter shows only the chosen commit's items on the board, the list and the calendar, and any shows all"}, {suite: ArrangingTheBoardTests, test: The items the uncommitted marker is for are the ones whose change folders are changed or new}, {suite: UsingTheBoardTests, test: An item with uncommitted changes carries the marker}, {suite: UsingTheBoardTests, test: 'The Filters section offers any, uncommitted and the recent commits, and choosing one filters the board'}, {suite: UsingThePagesTests, test: The item page and the examine panel show the last contributing commit}, {suite: UsingTheBoardTests, test: 'The commit list opens as a popup no wider than the menu, one row per commit, ending in an ellipsis'}]
+  mergedFrom: [174, 175]
+  agentBy: Claude
+  agentAt: 2026-11-18T09:19:51

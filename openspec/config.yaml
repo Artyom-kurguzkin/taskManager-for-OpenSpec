@@ -28,3 +28,5 @@ x-rtm:
     board: [test, test-2]
   testResults:
     - TaskManager.Tests/TestResults/*.trx
+  statuses:
+    [Backlog, Planned, Confirmed, In Progress, Blocked, In Review, Research, Completed]

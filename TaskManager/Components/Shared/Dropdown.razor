@@ -1,7 +1,7 @@
 @* Styled select over RadzenDropDown, which brings keyboard navigation and the listbox roles; app.css dresses its trigger and
    panel the same way as the list's filter dropdowns. Options are (value, label) pairs; an optional swatch colours each. *@
 <RadzenDropDown TValue="string" Data="Opts" TextProperty="Label" ValueProperty="Value" Value="@Value" ValueChanged="v => ValueChanged.InvokeAsync(v)"
-                Placeholder="@Placeholder" Name="@Label" aria-label="@Label" class="@($"dd {Class}")" Style="@Style" Disabled="Disabled">
+                Placeholder="@Placeholder" Name="@Label" aria-label="@Label" class="@($"dd {Class}")" Style="@Style" PopupStyle="@PopupStyle" Disabled="Disabled">
     <Template Context="o">@Row((Opt)o)</Template>
     <ValueTemplate Context="o">@Row((Opt)o)</ValueTemplate>
 </RadzenDropDown>
@@ -14,6 +14,8 @@
     [Parameter] public string Placeholder { get; set; } = "";
     [Parameter] public string Class { get; set; } = "";
     [Parameter] public string? Style { get; set; }
+    /// <summary>Style of the list that opens (a width, for options longer than the place they are in); null leaves it as wide as its longest option.</summary>
+    [Parameter] public string? PopupStyle { get; set; }
     [Parameter] public bool Disabled { get; set; }
     /// <summary>Optional colour token per value (e.g. status band) shown as a swatch.</summary>
     [Parameter] public Func<string, string>? Swatch { get; set; }
@@ -22,7 +24,7 @@
     /// Drawn again only when something it shows changed: its callback counts as unchanged while it is the same method on the same object (a lambda that reads
     /// only its component, which cannot have gone stale). A swatch function can read anything, so a dropdown with one draws on every parameter set.
     /// </summary>
-    protected override object? RenderKey => Swatch is not null ? null : (Label, Options, Value, ValueChanged, Placeholder, Class, Style, Disabled);
+    protected override object? RenderKey => Swatch is not null ? null : (Label, Options, Value, ValueChanged, Placeholder, Class, Style, PopupStyle, Disabled);
 
     private sealed record Opt(string Value, string Label);
 

@@ -84,12 +84,29 @@ public sealed class SettingsStore
 
     public event Action? Changed;
 
+    /// <summary>How many times the settings file was written: a test checks that an arrow key saves once, after its pause, and an unchanged one never.</summary>
+    public int Writes { get; private set; }
+
+    private readonly object fileGate = new();
+    private ITimer? saveLater;
+
     public void Update(Func<AppSettings, AppSettings> change)
     {
         Current = change(Current);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(Current, Json));
+        Write();
         Changed?.Invoke();
+    }
+
+    private void Write()
+    {
+        lock (fileGate)
+        {
+            saveLater?.Dispose();   // this write holds everything a pending one would
+            saveLater = null;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(Current, Json));
+            Writes++;
+        }
     }
 
     /// <summary>
@@ -144,6 +161,33 @@ public sealed class SettingsStore
 
     public void SaveBoard(string repo, BoardOptions options) =>
         Update(s => s with { Boards = new Dictionary<string, BoardOptions>(s.Boards ?? []) { [Key(repo)] = options } });
+
+    /// <summary>
+    /// <see cref="SaveBoard"/> for the page's own arranging (an arrow key, a drop): <see cref="Current"/> changes at once, the file follows on the thread pool once the user paused
+    /// for <paramref name="pause"/> (every call moves the pause on), and <see cref="Changed"/> is raised only when something besides the card and column order changed.
+    /// The app calls <see cref="Flush"/> when it closes, so a pause still running then loses nothing.
+    /// </summary>
+    public void SaveBoardSoon(string repo, BoardOptions options, TimeProvider time, int pause = 250)
+    {
+        BoardOptions? was = Current.Boards?.GetValueOrDefault(Key(repo));
+        Current = Current with { Boards = new Dictionary<string, BoardOptions>(Current.Boards ?? []) { [Key(repo)] = options } };
+        lock (fileGate)
+        {
+            saveLater?.Dispose();
+            saveLater = time.CreateTimer(_ =>
+            {
+                try { Write(); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // on the timer's thread an error would end the app; the next change saves again
+            }, null, TimeSpan.FromMilliseconds(pause), Timeout.InfiniteTimeSpan);
+        }
+        if (was is null || was with { Order = options.Order } != options) Changed?.Invoke();
+    }
+
+    /// <summary>Writes a save that <see cref="SaveBoardSoon"/> is still waiting to write, now, and cancels its timer; does nothing when none is pending. Called when the app closes.</summary>
+    public void Flush()
+    {
+        lock (fileGate) { if (saveLater is not null) Write(); }
+    }
 
     public bool ProjectHidden(string repo) => Current.HiddenProjects?.Contains(Key(repo)) ?? false;
     public bool ProjectCollapsed(string repo) => Current.CollapsedProjects?.Contains(Key(repo)) ?? false;

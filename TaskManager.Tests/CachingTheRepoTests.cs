@@ -209,13 +209,13 @@ public sealed class CachingTheRepoTests
 
         workspace.Do(WorkItemsApi.SetTitle(107, "Ordinary edit"));
         workspace.Do(WorkItemsApi.SetStatus(107, "Blocked"));
-        workspace.Notify();
+        workspace.Notify(); workspace.Resolved.Wait();
         Assert.Equal(scans, WorkItemsModule.DuplicateScans);
 
         repo.Write("openspec/changes/copied-in/.openspec.yaml", "schema: spec-driven\ncreated: 2026-10-30\nx-rtm:\n  id: 107\n  title: Copied in\n");
         repo.Write("openspec/changes/copied-in/proposal.md", "## Why\n\ncopied\n");
         OpenSpecStoreApi.Refresh();
-        workspace.Notify();
+        workspace.Notify(); workspace.Resolved.Wait();
 
         Assert.Equal(scans + 1, WorkItemsModule.DuplicateScans);
         Assert.Contains(WorkItemsApi.GetAll(true), w => w.Folder == "copied-in" && w.Id != 107);   // and the scan did its job

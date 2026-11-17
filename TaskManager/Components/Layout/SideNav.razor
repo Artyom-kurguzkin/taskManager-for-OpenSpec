@@ -81,7 +81,7 @@
                 <div class="field"><label>who</label><Dropdown Label="who" Class="@SideNavOptions.Look(wf.Who, "all")" Options="WorklogPeople" Value="@wf.Who" ValueChanged="v => Popups.FilterWorklog(wf with { Who = v })" /></div>
                 @* one button instead of a list of actions: a menu of what the entry is *@
                 <Menu Label="Add entry" Class="nav-add-menu">
-                    <Activator><button type="button" class="nav-add" aria-haspopup="menu">@Ui.Icon("plus") Add entry</button></Activator>
+                    <Activator><button type="button" class="nav-btn nav-new nav-add" aria-haspopup="menu">@Ui.Icon("plus") Add entry</button></Activator>
                     <Items>
                         <MenuItem OnClick="worklog.AddNote">Note</MenuItem>
                         <MenuItem OnClick="worklog.AddDecision">Decision</MenuItem>

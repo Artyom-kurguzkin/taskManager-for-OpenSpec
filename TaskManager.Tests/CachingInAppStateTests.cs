@@ -182,4 +182,124 @@ public sealed class CachingInAppStateTests : IDisposable
         finally { Caches.Isolated.Value = mine; }
         Assert.True(ItemsCache.Loads > 1 || NotesCache.Loads > 0);
     }
+
+    /// <summary>What a page asks for when it loads after a write: the project's statuses, lanes and warnings, the board, the features and the uncommitted set.</summary>
+    private static void LoadAPage()
+    {
+        WorkItemsApi.GetStatuses(); WorkItemsApi.GetLanes(); WorkItemsApi.GetWarnings();
+        ItemsCache.All(); FeaturesCache.Get(); GitCache.Uncommitted();
+    }
+
+    private static List<Action> QueueGitRefreshes()
+    {
+        List<Action> queued = [];
+        Caches.S.Git.Background = work => { queued.Add(work); return Task.CompletedTask; };   // the thread-pool work, run by the test when it chooses
+        return queued;
+    }
+
+    [Fact(DisplayName = "A status change reads config.yaml zero times and spawns no git process before the page renders")]
+    public void StatusChangeReadsNoConfigAndSpawnsNoGit()
+    {
+        WorkItemsApi.ConfigureContributors(null);
+        using TestRepo repo = new();
+        TempGit.Init(repo.Root);
+        TempGit.Commit(repo.Root, "2026-11-01T10:00:00+00:00", "Start");
+        OpenSpecStoreApi.Open(repo.Root);
+        GitHistoryApi.Configure(repo.Root);
+        List<Action> refreshes = QueueGitRefreshes();
+        LoadAPage();   // the page as first drawn
+        (int configReads, int processes) = (OpenSpecStoreModule.ConfigReads, GitHistoryModule.Processes);
+        Assert.True(configReads > 0 && processes > 0, "the first draw reads config.yaml and asks git");
+
+        Assert.True(WorkItemsApi.SetStatus(107, "In Progress").Success);
+        LoadAPage();   // what every page does when the write is reported
+        LoadAPage();
+
+        Assert.Equal(configReads, OpenSpecStoreModule.ConfigReads);
+        Assert.Equal(processes, GitHistoryModule.Processes);
+        Assert.Single(refreshes);   // git is asked after the frame, once, however many pages asked
+    }
+
+    [Fact(DisplayName = "A config.yaml write from outside is seen by the next GetStatuses")]
+    public void OutsideConfigWriteIsSeen()
+    {
+        WorkItemsApi.ConfigureContributors(null);
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.Equal(WorkItemsApi.Statuses, WorkItemsApi.GetStatuses());
+        int reads = OpenSpecStoreModule.ConfigReads;
+        WorkItemsApi.GetStatuses(); WorkItemsApi.GetLanes();
+        Assert.Equal(reads, OpenSpecStoreModule.ConfigReads);   // read once, parsed once, however often it is asked
+
+        string config = repo.PathOf("openspec/config.yaml");
+        File.WriteAllText(config, File.ReadAllText(config).Replace("x-rtm:", "x-rtm:\n  statuses: [Backlog, Doing, In Progress, Completed]"));
+        OpenSpecStoreApi.Refresh();   // what the file watcher does when it notices an outside save
+
+        Assert.Equal(["Backlog", "Doing", "In Progress", "Completed"], WorkItemsApi.GetStatuses());
+        Assert.Equal(reads + 1, OpenSpecStoreModule.ConfigReads);
+        Assert.Equal(["High priority", "Lower priority"], WorkItemsApi.GetLanes()["In Progress"]);   // the other sections come from the new text too
+    }
+
+    [Fact(DisplayName = "An item write leaves FeaturesCache untouched")]
+    public void ItemWriteLeavesFeaturesAlone()
+    {
+        WorkItemsApi.ConfigureContributors(null);
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        IReadOnlyList<Features.PublicDTOs.Feature> features = FeaturesCache.Get();
+        int loads = FeaturesCache.Loads;
+
+        Assert.True(WorkItemsApi.SetTitle(107, "Renamed export").Success);
+        Assert.True(WorkItemsApi.SetStatus(107, "In Progress").Success);
+
+        Assert.Same(features, FeaturesCache.Get());
+        Assert.Equal(loads, FeaturesCache.Loads);
+
+        Directory.CreateDirectory(repo.PathOf("openspec/specs/billing/invoices"));   // a capability appears under specs/
+        File.WriteAllText(repo.PathOf("openspec/specs/billing/invoices/spec.md"), "# invoices\n");
+        OpenSpecStoreApi.Refresh();
+        IReadOnlyList<Features.PublicDTOs.Feature> after = FeaturesCache.Get();
+        Assert.Equal(loads + 1, FeaturesCache.Loads);   // a new capability under specs/ is read
+        Assert.Contains(after, f => f.Path == "billing/invoices");
+    }
+
+    [Fact(DisplayName = "Uncommitted returns the last set at once and raises Changed when the refreshed set differs")]
+    public void UncommittedReturnsTheLastSetAndRefreshesInTheBackground()
+    {
+        string root = Directory.CreateTempSubdirectory("rtm-dirty").FullName;
+        TempGit.Init(root);
+        Directory.CreateDirectory(Path.Combine(root, "openspec", "changes", "alpha"));
+        string tasks = Path.Combine(root, "openspec", "changes", "alpha", "tasks.md");
+        File.WriteAllText(tasks, "- [ ] one\n");
+        TempGit.Commit(root, "2026-11-01T10:00:00+00:00", "Create alpha");
+        GitHistoryApi.Configure(root);
+        List<Action> refreshes = QueueGitRefreshes();
+        int changed = 0;
+        void OnChanged() => changed++;
+        GitHistoryApi.Changed += OnChanged;
+        try
+        {
+            IReadOnlySet<string> first = GitCache.Uncommitted(1);   // nothing known yet: git is asked now
+            Assert.Empty(first);
+            Assert.Empty(refreshes);
+
+            File.WriteAllText(tasks, "- [x] one\n");
+            int processes = GitHistoryModule.Processes;
+            Assert.Same(first, GitCache.Uncommitted(2));   // the version moved: the last set comes back at once ...
+            Assert.Same(first, GitCache.Uncommitted(2));
+            Assert.Equal(processes, GitHistoryModule.Processes);   // ... with no git process on the caller's thread
+            Assert.Single(refreshes);   // one refresh at a time
+            Assert.Equal(0, changed);
+
+            refreshes.Single()();   // the thread-pool work
+            Assert.Equal(1, changed);   // the set differs: the page reloads
+            Assert.Equal(["alpha"], GitCache.Uncommitted(2));
+            Assert.Equal(processes + 1, GitHistoryModule.Processes);
+
+            Assert.Equal(["alpha"], GitCache.Uncommitted(3));   // moved again, the set is the same after the refresh: nobody is told
+            refreshes[1]();
+            Assert.Equal(1, changed);
+        }
+        finally { GitHistoryApi.Changed -= OnChanged; }
+    }
 }

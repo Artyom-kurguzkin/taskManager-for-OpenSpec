@@ -32,6 +32,14 @@ public sealed class UsingTheWorklogTests : IDisposable
         try { File.Delete(settingsFile); } catch (IOException) { }
     }
 
+    /// <summary>Completes when the workspace next says it changed: a saved note is written on the pool after the entry drew, and that is the write landing.</summary>
+    private static Task Written(BunitContext ctx)
+    {
+        TaskCompletionSource written = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        ctx.Services.GetRequiredService<Workspace>().Changed += () => written.TrySetResult();
+        return written.Task.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
     private BunitContext NewContext(TimeProvider? time = null)
     {
         BunitContext ctx = new();
@@ -229,9 +237,11 @@ public sealed class UsingTheWorklogTests : IDisposable
 
         log.Find(".wk-edit input.wk-title-in").Input("Plan the probe");
         log.Find(".wk-edit textarea").Input("Use **GET** on /health");
+        Task written = Written(ctx);
         log.Find(".wk-edit").FocusOut();
 
         log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+        await written;
         Note saved = NotesApi.Get(created.Id)!;
         Assert.Equal("Plan the probe", saved.Title);
         Assert.Equal("Use **GET** on /health", saved.Body.Trim());
@@ -270,9 +280,11 @@ public sealed class UsingTheWorklogTests : IDisposable
 
         log.Find(".wk-edit input.wk-title-in").Input("   ");     // a blank title keeps the old one
         log.Find(".wk-edit textarea").Input("second words");
+        Task written = Written(ctx);
         log.Find(".wk-edit textarea").FocusOut();
 
         log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+        await written;
         Assert.Equal("Alpha", NotesApi.Get(id)!.Title);
         Assert.Equal("second words", NotesApi.Get(id)!.Body.Trim());
         Assert.Contains("second words", Text(note()));
@@ -290,9 +302,11 @@ public sealed class UsingTheWorklogTests : IDisposable
         Pick(log, "Edit");
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
         log.Find(".wk-edit textarea").Input("- [ ] restrict permissions\n- [ ] write the docs\n- [x] already done");
+        Task written = Written(ctx);
         log.Find(".wk-edit textarea").FocusOut();
 
         log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+        await written;
         Assert.Equal(["restrict permissions", "write the docs"], WorkItemsApi.Get(123)!.Subtasks.TakeLast(2).Select(s => s.Text));
         Assert.Contains("- [ ] restrict permissions (created subtask)", NotesApi.Get(id)!.Body);
         Assert.Contains("- [x] already done", NotesApi.Get(id)!.Body);
