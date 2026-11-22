@@ -1,0 +1,13 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-11
+x-rtm:
+  id: 158
+  title: board view change collumn position doesnt work
+  status: In Progress
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  started: 2026-11-20
+  moved: 2026-11-20

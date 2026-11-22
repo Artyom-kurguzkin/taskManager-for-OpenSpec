@@ -127,6 +127,92 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("_blank", link.GetAttribute("target"));
     }
 
+    [Fact(DisplayName = "A merged item's Linked tasks lists the subtasks of every source under their own group, and its worklog's Bugs filter finds the bug notes of every source")]
+    public async Task MergedItemShowsEverySourcesTasksAndBugs()
+    {
+        await using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.AddSubtask(107, "Source two task").Success);
+        (bool _, string _, int bug) = NotesApi.Create(107, "Tom", DateTime.Now, "bug");
+        Assert.True(NotesApi.SaveBody(bug, "# Rows jump\n\nA row jumps when sorted.\n").Success);
+        (bool ok, string message, int id) = WorkItemsApi.Merge([123, 107]);
+        Assert.True(ok, message);
+
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, id));
+        View(page, "linked");
+        string tile = page.Find("[data-tile='subtasks']").TextContent;
+        Assert.Contains("Source two task", tile);
+        Assert.Contains("merged " + DateTime.Now.ToString("yyyy-MM-dd"), tile);
+        Assert.Contains(WorkItemsApi.Get(id)!.Subtasks.First(s => s.Text == "Source two task").Group.Split(' ', 2)[1].Split(" · ")[0], tile);
+
+        View(page, "worklog");
+        Assert.Equal(bug, WorkItemsApi.Get(id) is null ? 0 : NotesApi.GetForWorkItem(id).Single(n => n.IsBug).Id);
+        Assert.Contains("Rows jump", page.Markup);
+    }
+
+    [Fact(DisplayName = "A merged item's feed says which source every note, bug and event came from, also with the Notes filter off, and Related lists the files under their source")]
+    public async Task MergedItemNamesWhereEverythingCameFrom()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        (bool _, string _, int first) = WorkItemsApi.Create("List moving", "Backlog", null, null);
+        (bool _, string _, int second) = WorkItemsApi.Create("Swap groups", "Backlog", null, null);
+        (bool _, string _, int own) = NotesApi.Create(first, "Tom", DateTime.Now, "bug");
+        Assert.True(NotesApi.AttachBytes(own, "own.png", [1]).Success);
+        Assert.True(WorkItemsApi.AddSubtask(second, "Drag the header").Success);
+        (bool _, string _, int bug) = NotesApi.Create(second, "Tom", DateTime.Now, "bug");
+        Assert.True(NotesApi.SetTitle(bug, "Rows jump").Success);
+        Assert.True(NotesApi.AttachBytes(bug, "shot.png", [1, 2, 3]).Success);
+        (bool ok, string message, int id) = WorkItemsApi.Merge([first, second], first);
+        Assert.True(ok, message);
+
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, id));
+        View(page, "worklog");
+        string from = $"from #wi{second}";
+        IElement Entry(string kind, string text) => page.FindAll($".wk-e[data-kind='{kind}']").Single(e => e.TextContent.Contains(text));
+        Assert.Contains(from, Entry("bug", "Rows jump").TextContent);   // a bug note
+        Assert.Contains(from, Entry("subtask-added", "Drag the header").TextContent);   // an event of the source
+        Assert.Single(page.FindAll(".wk-e[data-kind='created']"), e => e.TextContent.Contains(from));   // the source's created line, not the main item's
+        Assert.DoesNotContain($"from #wi{first}", page.Markup);
+        ui.FilterWorklog(new WorklogFilters(Notes: false));
+        page.WaitForAssertion(() => Assert.Contains(from, Entry("bug", "Rows jump").TextContent));   // the Bugs filter's view too
+
+        View(page, "linked");
+        Assert.Equal(["this item", from], page.FindAll(".rel-list .rel-from").Select(h => h.TextContent.Trim()));
+        IElement[] rows = [.. page.FindAll(".rel-list > li")];
+        Assert.Contains("own.png", rows[1].TextContent);
+        Assert.Contains(from, rows[2].TextContent);
+        Assert.Contains("shot.png", rows[3].TextContent);
+    }
+
+    [Fact(DisplayName = "Related stays one flat list when nothing in the item was merged in")]
+    public async Task RelatedIsFlatWithoutMerge()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool _, string _, int note) = NotesApi.Create(123, "Tom", DateTime.Now, "bug");
+        Assert.True(NotesApi.AttachBytes(note, "shot.png", [1]).Success);
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
+        View(page, "linked");
+        Assert.Empty(page.FindAll(".rel-list .rel-from"));
+        Assert.Contains("shot.png", page.Find(".rel-list").TextContent);
+    }
+
+    [Fact(DisplayName = "When only one source of a merge had subtasks, Linked tasks still heads them with where and when they were merged in")]
+    public async Task MergedSingleGroupKeepsItsHeader()
+    {
+        await using BunitContext ctx = NewContext();
+        (bool _, string _, int first) = WorkItemsApi.Create("List moving", "Backlog", null, null);
+        (bool _, string _, int second) = WorkItemsApi.Create("Swap groups", "Backlog", null, null);
+        Assert.True(WorkItemsApi.AddSubtask(second, "Drag the header").Success);
+        (bool ok, string message, int id) = WorkItemsApi.Merge([first, second]);
+        Assert.True(ok, message);
+
+        IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, id));
+        View(page, "linked");
+
+        Assert.Equal([$"#wi{second} Swap groups · merged {DateTime.Now:yyyy-MM-dd}"], page.FindAll(".sub-group .g-name").Select(n => n.TextContent.Trim()));
+        Assert.Contains("Drag the header", page.Find("[data-tile='subtasks']").TextContent);
+    }
+
     [Fact(DisplayName = "The linked tasks rail lists what the item waits on and what waits on it, each with its status pill, and says so when a list is empty")]
     public async Task LinkedTasksRail()
     {
@@ -230,9 +316,9 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<Worklog> log = ctx.Render<Worklog>(p => p
             .Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Root, repo.Root)
             .Add(c => c.OnChanged, Microsoft.AspNetCore.Components.EventCallback.Factory.Create(this, (Action)(() => told++))));
-        log.Find(".wk-day.today .wk-date").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        log.FireWhenReady(".wk-day.today .wk-date", e => e.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".menu-pop")));
-        log.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Add note").Click();
+        log.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Add note"));
 
         log.WaitForAssertion(() => Assert.Equal(1, told));
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
@@ -263,10 +349,10 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Empty(page.FindAll(".head.kvs .chip.spec"));
         Assert.Contains("Security", page.Find(".head.kvs [aria-label='feature'] .rz-dropdown-label").TextContent);   // picked by hand, so it wins over its spec
 
-        page.FindAll("[aria-label='feature'] .rz-dropdown-item").Single(i => i.TextContent.Trim() == "Banking").Click();
+        page.FireWhenReady("[aria-label='feature'] .rz-dropdown-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Banking"));
         page.WaitForAssertion(() => Assert.Equal(["functional/banking"], WorkItemsApi.Get(123)!.Features.Select(f => f.Path)));
 
-        page.FindAll("[aria-label='feature'] .rz-dropdown-item").Single(i => i.TextContent.Trim() == "no feature").Click();
+        page.FireWhenReady("[aria-label='feature'] .rz-dropdown-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "no feature"));
         page.WaitForAssertion(() => Assert.Empty(WorkItemsApi.Get(123)!.Features));
         Assert.True(File.Exists(repo.PathOf("openspec/changes/add-health-check/specs/non-functional/availability/spec.md")));
     }
@@ -284,13 +370,13 @@ public sealed class UsingThePagesTests : IDisposable
         // so each step waits for the render it needs, and lets the dispatcher drain before the next event.
         async Task OpenPopup()
         {
-            page.Find("button.dates-btn").Click();
+            page.ClickWhenReady("button.dates-btn");
             page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".range-pop")));
             await page.InvokeAsync(() => { });
         }
         async Task PickDay(DateOnly day)
         {
-            page.WaitForAssertion(() => page.Find($".range-pop button.rd[data-day='{day:yyyy-MM-dd}']").Click());
+            page.ClickWhenReady($".range-pop button.rd[data-day='{day:yyyy-MM-dd}']");
             await page.InvokeAsync(() => { });
         }
 
@@ -314,7 +400,7 @@ public sealed class UsingThePagesTests : IDisposable
         await page.InvokeAsync(() => { });
 
         await OpenPopup();
-        page.Find(".range-pop button.range-clear").Click();
+        page.ClickWhenReady(".range-pop button.range-clear");
         page.WaitForAssertion(() => Assert.Null(WorkItemsApi.Get(123)!.Due));
         Assert.Null(WorkItemsApi.Get(123)!.Started);
     }
@@ -330,7 +416,7 @@ public sealed class UsingThePagesTests : IDisposable
             .Add(c => c.Changed, r => { cleared = r; }));
         async Task<IReadOnlyList<string>> Buttons(IRenderedComponent<TaskManager.Components.Shared.DateRange> range)
         {
-            range.Find("button.dates-btn").Click();
+            range.ClickWhenReady("button.dates-btn");
             range.WaitForAssertion(() => Assert.NotEmpty(range.FindAll(".range-pop")));
             await range.InvokeAsync(() => { });
             return [.. range.FindAll(".range-pop button.range-clear").Select(b => b.TextContent.Trim())];
@@ -341,7 +427,7 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<TaskManager.Components.Shared.DateRange> set = Render(first, last, "Show all");
         Assert.Equal(["Show all"], await Buttons(set));
 
-        set.Find(".range-pop button.range-clear").Click();
+        set.ClickWhenReady(".range-pop button.range-clear");
         set.WaitForAssertion(() => Assert.Equal((null, null), cleared));   // both ends cleared
         set.WaitForAssertion(() => Assert.Empty(set.FindAll(".range-pop")));   // and the popup closes
     }
@@ -358,9 +444,9 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Empty(page.FindAll("input[aria-label='plan']"));
         Assert.Empty(page.FindAll(".related li.rel[data-kind='plan']"));
 
-        page.Find(".related [aria-label='Link a plan'] button, .related button[aria-label='Link a plan']").Click();
+        page.ClickWhenReady(".related [aria-label='Link a plan'] button, .related button[aria-label='Link a plan']");
         page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".menu-pop .pick-item").Count));
-        page.FindAll(".menu-pop .pick-item").First(i => i.TextContent.Contains("health-2026-11-05")).Click();
+        page.FireWhenReady(".menu-pop .pick-item", e => e.Click(), all => all.First(i => i.TextContent.Contains("health-2026-11-05")));
         page.WaitForAssertion(() => Assert.Equal("DevResources/plans/health-2026-11-05.md", WorkItemsApi.Get(123)!.Plan));
         AngleSharp.Dom.IElement link = page.Find(".related li.rel[data-kind='plan'] a.rel-open");
         Assert.Equal("doc/DevResources/plans/health-2026-11-05.md", link.GetAttribute("href"));
@@ -371,7 +457,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("Health plan", doc.Find("h1").TextContent);
 
         await page.InvokeAsync(() => { });
-        page.Find(".related li.rel[data-kind='plan'] button.rel-x").Click();
+        page.ClickWhenReady(".related li.rel[data-kind='plan'] button.rel-x");
         page.WaitForAssertion(() => Assert.Null(WorkItemsApi.Get(123)!.Plan));
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".related li.rel[data-kind='plan']")));
     }
@@ -391,7 +477,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal(["guide.md", "runbook.md"], Docs()[..2]);   // the stored link first, then what the description names (a note of the fixture names one more)
         Assert.Single(page.FindAll(".related li.rel button.rel-x"));   // only the stored link can be unlinked
 
-        page.Find(".related li.rel button.rel-x").Click();
+        page.ClickWhenReady(".related li.rel button.rel-x");
         page.WaitForAssertion(() => Assert.Empty(WorkItemsApi.Get(123)!.Docs ?? []));
         page.WaitForAssertion(() => Assert.DoesNotContain("guide.md", Docs()));
         Assert.Contains("runbook.md", Docs());
@@ -447,8 +533,8 @@ public sealed class UsingThePagesTests : IDisposable
             Assert.Equal("Alice", alice.TextContent.Trim());
             Assert.Contains("x", alice.ClassList);
 
-            alice.Click();
-            Assert.Empty(WorkItemsApi.Get(125)!.Contributors);
+            Act(page, () => alice, e => e.Click());
+            page.WaitForAssertion(() => Assert.Empty(WorkItemsApi.Get(125)!.Contributors));
         }
         finally { WorkItemsApi.ConfigureContributors(null); }
     }
@@ -459,11 +545,11 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
 
-        page.Find("button[aria-label='Add a contributor']").Click();
-        page.Find(".contributors .menu-filter").Input("Zed");
-        page.FindAll(".contributors .menu-item").Single(i => i.TextContent.Contains("Zed")).Click();
+        page.ClickWhenReady("button[aria-label='Add a contributor']");
+        page.InputWhenReady(".contributors .menu-filter", "Zed");
+        page.FireWhenReady(".contributors .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Contains("Zed")));
 
-        Assert.Equal(["Tom", "Zed"], WorkItemsApi.Get(107)!.Contributors);
+        page.WaitForAssertion(() => Assert.Equal(["Tom", "Zed"], WorkItemsApi.Get(107)!.Contributors));
     }
 
     [Fact(DisplayName = "The Linked tasks view links a note-made subtask back to its note, and the click opens the worklog at that note")]
@@ -482,7 +568,7 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("from #n123", from.TextContent.Trim());
         Assert.DoesNotContain("#n123", SubText(page, "Ping test").TextContent);
 
-        from.Click();
+        Act(page, () => from, e => e.Click());
 
         page.WaitForAssertion(() => Assert.Equal("worklog", CurrentView(page)));
         page.WaitForAssertion(() => Assert.Contains("flash", page.Find(".wk-e[data-note='123']").ClassList));   // the entry is marked, by a class: the fade is CSS
@@ -506,7 +592,7 @@ public sealed class UsingThePagesTests : IDisposable
 
         IElement link = page.FindAll(".wk-e[data-kind='converted'] button.wk-jump").Single();
         Assert.Equal("subtask 1.3", link.TextContent.Trim());
-        link.Click();
+        Act(page, () => link, e => e.Click());
 
         page.WaitForAssertion(() => Assert.Equal("linked", CurrentView(page)));
         page.WaitForAssertion(() => Assert.Contains("flash", page.Find(".sub[data-sub='1.3']").ClassList));
@@ -521,7 +607,7 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
-        page.Find("#sub-2-1").Change(true);
+        page.ChangeWhenReady("#sub-2-1", true);
         page.WaitForAssertion(() => Assert.Contains("- [x] 2.1", repo.Read("openspec/changes/add-health-check/tasks.md")));   // the write runs on the thread pool, after the page drew
     }
 
@@ -532,15 +618,18 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
 
-        SubText(page, "Hide internals from anonymous callers").Click();
-        AngleSharp.Dom.IElement box = page.Find(".sub input.sub-edit");
+        Act(page, () => SubText(page, "Hide internals from anonymous callers"), e => e.Click());
+        AngleSharp.Dom.IElement box = page.WaitForElement(".sub input.sub-edit");
         Assert.Equal("Hide internals from anonymous callers", box.GetAttribute("value"));
-        box.Input("Hide internals from everyone");
-        box.KeyDown("Enter");
+        Act(page, () => box, e => e.Input("Hide internals from everyone"));
+        Act(page, () => box, e => e.KeyDown("Enter"));
 
-        Assert.Contains("- [ ] 2.1 Hide internals from everyone", repo.Read("openspec/changes/add-health-check/tasks.md"));
-        Assert.Empty(page.FindAll(".sub input.sub-edit"));
-        Assert.Empty(page.FindAll(".actionbar"));   // a plain click edits; it does not select
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("- [ ] 2.1 Hide internals from everyone", repo.Read("openspec/changes/add-health-check/tasks.md"));
+            Assert.Empty(page.FindAll(".sub input.sub-edit"));
+            Assert.Empty(page.FindAll(".actionbar"));   // a plain click edits; it does not select
+        });
     }
 
     [Fact(DisplayName = "Esc while editing a subtask leaves it as it was")]
@@ -551,11 +640,11 @@ public sealed class UsingThePagesTests : IDisposable
         View(page, "linked");
         string before = repo.Read("openspec/changes/add-health-check/tasks.md");
 
-        SubText(page, "Ping test in suite 543").Click();
-        page.Find(".sub input.sub-edit").Input("Something else");
-        page.Find(".sub input.sub-edit").KeyDown("Escape");
+        Act(page, () => SubText(page, "Ping test in suite 543"), e => e.Click());
+        page.InputWhenReady(".sub input.sub-edit", "Something else");
+        page.KeyDownWhenReady(".sub input.sub-edit", "Escape");
 
-        Assert.Empty(page.FindAll(".sub input.sub-edit"));
+        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".sub input.sub-edit")));
         Assert.Equal(before, repo.Read("openspec/changes/add-health-check/tasks.md"));
     }
     [Fact(DisplayName = "Selecting two subtasks offers moving them into a separate work item")]
@@ -564,13 +653,16 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
-        SubText(page, "Ping test in suite 543").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
-        SubText(page, "Hide internals from anonymous callers").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        Act(page, () => SubText(page, "Ping test in suite 543"), e => e.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
+        Act(page, () => SubText(page, "Hide internals from anonymous callers"), e => e.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
 
-        page.Find(".actionbar button.primary").Click();
+        page.ClickWhenReady(".actionbar button.primary");
 
-        Assert.Equal(2, WorkItemsApi.Get(123)!.Subtasks.Count);
-        Assert.Contains(WorkItemsApi.GetAll(), w => w.Title == "Split from #wi123");
+        page.WaitForAssertion(() =>
+        {
+            Assert.Equal(2, WorkItemsApi.Get(123)!.Subtasks.Count);
+            Assert.Contains(WorkItemsApi.GetAll(), w => w.Title == "Split from #wi123");
+        });
     }
 
     [Fact(DisplayName = "A hidden item's page offers Restore; a visible item's page does not offer hiding")]
@@ -582,8 +674,8 @@ public sealed class UsingThePagesTests : IDisposable
 
         WorkItemsApi.Hide(107);
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
-        page.Find("button.hide-item").Click();
-        Assert.False(WorkItemsApi.Get(107)!.Hidden);
+        page.ClickWhenReady("button.hide-item");
+        page.WaitForAssertion(() => Assert.False(WorkItemsApi.Get(107)!.Hidden));
     }
 
     [Fact(DisplayName = "Add note in the worklog's date menu creates a note and opens it in an editor in the feed")]
@@ -593,9 +685,9 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
 
         View(page, "worklog");
-        page.Find(".worklog .wk-day.today .wk-date").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        page.FireWhenReady(".worklog .wk-day.today .wk-date", e => e.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
         page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".menu-pop")));
-        page.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Add note").Click();
+        page.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Add note"));
 
         page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".worklog .wk-edit")));
         Assert.Equal(124, NotesApi.GetForWorkItem(107).Single().Id);
@@ -658,13 +750,13 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("Claude", chip.TextContent.Trim());
         Assert.Contains("Claude", chip.GetAttribute("title"));
         View(page, "linked");
-        page.Find(".sub .agent-chip").Click();
+        page.ClickWhenReady(".sub .agent-chip");
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".sub .agent-chip")));
         await page.InvokeAsync(() => { });
         View(page, "worklog");
-        page.Find(".worklog .agent-chip").Click();
+        page.ClickWhenReady(".worklog .agent-chip");
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".worklog .agent-chip")));
-        page.Find(".contributors .agent-contrib").Click();
+        page.ClickWhenReady(".contributors .agent-contrib");
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".agent-contrib.unreviewed")));
         Assert.Empty(page.FindAll(".agent-chip"));
         Assert.Equal("Claude", page.Find(".contributors .agent-contrib").TextContent.Trim());   // stays, as a plain chip
@@ -691,7 +783,7 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        page.Find("input.title-in").Change("Health-check endpoint v2");
+        page.ChangeWhenReady("input.title-in", "Health-check endpoint v2");
 
         overlays!.WaitForAssertion(() => Assert.Equal("Saved", overlays.Find(".toast.success").TextContent.Trim()));
         Assert.Equal("Health-check endpoint v2", WorkItemsApi.Get(123)!.Title);
@@ -700,8 +792,8 @@ public sealed class UsingThePagesTests : IDisposable
     // The note reads like a work item's description: rendered text; a click turns it into a plain text box, leaving it saves and renders again.
     private static Task Type(IRenderedComponent<NotePage> page, string text)
     {
-        if (page.FindAll("textarea.desc-in").Count == 0) page.Find(".note-view").Click();
-        page.Find("textarea.desc-in").Input(text);
+        if (page.FindAll("textarea.desc-in").Count == 0) page.ClickWhenReady(".note-view");
+        page.InputWhenReady("textarea.desc-in", text);
         return Task.CompletedTask;
     }
 
@@ -711,22 +803,25 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
 
-        page.Find("input.note-title").Change("Decided on X");
-        Assert.Equal("Decided on X", NotesApi.Get(123)!.Title);
+        page.ChangeWhenReady("input.note-title", "Decided on X");
+        page.WaitForAssertion(() => Assert.Equal("Decided on X", NotesApi.Get(123)!.Title));
 
         Assert.Empty(page.FindAll("button.edit-note"));
         Assert.Empty(page.FindAll("button.done-note"));
         Assert.Empty(page.FindAll("textarea.desc-in"));
 
-        page.Find(".note-view").Click();
-        Assert.NotEmpty(page.FindAll("textarea.desc-in"));
+        page.ClickWhenReady(".note-view");
+        page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll("textarea.desc-in")));
         await Type(page, "# Decided on X\n\nchanged in test");
-        page.Find("textarea.desc-in").Blur();
+        page.BlurWhenReady("textarea.desc-in");
 
-        Assert.Empty(page.FindAll("textarea.desc-in"));
-        Assert.Contains("changed in test", page.Find(".note-view").TextContent);
-        Assert.Contains("changed in test", NotesApi.Get(123)!.Body);
-        Assert.Contains("changed in test", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
+        page.WaitForAssertion(() =>
+        {
+            Assert.Empty(page.FindAll("textarea.desc-in"));
+            Assert.Contains("changed in test", page.Find(".note-view").TextContent);
+            Assert.Contains("changed in test", NotesApi.Get(123)!.Body);
+            Assert.Contains("changed in test", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
+        });
 
         string png = Convert.ToBase64String([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
         await page.InvokeAsync(() => page.Instance.PastedImage("pasted-x.png", png));
@@ -740,8 +835,8 @@ public sealed class UsingThePagesTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
-        page.Find(".note-view").Click();
-        string loaded = page.Find("textarea.desc-in").GetAttribute("value") ?? "";
+        page.ClickWhenReady(".note-view");
+        string loaded = page.WaitForElement("textarea.desc-in").GetAttribute("value") ?? "";
 
         await Type(page, loaded + "abc");
         await Type(page, loaded + "abcdef");
@@ -777,10 +872,13 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
 
         Assert.Equal("Edit in code", page.Find(".edit-ext").TextContent.Trim());
-        page.Find(".edit-ext").Click();
+        page.ClickWhenReady(".edit-ext");
 
-        Assert.Equal("code", launchedEditor);
-        Assert.Contains("n123.md", launchedPath);
+        page.WaitForAssertion(() =>
+        {
+            Assert.Equal("code", launchedEditor);
+            Assert.Contains("n123.md", launchedPath);
+        });
     }
 
     [Fact(DisplayName = "Edit in editor asks which editor to use the first time, then remembers it in settings")]
@@ -791,14 +889,14 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
 
         Assert.Equal("Edit in…", page.Find(".edit-ext").TextContent.Trim());
-        page.Find(".edit-ext").Click();
+        page.ClickWhenReady(".edit-ext");
 
         overlays!.WaitForAssertion(() => Assert.Contains("editor", overlays.Find(".dialog").TextContent, StringComparison.OrdinalIgnoreCase));
-        overlays.Find(".dialog input").Input("notepad++");
-        overlays.Find(".dialog button.primary").Click();
+        overlays.InputWhenReady(".dialog input", "notepad++");
+        overlays.ClickWhenReady(".dialog button.primary");
 
         overlays.WaitForAssertion(() => Assert.Equal("notepad++", launchedEditor));
-        Assert.Equal("notepad++", ctx.Services.GetRequiredService<SettingsStore>().Current.Editor);
+        overlays.WaitForAssertion(() => Assert.Equal("notepad++", ctx.Services.GetRequiredService<SettingsStore>().Current.Editor));
     }
 
     [Fact(DisplayName = "Choosing Completed asks before archiving, and Cancel leaves the item as it was")]
@@ -807,11 +905,11 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
 
-        page.Find(".status-field .dd").Click();
-        page.FindAll(".status-field .rz-dropdown-item").First(i => i.TextContent.Trim() == "Completed").Click();
+        page.ClickWhenReady(".status-field .dd");
+        page.FireWhenReady(".status-field .rz-dropdown-item", e => e.Click(), all => all.First(i => i.TextContent.Trim() == "Completed"));
 
         overlays!.WaitForAssertion(() => Assert.Contains("Complete and archive?", overlays.Find(".dialog").TextContent));
-        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Cancel").Click();
+        overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(b => b.TextContent.Trim() == "Cancel"));
 
         overlays.WaitForAssertion(() => Assert.Empty(overlays.FindAll(".dialog")));
         Assert.Equal("Planned", WorkItemsApi.Get(107)!.Status);
@@ -824,12 +922,15 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
         View(page, "linked");
-        SubText(page, "Ping test in suite 543").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
+        Act(page, () => SubText(page, "Ping test in suite 543"), e => e.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
         Assert.Equal("Make it a work item", page.Find(".actionbar button.primary").TextContent.Trim());
-        page.Find(".actionbar button.primary").Click();
+        page.ClickWhenReady(".actionbar button.primary");
 
-        Assert.Equal(3, WorkItemsApi.Get(123)!.Subtasks.Count);
-        Assert.Contains(WorkItemsApi.GetAll(), w => w.Subtasks is [{ Number: "1.1", Text: "Ping test in suite 543" }]);
+        page.WaitForAssertion(() =>
+        {
+            Assert.Equal(3, WorkItemsApi.Get(123)!.Subtasks.Count);
+            Assert.Contains(WorkItemsApi.GetAll(), w => w.Subtasks is [{ Number: "1.1", Text: "Ping test in suite 543" }]);
+        });
     }
 
     [Fact(DisplayName = "Selecting a subtask also offers to make it a dependency, which blocks the parent and links the two pages")]
@@ -839,12 +940,16 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
         View(page, "linked");
-        SubText(page, "Ping test in suite 543").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
-        page.Find(".actionbar button.dep").Click();
+        Act(page, () => SubText(page, "Ping test in suite 543"), e => e.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
+        page.ClickWhenReady(".actionbar button.dep");
 
-        Assert.Equal("Blocked", WorkItemsApi.Get(123)!.Status);
-        int newId = WorkItemsApi.GetAll().Single(w => w.Subtasks is [{ Number: "1.1", Text: "Ping test in suite 543" }]).Id;
-        Assert.Contains($"#wi{newId}", page.Find(".sub.dep.waits.blocking-me").TextContent);
+        int newId = 0;
+        page.WaitForAssertion(() =>
+        {
+            Assert.Equal("Blocked", WorkItemsApi.Get(123)!.Status);
+            newId = WorkItemsApi.GetAll().Single(w => w.Subtasks is [{ Number: "1.1", Text: "Ping test in suite 543" }]).Id;
+            Assert.Contains($"#wi{newId}", page.Find(".sub.dep.waits.blocking-me").TextContent);
+        });
 
         IRenderedComponent<WorkItemPage> dependency = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, newId));
         View(dependency, "linked");
@@ -861,12 +966,15 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
 
         View(page, "linked");
-        page.Find("input[aria-label='New subtask']").Change(typed);
-        page.Find("form.add-line").Submit();
+        page.ChangeWhenReady("input[aria-label='New subtask']", typed);
+        page.SubmitWhenReady("form.add-line");
 
-        Assert.Equal([123], WorkItemsApi.Get(107)!.DependsOn);
-        Assert.Equal(2, WorkItemsApi.Get(107)!.Subtasks.Count);
-        Assert.Contains("#wi123", page.Find(".sub.dep.waits.blocking-me").TextContent);
+        page.WaitForAssertion(() =>
+        {
+            Assert.Equal([123], WorkItemsApi.Get(107)!.DependsOn);
+            Assert.Equal(2, WorkItemsApi.Get(107)!.Subtasks.Count);
+            Assert.Contains("#wi123", page.Find(".sub.dep.waits.blocking-me").TextContent);
+        });
     }
 
     [Fact(DisplayName = "The rail's Waiting on list has a picker of existing work items to wait on; choosing one makes it a dependency")]
@@ -876,13 +984,16 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 107));
         View(page, "linked");
 
-        page.Find("button[aria-label='Wait on another work item']").Click();
-        page.Find(".menu-filter").Input("health");
-        page.FindAll(".menu-item").Single().Click();
+        page.ClickWhenReady("button[aria-label='Wait on another work item']");
+        page.InputWhenReady(".menu-filter", "health");
+        page.FireWhenReady(".menu-item", e => e.Click(), all => all.Single());
 
-        Assert.Equal([123], WorkItemsApi.Get(107)!.DependsOn);
-        Assert.Equal("Blocked", WorkItemsApi.Get(107)!.Status);
-        Assert.Contains("#wi123", page.Find(".sub.dep.waits").TextContent);
+        page.WaitForAssertion(() =>
+        {
+            Assert.Equal([123], WorkItemsApi.Get(107)!.DependsOn);
+            Assert.Equal("Blocked", WorkItemsApi.Get(107)!.Status);
+            Assert.Contains("#wi123", page.Find(".sub.dep.waits").TextContent);
+        });
     }
 
     [Fact(DisplayName = "The dependency picker leaves out the item itself, ones it already waits on and ones that wait on it")]
@@ -893,12 +1004,15 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
 
-        page.Find("button[aria-label='Wait on another work item']").Click();
-        string choices = string.Join(" | ", page.FindAll(".menu-item").Select(i => i.TextContent));
+        page.ClickWhenReady("button[aria-label='Wait on another work item']");
 
-        Assert.DoesNotContain("#wi123", choices);   // itself
-        Assert.DoesNotContain("#wi107", choices);   // it already waits on 123: that would be a loop
-        Assert.Contains("#wi125", choices);
+        page.WaitForAssertion(() =>
+        {
+            string choices = string.Join(" | ", page.FindAll(".menu-item").Select(i => i.TextContent));
+            Assert.DoesNotContain("#wi123", choices);   // itself
+            Assert.DoesNotContain("#wi107", choices);   // it already waits on 123: that would be a loop
+            Assert.Contains("#wi125", choices);
+        });
     }
 
     [Fact(DisplayName = "Dependencies are listed in the rail's Waiting on list: a done one struck through, and × removes it")]
@@ -913,10 +1027,13 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("#wi124", row.TextContent);
         Assert.Contains("done", row.ClassList);
 
-        row.QuerySelector("button[aria-label='Remove dependency']")!.Click();
+        Act(page, () => row.QuerySelector("button[aria-label='Remove dependency']")!, e => e.Click());
 
-        Assert.Empty(WorkItemsApi.Get(107)!.DependsOn!);
-        Assert.Empty(page.FindAll(".sub.dep"));
+        page.WaitForAssertion(() =>
+        {
+            Assert.Empty(WorkItemsApi.Get(107)!.DependsOn!);
+            Assert.Empty(page.FindAll(".sub.dep"));
+        });
     }
 
     // Makes the temp repo a git repository with one commit, before the workspace opens it. (Unused on this page since the
@@ -976,8 +1093,79 @@ public sealed class UsingThePagesTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
-        page.Find("input[name=theme][value=dark]").Change("dark");
-        Assert.Equal("dark", ctx.Services.GetRequiredService<SettingsStore>().Current.Theme);
+        page.ChangeWhenReady("input[name=theme][value=dark]", "dark");
+        page.WaitForAssertion(() => Assert.Equal("dark", ctx.Services.GetRequiredService<SettingsStore>().Current.Theme));
+    }
+
+    // ── Settings tabs (#wi160): General, then one tab per open project; every setting a row of a two-column table ──
+
+    [Fact(DisplayName = "Settings has a General tab and one tab per open project, opens on General, and General holds what is not per project as table rows")]
+    public async Task SettingsTabs_GeneralAndOnePerProject()
+    {
+        using TestRepo other = new();
+        await using BunitContext ctx = NewContext();
+        Assert.True(ctx.Services.GetRequiredService<Workspace>().OpenTab(other.Root).Success);
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+
+        Assert.Equal(["General", Path.GetFileName(repo.Root), Path.GetFileName(other.Root)], page.Labels());
+        Assert.Equal("general", page.Chosen());
+        Assert.Equal(["general", repo.Root, other.Root], page.Radios().Select(r => r.GetAttribute("value")));
+        Assert.Equal(["Your name", "Theme", "Keyboard hints", "External editor", "Open another repository", "User settings", "Logs folder", "Rebuild index", "Agents over MCP"],
+            page.FindAll("table.set-table > tbody > tr > th").Select(h => h.TextContent.Trim()));   // label left, control right
+        Assert.All(page.FindAll("table.set-table > tbody > tr"), r => Assert.Equal(2, r.Children.Length));
+        Assert.Empty(page.FindAll("[data-project], .set-row"));   // nothing of a project, and no card per setting
+        Assert.Single(page.FindAll(".settings-panel > p.muted"));   // one short line of help under the tab title
+    }
+
+    [Fact(DisplayName = "Choosing a project's tab shows that project's rows and hides General's and the other project's; the chosen tab is marked")]
+    public async Task SettingsTabs_ChoosingAProject()
+    {
+        using TestRepo other = new();
+        await using BunitContext ctx = NewContext();
+        Assert.True(ctx.Services.GetRequiredService<Workspace>().OpenTab(other.Root).Success);
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+
+        page.OnProject(1);
+
+        Assert.Equal(other.Root, page.Chosen());
+        Assert.Equal(Path.GetFileName(other.Root), page.Find("[data-project]").GetAttribute("data-project"));
+        Assert.Single(page.FindAll("[data-project]"));
+        Assert.Equal(["Location", "Plans", "Images", "Statuses"], page.FindAll("[data-project] table.set-table > tbody > tr > th").Select(h => h.TextContent.Trim()));   // no board storage is registered in this test
+        Assert.Contains(other.Root, page.Find("[data-project] .set-path").TextContent);
+        Assert.DoesNotContain("Theme", page.Markup);   // General's rows are not drawn
+        Assert.Empty(page.FindAll("input#f-hints"));
+
+        page.OnProject(0);
+        Assert.Equal(Path.GetFileName(repo.Root), page.Find("[data-project]").GetAttribute("data-project"));
+        Assert.Contains(repo.Root, page.Find("[data-project] .set-path").TextContent);
+
+        page.OnTab("general");
+        Assert.Contains("Keyboard hints", page.Markup);
+        Assert.Empty(page.FindAll("[data-project]"));
+    }
+
+    [Fact(DisplayName = "The chosen Settings tab is remembered in the window: it is there when the user comes back, and General again when its project was closed")]
+    public async Task SettingsTabs_RememberedInTheWindow()
+    {
+        using TestRepo other = new();
+        await using BunitContext ctx = NewContext();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        Assert.True(workspace.OpenTab(other.Root).Success);
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        page.OnProject(1);
+        Assert.Equal(other.Root, ctx.Services.GetRequiredService<UiService>().SettingsTab);
+
+        LeaveTo(ctx, "item/123");
+        await ctx.DisposeComponentsAsync();   // the page is gone
+        page = ctx.Render<SettingsPage>();
+        Assert.Equal(other.Root, page.Chosen());   // back on the project's tab, not on General
+        Assert.Equal(Path.GetFileName(other.Root), page.Find("[data-project]").GetAttribute("data-project"));
+
+        workspace.CloseTab(other.Root);
+        await ctx.DisposeComponentsAsync();
+        page = ctx.Render<SettingsPage>();
+        Assert.Equal("general", page.Chosen());   // the project is no longer open: General
+        Assert.Equal(["General", Path.GetFileName(repo.Root)], page.Labels());
     }
 
     [Fact(DisplayName = "The settings page shows the .mcp.json snippet with the running app's path")]
@@ -986,11 +1174,11 @@ public sealed class UsingThePagesTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
 
-        string snippet = page.Find("section.mcp pre.box").TextContent;
+        string snippet = page.Find("tr.mcp pre.box").TextContent;
         Assert.Contains("--mcp", snippet);
         Assert.Contains("RTM_AGENT", snippet);
         Assert.Contains((Environment.ProcessPath ?? "").Replace('\\', '/'), snippet);
-        Assert.Contains("claude mcp add repo-tasks", page.Find("section.mcp").TextContent);
+        Assert.Contains("claude mcp add repo-tasks", page.Find("tr.mcp").TextContent);
         Assert.Empty(page.FindAll(".mcp-status"));   // no status registered (the desktop host does that): no status line
     }
 
@@ -1011,7 +1199,7 @@ public sealed class UsingThePagesTests : IDisposable
         state = new(false, 7431, false, "Address already in use");
         IRenderedComponent<SettingsPage> broken = ctx.Render<SettingsPage>();
         Assert.Contains("Not serving agents", broken.Find(".mcp-status").TextContent);
-        Assert.Contains("Address already in use", broken.Find("section.mcp").TextContent);
+        Assert.Contains("Address already in use", broken.Find("tr.mcp").TextContent);
     }
 
     [Fact(DisplayName = "Keyboard hints (F) are off until switched on in Settings; the switch is pushed to the page script")]
@@ -1021,9 +1209,9 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.False(ctx.Services.GetRequiredService<SettingsStore>().Current.Hints);
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
 
-        page.Find("input#f-hints").Change(true);
+        page.ChangeWhenReady("input#f-hints", true);
 
-        Assert.True(ctx.Services.GetRequiredService<SettingsStore>().Current.Hints);
+        page.WaitForAssertion(() => Assert.True(ctx.Services.GetRequiredService<SettingsStore>().Current.Hints));
         string js = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
         Assert.Contains("setHints(", js);           // the layout tells the script whether F does anything
         Assert.Contains("_hints.enabled", js);      // and F is ignored while it is off
@@ -1037,14 +1225,14 @@ public sealed class UsingThePagesTests : IDisposable
         string empty = Directory.CreateTempSubdirectory("rtm-empty").FullName;
         try
         {
-            page.Find("input#f-repo").Change(empty);
-            page.Find("button.open-repo").Click();
+            page.ChangeWhenReady("input#f-repo", empty);
+            page.ClickWhenReady("button.open-repo");
 
             page.WaitForAssertion(() => Assert.Contains("Set up openspec/", overlays!.Find(".toast").TextContent));
             Assert.True(File.Exists(Path.Combine(empty, "openspec", "config.yaml")));
 
-            page.Find("input#f-repo").Change(Path.Combine(empty, "nope"));
-            page.Find("button.open-repo").Click();
+            page.ChangeWhenReady("input#f-repo", Path.Combine(empty, "nope"));
+            page.ClickWhenReady("button.open-repo");
             page.WaitForAssertion(() => Assert.Contains("nope", page.Find(".warning").TextContent));
         }
         finally { ctx.Services.GetRequiredService<Workspace>().Open(repo.Root); Directory.Delete(empty, true); }
@@ -1123,13 +1311,13 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("log.txt", page.Find("button.att-file").TextContent.Trim());
         Assert.Equal("https://example.com/spec", page.Find("a.att-link").GetAttribute("href"));
 
-        page.Find("input.att-url").Input("https://example.com/more");
-        page.FindAll(".attachments button").First(b => b.TextContent.Trim() == "Add link").Click();
-        Assert.Contains("https://example.com/more", NotesApi.Get(123)!.Attachments);
+        page.InputWhenReady("input.att-url", "https://example.com/more");
+        page.FireWhenReady(".attachments button", e => e.Click(), all => all.First(b => b.TextContent.Trim() == "Add link"));
+        page.WaitForAssertion(() => Assert.Contains("https://example.com/more", NotesApi.Get(123)!.Attachments));
 
         page.WaitForAssertion(() => Assert.Equal(4, page.FindAll("button.att-x").Count));
-        page.FindAll("button.att-x")[0].Click();
-        Assert.Equal(3, NotesApi.Get(123)!.Attachments.Count);
+        page.FireWhenReady("button.att-x", e => e.Click(), all => all[0]);
+        page.WaitForAssertion(() => Assert.Equal(3, NotesApi.Get(123)!.Attachments.Count));
         Directory.Delete(src, true);
     }
 
@@ -1141,16 +1329,22 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Empty(page.FindAll(".rz-markdown-editor"));
         Assert.Contains("desc", page.Find(".note-view").ClassList);
 
-        page.Find(".note-view").Click();
-        Assert.Empty(page.FindAll(".note-view"));
-        Assert.Empty(page.FindAll(".rz-markdown-editor"));
-        Assert.Equal("Note", page.Find("textarea.desc-in").GetAttribute("aria-label"));
-        page.Find("textarea.desc-in").Input("# Ping test\n\nplain **typed** text");
-        page.Find("textarea.desc-in").Blur();
+        page.ClickWhenReady(".note-view");
+        page.WaitForAssertion(() =>
+        {
+            Assert.Empty(page.FindAll(".note-view"));
+            Assert.Empty(page.FindAll(".rz-markdown-editor"));
+            Assert.Equal("Note", page.Find("textarea.desc-in").GetAttribute("aria-label"));
+        });
+        page.InputWhenReady("textarea.desc-in", "# Ping test\n\nplain **typed** text");
+        page.BlurWhenReady("textarea.desc-in");
 
-        Assert.Empty(page.FindAll("textarea.desc-in"));
-        Assert.Contains("<strong>typed</strong>", page.Find(".note-view").InnerHtml);
-        Assert.Contains("plain **typed** text", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
+        page.WaitForAssertion(() =>
+        {
+            Assert.Empty(page.FindAll("textarea.desc-in"));
+            Assert.Contains("<strong>typed</strong>", page.Find(".note-view").InnerHtml);
+            Assert.Contains("plain **typed** text", repo.Read("openspec/changes/add-health-check/notes/n123.md"));
+        });
     }
 
     [Fact(DisplayName = "An open work item sits beside the list: the layout renders the list on the left with the open item's row marked, the item on the right, and the split toggle hides the list and is remembered")]
@@ -1207,11 +1401,12 @@ public sealed class UsingThePagesTests : IDisposable
     {
         await using BunitContext ctx = NewContext();
         IRenderedComponent<WorkItemPage> item = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        item.Find(".wk-first .wk-e").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
-        item.WaitForAssertion(() => item.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Edit").Click());
+        item.FireWhenReady(".wk-first .wk-e", e => e.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
+        item.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Edit"));
         item.WaitForAssertion(() => Assert.NotEmpty(item.FindAll(".wk-first textarea.desc-in")));
         IRenderedComponent<NotePage> note = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
-        note.Find(".note-view").Click();
+        note.ClickWhenReady(".note-view");
+        note.WaitForElement(".tile[data-tile='note'] > textarea.desc-in");
 
         foreach (var box in new[] { item.Find(".wk-first textarea.desc-in"), note.Find(".tile[data-tile='note'] > textarea.desc-in") })
         {
@@ -1253,9 +1448,59 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("Ping test in suite 543", page.Find(".tile[data-tile='subtasks']").TextContent);
         Assert.Contains("4 of 6 done", page.Find(".tile[data-tile='subtasks'] .tile-h").TextContent);
 
-        page.Find("input[aria-label='New subtask']").Change("Last one");   // adding still works, into the last group of the file
-        page.Find(".tile[data-tile='subtasks'] form.add-line").Submit();
-        Assert.Contains("Hardening", WorkItemsApi.Get(id)!.Subtasks.Single(s => s.Text == "Last one").Group);
+        page.ChangeWhenReady("input[aria-label='New subtask']", "Last one");   // adding still works, into the last group of the file
+        page.SubmitWhenReady(".tile[data-tile='subtasks'] form.add-line");
+        page.WaitForAssertion(() => Assert.Contains("Hardening", WorkItemsApi.Get(id)!.Subtasks.Single(s => s.Text == "Last one").Group));
+    }
+
+    // ── Scroll memory (#wi202): a view comes back where the user left it, per repository, kept in the window's own state ──
+
+    private static object[] LastRestore(BunitContext ctx) => ctx.JSInterop.Invocations["rtm.restoreScroll"].Last().Arguments.Select(a => a!).ToArray();
+
+    private static void LeaveTo(BunitContext ctx, string path) =>
+        ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo(path);
+
+    [Fact(DisplayName = "The board comes back at the scroll spot the user left it at, and the same for the settings page")]
+    public async Task ViewsComeBackWhereTheyWereLeft()
+    {
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        ctx.JSInterop.Setup<double[]>("rtm.scrollSpot").SetResult([1200, 30]);
+
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        Assert.Empty(ctx.JSInterop.Invocations.Where(i => i.Identifier == "rtm.restoreScroll"));   // nothing was left yet: the first visit starts at the top
+        LeaveTo(ctx, "item/123");
+        board.WaitForAssertion(() => Assert.Equal((1200d, 30d), ui.ScrollSpots[(SettingsStore.Key(repo.Root), "board")]));
+
+        await ctx.DisposeComponentsAsync();   // the page is gone, the layout shows the item
+        ctx.Render<BoardPage>();
+        ctx.Render<TaskManager.Components.Pages.SettingsPage>();   // another view has its own spot: nothing was saved for it, so it is not moved
+        Assert.Equal([1200d, 30d], LastRestore(ctx));
+        Assert.Single(ctx.JSInterop.Invocations["rtm.restoreScroll"]);
+
+        LeaveTo(ctx, "settings");
+        await ctx.DisposeComponentsAsync();
+        Assert.True(ui.ScrollSpots.ContainsKey((SettingsStore.Key(repo.Root), "settings")));
+        ctx.Render<TaskManager.Components.Pages.SettingsPage>();
+        Assert.Equal(2, ctx.JSInterop.Invocations["rtm.restoreScroll"].Count);
+    }
+
+    [Fact(DisplayName = "Each repository keeps its own scroll spot: switching to one restores where that one was left")]
+    public async Task EachRepositoryKeepsItsOwnSpot()
+    {
+        using TestRepo other = new();
+        await using BunitContext ctx = NewContext();
+        UiService ui = ctx.Services.GetRequiredService<UiService>();
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
+        ui.ScrollSpots[(SettingsStore.Key(repo.Root), "board")] = (1200, 0);
+        ui.ScrollSpots[(SettingsStore.Key(other.Root), "board")] = (300, 0);
+
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.WaitForAssertion(() => Assert.Equal([1200d, 0d], LastRestore(ctx)));
+        Assert.True(workspace.Open(other.Root).Success);
+        board.WaitForAssertion(() => Assert.Equal([300d, 0d], LastRestore(ctx)));
+        Assert.True(workspace.Open(repo.Root).Success);
+        board.WaitForAssertion(() => { Assert.Equal(3, ctx.JSInterop.Invocations["rtm.restoreScroll"].Count); Assert.Equal([1200d, 0d], LastRestore(ctx)); });
     }
 
     public void Dispose()
@@ -1297,8 +1542,8 @@ public sealed class UsingThePagesTests : IDisposable
     private static void PickSplit(IRenderedComponent<MainLayout> layout, string choice)
     {
         layout.InvokeAsync(() => { }).GetAwaiter().GetResult();   // let what is queued on the renderer run first: an event dispatched into a busy renderer returns before it is handled
-        layout.Find("button.split-btn").Click();
-        layout.WaitForAssertion(() => layout.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == choice).Click());   // the menu is drawn after the click, not with it
+        layout.ClickWhenReady("button.split-btn");
+        layout.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == choice));   // the menu is drawn after the click, not with it
     }
 
     [Fact(DisplayName = "The split button is a menu with Beside the list, Item only and Separate window; Separate window asks the launcher for a window on this item and the main window goes back to the board")]
@@ -1313,19 +1558,28 @@ public sealed class UsingThePagesTests : IDisposable
         layout.WaitForAssertion(() => Assert.NotEmpty(layout.FindAll("main.split .split-list tr[data-id]")));
 
         // the three choices; the current one is marked (beside the list is on until switched off)
-        layout.Find("button.split-btn").Click();
-        Assert.Equal(["Beside the list", "Item only", "Separate window"], SplitChoices(layout));
-        Assert.Equal(["Beside the list"], layout.FindAll(".menu-pop .menu-item.cur").Select(i => i.TextContent.Trim()));
-        Assert.Contains("wide-only", layout.FindAll(".menu-pop .menu-item")[0].ClassList);   // the CSS drops it in a narrow window; the other two stay
+        layout.ClickWhenReady("button.split-btn");
+        layout.WaitForAssertion(() =>
+        {
+            Assert.Equal(["Beside the list", "Item only", "Separate window"], SplitChoices(layout));
+            Assert.Equal(["Beside the list"], layout.FindAll(".menu-pop .menu-item.cur").Select(i => i.TextContent.Trim()));
+            Assert.Contains("wide-only", layout.FindAll(".menu-pop .menu-item")[0].ClassList);   // the CSS drops it in a narrow window; the other two stay
+        });
 
-        layout.FindAll(".menu-pop .menu-item")[1].Click();   // Item only
-        Assert.False(settings.Current.Split);
-        Assert.Empty(layout.FindAll("main.split"));
-        layout.Find("button.split-btn").Click();
-        Assert.Equal(["Item only"], layout.FindAll(".menu-pop .menu-item.cur").Select(i => i.TextContent.Trim()));
-        layout.FindAll(".menu-pop .menu-item")[0].Click();   // Beside the list
-        Assert.True(settings.Current.Split);
-        Assert.NotEmpty(layout.FindAll("main.split .split-list tr[data-id]"));
+        layout.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all[1]);   // Item only
+        layout.WaitForAssertion(() =>
+        {
+            Assert.False(settings.Current.Split);
+            Assert.Empty(layout.FindAll("main.split"));
+        });
+        layout.ClickWhenReady("button.split-btn");
+        layout.WaitForAssertion(() => Assert.Equal(["Item only"], layout.FindAll(".menu-pop .menu-item.cur").Select(i => i.TextContent.Trim())));
+        layout.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all[0]);   // Beside the list
+        layout.WaitForAssertion(() =>
+        {
+            Assert.True(settings.Current.Split);
+            Assert.NotEmpty(layout.FindAll("main.split .split-list tr[data-id]"));
+        });
         Assert.Empty(launched);
 
         // Separate window: the launcher gets the repository and the item, the split choice is left alone, the main window goes to the board
@@ -1361,16 +1615,16 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("+ New feature…", page.FindAll("[aria-label='feature'] .rz-dropdown-item").Last().TextContent.Trim());
 
         // cancelling leaves the item as it was, and the dropdown still shows its feature
-        page.FindAll("[aria-label='feature'] .rz-dropdown-item").Last().Click();
+        page.FireWhenReady("[aria-label='feature'] .rz-dropdown-item", e => e.Click(), all => all.Last());
         overlays!.WaitForAssertion(() => Assert.Contains("New feature", overlays.Find(".dialog").TextContent));
-        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Cancel").Click();
+        overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(b => b.TextContent.Trim() == "Cancel"));
         overlays.WaitForAssertion(() => Assert.Empty(overlays.FindAll(".dialog")));
         Assert.Equal(["non-functional/security"], WorkItemsApi.Get(123)!.Features.Select(f => f.Path));
         page.WaitForAssertion(() => Assert.Contains("Security", page.Find(".head.kvs [aria-label='feature'] .rz-dropdown-label").TextContent));
 
-        page.FindAll("[aria-label='feature'] .rz-dropdown-item").Last().Click();
-        overlays.WaitForAssertion(() => overlays.Find(".dialog input").Input("Exports"));
-        overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Create").Click();
+        page.FireWhenReady("[aria-label='feature'] .rz-dropdown-item", e => e.Click(), all => all.Last());
+        overlays.InputWhenReady(".dialog input", "Exports");
+        overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(b => b.TextContent.Trim() == "Create"));
 
         page.WaitForAssertion(() => Assert.EndsWith("exports", WorkItemsApi.Get(123)!.Features.Single().Path));
         page.WaitForAssertion(() => Assert.Contains("Exports", page.Find(".head.kvs [aria-label='feature'] .rz-dropdown-label").TextContent));
@@ -1384,8 +1638,8 @@ public sealed class UsingThePagesTests : IDisposable
         IRenderedComponent<Worklog> log = page.FindComponent<Worklog>();
         void Edit()
         {
-            page.Find(".wk-first .wk-e").Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true });
-            page.WaitForAssertion(() => page.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Edit").Click());
+            page.FireWhenReady(".wk-first .wk-e", e => e.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
+            page.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Edit"));
             page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".wk-first textarea.desc-in")));
         }
         Edit();
@@ -1508,21 +1762,6 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal(before, page.Instance.Loads);
     }
 
-// ── table helper ──
-
-    [Fact(DisplayName = "Every markdown editor in the app gets the table helper attached: the note page's too")]
-    public async Task NotePageEditorGetsTheTableHelper()
-    {
-        await using BunitContext ctx = NewContext();
-        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
-        int attached() => ctx.JSInterop.Invocations.Count(i => i.Identifier == "rtm.markdownEditor");
-        Assert.Equal(0, attached());   // not editing: no text box
-
-        page.Find(".note-view").Click();
-        page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll("textarea.desc-in")));
-        page.WaitForAssertion(() => Assert.True(attached() >= 1));
-    }
-
     // ── linked tasks: main list and rail ──
 
     [Fact(DisplayName = "The linked tasks view shows the subtasks as the main list with their progress, open first, done ones folded per group, and the rail beside it with waiting on, waiting on this and related")]
@@ -1586,22 +1825,28 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Equal("▸ 2 done", Fold().TextContent.Trim());
         Assert.DoesNotContain("Add /health route", Texts());
 
-        Fold().Click();
+        Act(page, () => Fold(), e => e.Click());
 
-        Assert.Equal("▾ 2 done", Fold().TextContent.Trim());
-        Assert.Equal("true", Fold().GetAttribute("aria-expanded"));
-        Assert.Equal(["Ping test in suite 543", "Add /health route", "Return build hash", "Hide internals from anonymous callers"], Texts());   // in place: the done ones follow the open ones of their group
-        Assert.Equal(["Add /health route", "Return build hash"], page.FindAll(".sub.done .s-t").Select(t => t.TextContent.Trim()));   // muted
-        Assert.True(page.Find("#sub-1-1").HasAttribute("checked"));
+        page.WaitForAssertion(() =>
+        {
+            Assert.Equal("▾ 2 done", Fold().TextContent.Trim());
+            Assert.Equal("true", Fold().GetAttribute("aria-expanded"));
+            Assert.Equal(["Ping test in suite 543", "Add /health route", "Return build hash", "Hide internals from anonymous callers"], Texts());   // in place: the done ones follow the open ones of their group
+            Assert.Equal(["Add /health route", "Return build hash"], page.FindAll(".sub.done .s-t").Select(t => t.TextContent.Trim()));   // muted
+            Assert.True(page.Find("#sub-1-1").HasAttribute("checked"));
+        });
 
         // a done subtask is reopened from there, and the fold counts one less
-        page.Find("#sub-1-1").Change(false);
+        page.ChangeWhenReady("#sub-1-1", false);
         page.WaitForAssertion(() => Assert.Contains("- [ ] 1.1", repo.Read("openspec/changes/add-health-check/tasks.md")));
         page.WaitForAssertion(() => Assert.Equal("▾ 1 done", Fold().TextContent.Trim()));
 
-        Fold().Click();
-        Assert.Equal("▸ 1 done", Fold().TextContent.Trim());
-        Assert.DoesNotContain("Return build hash", Texts());
+        Act(page, () => Fold(), e => e.Click());
+        page.WaitForAssertion(() =>
+        {
+            Assert.Equal("▸ 1 done", Fold().TextContent.Trim());
+            Assert.DoesNotContain("Return build hash", Texts());
+        });
     }
 
     // ── changed period with times ──
@@ -1618,7 +1863,7 @@ public sealed class UsingThePagesTests : IDisposable
             .Add(c => c.TimesChanged, t => { times = t; }));
         async Task<IRenderedComponent<TaskManager.Components.Shared.DateRange>> Open(IRenderedComponent<TaskManager.Components.Shared.DateRange> range)
         {
-            range.Find("button.dates-btn").Click();
+            range.ClickWhenReady("button.dates-btn");
             range.WaitForAssertion(() => Assert.NotEmpty(range.FindAll(".range-pop")));
             await range.InvokeAsync(() => { });
             return range;
@@ -1633,9 +1878,9 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.All(set.FindAll("input[type='time']"), i => Assert.False(i.HasAttribute("disabled")));
         Assert.Equal(["09:00", "12:30"], set.FindAll("input[type='time']").Select(i => i.GetAttribute("value")));
         Assert.Equal("11 Nov 09:00 – 12:30", set.Find("button.dates-btn").TextContent.Trim());   // a single day, then its two times
-        set.Find("input[aria-label='to time']").Change("13:15");
+        set.ChangeWhenReady("input[aria-label='to time']", "13:15");
         set.WaitForAssertion(() => Assert.Equal((new TimeOnly(9, 0), new TimeOnly(13, 15)), times));
-        set.Find("input[aria-label='from time']").Change("");
+        set.ChangeWhenReady("input[aria-label='from time']", "");
         set.WaitForAssertion(() => Assert.Equal((null, new TimeOnly(12, 30)), times));   // an emptied input clears that time (the other end is the parent's value, which this test never updates)
     }
 
@@ -1681,5 +1926,33 @@ public sealed class UsingThePagesTests : IDisposable
         panel.WaitForAssertion(() => Assert.Equal($"{second} · Reword the export", panel.Find("[data-line='last commit'] b").TextContent.Trim()));
         popups.Examine((repo.Root, 123));
         panel.WaitForAssertion(() => Assert.Equal("uncommitted changes", panel.Find("[data-line='last commit'] b").TextContent.Trim()));
+    }
+
+    // ── #wi208: the table editor left the app ──
+
+    [Fact(DisplayName = "The note editor is a plain textarea with no table helper attached")]
+    public async Task NoteEditorIsAPlainTextarea()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<NotePage> page = ctx.Render<NotePage>(p => p.Add(c => c.Id, 123));
+
+        page.ClickWhenReady(".note-view");
+        page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll("textarea.desc-in")));
+        await page.InvokeAsync(() => { });   // the after-render work of the editor has run
+
+        Assert.DoesNotContain(ctx.JSInterop.Invocations, i => i.Identifier == "rtm.markdownEditor");
+    }
+
+    [Fact(DisplayName = "index.html loads no markdown table scripts")]
+    public void IndexLoadsNoMarkdownTableScripts()
+    {
+        string html = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "index.html"));
+        Assert.DoesNotContain("md-table.js", html);
+        Assert.DoesNotContain("md-editor.js", html);
+    }
+    private static void Act<T>(Bunit.IRenderedComponent<T> cut, Func<AngleSharp.Dom.IElement?> find, Action<AngleSharp.Dom.IElement> fire) where T : Microsoft.AspNetCore.Components.IComponent
+    {
+        cut.Eventually(() => Xunit.Assert.NotNull(find()));   // rendered and present, or the test fails
+        cut.InvokeAsync(() => fire(find()!)).GetAwaiter().GetResult();
     }
 }

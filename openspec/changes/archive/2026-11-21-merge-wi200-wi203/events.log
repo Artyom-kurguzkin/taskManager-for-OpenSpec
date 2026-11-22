@@ -1,0 +1,66 @@
+2026-11-18T08:36:33 | Artyom-kurguzkin | created | New work item
+2026-11-18T08:36:39 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-18T08:37:14 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-18T08:37:27 | Artyom-kurguzkin | title | New work item -> custom status is broken
+2026-11-18T08:37:28 | Artyom-kurguzkin | label | none -> bug
+2026-11-18T08:37:30 | Artyom-kurguzkin | priority | low -> high
+2026-11-18T08:37:31 | Artyom-kurguzkin | status | Backlog -> Planned
+2026-11-18T08:37:34 | Artyom-kurguzkin | feature | none -> general-ux
+2026-11-18T08:37:39 | Artyom-kurguzkin | feature | general-ux -> organise-work-items
+2026-11-18T08:37:44 | Artyom-kurguzkin | dates | none -> 18 Nov – 18 Nov
+2026-11-18T09:17:35 | Artyom-kurguzkin | created | New work item
+2026-11-18T09:17:46 | Artyom-kurguzkin | title | New work item -> delete metadata
+2026-11-18T09:20:40 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-18T09:20:55 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-18T09:21:02 | Artyom-kurguzkin | status | Backlog -> Planned
+2026-11-18T09:21:05 | Artyom-kurguzkin | priority | low -> high
+2026-11-18T09:21:08 | Artyom-kurguzkin | label | none -> enhancement
+2026-11-18T09:21:10 | Artyom-kurguzkin | dates | none -> 18 Nov – 18 Nov
+2026-11-18T09:21:17 | Artyom-kurguzkin | feature | none -> organise-work-items
+2026-11-18T09:33:27 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-18T09:33:56 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-18T09:43:58 | Claude | plan-linked | DevResources/plans/in-progress-items-2026-11-18b.md
+2026-11-18T09:44:03 | Claude | plan-linked | DevResources/plans/in-progress-items-2026-11-18b.md
+2026-11-18T09:54:29 | Claude chunk delete-meta | subtask-added | 1.1 Delete a non-default status: open items move to the first status, archived keep the name, confirm dialog names the count
+2026-11-18T09:54:29 | Claude chunk delete-meta | subtask-added | 1.2 Delete a feature: open items lose it, archived keep it (board menu)
+2026-11-18T09:54:29 | Claude chunk delete-meta | subtask-added | 1.3 Merge rules for deleted features: same merges, existing takes over, two different refused
+2026-11-18T10:08:21 | Claude chunk delete-meta | subtask-done | 1.1 Delete a non-default status: open items move to the first status, archived keep the name, confirm dialog names the count
+2026-11-18T10:08:21 | Claude chunk delete-meta | subtask-done | 1.2 Delete a feature: open items lose it, archived keep it (board menu)
+2026-11-18T10:08:21 | Claude chunk delete-meta | subtask-done | 1.3 Merge rules for deleted features: same merges, existing takes over, two different refused
+2026-11-18T10:39:49 | Claude | status | In Progress -> In Review
+2026-11-18T10:39:49 | Claude | test-linked | SwitchingProjectsTests / With two projects open a status only one has shows once in the header row, and the project without it has an unavailable cell there instead of a working column
+2026-11-18T10:39:49 | Claude | test-linked | SwitchingProjectsTests / Dropping a card onto a status its project lacks asks to add the status to that project; yes adds it to the project's config and moves the card
+2026-11-18T10:39:49 | Claude | test-linked | SwitchingProjectsTests / Answering no to adding the missing status changes nothing: the config and the card stay as they were
+2026-11-18T10:39:49 | Claude | test-linked | SwitchingProjectsTests / The list shows a Research group for the project that has the status and none for the project that has not
+2026-11-18T10:39:49 | Claude | test-linked | KeepingProjectStatusesTests / A status column the project does not have is marked absent under a shared header row and left out otherwise; a merged column counts when the project has one of its statuses
+2026-11-18T10:39:51 | Claude | status | In Progress -> In Review
+2026-11-18T10:39:51 | Claude | test-linked | KeepingProjectStatusesTests / Deleting a status that open items have moves them to the project's first status; archived items keep the name and still show as Completed
+2026-11-18T10:39:51 | Claude | test-linked | KeepingProjectStatusesTests / A default status cannot be deleted, with or without items in it
+2026-11-18T10:39:51 | Claude | test-linked | KeepingProjectStatusesTests / Removing a status that work items have asks first, naming how many move to the first status, then moves them and removes it
+2026-11-18T10:39:51 | Claude | test-linked | MergingDeletedCategoriesTests / Merging an item whose feature was deleted with one whose feature exists gives the merged item the existing feature
+2026-11-18T10:39:51 | Claude | test-linked | MergingDeletedCategoriesTests / Deleting a feature unassigns its open items and leaves its archived items on it
+2026-11-18T10:39:51 | Claude | test-linked | MergingDeletedCategoriesTests / Archived items with the same deleted feature merge and keep it
+2026-11-18T10:39:51 | Claude | test-linked | MergingDeletedCategoriesTests / Merging items with two different deleted features is refused, naming both, and nothing is merged
+2026-11-18T10:58:44 | Artyom-kurguzkin | converted | note #n795 -> bug
+2026-11-18T10:58:48 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-18T10:59:40 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-18T10:59:48 | Artyom-kurguzkin | created | custom status is broken
+2026-11-18T10:59:48 | Artyom-kurguzkin | merged-from | #wi203 delete metadata
+2026-11-18T11:07:30 | Artyom-kurguzkin | subtask-added | 1.4 I should be able to delete stuff from the viewers not just from the settings #n797
+2026-11-18T11:07:30 | Artyom-kurguzkin | converted | note #n797 -> subtask 1.4
+2026-11-18T11:15:53 | Claude | plan-linked | DevResources/plans/in-progress-items-2026-11-18c.md
+2026-11-18T13:08:20 | Claude chunk delete-viewers | subtask-done | 1.4 I should be able to delete stuff from the viewers not just from the settings #n797
+2026-11-18T13:27:08 | Claude | test-linked | KeepingProjectStatusesTests / Deleting a status moves its items to the first status even when one of them waits on an open dependency, and none stays behind half-moved
+2026-11-18T13:27:08 | Claude | test-linked | KeepingProjectStatusesTests / A status column can be deleted from where it is seen only when it is the project's own custom status: not a fixed one, not a merged column, not one the project lacks
+2026-11-18T13:27:08 | Claude | test-linked | UsingTheBoardTests / A status column's menu offers Delete status… for a custom status and not for Backlog; confirming moves its items to the first status and removes it from the project's config
+2026-11-18T13:27:08 | Claude | test-linked | UsingTheBoardTests / Cancelling the Delete status… confirm from a column menu leaves the status and its items alone
+2026-11-18T13:27:08 | Claude | test-linked | UsingTheBoardTests / The list's group header offers Delete status… for a custom status, and a default status offers none
+2026-11-18T13:27:08 | Claude | test-linked | UsingTheBoardTests / In the list grouped by feature a feature's group header offers Delete feature…, which asks first and moves its open items to Unassigned; Unassigned offers none
+2026-11-18T13:27:08 | Claude | test-linked | UsingTheBoardTests / With two projects open Delete status… on the shared header asks which project, and only that project loses the status
+2026-11-18T13:47:29 | Claude | status | In Progress -> In Review
+2026-11-18T13:47:29 | Claude | test-linked | SwitchingProjectsTests / With two projects open, dragging a status only one has in front of another column puts it there in the shared header, in the other project's unavailable cell and in the saved order, and it stays after a fresh render
+2026-11-18T13:47:29 | Claude | test-linked | SwitchingProjectsTests / With two projects open, Left and Right on a Shift-clicked status column of the shared header move it one place per press and save the order
+2026-11-18T13:47:29 | Claude | test-linked | SwitchingProjectsTests / With one project open, Left on a Shift-clicked status column moves it one place and Right moves it back, and a drop in front of another column puts it there
+2026-11-18T13:47:29 | Claude | test-linked | ArrangingTheBoardTests / The saved order wins over the projects' lists for every column, and a status it does not hold yet goes where the lists put it
+2026-11-18T13:47:29 | Claude | test-linked | KeepingMyArrangementsTests / A status column the user drags in the shared header of two projects keeps its place after the app is closed and opened again on the same settings file
+2026-11-21T12:41:30 | Artyom-kurguzkin | status | In Review -> Completed

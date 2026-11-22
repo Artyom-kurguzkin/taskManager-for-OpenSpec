@@ -2,6 +2,9 @@
 @implements IDisposable
 @using TaskManager.Components.Pages
 
+@* One error boundary over everything the layout draws: a failing component is logged and replaced by a message with a Reload link, never a blank window. *@
+<AppErrorBoundary>
+<DebugThrow Uri="@Nav.Uri" />
 @* nav items are buttons, not links: WebView2 shows a "localhost/…" bubble when hovering links *@
 @if (Detached)
 {
@@ -30,6 +33,7 @@ else
 }
 }
 <Overlays />
+</AppErrorBoundary>
 
 @code {
     [Inject] private NavigationManager Nav { get; set; } = default!;

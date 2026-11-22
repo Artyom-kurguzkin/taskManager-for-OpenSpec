@@ -30,6 +30,12 @@ internal static class WorkItemsModule
     internal static Func<PublicDTOs.BoardRead>? Board;
     internal static Func<PublicDTOs.BoardRead?>? LastSeen;
 
+    /// <summary>The host's cached read of an item's description (its proposal's body), when it installed one (see WorkItemsApi.UseDescriptions); null = read the proposal on every call.</summary>
+    internal static Func<int, string>? Description;
+
+    /// <summary>The host's cached read of an item's events (see WorkItemsApi.UseEvents); null = read events.log on every call.</summary>
+    internal static Func<int, IReadOnlyList<PublicDTOs.WorkItemEvent>>? Events;
+
     /// <summary>Goes up when the contributor source is replaced, so every item takes its commit authors again (without parsing a folder).</summary>
     internal static int GitEpoch { get => S.GitEpoch; set => S.GitEpoch = value; }
 

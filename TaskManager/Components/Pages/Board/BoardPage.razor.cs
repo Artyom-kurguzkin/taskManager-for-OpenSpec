@@ -161,7 +161,7 @@ public partial class BoardPage
     }
 
     private (Project From, IReadOnlyList<(WorkItem Item, string Column, string? Row)> Cards)? dragging;   // the dragged card, or every selected card of its project, with the column and row each is dragged from
-    private (IReadOnlyList<string> Siblings, string Key)? draggingColumn;   // a column header or group name being dragged
+    private (IReadOnlyList<string> Siblings, IReadOnlyList<string> Moving)? draggingColumn;   // a column header or group name being dragged, or every selected group header with it
 
     internal static readonly IReadOnlyList<(string, string)> Views = [("board", "Board"), ("list", "List"), ("calendar", "Calendar"), ("analytics", "Analytics")];
     internal static readonly IReadOnlyList<(string, string)> Units = [("tasks", "Work items"), ("subtasks", "Subtasks")];
@@ -204,7 +204,7 @@ public partial class BoardPage
     // The side menu edits the view options, and the hidden / collapsed projects, through the settings store. Other settings
     // (the grid's own layout, the theme) change nothing here, so they cause no reload.
     private string projectState = "";
-    private string ProjectState => string.Join(";", Settings.Current.OpenRepos ?? []) + "|" + string.Join(";", Settings.Current.HiddenProjects ?? []) + "|" + string.Join(";", Settings.Current.CollapsedProjects ?? []);   // tab order, hidden, collapsed
+    private string ProjectState => string.Join(";", Settings.Current.OpenRepos ?? []) + "|" + string.Join(";", Settings.Current.HiddenProjects ?? []) + "|" + string.Join(";", Settings.Current.CollapsedProjects ?? []) + "|" + string.Join(";", Settings.Current.HiddenItems ?? []);   // tab order, hidden, collapsed, hidden items
 
     private void OnSettings() => InvokeAsync(() =>
     {
@@ -232,9 +232,11 @@ public partial class BoardPage
         IReadOnlyDictionary<string, IReadOnlyList<string>> Lanes, IReadOnlyList<string> Statuses, IReadOnlySet<int> Dirty, IReadOnlySet<int> Failing);
 
     private List<Read> reads = [];
-    private (bool ShowHidden, string Commit) readFor;   // the options the reads were made for: the ones that change what is read
+    private string readFor = "";   // the commit filter the reads were made for: it changes what is read
     private BoardOptions? projectedFor;                  // the options the projects were built with (null: nothing projected yet)
     private IReadOnlyList<string> warnings = [];
+    private string gitSeen = "";   // the projects whose git was ready at the last read
+    private bool loading;   // a project's headers are still being read: the skeleton (board) or a Loading line (the other views) stands in for what it will show
 
     /// <summary>The items a drop or a pill showed before the write was made, by project and number, as they were shown: the persisted item may differ from the shown one in the stamps the change wrote only.</summary>
     private readonly Dictionary<(string Root, int Id), WorkItem> shown = [];
@@ -246,22 +248,33 @@ public partial class BoardPage
     protected override void Load()
     {
         Reads++;
-        List<string> roots = [.. Workspace.Projects.Where(r => O.ShowHidden || !Settings.ProjectHidden(r))];
+        // A project whose headers are not in yet (the pool is reading them at the start) is not read here: the page would read the whole repository on the window's thread. The skeleton stands in until the load says it is in.
+        List<string> shownRoots = [.. Workspace.Projects.Where(r => !Settings.ProjectHidden(r))];
+        List<string> roots = [.. shownRoots.Where(r => !Workspace.IsLoading(r))];
+        loading = roots.Count < shownRoots.Count;
+        if (roots.Count == 0 && loading) { reads = []; projects = []; warnings = []; return; }
         List<Read> fresh = [.. roots.Select(r => Workspace.In(r, () =>
         {
-            IReadOnlyList<WorkItem> items = ItemsCache.All(includeHidden: O.ShowHidden);
+            IReadOnlyList<WorkItem> items = AppVisible(r, ItemsCache.All());
             return new Read(r, items, FeaturesCache.Get(), Workspace.FeatureNames, WorkItemsApi.GetLanes(), WorkItemsApi.GetStatuses(),
-                O.Commit == "any" ? BoardModel.Uncommitted(items) : new HashSet<int>(),   // the uncommitted marker reads the project's own git history and files (the commit filter)
+                O.Commit == "any" && Workspace.IsGitReady(r) ? BoardModel.Uncommitted(items) : new HashSet<int>(),   // the uncommitted marker reads the project's own git history and files (the commit filter); not before git is ready (the pool reads it at the start)
                 FailingTests(items));
         }))];
-        warnings = WorkItemsApi.GetWarnings();   // read here, not in the markup: a render reads no file
-        if (projectedFor == O && SameReads(reads, fresh, null)) return;   // what the page shows is what the repositories hold: the echo of its own write
-        if (projectedFor == O && shown.Count > 0 && SameReads(reads, fresh, shown)) { reads = fresh; shown.Clear(); return; }   // the drop it showed, as written
+        warnings = Workspace.Root is string active && Workspace.IsLoading(active) ? [] : WorkItemsApi.GetWarnings();   // read here, not in the markup: a render reads no file
+        string gitNow = string.Join('|', roots.Where(Workspace.IsGitReady));
+        bool gitMoved = gitNow != gitSeen;   // git became ready for a project since the last read: the commit filter and the uncommitted marks apply now, whatever else is the same
+        gitSeen = gitNow;
+        if (!gitMoved && projectedFor == O && SameReads(reads, fresh, null)) return;   // what the page shows is what the repositories hold: the echo of its own write
+        if (!gitMoved && projectedFor == O && shown.Count > 0 && SameReads(reads, fresh, shown)) { reads = fresh; shown.Clear(); return; }   // the drop it showed, as written
         reads = fresh;
-        readFor = (O.ShowHidden, O.Commit);
+        readFor = O.Commit;
         shown.Clear();
         Reproject();
     }
+
+    /// <summary>The items the user did not hide in the app (the list itself while none is hidden).</summary>
+    private IReadOnlyList<WorkItem> AppVisible(string root, IReadOnlyList<WorkItem> items) =>
+        Settings.HiddenItemsOf(root) is not { Count: > 0 } hidden ? items : [.. items.Where(i => !hidden.Contains(i.Id))];
 
     /// <summary>Whether two reads hold the same: items by instance (the cache keeps an unchanged item's), the rest by value. <paramref name="drops"/>: items a drop showed ahead of its write.</summary>
     private static bool SameReads(List<Read> a, List<Read> b, Dictionary<(string Root, int Id), WorkItem>? drops) =>
@@ -284,9 +297,12 @@ public partial class BoardPage
     {
         // the status columns: each project's own list, or with several projects the union of their lists with the user's merges folded in
         IReadOnlyList<FieldValue> statusColumns = BoardModel.StatusColumns(reads.Select(x => x.Statuses), reads.Count > 1 ? O.Merges : null);
-        // Build reads the project's own git history and files (the commit filter), so it runs inside it
+        // Build reads the project's own git history and files (the commit filter, which waits for git at the start), so it runs inside it
         projects = reads.Select(x => new Project(x.Root, Path.GetFileName(x.Root), x.Items, x.Features, x.Names,
-            Workspace.In(x.Root, () => BoardModel.Build(x.Items, x.Features, x.Lanes, Opt, Today, statusColumns)), BoardModel.ColourMap(O.ColorBy, x.Items, x.Features), x.Statuses, x.Dirty, x.Failing)).ToList();
+            Workspace.In(x.Root, () => BoardModel.Build(x.Items, x.Features, x.Lanes, Workspace.IsGitReady(x.Root) ? Opt : Opt with { Commit = "any" }, Today, statusColumns)), BoardModel.ColourMap(O.ColorBy, x.Items, x.Features), x.Statuses, x.Dirty, x.Failing)).ToList();
+        // statuses are per project: a column its project lacks stays (empty, unavailable) only under a shared header row, else it is left out
+        bool aligned = Aligned;
+        projects = [.. projects.Select(p => p with { Sections = BoardModel.MarkAbsent(p.Sections, Opt, p.Statuses, aligned) })];
         projectedFor = O;
         loadVersion++;
         cardHandlers.Clear();   // the callbacks act on this load's project and columns; the cards are drawn again for the new ones
@@ -363,7 +379,7 @@ public partial class BoardPage
     {
         if (options == O) return;
         Remember(options);
-        if (options.ShowHidden != readFor.ShowHidden || options.Commit != readFor.Commit) Load(); else Reproject();   // what is read depends on those two
+        if (options.Commit != readFor) Load(); else Reproject();   // what is read depends on the commit filter
     }
 
     private void Remember(BoardOptions options)
@@ -403,7 +419,7 @@ public partial class BoardPage
     private static string Day(DateTime? d) => d is { } v ? Ui.Day(DateOnly.FromDateTime(v)) : "";
     private static string Stamp(DateTime? d) => d is { } v ? Ui.Stamp(v) : "";   // "15:34. 16 Nov 26"
 
-    private bool Shown(string column) => !BoardModel.Concealed(O,BoardModel.ListColumnKey(column)) && (column == "Status" || (column != BoardModel.GroupedColumn(Opt) && column != BoardModel.SwimColumn(Opt)));   // Status always stays: the organising operators work on it
+    private bool Shown(string column) => !BoardModel.IsHidden(O, BoardModel.ListColumnKey(column)) && (column == "Status" || (column != BoardModel.GroupedColumn(Opt) && column != BoardModel.SwimColumn(Opt)));   // Status always stays: the organising operators work on it
 
     // Asks what the grid is grouped by, not Multi: after the project list changes, the grid renders once with its old group
     // descriptors (OnAfterRenderAsync swaps them), and a group keyed by column read as a project group throws a cast in the render.
@@ -451,7 +467,6 @@ public partial class BoardPage
         args.Attributes["data-row"] = row.Key;
         args.Attributes["style"] = $"--band:var({BoardModel.ColourOf(it, O.ColorBy, Today, p.Colours)})";   // the row's colour (app.css), as a card's band
         if (O.ColorBy != "none") args.Attributes["data-tint"] = "";   // a wash of it over the whole row
-        if (it.Hidden) args.Attributes["data-hidden"] = "";   // selected, examined and open beside the list are not here: RowMarks marks them, so the grid does not draw again for them
         args.Attributes["onclick"] = EventUtil.AsNonRenderingEventHandler<MouseEventArgs>(e =>   // the board's select click, anywhere on the row; it renders only when it changed something
         {
             if (e.ShiftKey || e.CtrlKey || e.MetaKey) { ToggleSelect(p, it); StateHasChanged(); }
@@ -501,7 +516,7 @@ public partial class BoardPage
         {
             if (SwimRowsOf(args.Group!).FirstOrDefault() is not { } first) return;
             string value = (string)args.Group!.Data.Key;
-            args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(ProjectOf(first.Root), first.Column, value.Length > 0 ? value : null));
+            args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => value.Length > 0 ? DropOnSubgroup(ProjectOf(first.Root), first.Column, value) : Drop(ProjectOf(first.Root), first.Column, null));
             if (value.Length == 0)   // an empty column's placeholder row has no row value: no heading, only the column above it
             {
                 args.Attributes["data-group"] = "";
@@ -511,6 +526,7 @@ public partial class BoardPage
             {
                 args.Attributes["data-group"] = "swim:" + value;
                 args.Attributes["data-path-swim"] = first.SwimLabel;
+                args.Attributes["ondragstart"] = EventCallback.Factory.Create<DragEventArgs>(this, () => StartSubgroupDrag(value));   // the script lifts it only when selected
                 args.Attributes["onclick"] = Quiet(e => RowClick(BoardModel.RowKey(Opt.Swimlane, value), e));   // Shift-click selects the subgroup, as a swimlane header; a plain click is the grid's (fold)
                 if (shutGroups.Contains(ShutKey(args.Group!))) args.Expanded = false;
             }
@@ -519,6 +535,7 @@ public partial class BoardPage
         (BoardColumn col, _, string root) = GroupOf(args.Group!);
         args.Attributes["data-group"] = col.Key;
         args.Attributes["data-path-col"] = col.Label;
+        args.Attributes["ondragstart"] = EventCallback.Factory.Create<DragEventArgs>(this, () => StartGroupDrag(col.Key));   // the script lifts it only when selected
         args.Attributes["onclick"] = Quiet(e => ColumnClick(col.Key, e));   // Shift-click selects the group, as a column header; a plain click is the grid's (fold)
         if (Opt.GroupBy == "status") args.Attributes["data-path-fill"] = $"var({Ui.Band(col.Label)})";   // the status pill's colour, as the group header wears it
         args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => Drop(ProjectOf(root), col, null));   // the column's end; the item keeps its row value
@@ -562,8 +579,25 @@ public partial class BoardPage
         if (Workspace.ViewRoot is string root) Settings.SaveBoard(root, O);   // no Load: nothing on the board changed
     }
 
+    /// <summary>The grid instance that was handed its saved settings at its first after-render (see <see cref="LoadGridSettings"/>); a new grid (the list drawn again after another view) is handed them again.</summary>
+    private RadzenDataGrid<GridRow>? settingsHandedTo;
+
+    /// <summary>
+    /// Radzen applies <c>Settings</c> in the grid's first after-render, but only if it saw the parameter change in its latest parameter set. In the window the render takes to reach the WebView
+    /// and come back, the page draws the list again when the next load step lands (git ready, a few hundred milliseconds after the headers), the grid is given the same settings object once more,
+    /// and it takes that as "unchanged": the saved header sort was never applied. This callback runs first in that after-render: the first time a grid asks, it is handed a copy, which it does take as changed.
+    /// </summary>
+    private void LoadGridSettings(DataGridLoadSettingsEventArgs args)
+    {
+        if (gridSettings is null || ReferenceEquals(settingsHandedTo, grid)) return;
+        settingsHandedTo = grid;
+        gridSettings = System.Text.Json.JsonSerializer.Deserialize<DataGridSettings>(System.Text.Json.JsonSerializer.Serialize(gridSettings));   // the page passes this same copy from here on, so the grid sees no further change
+        args.Settings = gridSettings;
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender) AppLog.MarkOnce("first-render");   // the start's timing marks: the first page drawn (the skeleton, usually)
         reopenProjects.Clear();   // the list has drawn them open once; from here Radzen's own state keeps them so
         if (grid is null) return;
         bool grouping = Multi || Opt.GroupBy != BoardModel.NoSwimlane || Opt.Swimlane != BoardModel.NoSwimlane;   // nothing to group by: the flat list
@@ -685,20 +719,22 @@ public partial class BoardPage
             if (!await Popups.Confirm("Complete and archive?",
                 $"#wi{it.Id} {it.Title} will be archived with the OpenSpec CLI and its delta specs merged into openspec/specs. This can't be undone from the board.",
                 yes: "Archive")) return false;
-            return Run(await Popups.Busy($"Archiving #wi{it.Id} with the OpenSpec CLI…", () => Workspace.In(p.Root, () => WorkItemsApi.SetStatus(it.Id, status))));
+            return Run(await Popups.Busy($"Archiving #wi{it.Id} with the OpenSpec CLI…", () => Workspace.In(p.Root, () => WorkItemsApi.SetStatus(it.Id, status))), Wi(it));
         }
         // A pill (not a drop, which shows its own move in Land) shows the new status before the write; the write and the refresh run on the thread pool.
         return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetStatus(it.Id, status)),
-            status != it.Status ? () => ShowItems(p, [it with { Status = status, Modified = Ui.Now(Time) }]) : null);
+            status != it.Status ? () => ShowItems(p, [it with { Status = status, Modified = Ui.Now(Time) }]) : null, Wi(it));
     }
+
+    private static string Wi(WorkItem it) => "#wi" + it.Id;
 
     /// <summary>The list's label pill: the new value is shown first, the write follows on the thread pool.</summary>
     private Task<bool> SetLabel(Project p, WorkItem it, string label) => RunInBackground(() => Workspace.In(p.Root, () => WorkItemsApi.SetLabel(it.Id, label)),
-        (it.Label ?? "") != label ? () => ShowItems(p, [it with { Label = label == "" ? null : label, Modified = Ui.Now(Time) }]) : null);
+        (it.Label ?? "") != label ? () => ShowItems(p, [it with { Label = label == "" ? null : label, Modified = Ui.Now(Time) }]) : null, Wi(it));
 
     /// <summary>The list's priority pill, as <see cref="SetLabel"/>.</summary>
     private Task<bool> SetPriority(Project p, WorkItem it, string priority) => RunInBackground(() => Workspace.In(p.Root, () => WorkItemsApi.SetPriority(it.Id, priority)),
-        priority != it.Priority ? () => ShowItems(p, [it with { Priority = priority, Modified = Ui.Now(Time) }]) : null);
+        priority != it.Priority ? () => ShowItems(p, [it with { Priority = priority, Modified = Ui.Now(Time) }]) : null, Wi(it));
 
     /// <summary>Puts the items into what the page read and draws, before the write that makes them so; <see cref="Load"/> finds them written, or shows what is there.</summary>
     private void ShowItems(Project p, IReadOnlyList<WorkItem> items)
@@ -709,11 +745,11 @@ public partial class BoardPage
     }
 
     /// <summary>One write of the page: on the thread pool, one at a time. A write inside a drop notes the store version it produced, to tell what moved the store after it from itself.</summary>
-    private async Task<bool> Write(Func<(bool Success, string Message)> command, Action? show = null)
+    private async Task<bool> Write(Func<(bool Success, string Message)> command, Action? show = null, string? target = null, [System.Runtime.CompilerServices.CallerArgumentExpression(nameof(command))] string? what = null, [System.Runtime.CompilerServices.CallerMemberName] string? member = null)
     {
-        if (landing == 0) return await RunInBackground(command, show);
-        (bool ok, string message) = await Workspace.DoLater(command, () => landedAt = OpenSpecStore.OpenSpecStoreApi.TotalVersion);
-        if (ok) Popups.Saved(); else Popups.Toast(message, ToastKind.Warning);
+        if (landing == 0) return await RunInBackground(command, show, target, what, member);
+        (bool ok, string message) = await Workspace.DoLater(command, () => { landedAt = OpenSpecStore.OpenSpecStoreApi.TotalVersion; NoteOwnWrite(); });
+        if (ok) { LogAction(ActionOf(what, member), target); Popups.Saved(); } else Popups.Toast(message, ToastKind.Warning);
         return ok;
     }
 
@@ -723,7 +759,42 @@ public partial class BoardPage
     private void StartColumnDrag(IReadOnlyList<string> siblings, string key)
     {
         dragging = null;
-        draggingColumn = (siblings, key);
+        draggingColumn = (siblings, [key]);
+    }
+
+    /// <summary>A list group header drag (the script lifts only a selected one): it carries every selected group of its siblings, in their order; a header that is not selected drags nothing.</summary>
+    private void StartGroupDrag(string key)
+    {
+        dragging = null;
+        draggingRow = null;
+        draggingColumn = null;
+        if (key == BoardModel.Unassigned || !selectedColumns.Contains(key)) return;
+        if (projects.SelectMany(p => p.Sections).Select(s => s.Columns.Select(c => c.Key).Where(k => k != BoardModel.Unassigned).ToList()).FirstOrDefault(k => k.Contains(key)) is { } keys)
+            draggingColumn = ([.. keys.Select(k => BoardModel.ColumnKey(Opt, k))], [.. keys.Where(selectedColumns.Contains).Select(k => BoardModel.ColumnKey(Opt, k))]);
+    }
+
+    /// <summary>A list subgroup header drag: the selected subgroups of its siblings move together, as the board's swimlane headers do; one that is not selected drags nothing.</summary>
+    private void StartSubgroupDrag(string value)
+    {
+        string key = BoardModel.RowKey(Opt.Swimlane, value);
+        dragging = null;
+        draggingColumn = null;
+        draggingRow = null;
+        if (selectedRows.Contains(key) && projects.SelectMany(p => p.Sections).Select(RowKeys).FirstOrDefault(r => r.Contains(key)) is { } siblings) StartRowDrag(siblings, key);
+    }
+
+    /// <summary>The script drops a group header after the last of its siblings on the table itself.</summary>
+    private void DropGroupAtEnd()
+    {
+        if (draggingColumn is (IReadOnlyList<string> siblings, _)) DropColumn(siblings, null);
+        else DropRow(null);
+    }
+
+    private Task DropOnSubgroup(Project p, BoardColumn column, string value)
+    {
+        if (draggingRow is null) return Drop(p, column, value);
+        DropRow(BoardModel.RowKey(Opt.Swimlane, value));
+        return Task.CompletedTask;
     }
 
     /// <summary>A card drag carries the whole selection of its project when the dragged card is part of it (as in a file manager).</summary>
@@ -743,9 +814,9 @@ public partial class BoardPage
     /// <summary>A header dropped in front of a column in its own row (<paramref name="before"/>), or at the row's end (null).</summary>
     private void DropColumn(IReadOnlyList<string> row, string? before)
     {
-        if (draggingColumn is not (IReadOnlyList<string> siblings, string key)) return;
+        if (draggingColumn is not (IReadOnlyList<string> siblings, IReadOnlyList<string> moving)) return;
         draggingColumn = null;
-        if (row.Contains(key)) Set(BoardModel.Insert(O, siblings, [key], before));
+        if (moving.All(row.Contains) && (before is null || !moving.Contains(before))) Set(BoardModel.Insert(O, siblings, moving, before));
     }
 
     // swim: the swimlane value of the cell a card is dropped in (null without swimlanes); the card takes it, as well as the column's value
@@ -857,7 +928,7 @@ public partial class BoardPage
         int dir = e.Key switch { "ArrowUp" => -1, "ArrowDown" => 1, "ArrowLeft" => -2, "ArrowRight" => 2, _ => 0 };
         if (selectedProjects.Count > 0 && Math.Abs(dir) == 1) { Workspace.MoveTabs(selectedProjects, dir); return; }   // projects first: their headings are what is selected
         if (selectedRows.Count > 0 && Math.Abs(dir) == 1) { MoveRows(dir); return; }   // then rows
-        if (selectedColumns.Count > 0 && Math.Abs(dir) == 1 && View == "list") { MoveColumns(dir); return; }   // then the list's groups (the board's columns move by drag)
+        if (selectedColumns.Count > 0 && Math.Abs(dir) == (View == "list" ? 1 : 2)) { MoveColumns(Math.Sign(dir)); return; }   // then the columns: the list's groups with up / down, the board's with left / right
         if (dir == 0 || selected.Count == 0 || O.Unit == "subtasks") return;
         Project? p = projects.FirstOrDefault(x => selected.All(s => s.Root == x.Root));
         List<int> picked = [.. selected.Select(s => s.Id)];
@@ -936,10 +1007,10 @@ public partial class BoardPage
     {
         switch (field)
         {
-            case "feature": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.MoveFeature(it.Id, value == BoardModel.Unassigned ? null : value)));
-            case "label": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetLabel(it.Id, value == BoardModel.Unassigned ? null : value)));
-            case "contributor": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(x => x != from).Append(value).Where(x => x != BoardModel.Unassigned))));
-            case "priority": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetPriority(it.Id, value)));
+            case "feature": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.MoveFeature(it.Id, value == BoardModel.Unassigned ? null : value)), target: Wi(it));
+            case "label": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetLabel(it.Id, value == BoardModel.Unassigned ? null : value)), target: Wi(it));
+            case "contributor": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetContributors(it.Id, it.Contributors.Where(x => x != from).Append(value).Where(x => x != BoardModel.Unassigned))), target: Wi(it));
+            case "priority": return await Write(() => Workspace.In(p.Root, () => WorkItemsApi.SetPriority(it.Id, value)), target: Wi(it));
             case "due" or "started":
                 Popups.Toast("A due or start period can't be set by dropping; change the date on the work item", ToastKind.Info);
                 return false;
@@ -960,8 +1031,13 @@ public partial class BoardPage
         if (options.Count == 1) return options[0];
         if (options.Count == 0)
         {
-            Popups.Toast($"{p.Name} has no \"{columnKey}\" status", ToastKind.Info);
-            return null;
+            if (BoardModel.MergeOf(O, columnKey) is not null) { Popups.Toast($"{p.Name} has no status of \"{columnKey}\"", ToastKind.Info); return null; }
+            // statuses are per project: the column is another project's, so the move asks to add it to this one
+            if (!await Popups.Confirm($"Add {columnKey} to {p.Name}?", $"{p.Name} has no \"{columnKey}\" status. It is added to its openspec/config.yaml, then the work item moves there.", yes: "Add")) return null;
+            (bool ok, string message) = Workspace.In(p.Root, () => WorkItemsApi.AddStatus(columnKey, beforeCompleted: true));
+            if (!ok) { Popups.Toast(message, ToastKind.Warning); return null; }
+            LogAction("AddStatus", columnKey);
+            return columnKey;
         }
         return await Popups.Choose($"Which status in {p.Name}?", $"{p.Name} has {options.Count} of the merged statuses.", [.. options.Select(s => (s, s))]);
     }
@@ -984,6 +1060,7 @@ public partial class BoardPage
         string[]? who = Opt.GroupBy == "contributor" && !string.IsNullOrEmpty(columnKey) ? [columnKey] : null;
         (bool ok, string message, int id) = Workspace.CreateItem(status, feature, who, p?.Root);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
+        LogAction("CreateItem", $"#wi{id}");
         Popups.Toast($"Created #wi{id}", ToastKind.Success);
         if (p is not null) OpenItem(p, id); else Nav.NavigateTo($"item/{id}");
     }
@@ -1009,6 +1086,24 @@ public partial class BoardPage
         };
         if (!await Popups.Confirm($"Delete {f.Name}?", $"{Moving(Linked(p, f.Path))} {where}{specs}", yes: "Delete")) return;
         Run(Workspace.In(p.Root, () => WorkItemsApi.DeleteFeature(f.Path)));
+    }
+
+    /// <summary>Deletes a status where it is seen, with the confirm Settings uses. <paramref name="p"/> is the project the column or group belongs to; null (the shared header row of several projects) asks which of the projects that have it.</summary>
+    private async Task DeleteStatus(Project? p, string status)
+    {
+        if (p is null)
+        {
+            List<Project> owners = [.. projects.Where(x => BoardModel.CanDeleteStatus(Opt, x.Statuses, status))];
+            if (owners.Count == 0) return;
+            if (owners.Count == 1) p = owners[0];
+            else if (await Popups.Choose($"Remove {status} from…", "", [.. owners.Select(x => (x.Root, x.Name))]) is string root) p = ProjectOf(root);
+            else return;
+        }
+        Project target = p;
+        int n = Workspace.In(target.Root, () => WorkItemsApi.CountWithStatus(status));
+        string first = target.Statuses.First(s => s != status && s != "Completed");
+        if (!await Popups.ConfirmRemoveStatus(status, n, first)) return;
+        Run(Workspace.In(target.Root, () => WorkItemsApi.RemoveStatus(status)));
     }
 
     private async Task RenameFeature(Project p, Feature f)
@@ -1049,7 +1144,7 @@ public partial class BoardPage
         foreach (Project t in targets)
         {
             (bool ok, string message) = Workspace.In(t.Root, () => WorkItemsApi.AddStatus(name, beforeCompleted: true));
-            if (ok) { Workspace.Do((true, message)); added++; }
+            if (ok) { Workspace.Do((true, message)); LogAction("AddStatus", name); added++; }
             else refused.Add(targets.Count > 1 ? $"{t.Name}: {message}" : message);
         }
         if (added > 0) Popups.Saved();
@@ -1068,20 +1163,15 @@ public partial class BoardPage
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
         selected.Clear();
         Workspace.Notify();
+        LogAction("Merge", $"{string.Join(' ', ids.Where(i => i != id).Select(i => $"#wi{i}"))} into #wi{id}");
         Popups.Toast($"Merged into #wi{id}", ToastKind.Success);
     }
 
     private void HideSelected()
     {
-        List<string> failed = [];
-        foreach ((string root, int id) in selected.OrderBy(s => s.Root).ThenBy(s => s.Id).ToList())
-        {
-            (bool ok, string message) = Workspace.In(root, () => WorkItemsApi.Hide(id));
-            if (!ok) failed.Add($"#wi{id}: {message}");
-        }
+        // hiding is this app's, in the settings per repository: no file in the repository is written for it
+        foreach (IGrouping<string, (string Root, int Id)> project in selected.GroupBy(s => s.Root).ToList()) Settings.SetItemsHidden(project.Key, project.Select(s => s.Id), true);
         selected.Clear();
-        Workspace.Notify();
-        if (failed.Count > 0) Popups.Toast(string.Join("; ", failed), ToastKind.Warning);
     }
 
     public override void Dispose()

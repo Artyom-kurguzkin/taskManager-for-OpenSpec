@@ -1,0 +1,61 @@
+@namespace TaskManager.Components.Shared
+@implements IDisposable
+@* Put one in a page: the view comes back where the user left it (#wi202). It draws nothing. Before the address changes (the user leaves; the router has not
+   drawn the next page yet then, so the spot is read in time) or when the open repository changes under it, it saves where the view is scrolled to, per
+   repository and View, in the window's UiService; after the page's first draw (and after a switch of repository) it scrolls the view back. The scrolling
+   itself is app.js's: rtm.scrollSpot reads it, rtm.restoreScroll waits until the view is tall enough. *@
+@code {
+    /// <summary>The view's name within its page: the board, the list, the calendar, analytics and the settings each have their own spot.</summary>
+    [Parameter] public string View { get; set; } = "";
+
+    [Inject] private IJSRuntime Js { get; set; } = default!;
+    [Inject] private UiService Ui { get; set; } = default!;
+    [Inject] private Workspace Workspace { get; set; } = default!;
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    protected override object? RenderKey => 0;   // no markup: a parent's draw never draws this
+
+    private string repo = "", view = "";
+    private IDisposable? leaving;
+
+    private string Repo() { using (WindowScope()) return Workspace.Root is string r ? SettingsStore.Key(r) : ""; }
+
+    protected override void OnInitialized()
+    {
+        (repo, view) = (Repo(), View);
+        leaving = Nav.RegisterLocationChangingHandler(async _ => await Save());
+        Workspace.Changed += OnWorkspace;
+    }
+
+    protected override Task OnAfterRenderAsync(bool firstRender) => firstRender ? Restore() : Task.CompletedTask;
+
+    // The open repository changed while the view stayed: its own spot comes back, the one left is kept.
+    private void OnWorkspace() => _ = InvokeAsync(async () =>
+    {
+        if (Repo() is not { } now || now == repo) return;
+        await Save();
+        (repo, view) = (now, View);
+        await Restore();
+    });
+
+    private async Task Save()
+    {
+        (string r, string v) = (repo, view = View);
+        try { if (await Js.InvokeAsync<double[]?>("rtm.scrollSpot") is [double top, double left]) Ui.ScrollSpots[(r, v)] = (top, left); }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException or TaskCanceledException) { }
+    }
+
+    private async Task Restore()
+    {
+        view = View;
+        if (!Ui.ScrollSpots.TryGetValue((repo, view), out (double Top, double Left) spot)) return;
+        try { await Js.InvokeVoidAsync("rtm.restoreScroll", spot.Top, spot.Left); }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException or TaskCanceledException) { }
+    }
+
+    public void Dispose()
+    {
+        leaving?.Dispose();
+        Workspace.Changed -= OnWorkspace;
+    }
+}

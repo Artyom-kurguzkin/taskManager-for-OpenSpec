@@ -47,8 +47,8 @@ public sealed class MovingRowsWithArrowKeysTests : IDisposable
     {
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
-        nav.Find("button[aria-label=Layout]").Click();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "List").Click();
+        nav.ClickWhenReady("button[aria-label=Layout]");
+        nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "List"));
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ListGroupBy = groupBy, ListSwimlane = "none" });
         await board.InvokeAsync(() => { });
@@ -78,8 +78,8 @@ public sealed class MovingRowsWithArrowKeysTests : IDisposable
 
     private static async Task Press(IRenderedComponent<BoardPage> board, int selected, string key)
     {
-        await board.InvokeAsync(() => board.FindAll("tr[data-id]").First(r => r.GetAttribute("data-id") == selected.ToString()).QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
-        await board.InvokeAsync(() => board.Find(".tbl-wrap").KeyDown(key));
+        board.FireWhenReady("tr[data-id]", e => e.QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }), all => all.First(r => r.GetAttribute("data-id") == selected.ToString()));
+        board.KeyDownWhenReady(".tbl-wrap", key);
     }
 
     [Theory(DisplayName = "In the list, an arrow key swaps the selected row with the row shown next to it, across the priority groups, and no other row moves")]
@@ -111,7 +111,7 @@ public sealed class MovingRowsWithArrowKeysTests : IDisposable
         await using BunitContext ctx = NewContext();
         int[] ids = FourMixed(ctx);
         IRenderedComponent<BoardPage> board = await ListAsync(ctx, groupBy);
-        await board.InvokeAsync(() => board.FindAll("th.rz-sortable-column").First(h => h.TextContent.Contains("ID")).QuerySelector("div")!.Click());   // the grid's own sort: by number, which is not the board's order
+        board.FireWhenReady("th.rz-sortable-column", e => e.QuerySelector("div")!.Click(), all => all.First(h => h.TextContent.Contains("ID")));   // the grid's own sort: by number, which is not the board's order
         board.WaitForAssertion(() => Assert.Equal(Shown(board).Order(), Shown(board)));
         List<int> before = Shown(board);
         int pick = ids[1], at = before.IndexOf(pick), to = at + (key == "ArrowUp" ? -1 : 1);
@@ -180,7 +180,7 @@ public sealed class MovingRowsWithArrowKeysTests : IDisposable
         IRenderedComponent<BoardPage> board = await ListAsync(ctx, groupBy);
         if (headerSort)
         {
-            await board.InvokeAsync(() => board.FindAll("th.rz-sortable-column").First(h => h.TextContent.Contains("Updated")).QuerySelector("div")!.Click());
+            board.FireWhenReady("th.rz-sortable-column", e => e.QuerySelector("div")!.Click(), all => all.First(h => h.TextContent.Contains("Updated")));
             board.WaitForAssertion(() => Assert.Equal(ids, Shown(board).Where(ids.Contains)));   // oldest first: not the board's order (high first, newest first), so the shown order and the internal one differ
         }
         else board.WaitForAssertion(() => Assert.Equal([ids[4], ids[2], ids[0], ids[5], ids[3], ids[1]], Shown(board).Where(ids.Contains)));   // the default: high first, each newest first
@@ -202,12 +202,12 @@ public sealed class MovingRowsWithArrowKeysTests : IDisposable
             Assert.True(before.Keys.Order().SequenceEqual(after.Keys.Order()), why);
             foreach ((string group, List<int> rows) in before)
                 Assert.True((group == home ? expected : rows).SequenceEqual(after[group]), why);
-        }, TimeSpan.FromSeconds(5));
+        }, WaitThen.Bound);
     }
 
     private static async Task SortByUpdated(IRenderedComponent<BoardPage> board, int[] ids)
     {
-        await board.InvokeAsync(() => board.FindAll("th.rz-sortable-column").First(h => h.TextContent.Contains("Updated")).QuerySelector("div")!.Click());
+        board.FireWhenReady("th.rz-sortable-column", e => e.QuerySelector("div")!.Click(), all => all.First(h => h.TextContent.Contains("Updated")));
         board.WaitForAssertion(() => Assert.All(Groups(board).Values, g => Assert.Equal(g.Where(ids.Contains).Order(), g.Where(ids.Contains))));   // oldest first within each group: not the board's order (newest first)
         Assert.NotNull(UpdatedSort(board));
     }
@@ -267,7 +267,7 @@ public sealed class MovingRowsWithArrowKeysTests : IDisposable
             string why = string.Join(Environment.NewLine, $"pressed {key} on {pick} in '{home}'", "before: " + layoutBefore, "after:  " + Layout(board));
             foreach ((string group, List<int> rows) in before)
                 Assert.True((group == home ? expected : rows).SequenceEqual(after[group]), why);
-        }, TimeSpan.FromSeconds(5));
+        }, WaitThen.Bound);
     }
 
     [Theory(DisplayName = "With no header sort, an arrow key that takes a row across a group edge moves that row only: every other group keeps its shown order, whatever the saved order holds")]
@@ -297,7 +297,7 @@ public sealed class MovingRowsWithArrowKeysTests : IDisposable
             string why = $"pressed {key} on {pick}, after: {Layout(board)}";
             Assert.True(expectedHigh.SequenceEqual(after[high]), why + " | after high: " + string.Join(' ', after[high]));
             Assert.True(expectedLow.SequenceEqual(after[low]), why + " | after low: " + string.Join(' ', after[low]));
-        }, TimeSpan.FromSeconds(5));
+        }, WaitThen.Bound);
     }
     /// <summary>The group of the archived row (the sample's one, in Completed) and its first row: an archived work item can't change status, so it can't leave a status group.</summary>
     private static (string Group, int Row) ArchivedFirst(IRenderedComponent<BoardPage> board)
@@ -360,13 +360,13 @@ public sealed class MovingRowsWithArrowKeysTests : IDisposable
         board.WaitForAssertion(() => Assert.Equal([ids[0], ids[2], ids[1], ids[3], ids[4], ids[5]], Shown(board).Where(ids.Contains)));
         Assert.Null(UpdatedSort(board));
 
-        await board.InvokeAsync(() => board.FindAll("th.rz-sortable-column").First(h => h.TextContent.Contains("Updated")).QuerySelector("div")!.Click());
+        board.FireWhenReady("th.rz-sortable-column", e => e.QuerySelector("div")!.Click(), all => all.First(h => h.TextContent.Contains("Updated")));
 
         board.WaitForAssertion(() =>
         {
             Assert.Equal(ids, Shown(board).Where(ids.Contains));
             Assert.NotNull(UpdatedSort(board));
-        }, TimeSpan.FromSeconds(5));
+        }, WaitThen.Bound);
     }
 
     public void Dispose() => repo.Dispose();

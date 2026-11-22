@@ -70,7 +70,7 @@ public sealed class OpeningSettingsWithoutSideEffectsTests : IDisposable
         return ctx;
     }
 
-    private static AngleSharp.Dom.IElement Section(IRenderedComponent<SettingsPage> page) => page.Find("section[data-storage]");
+    private static AngleSharp.Dom.IElement Section(IRenderedComponent<SettingsPage> page) => page.Find("[data-storage]");
 
     private static string Line(IRenderedComponent<SettingsPage> page) => Section(page).QuerySelector("p.bs-state")!.TextContent.Trim();
 
@@ -83,8 +83,11 @@ public sealed class OpeningSettingsWithoutSideEffectsTests : IDisposable
 
     private static Task Flush(IRenderedComponent<SettingsPage> page) => page.InvokeAsync(() => { });
 
-    private static Task Change(IRenderedComponent<SettingsPage> page, string selector, string value) =>
-        page.InvokeAsync(() => Section(page).QuerySelector(selector)!.Change(value));
+    private static Task Change(IRenderedComponent<SettingsPage> page, string selector, string value)
+    {
+        page.ChangeWhenReady("[data-storage] " + selector, value);
+        return Task.CompletedTask;
+    }
 
     /// <summary>Every file of the repository and of the app-data folder with its size and write time.</summary>
     private List<string> Files() =>
@@ -108,7 +111,7 @@ public sealed class OpeningSettingsWithoutSideEffectsTests : IDisposable
         DateTheAppData();
         List<string> before = Files();
 
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.NotNull(Section(page).QuerySelector(".bs-sync"));                          // the storage section is there
         Redraw(page, 3);
         await Flush(page);
@@ -120,7 +123,7 @@ public sealed class OpeningSettingsWithoutSideEffectsTests : IDisposable
     public async Task TheLastWorkedOutStateIsDrawn()
     {
         await using BunitContext ctx = PageContext();
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.Equal(sync.Status(repo.Root).Line, Line(page));
 
         int statuses = sync.StatusRuns, configReads = BoardStorageSettings.ConfigReads(repo.Root);
@@ -140,20 +143,20 @@ public sealed class OpeningSettingsWithoutSideEffectsTests : IDisposable
     public async Task AChangeOfTheSettingsRefreshesTheView()
     {
         await using BunitContext ctx = PageContext();
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         string other = Path.Combine(temp, "other-storage");
         Assert.Equal(Storage, Section(page).QuerySelector("input[data-field='path']")!.GetAttribute("value"));
 
         await Change(page, "input[data-field='path']", other);
         await sync.LastPass(repo.Root);
         await Flush(page);
-        Assert.Equal(other, Section(page).QuerySelector("input[data-field='path']")!.GetAttribute("value"));
+        page.Eventually(() => Assert.Equal(other, Section(page).QuerySelector("input[data-field='path']")!.GetAttribute("value")));
 
         await Change(page, "input[data-field='path']", "");                              // an address that is gone: the project cannot sync
         await sync.LastPass(repo.Root);
         await Flush(page);
-        Assert.StartsWith("Fill in", Line(page));
-        Assert.Equal(sync.Status(repo.Root).Line, Line(page));
-        Assert.Equal("", Section(page).QuerySelector("input[data-field='path']")!.GetAttribute("value") ?? "");
+        page.Eventually(() => Assert.StartsWith("Fill in", Line(page)));
+        page.Eventually(() => Assert.Equal(sync.Status(repo.Root).Line, Line(page)));
+        page.Eventually(() => Assert.Equal("", Section(page).QuerySelector("input[data-field='path']")!.GetAttribute("value") ?? ""));
     }
 }

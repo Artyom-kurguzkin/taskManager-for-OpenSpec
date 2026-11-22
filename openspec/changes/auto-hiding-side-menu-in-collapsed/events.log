@@ -1,0 +1,10 @@
+2026-11-20T14:56:28 | Claude chunk auto-hide | created | Auto-hiding side menu in collapsed view
+2026-11-20T14:56:28 | Claude chunk auto-hide | status | Planned -> In Progress
+2026-11-20T14:56:28 | Claude chunk auto-hide | description-edited | proposal.md
+2026-11-20T14:56:28 | Claude chunk auto-hide | label | none -> feature
+2026-11-20T14:56:28 | Claude chunk auto-hide | plan-linked | DevResources/plans/auto-hide-side-menu-2026-11-20.md
+2026-11-21T04:08:05 | Claude | status | In Progress -> In Review
+2026-11-21T04:08:05 | Claude | test-linked | UsingTheBoardTests / Collapsed, the side menu is hidden and an edge zone is there to bring it back
+2026-11-21T04:08:05 | Claude | test-linked | UsingTheBoardTests / Expanded, the side menu has no edge zone and is not hidden
+2026-11-21T04:08:05 | Claude | test-linked | UsingTheBoardTests / The side menu stays shown while one of its popups is open
+2026-11-21T04:08:05 | Claude | test-linked | UsingTheBoardTests / The hidden side menu slides in over the page and hides again after a short delay

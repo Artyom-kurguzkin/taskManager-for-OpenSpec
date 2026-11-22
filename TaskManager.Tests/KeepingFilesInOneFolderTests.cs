@@ -26,8 +26,9 @@ using WorkItems;
 namespace TaskManager.Tests;
 
 /// <summary>
-/// A project keeps its files in one folder: images (what notes and descriptions attach) and plans inside it, saved with the project (openspec/config.yaml, x-rtm.filesDir).
-/// A project without one keeps its old layout. Nothing here waits for time: every step is a call or a click that is awaited.
+/// A project keeps its plans and its images (what notes and descriptions attach) in folders of their own, each saved with the project (openspec/config.yaml, x-rtm.plansDir and
+/// x-rtm.attachmentsDir) and each with its own line in Settings. A repository that still has the old one-folder key (x-rtm.filesDir: images and plans inside it) resolves both from it
+/// until one of them is set. Nothing here waits for time: every step is a call or a click that is awaited.
 /// </summary>
 public sealed class KeepingFilesInOneFolderTests : IDisposable
 {
@@ -89,12 +90,21 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         repo.Write(Item124, Unix(repo.Read(Item124)).Replace("  title: Session timeout after 30 min\n", $"  title: Session timeout after 30 min\n  plan: {OldPlans}/old-2026-09-01.md\n"));
     }
 
-    private BunitContext NewContext(SettingsStore? settings = null, bool storage = false, TestRepo? second = null)
+    /// <summary>What a repository has that still carries the old one-folder key. The app no longer writes it, so it is written here, the way a pull or a hand edit would; the workspace is told when there is one.</summary>
+    private void OneFolder(string dir, BunitContext? ctx = null)
+    {
+        Assert.True(OpenSpecStoreApi.WriteConfigValue("filesDir", dir, repo.Root).Success);
+        OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
+        if (ctx?.Services.GetRequiredService<Workspace>() is { } workspace) { workspace.Notify(); workspace.Resolved.Wait(); }   // the scan and the guides check run after Changed, on the pool
+    }
+
+    private BunitContext NewContext(SettingsStore? settings = null, bool storage = false, TestRepo? second = null, FolderPicker? picker = null)
     {
         BunitContext ctx = new();
         disposables.Add(ctx);
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
-        UiService ui = new();
+        if (picker is not null) ctx.Services.AddSingleton(picker);
+        UiService ui = new() { ToastLifetime = Timeout.InfiniteTimeSpan };
         ctx.Services.AddSingleton(ui);
         ctx.Services.AddRadzenComponents();
         ctx.Services.AddSingleton(settings ?? NewSettings());
@@ -113,14 +123,32 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         return ctx;
     }
 
-    private static AngleSharp.Dom.IElement Field(IRenderedComponent<SettingsPage> page) => page.Find("section[data-project] input[aria-label='Files folder']");
+    private static AngleSharp.Dom.IElement Field(IRenderedComponent<SettingsPage> page, string kind) => page.Find($"[data-project] [data-folder='{kind}'] input");
 
-    private static Task Type(IRenderedComponent<SettingsPage> page, string value) => page.InvokeAsync(() => Field(page).ChangeAsync(new ChangeEventArgs { Value = value }));
+    private static Task Type(IRenderedComponent<SettingsPage> page, string kind, string value)
+    {
+        page.ChangeWhenReady($"[data-project] [data-folder='{kind}'] input", value);
+        return Task.CompletedTask;
+    }
 
-    private static Task Click(IRenderedComponent<SettingsPage> page, string selector) => page.InvokeAsync(() => page.Find(selector).ClickAsync(new MouseEventArgs()));
+    private static string[] Actions(IRenderedComponent<SettingsPage> page, string kind) => [.. page.FindAll($"[data-project] [data-folder='{kind}'] .att-actions button").Select(b => b.TextContent.Trim())];
+
+    private static Task Move(IRenderedComponent<SettingsPage> page, string kind) => Click(page, $"[data-folder='{kind}'] .folder-move");
+
+    private static Task Point(IRenderedComponent<SettingsPage> page, string kind) => Click(page, $"[data-folder='{kind}'] .folder-point");
+
+    private static Task Click(IRenderedComponent<SettingsPage> page, string selector)
+    {
+        page.ClickWhenReady(selector);
+        return Task.CompletedTask;
+    }
 
     /// <summary>The item page's "linked" view, where the plan and its link picker are.</summary>
-    private static Task LinkedView(IRenderedComponent<WorkItemPage> page) => page.InvokeAsync(() => page.Find(".item-views input[value='linked']").ChangeAsync(new ChangeEventArgs { Value = "linked" }));
+    private static Task LinkedView(IRenderedComponent<WorkItemPage> page)
+    {
+        page.ChangeWhenReady(".item-views input[value='linked']", "linked");
+        return Task.CompletedTask;
+    }
 
     private void Junction(string link, string target)
     {
@@ -155,39 +183,37 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         Assert.Contains("Keyboard hints", page.Markup);                                   // its neighbours are still there
     }
 
-    [Fact(DisplayName = "A project's folders and its board storage are one group with no line between them")]
-    public async Task OneGroupNoLine()
+    [Fact(DisplayName = "A project's tab is a table of rows, one setting each: Location, Plans, Images, Board storage, Statuses, in that order, under the project's name written once")]
+    public async Task ProjectTabIsATableInOrder()
     {
         TestRepo second = new();
         others.Add(second);
         await using BunitContext ctx = NewContext(storage: true, second: second);
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
 
-        IReadOnlyList<AngleSharp.Dom.IElement> storage = page.FindAll("section[data-storage]");
-        Assert.Equal(2, storage.Count);                                                   // every project listed
-        foreach (AngleSharp.Dom.IElement section in storage)
+        for (int project = 0; project < 2; project++)
         {
-            Assert.Contains("set-sub", section.ClassList);                                // part of the project's group
-            Assert.Equal("section", section.PreviousElementSibling!.TagName.ToLowerInvariant());
-            Assert.Equal(section.GetAttribute("data-project"), section.PreviousElementSibling!.GetAttribute("data-project"));   // right after its own project's block
-            Assert.Equal("Board storage", section.QuerySelector("h3")!.TextContent.Trim());
+            page.OnProject(project);
+            Assert.Single(page.FindAll("[data-project]:not([data-storage])"));                // one project's rows at a time
+            Assert.Single(page.FindAll("[data-storage]"));
+            Assert.Equal(1, page.FindAll(".settings-panel h3").Count);                        // the project's name is written once
+            Assert.Equal(Path.GetFileName(project == 0 ? repo.Root : second.Root), page.Find(".settings-panel h3").TextContent.Trim());
+            Assert.Equal(["Location", "Plans", "Images", "Board storage"], page.FindAll(".settings-panel table.set-table > tbody > tr > th").Take(4).Select(h => h.TextContent.Trim()));
+            Assert.Equal(["Statuses"], page.FindAll(".settings-panel [data-statuses] > tr > th").Select(h => h.TextContent.Trim()));
+            Assert.Equal(["tbody", "tbody", "tbody"], page.FindAll(".settings-panel table.set-table > tbody").Select(b => b.LocalName));   // folders, board storage, statuses: the groups of one table
+            Assert.Empty(page.FindAll(".settings-panel section, .settings-panel .card"));      // no cards, no frames
         }
-        Assert.Equal(2, page.FindAll("section[data-project]:not([data-storage]) h3").Count);   // the project's name is written once per project
-        Assert.All(page.FindAll("section.set-row:not([data-storage])"), s => Assert.DoesNotContain("set-sub", s.ClassList));   // the lines between unrelated sections stay
-
-        string css = Unix(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")));
-        Assert.Contains("border-top: 2px dashed var(--line-soft)", css[css.IndexOf("  .set-row {", StringComparison.Ordinal)..].Split('\n')[0]);   // the line itself is unchanged
-        Assert.Matches(@"\.set-row\.set-sub\s*\{[^}]*border-top:\s*0", css);               // and the group takes none of it
+        Assert.Empty(page.OnTab("general").FindAll("[data-project]"));                        // the General tab has none of them
     }
 
     // ── the model: one files folder, two fixed parts ──
 
-    [Fact(DisplayName = "A project with a files folder keeps images in its images folder and plans in its plans folder")]
+    [Fact(DisplayName = "A repository with the old one-folder key keeps images in its images folder and plans in its plans folder")]
     public async Task ImagesAndPlansInside()
     {
         SettingsStore settings = NewSettings();
         await using BunitContext ctx = NewContext(settings);
-        Assert.True(settings.SetFilesDir(repo.Root, "attachments").Success);
+        OneFolder("attachments", ctx);
 
         Assert.Equal("attachments/images", settings.AttachmentsDir(repo.Root));
         Assert.Equal("attachments/plans", settings.PlansDir(repo.Root));
@@ -202,10 +228,10 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         repo.Write($"{OldPlans}/elsewhere-2026-11-13.md", "# Elsewhere\n");
         IRenderedComponent<WorkItemPage> item = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         await LinkedView(item);
-        await item.InvokeAsync(() => item.Find(".related button[aria-label='Link a plan']").ClickAsync(new MouseEventArgs()));
+        item.ClickWhenReady(".related button[aria-label='Link a plan']");
         string[] offered = [.. item.FindAll(".menu-pop .pick-item").Select(e => e.TextContent.Trim())];
-        Assert.Contains("new-2026-11-13.md", offered);                                    // the picker lists the project's plans folder...
-        Assert.DoesNotContain("elsewhere-2026-11-13.md", offered);                        // ...and no other
+        item.Eventually(() => Assert.Contains("new-2026-11-13.md", offered));                                    // the picker lists the project's plans folder...
+        item.Eventually(() => Assert.DoesNotContain("elsewhere-2026-11-13.md", offered));                        // ...and no other
     }
 
     [Fact(DisplayName = "Only the images folder is kept out of git; plans stay tracked")]
@@ -213,7 +239,7 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
     {
         SettingsStore settings = NewSettings();
         await using BunitContext ctx = NewContext(settings);
-        Assert.True(settings.SetFilesDir(repo.Root, "attachments").Success);
+        OneFolder("attachments", ctx);
 
         Assert.True(NotesApi.AttachBytes(123, "x.png", Png).Success);
 
@@ -225,164 +251,183 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         Assert.DoesNotContain(lines, l => l == "local/" || l == "local");                  // and the old folder is not added by the new layout
     }
 
-    [Fact(DisplayName = "The files folder is saved with the project, and a project without one keeps its old plans and attachments folders")]
-    public void SavedWithTheProject()
+    [Fact(DisplayName = "A project without the old one-folder key keeps this computer's folders, and one with it resolves both from it until one of them is set")]
+    public void OldKeyStillRead()
     {
         SettingsStore settings = NewSettings();
         string key = Path.GetFullPath(repo.Root).TrimEnd(Path.DirectorySeparatorChar).ToLowerInvariant();
         settings.Update(s => s with { PlansDirs = new() { [key] = "mine/plans" }, AttachmentsDirs = new() { [key] = "mine/pics" } });
 
-        // no filesDir: the old layout, exactly as before; nothing is written or moved by itself
-        Assert.Null(settings.FilesDir(repo.Root));
-        Assert.Equal("mine/plans", settings.PlansDir(repo.Root));
-        Assert.Equal("mine/pics", settings.AttachmentsDir(repo.Root));
+        // no key at all: this computer's folders, exactly as before; nothing is written or moved by itself
+        Assert.Equal(("mine/plans", "mine/pics"), (settings.PlansDir(repo.Root), settings.AttachmentsDir(repo.Root)));
         Assert.DoesNotContain("filesDir", Config());
 
-        Assert.True(settings.SetFilesDir(repo.Root, "files\\all/").Success);              // tidied like the other folders
+        OneFolder("files\\all/");                                                        // an old repository, or a pull that brought the old key
 
-        Assert.Equal("files/all", settings.FilesDir(repo.Root));
-        Assert.Equal(("files/all/plans", "files/all/images"), (settings.PlansDir(repo.Root), settings.AttachmentsDir(repo.Root)));
-        string config = Config();
-        Assert.Contains("x-rtm:\n  lanes:\n    In Progress: [High priority, Lower priority]\n  filesDir: files/all\n", config);   // one inline line in the project's block
-        Assert.Contains("schema: spec-driven\n\n# lanes per column, written by the app\n", config);
-        Assert.Null(settings.Current.PlansDirs);                                          // nothing writes the per-user values any more: this repository's are cleared
-        Assert.Null(settings.Current.AttachmentsDirs);
+        Assert.Equal(("files/all/plans", "files/all/images"), (settings.PlansDir(repo.Root), settings.AttachmentsDir(repo.Root)));   // tidied, and both from it
+        Assert.Equal("files/all", NotesApi.ProjectFilesDir(repo.Root));
         SettingsStore other = new(SettingsFile + ".other");                               // another computer reading the same repository gets the same folders
         Assert.Equal(("files/all/plans", "files/all/images"), (other.PlansDir(repo.Root), other.AttachmentsDir(repo.Root)));
 
-        Assert.True(settings.SetFilesDir(repo.Root, "attachments").Success);              // the default is written too: its absence would mean the old layout
-        Assert.Contains("  filesDir: attachments\n", Config());
-        Assert.Equal("attachments/images", settings.AttachmentsDir(repo.Root));
-
-        string before = Config();
-        foreach (string bad in new[] { "openspec", "openspec/files", "../outside", "a/../../outside", repo.Root, "C:/elsewhere", "/abs", ".", "./", "a/<b>" })
-        {
-            (bool ok, string message) = settings.SetFilesDir(repo.Root, bad);
-            Assert.False(ok, bad);
-            Assert.NotEmpty(message);
-        }
-        Assert.Equal(before, Config());                                                   // refused: nothing changed
-        Assert.Equal("attachments", settings.FilesDir(repo.Root));
+        Assert.True(settings.SetPlansDir(repo.Root, "docs/plans").Success);               // one set on its own: the other still comes from the old key
+        Assert.Equal(("docs/plans", "files/all/images"), (settings.PlansDir(repo.Root), settings.AttachmentsDir(repo.Root)));
+        Assert.Null(settings.Current.PlansDirs);                                          // this computer's plans folder is cleared for the repository...
+        Assert.NotNull(settings.Current.AttachmentsDirs);                                 // ...and its images folder is not touched
+        Assert.Contains("  plansDir: docs/plans\n", Config());
+        Assert.Contains("  filesDir:", Config());                                         // the old key stays until someone removes it
+        Assert.DoesNotContain("attachmentsDir", Config());
     }
 
-    // ── the settings page: choosing the folder ──
+    // ── the settings page: one line for plans, one for images ──
 
-    [Fact(DisplayName = "Choosing a files folder when nothing exists yet saves it at once")]
-    public async Task SavesAtOnce()
+    [Fact(DisplayName = "The project card has a Plans line and an Images line, each with a path and Choose folder, and no one-folder option")]
+    public async Task TwoLinesNoOneFolder()
+    {
+        Legacy();
+        await using BunitContext ctx = NewContext(picker: _ => null);
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
+
+        string[] kinds = [.. page.FindAll("[data-project] [data-folder]").Select(r => r.GetAttribute("data-folder")!)];
+        Assert.Equal(["plans", "images"], kinds);
+        Assert.Equal(["Plans", "Images"], page.FindAll("[data-project] [data-folder] th").Select(l => l.TextContent.Trim()));
+        Assert.Equal((OldPlans, OldImages), (Field(page, "plans").GetAttribute("value"), Field(page, "images").GetAttribute("value")));
+        Assert.Equal(2, page.FindAll("[data-project] button.pick-folder").Count);   // Choose folder on each
+        Assert.All(page.FindAll("[data-project] button.pick-folder"), b => Assert.Equal("Choose folder", b.TextContent.Trim()));
+        Assert.Empty(page.FindAll("input[aria-label='Files folder']"));
+        Assert.Empty(page.FindAll(".files-legacy, .files-now, button.files-put-both"));
+        Assert.DoesNotContain("one folder", page.Markup, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Actions(page, "plans"));                                             // Move and Point appear once the path differs
+
+        await Type(page, "plans", "docs/plans");
+        page.Eventually(() => Assert.Equal(["Move files here", "Point here"], Actions(page, "plans")));
+        page.Eventually(() => Assert.Empty(Actions(page, "images")));
+    }
+
+    [Fact(DisplayName = "Typing a path for plans and one for images each saves on its own with Point here, and a refused folder says why")]
+    public async Task EachPointsOnItsOwn()
     {
         SettingsStore settings = NewSettings();
         await using BunitContext ctx = NewContext(settings);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
-        Assert.Equal("attachments", Field(page).GetAttribute("placeholder"));
-        Assert.Equal("Images: local/task-tracking · Plans: DevResources/plans", page.Find("section[data-project] .files-now").TextContent.Trim());   // where things are now
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
+        Assert.Equal("DevResources/plans", Field(page, "plans").GetAttribute("placeholder"));
+        Assert.Equal(OldImages, Field(page, "images").GetAttribute("placeholder"));
 
-        await Type(page, "attachments");
+        await Type(page, "plans", "docs/plans");
+        await Point(page, "plans");
 
-        Assert.Empty(page.FindAll(".att-ask"));
-        Assert.Equal("attachments", settings.FilesDir(repo.Root));
-        Assert.Contains("filesDir: attachments", Config());
-        Assert.Equal("Images: attachments/images · Plans: attachments/plans", page.Find("section[data-project] .files-now").TextContent.Trim());
-        Assert.Empty(page.FindAll(".files-legacy"));                                      // the offer to put both in one folder is for the old layout only
+        page.Eventually(() => Assert.Equal(("docs/plans", OldImages), (settings.PlansDir(repo.Root), settings.AttachmentsDir(repo.Root))));   // the images line did not move
+        page.Eventually(() => Assert.Contains("plansDir: docs/plans", Config()));
+        page.Eventually(() => Assert.DoesNotContain("attachmentsDir", Config()));
+        page.Eventually(() => Assert.Equal("docs/plans", Field(page, "plans").GetAttribute("value")));
+        page.Eventually(() => Assert.Empty(Actions(page, "plans")));
 
-        await Type(page, "openspec/pics");                                                // a refused folder says why and changes nothing
-        Assert.Contains("openspec", page.Find(".att-warn").TextContent);
-        Assert.Equal("attachments", settings.FilesDir(repo.Root));
+        await Type(page, "images", "pics");
+        await Point(page, "images");
+
+        page.Eventually(() => Assert.Equal(("docs/plans", "pics"), (settings.PlansDir(repo.Root), settings.AttachmentsDir(repo.Root))));
+        page.Eventually(() => Assert.Contains("plansDir: docs/plans", Config()));
+        page.Eventually(() => Assert.Contains("attachmentsDir: pics", Config()));
+
+        await Type(page, "plans", "openspec/plans");                                      // a refused folder says why and changes nothing
+        await Point(page, "plans");
+        page.Eventually(() => Assert.Contains("openspec", page.Find("[data-folder='plans'] .att-warn").TextContent));
+        page.Eventually(() => Assert.Equal("docs/plans", settings.PlansDir(repo.Root)));
+        page.Eventually(() => Assert.Empty(page.FindAll("[data-folder='images'] .att-warn")));
     }
 
-    [Fact(DisplayName = "Choosing a files folder asks before moving, and Move takes images and plans to the new places")]
-    public async Task AsksThenMoves()
+    [Fact(DisplayName = "Move files here on the Plans line takes the plans to the new folder and leaves the images, and the other way round")]
+    public async Task MoveTakesOnlyItsOwnFiles()
     {
         Legacy();
         SettingsStore settings = NewSettings();
         await using BunitContext ctx = NewContext(settings);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
-        await Type(page, "attachments");
+        await Type(page, "plans", "attachments/plans");
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf($"{OldPlans}/export-2026-11-09.md"))));       // nothing is saved or moved before the click
+        page.Eventually(() => Assert.Equal(OldPlans, settings.PlansDir(repo.Root)));
+        await Move(page, "plans");
 
-        string ask = page.Find(".att-ask").TextContent;
-        Assert.Contains($"Move 2 images from {OldImages} to attachments/images and 2 plans from {OldPlans} to attachments/plans?", ask);
-        Assert.Contains("Notes, descriptions and plan links will point to the new places.", ask);
-        Assert.Equal(["Move", "Keep them where they are", "Cancel"], page.FindAll(".att-ask button").Select(b => b.TextContent.Trim()));
-        Assert.Null(settings.FilesDir(repo.Root));                                        // nothing is saved or moved before the answer
-        Assert.True(File.Exists(repo.PathOf($"{OldImages}/wi123/n123/shot.png")));
-        Assert.True(File.Exists(repo.PathOf($"{OldPlans}/export-2026-11-09.md")));
+        page.Eventually(() => Assert.Equal("attachments/plans", settings.PlansDir(repo.Root)));
+        page.Eventually(() => Assert.Contains("Moved 3 files", page.Find("[data-folder='plans'] .att-done").TextContent));   // two plans and the drawing beside them
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("attachments/plans/export-2026-11-09.md"))));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("attachments/plans/drawing.excalidraw.svg"))));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("attachments/plans/old-2026-09-01.md"))));
+        page.Eventually(() => Assert.False(Directory.Exists(repo.PathOf(OldPlans))));
+        page.Eventually(() => Assert.Equal(OldImages, settings.AttachmentsDir(repo.Root)));                       // the images are where they were
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf($"{OldImages}/wi123/n123/shot.png"))));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf($"{OldImages}/wi123/pasted-1.png"))));
+        page.Eventually(() => Assert.DoesNotContain("attachmentsDir", Config()));
 
-        await Click(page, ".att-ask .att-cancel");                                        // cancelling changes nothing and puts the field back
-        Assert.Empty(page.FindAll(".att-ask"));
-        Assert.Null(settings.FilesDir(repo.Root));
-        Assert.True(string.IsNullOrEmpty(Field(page).GetAttribute("value")));
+        await Type(page, "images", "attachments/images");
+        await Move(page, "images");
 
-        await Type(page, "attachments");
-        await Click(page, ".att-ask .att-move");
-
-        Assert.Empty(page.FindAll(".att-ask"));
-        Assert.Equal("attachments", settings.FilesDir(repo.Root));
-        Assert.Contains("Moved", page.Find(".att-done").TextContent);
-        Assert.True(File.Exists(repo.PathOf("attachments/images/wi123/n123/shot.png")));
-        Assert.True(File.Exists(repo.PathOf("attachments/images/wi123/pasted-1.png")));
-        Assert.True(File.Exists(repo.PathOf("attachments/plans/export-2026-11-09.md")));
-        Assert.True(File.Exists(repo.PathOf("attachments/plans/drawing.excalidraw.svg")));
-        Assert.True(File.Exists(repo.PathOf("attachments/plans/old-2026-09-01.md")));
-        Assert.False(Directory.Exists(repo.PathOf(OldImages)));
-        Assert.False(Directory.Exists(repo.PathOf(OldPlans)));
+        page.Eventually(() => Assert.Equal("attachments/images", settings.AttachmentsDir(repo.Root)));
+        page.Eventually(() => Assert.Contains("Moved 2 files", page.Find("[data-folder='images'] .att-done").TextContent));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("attachments/images/wi123/n123/shot.png"))));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("attachments/images/wi123/pasted-1.png"))));
+        page.Eventually(() => Assert.False(Directory.Exists(repo.PathOf(OldImages))));
+        page.Eventually(() => Assert.Equal("attachments/plans", settings.PlansDir(repo.Root)));                   // and the plans stayed where they went
     }
 
-    [Fact(DisplayName = "After the move, notes show their images, work items open their plans, and doc links in notes still resolve")]
+    [Fact(DisplayName = "After the moves, notes show their images, work items open their plans, and doc links in notes still resolve")]
     public async Task EverythingStillResolves()
     {
         Legacy();
         SettingsStore settings = NewSettings();
         await using BunitContext ctx = NewContext(settings);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
-        await Type(page, "attachments");
-        await Click(page, ".att-ask .att-move");
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
+        await Type(page, "plans", "attachments/plans");
+        await Move(page, "plans");
+        await Type(page, "images", "attachments/images");
+        await Move(page, "images");
 
-        Assert.Equal("attachments/plans/export-2026-11-09.md", WorkItemsApi.Get(123)!.Plan);        // the open item
-        Assert.Equal("attachments/plans/old-2026-09-01.md", WorkItemsApi.Get(124)!.Plan);           // and the archived one
+        page.Eventually(() => Assert.Equal("attachments/plans/export-2026-11-09.md", WorkItemsApi.Get(123)!.Plan));        // the open item
+        page.Eventually(() => Assert.Equal("attachments/plans/old-2026-09-01.md", WorkItemsApi.Get(124)!.Plan));           // and the archived one
         string note = Unix(repo.Read(NoteFile));
-        Assert.Contains("- attachments/images/wi123/n123/shot.png", note);
-        Assert.Contains("[[attachments/plans/export-2026-11-09]]", note);
-        Assert.Contains("(attachments/plans/drawing.excalidraw.svg)", note);
+        page.Eventually(() => Assert.Contains("- attachments/images/wi123/n123/shot.png", note));
+        page.Eventually(() => Assert.Contains("[[attachments/plans/export-2026-11-09]]", note));
+        page.Eventually(() => Assert.Contains("(attachments/plans/drawing.excalidraw.svg)", note));
         string proposal = Unix(repo.Read(Proposal));
-        Assert.Contains("![](attachments/images/wi123/pasted-1.png)", proposal);
-        Assert.Contains("[[attachments/plans/export-2026-11-09.md]]", proposal);
-        Assert.DoesNotContain(OldPlans, note + proposal);
-        Assert.DoesNotContain(OldImages, note + proposal);
-        Assert.All(NotesApi.ResolveLinks("[[attachments/plans/export-2026-11-09]] [[attachments/plans/export-2026-11-09.md]]"), l => Assert.True(l.Resolved));
+        page.Eventually(() => Assert.Contains("![](attachments/images/wi123/pasted-1.png)", proposal));
+        page.Eventually(() => Assert.Contains("[[attachments/plans/export-2026-11-09.md]]", proposal));
+        page.Eventually(() => Assert.DoesNotContain(OldPlans, note + proposal));
+        page.Eventually(() => Assert.DoesNotContain(OldImages, note + proposal));
+        page.Eventually(() => Assert.All(NotesApi.ResolveLinks("[[attachments/plans/export-2026-11-09]] [[attachments/plans/export-2026-11-09.md]]"), l => Assert.True(l.Resolved)));
 
         IRenderedComponent<WorkItemPage> item = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Assert.Equal(2, item.FindAll("img").Count(i => (i.GetAttribute("src") ?? "").StartsWith("data:image/png")));   // the note's image and the description's
+        item.Eventually(() => Assert.Equal(2, item.FindAll("img").Count(i => (i.GetAttribute("src") ?? "").StartsWith("data:image/png"))));   // the note's image and the description's
         await LinkedView(item);
-        Assert.Equal("doc/attachments/plans/export-2026-11-09.md", item.Find(".related li.rel[data-kind='plan'] a.rel-open").GetAttribute("href"));   // the plan link points at the new place
+        item.Eventually(() => Assert.Equal("doc/attachments/plans/export-2026-11-09.md", item.Find(".related li.rel[data-kind='plan'] a.rel-open").GetAttribute("href")));   // the plan link points at the new place
 
         IRenderedComponent<DocPage> doc = ctx.Render<DocPage>(p => p.Add(c => c.Path, "attachments/plans/export-2026-11-09.md"));
-        Assert.Contains("Export plan", doc.Markup);                                       // the plan opens...
-        Assert.Contains(doc.FindAll("img"), i => (i.GetAttribute("src") ?? "").StartsWith("data:image/svg"));   // ...with the drawing beside it
+        item.Eventually(() => Assert.Contains("Export plan", doc.Markup));                                       // the plan opens...
+        item.Eventually(() => Assert.Contains(doc.FindAll("img"), i => (i.GetAttribute("src") ?? "").StartsWith("data:image/svg")));   // ...with the drawing beside it
     }
 
-    [Fact(DisplayName = "Keep them where they are only changes where new images and new plans go")]
-    public async Task KeepOnlyChangesNewFiles()
+    [Fact(DisplayName = "Point here only changes where new images and new plans go, and every old file and link stays")]
+    public async Task PointOnlyChangesNewFiles()
     {
         Legacy();
         string note = repo.Read(NoteFile), proposal = repo.Read(Proposal), item = repo.Read(Item123);
         SettingsStore settings = NewSettings();
         await using BunitContext ctx = NewContext(settings);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
-        await Type(page, "attachments");
-        await Click(page, ".att-ask .att-keep");
+        await Type(page, "plans", "attachments/plans");
+        await Point(page, "plans");
+        await Type(page, "images", "attachments/images");
+        await Point(page, "images");
 
-        Assert.Equal("attachments", settings.FilesDir(repo.Root));
-        Assert.Empty(page.FindAll(".att-ask"));
-        Assert.True(File.Exists(repo.PathOf($"{OldImages}/wi123/n123/shot.png")));       // the old files stay...
-        Assert.True(File.Exists(repo.PathOf($"{OldPlans}/export-2026-11-09.md")));
-        Assert.Equal((note, proposal, item), (repo.Read(NoteFile), repo.Read(Proposal), repo.Read(Item123)));   // ...and every link to them is as it was
-        Assert.Equal($"{OldPlans}/export-2026-11-09.md", WorkItemsApi.Get(123)!.Plan);
-        Assert.True(NotesApi.AttachBytes(123, "new.png", Png).Success);                   // new images go to the new folder
-        Assert.True(File.Exists(repo.PathOf("attachments/images/wi123/n123/new.png")));
-        Assert.Equal("attachments/plans", settings.PlansDir(repo.Root));                  // and new plans are offered from the new one
+        page.Eventually(() => Assert.Equal(("attachments/plans", "attachments/images"), (settings.PlansDir(repo.Root), settings.AttachmentsDir(repo.Root))));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf($"{OldImages}/wi123/n123/shot.png"))));       // the old files stay...
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf($"{OldPlans}/export-2026-11-09.md"))));
+        page.Eventually(() => Assert.Equal((note, proposal, item), (repo.Read(NoteFile), repo.Read(Proposal), repo.Read(Item123))));   // ...and every link to them is as it was
+        page.Eventually(() => Assert.Equal($"{OldPlans}/export-2026-11-09.md", WorkItemsApi.Get(123)!.Plan));
+        page.Eventually(() => Assert.True(NotesApi.AttachBytes(123, "new.png", Png).Success));                   // new images go to the new folder
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("attachments/images/wi123/n123/new.png"))));
         IRenderedComponent<DocPage> doc = ctx.Render<DocPage>(p => p.Add(c => c.Path, $"{OldPlans}/export-2026-11-09.md"));
-        Assert.Contains("Export plan", doc.Markup);                                       // the old link still opens
+        page.Eventually(() => Assert.Contains("Export plan", doc.Markup));                                       // the old link still opens
     }
 
     // ── moving plans ──
@@ -393,7 +438,6 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         Legacy();
         OpenSpecStoreApi.Open(repo.Root);
         string planText = repo.Read($"{OldPlans}/export-2026-11-09.md");
-        Assert.Equal((2, 3), NotesApi.CountPlanFiles(repo.Root, OldPlans));               // two plans, three files with the drawing
 
         AttachmentsMoveResult result = NotesApi.MovePlans(repo.Root, OldPlans, "attachments/plans");
 
@@ -446,7 +490,7 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
 
     // ── the callers ──
 
-    [Fact(DisplayName = "The agent guide names the new plans and images folders after the change")]
+    [Fact(DisplayName = "The agent guide names the plans and images folders after a change, from Settings or from outside")]
     public async Task GuideNamesTheFolders()
     {
         SettingsStore settings = NewSettings();
@@ -455,7 +499,8 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         string guide = repo.PathOf("openspec/REPO-TASKS.md");
         Assert.Contains($"plans={OldPlans} attachments={OldImages}", File.ReadLines(guide).First());
 
-        Assert.True(settings.SetFilesDir(repo.Root, "attachments").Success);
+        Assert.True(settings.SetPlansDir(repo.Root, "attachments/plans").Success);
+        Assert.True(settings.SetAttachmentsDir(repo.Root, "attachments/images").Success);
 
         string text = File.ReadAllText(guide);
         Assert.Contains("plans=attachments/plans attachments=attachments/images", File.ReadLines(guide).First());
@@ -463,10 +508,16 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         Assert.Contains("`attachments/images/wi<item>/n<note>/`", text);
         Assert.DoesNotContain(OldPlans, text);
 
-        // the folder changed from outside (a git pull): the guide and the Notes module follow
-        repo.Write("openspec/config.yaml", "schema: spec-driven\n\nx-rtm:\n  filesDir: media/files\n");
+        // the folders changed from outside (a git pull): the guide and the Notes module follow, the old one-folder key included
+        repo.Write("openspec/config.yaml", "schema: spec-driven\n\nx-rtm:\n  plansDir: docs/plans\n  attachmentsDir: media/pics\n");
         OpenSpecStoreApi.Refresh();   // an outside edit, noticed by the board's file watcher
         workspace.Notify(); workspace.Resolved.Wait();   // the scan and the guides check run after Changed, on the pool
+        Assert.Contains("plans=docs/plans attachments=media/pics", File.ReadLines(guide).First());
+        Assert.Equal(Path.GetFullPath(repo.PathOf("media/pics")), NotesApi.AttachmentsRoot(repo.Root));
+        OneFolder("media/files", ctx);
+        repo.Write("openspec/config.yaml", "schema: spec-driven\n\nx-rtm:\n  filesDir: media/files\n");
+        OpenSpecStoreApi.Refresh();
+        workspace.Notify(); workspace.Resolved.Wait();
         Assert.Contains("plans=media/files/plans attachments=media/files/images", File.ReadLines(guide).First());
         Assert.Equal(Path.GetFullPath(repo.PathOf("media/files/images")), NotesApi.AttachmentsRoot(repo.Root));
     }
@@ -497,13 +548,18 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
             repo.Write($"{OldPlans}/out-2026-11-13.md", "# Out\n");
             Assert.Empty(await Warnings($"{OldPlans}/out-2026-11-13.md"));                // a project without a files folder: the old folder is the plans folder, no remark
 
-            Assert.True(NewSettings().SetFilesDir(repo.Root, "attachments").Success);
+            OneFolder("attachments");                                                      // the old one-folder key still names the plans folder
             Assert.Empty(await Warnings("attachments/plans/in-2026-11-13.md"));           // inside the project's plans folder: fine
             Assert.Equal("attachments/plans/in-2026-11-13.md", WorkItemsApi.Get(123)!.Plan);
             string[] elsewhere = await Warnings($"{OldPlans}/out-2026-11-13.md");          // the old place: linked, with a word about where plans go
             Assert.Contains(elsewhere, w => w.Contains("attachments/plans"));
             Assert.Equal($"{OldPlans}/out-2026-11-13.md", WorkItemsApi.Get(123)!.Plan);
             Assert.Contains("attachments/plans", NotesApi.ProjectFilesDir(repo.Root) is string d ? d + "/plans" : "");
+
+            Assert.True(NewSettings().SetPlansDir(repo.Root, "docs/plans").Success);       // the plans folder of its own wins over the old key
+            repo.Write("docs/plans/own-2026-11-18.md", "# Own\n");
+            Assert.Empty(await Warnings("docs/plans/own-2026-11-18.md"));
+            Assert.Contains(await Warnings("attachments/plans/in-2026-11-13.md"), w => w.Contains("docs/plans"));
         }
         finally
         {
@@ -520,10 +576,10 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         SettingsStore app = new(Path.Combine(temp, "app.json"));
         string storage = Path.Combine(temp, "storage");
         OpenSpecStoreApi.Open(repo.Root, keepOthers: true);
-        Assert.True(app.SetFilesDir(repo.Root, "attachments").Success);
+        OneFolder("attachments");
         NotesApi.SetAttachmentsDir(repo.Root, app.AttachmentsDir(repo.Root));            // what the workspace does for an open project
         List<SyncOptions> seen = [];
-        UiService ui = new();
+        UiService ui = new() { ToastLifetime = Timeout.InfiniteTimeSpan };   // a toast the test asserts on must not expire on the wall clock of a busy machine
         BoardStorageSettings settings = new(Path.Combine(temp, "data"), StorageProviders.Builtin);
         BoardSyncService sync = new(settings, ui, new SyncSetup(TimeSpan.FromMinutes(2), async o => { seen.Add(o); return await BoardSyncApi.Sync(o); }), app);
         disposables.Add(sync);
@@ -554,27 +610,5 @@ public sealed class KeepingFilesInOneFolderTests : IDisposable
         Assert.False(File.Exists(repo.PathOf("attachments/images/wi1/n1/pic.png")));
         Assert.True(File.Exists(repo.PathOf("attachments/plans/p-2026-11-13.md")));      // plans arrive through git: the app does not move them
         Assert.False(File.Exists(repo.PathOf("media/plans/p-2026-11-13.md")));
-    }
-
-    [Fact(DisplayName = "Put both in one folder fills the field and asks the same question")]
-    public async Task PutBothInOneFolder()
-    {
-        Legacy();
-        SettingsStore settings = NewSettings();
-        await using BunitContext ctx = NewContext(settings);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
-        Assert.True(string.IsNullOrEmpty(Field(page).GetAttribute("value")));
-        Assert.Equal($"Plans are in {OldPlans} and images in {OldImages}. Put both in one folder", page.Find("section[data-project] .files-legacy").TextContent.Trim());
-        await Type(page, "attachments");
-        string typedAsk = page.Find(".att-ask p").TextContent;
-        await Click(page, ".att-ask .att-cancel");
-        Assert.Empty(page.FindAll(".att-ask"));
-
-        await Click(page, "button.files-put-both");
-
-        Assert.Equal("attachments", Field(page).GetAttribute("value"));
-        Assert.Equal(typedAsk, page.Find(".att-ask p").TextContent);
-        Assert.Equal(["Move", "Keep them where they are", "Cancel"], page.FindAll(".att-ask button").Select(b => b.TextContent.Trim()));
-        Assert.Null(settings.FilesDir(repo.Root));                                        // still a question: nothing is saved yet
     }
 }

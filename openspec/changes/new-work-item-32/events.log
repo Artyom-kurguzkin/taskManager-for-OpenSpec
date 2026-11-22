@@ -125,3 +125,10 @@
 2026-11-12T16:15:53 | Claude | test-linked | SyncingWithConnectedStorageTests / Opening a connected project syncs it once
 2026-11-12T16:15:53 | Claude | test-linked | SyncingWithConnectedStorageTests / Closing the app syncs what has not been synced yet, and never holds the app for more than the limit
 2026-11-12T16:15:53 | Claude | test-linked | SyncingWithConnectedStorageTests / Nothing syncs on a timer by itself: with no change, no start and no exit there is no sync
+2026-11-18T10:50:35 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-18T10:50:48 | Artyom-kurguzkin | converted | bug #n793 -> note
+2026-11-18T13:26:24 | Claude | status | In Progress -> In Review
+2026-11-18T13:26:24 | Claude | test-linked | UsingThePagesTests / Settings has a General tab and one tab per open project, opens on General, and General holds what is not per project as table rows
+2026-11-18T13:26:24 | Claude | test-linked | UsingThePagesTests / Choosing a project's tab shows that project's rows and hides General's and the other project's; the chosen tab is marked
+2026-11-18T13:26:24 | Claude | test-linked | UsingThePagesTests / The chosen Settings tab is remembered in the window: it is there when the user comes back, and General again when its project was closed
+2026-11-18T13:26:24 | Claude | test-linked | RememberingSettingsTests / The Settings tab a window is on is that window's own state: it starts on General, and it is not written to the settings file

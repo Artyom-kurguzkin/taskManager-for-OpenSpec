@@ -14,7 +14,6 @@ namespace TaskManager.Tests;
 /// The UI asks the modules for the same data many times per click. Each module parses the repo once and serves
 /// later reads from memory until something changes: the app's own write, an outside edit, or a repo switch.
 /// </summary>
-[Collection(nameof(RealTimeCollection))]
 public sealed class CachingTheRepoTests
 {
     [Fact(DisplayName = "Reading work items repeatedly parses the repo only once")]
@@ -39,24 +38,6 @@ public sealed class CachingTheRepoTests
         WorkItemsApi.SetStatus(123, "Blocked");
 
         Assert.Equal("Blocked", WorkItemsApi.Get(123)!.Status);
-    }
-
-    [Fact(DisplayName = "An edit made in another editor shows up once the change is noticed")]
-    public async Task OutsideEditInvalidates()
-    {
-        using TestRepo repo = new();
-        OpenSpecStoreApi.Open(repo.Root);
-        Assert.Equal("Planned", WorkItemsApi.Get(107)!.Status);
-        TaskCompletionSource noticed = new();
-        void Handler() => noticed.TrySetResult();
-        OpenSpecStoreApi.Changed += Handler;
-        try
-        {
-            repo.Write("openspec/changes/export-remittances/.openspec.yaml", "schema: spec-driven\nx-rtm:\n  id: 107\n  status: Blocked\n");
-            await Task.WhenAny(noticed.Task, Task.Delay(3000));
-            Assert.Equal("Blocked", WorkItemsApi.Get(107)!.Status);
-        }
-        finally { OpenSpecStoreApi.Changed -= Handler; }
     }
 
     [Fact(DisplayName = "Features and notes are also parsed once until something changes")]

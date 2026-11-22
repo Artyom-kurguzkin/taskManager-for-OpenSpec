@@ -7,12 +7,31 @@ window.rtm = {
     const root = document.documentElement;
     if (theme === "light" || theme === "dark") root.dataset.theme = theme;
     else delete root.dataset.theme;
+    try { localStorage.setItem("rtm.theme", theme); } catch (e) { }   // js/theme.js reads it before the next start's first frame
   },
 
   // Keyboard hints (F) are a setting; off, F is just a letter and any open hints close.
   setHints(enabled) {
     _hints.enabled = !!enabled;
     if (!_hints.enabled && _hints.active) _hints.hide();
+  },
+
+  // Scroll memory (#wi202): the page's own ScrollMemory asks where the view is scrolled to when the user leaves it, and puts it back there on return.
+  scrollSpot() { const s = _scroller(); return s ? [s.scrollTop, s.scrollLeft] : [0, 0]; },
+  restoreScroll(top, left) {
+    let tries = 0, stop = false;   // the page may still be filling (a grid draws its rows after the first render): ask again until it is tall enough, unless the user scrolls meanwhile
+    const halt = () => { stop = true; };
+    for (const ev of ["wheel", "touchstart", "keydown", "mousedown"]) addEventListener(ev, halt, { once: true, capture: true, passive: true });
+    const go = () => {
+      if (stop) return;
+      const s = _scroller(top, left);
+      if (s) {
+        s.scrollTop = top; s.scrollLeft = left;
+        if (Math.abs(s.scrollTop - top) < 2 && Math.abs(s.scrollLeft - left) < 2) return;
+      }
+      if (++tries < 40) setTimeout(go, 50);
+    };
+    go();
   },
 
   // Returns whether the OS is in dark mode now, and tells .NET (MainLayout.SystemDarkChanged) when it changes.
@@ -78,6 +97,7 @@ const _hints = {
     if (this.active) return;
     this.active = true;
     this.typed = "";
+    document.body.classList.add("hints-on");   // a collapsed (hidden) side menu is brought on screen, without sliding, so its buttons get letters
     this.overlay = document.createElement("div");
     this.overlay.className = "hint-overlay";
     document.body.appendChild(this.overlay);
@@ -127,6 +147,7 @@ const _hints = {
   hide() {
     this.active = false;
     this.typed = "";
+    document.body.classList.remove("hints-on");
     this.overlay?.remove();
     this.overlay = null;
     this.map.clear();
@@ -293,11 +314,18 @@ function _rowAt(target) {
   const tr = target.closest?.("tr[data-id]");
   return tr && !target.closest("input, select, textarea, a, .chev, .pop, .menu-wrap, .rz-dropdown-panel, button:not(.row-title):not(.pick)") ? tr : null;   // a pill (.dd, or the list's .pick button) is no control here: a press that moves on it drags
 }
+/** The header row of a list group or subgroup (a project heading and an empty column's placeholder are not draggable), unless the press is on a control. */
+function _groupAt(target) {
+  const tr = target.closest?.("tr[data-group]");
+  return tr && tr.dataset.group !== "" && !tr.dataset.group.startsWith("proj:") && !target.closest("input, select, textarea, a, .chev, .pop, .menu-wrap, .rz-dropdown-panel, button") ? tr : null;
+}
 function _endPress() { _press = null; }
 document.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
   const tr = !(e.shiftKey || e.ctrlKey || e.metaKey) && _rowAt(e.target);   // a modifier click is the row's select click
   if (_rowSelected(tr)) { _press = { handle: tr, el: tr, kind: "row", x: e.clientX, y: e.clientY, pointer: e.pointerId }; return; }   // only a selected row is pressed as a row
+  const gr = !(e.shiftKey || e.ctrlKey || e.metaKey) && _groupAt(e.target);
+  if (_groupSelected(gr)) { _press = { handle: gr, el: gr, kind: "group", x: e.clientX, y: e.clientY, pointer: e.pointerId }; return; }   // only a selected group header is pressed as a group
   if (e.target.closest("input, button, a, select, textarea, .pop")) return;
   const card = e.target.closest(".lane > .card:not(.subcard)"), head = !card && e.target.closest(".col-h[data-drag-col]");   // Blazor renders a true bool as a bare attribute
   const swim = !card && !head && e.target.closest(".swim-h");   // a swimlane header drags whole (its cells follow in the re-render)
@@ -314,9 +342,10 @@ document.addEventListener("pointermove", (e) => {
   if (!d || e.pointerId !== d.pointer) return;
   _autoscroll(d, e);
   // a list row slides up and down only: it is held anywhere along its width, so following the pointer sideways would carry it off the table
-  const dx = d.kind === "row" ? 0 : e.clientX - d.x + d.scroller.scrollLeft - d.sx, dy = d.kind === "col" ? 0 : e.clientY - d.y + d.scroller.scrollTop - d.sy;
+  const dx = d.kind === "row" || d.kind === "group" ? 0 : e.clientX - d.x + d.scroller.scrollLeft - d.sx, dy = d.kind === "col" ? 0 : e.clientY - d.y + d.scroller.scrollTop - d.sy;
   d.el.style.transform = `translate(${dx}px, ${dy}px)` + (d.kind === "card" ? " scale(1.02)" : "");
   if (d.kind === "swim") { _swimSpot(d, e); return; }
+  if (d.kind === "group") { _groupSpot(d, e); return; }
   d.spot = _findSpot(d, e) ?? d.spot;   // over nothing: keep the last gap
   _layoutGap(d);
 });
@@ -324,6 +353,7 @@ document.addEventListener("pointermove", (e) => {
 function _startDrag(e) {
   const p = _press; _press = null;
   if (p.kind === "swim") { _startSwimDrag(p, e); return; }
+  if (p.kind === "group") { _startGroupDrag(p); return; }
   const box = p.el.parentElement, scroller = p.el.closest(".board-wrap, .tbl-wrap");
   const picked = p.kind === "card" ? (p.el.matches(".lane > .card.selected") ? [...document.querySelectorAll(".lane > .card.selected")] : []) : _rowSelected(p.el) ? _selectedRows() : [];   // cards carry the class, list rows are in RowMarks
   const r = _rect(p.el), axis = p.kind === "col" ? "X" : "Y";
@@ -351,6 +381,43 @@ function _startSwimDrag(p, e) {
   Object.assign(p.el.style, { transition: "none", zIndex: "5", pointerEvents: "none", position: "relative", background: "var(--card)", boxShadow: "6px 6px 0 var(--shadow)" });
   for (const el of d.els) if (el !== p.el) el.style.opacity = ".35";
   document.body.classList.add("is-dragging");
+}
+
+const _groupLevel = tr => tr.dataset.group.startsWith("proj:") ? 0 : tr.dataset.group.startsWith("swim:") ? 2 : 1;   // project heading, group, subgroup
+/** The headers at the level of <paramref name="el"/>, inside the same parent (the project for groups, the group for subgroups), with the last row of each one's block. */
+function _groupBlocks(el) {
+  const rows = [...el.parentElement.children], level = _groupLevel(el);
+  const heads = rows.filter(r => r.matches("tr[data-group]") && r.dataset.group !== "");   // an empty column's placeholder has none
+  let a = heads.indexOf(el), b = a;
+  while (a > 0 && _groupLevel(heads[a - 1]) >= level) a--;   // a shallower header is the parent: the siblings end there
+  while (b < heads.length - 1 && _groupLevel(heads[b + 1]) >= level) b++;
+  return heads.slice(a, b + 1).filter(h => _groupLevel(h) === level).map(head => {
+    let j = rows.indexOf(head) + 1;
+    while (j < rows.length && !(heads.includes(rows[j]) && _groupLevel(rows[j]) <= level)) j++;
+    return { head, last: rows[j - 1], bottom: _rect(rows[j - 1]).bottom };
+  });
+}
+
+/** A group header drag: the header follows the pointer (every selected sibling goes with it), a bar marks the gap between headers it would land in. */
+function _startGroupDrag(p) {
+  const scroller = p.el.closest(".tbl-wrap"), picked = _groupBlocks(p.el).map(b => b.head).filter(_groupSelected);
+  const d = _drag = { ...p, box: p.el.parentElement, scroller, sx: scroller.scrollLeft, sy: scroller.scrollTop, shifted: new Map(), spot: null, els: picked.length > 1 && picked.includes(p.el) ? picked : [p.el] };
+  p.el.setPointerCapture?.(p.pointer);
+  p.handle.dispatchEvent(_synthetic("dragstart"));   // BoardPage records what is moving
+  Object.assign(p.el.style, { transition: "none", zIndex: "5", pointerEvents: "none", position: "relative" });
+  p.el.classList.add("lifted");
+  for (const td of p.el.cells) td.style.background = "var(--card)";
+  for (const el of d.els) if (el !== p.el) el.style.opacity = ".35";
+  document.body.classList.add("is-dragging");
+}
+
+/** The header the dragged ones would land in front of (null = after the last group), found by where the pointer is among the other blocks. */
+function _groupSpot(d, e) {
+  const blocks = _groupBlocks(d.el).filter(b => !d.els.includes(b.head));
+  const before = blocks.find(b => e.clientY < (_rect(b.head).top + b.bottom) / 2)?.head ?? null;
+  for (const el of document.querySelectorAll(".group-drop, .group-drop-end")) el.classList.remove("group-drop", "group-drop-end");
+  if (before) before.classList.add("group-drop"); else blocks.at(-1)?.last.classList.add("group-drop-end");
+  d.spot = { before, blocks };
 }
 
 /** The row header the dragged one would land in front of (null = after the last row), found by where the pointer is among the other rows. */
@@ -425,6 +492,7 @@ function _restore(d, slide) {
     Object.assign(el.style, { transform: "", opacity: "", zIndex: "", pointerEvents: "", boxShadow: "" });
   }
   if (d.kind === "row") { d.el.style.position = ""; d.el.classList.remove("lifted"); for (const td of d.el.cells) td.style.background = ""; }
+  if (d.kind === "group") { d.el.style.position = ""; d.el.classList.remove("lifted"); for (const td of d.el.cells) td.style.background = ""; for (const el of document.querySelectorAll(".group-drop, .group-drop-end")) el.classList.remove("group-drop", "group-drop-end"); }
   if (d.kind === "swim") { Object.assign(d.el.style, { position: "", background: "" }); for (const el of document.querySelectorAll(".swim-drop, .swim-drop-end")) el.classList.remove("swim-drop", "swim-drop-end"); }
   setTimeout(() => els.forEach(el => el.style.transition = ""), MS + 50);
   document.body.classList.remove("is-dragging");
@@ -441,6 +509,15 @@ document.addEventListener("pointerup", (e) => {
     if (!s || (d.els.length === 1 && (at === i0 || at === i0 + 1))) { _restore(d, true); return; }   // nowhere, or back where it started
     _armFlip();
     (s.before ?? d.el.nextElementSibling).dispatchEvent(_synthetic("drop"));   // a header: in front of it; a row's cells: after the last row
+    _settling = d;
+    d.giveUp = setTimeout(() => _restore(d, true), 800);
+    return;
+  }
+  if (d.kind === "group") {
+    const s = d.spot, all = _groupBlocks(d.el).map(b => b.head), rest = all.filter(h => !d.els.includes(h)), at = s?.before ? rest.indexOf(s.before) : rest.length;
+    if (!s || [...rest.slice(0, at), ...all.filter(h => d.els.includes(h)), ...rest.slice(at)].every((h, i) => h === all[i])) { _restore(d, true); return; }   // nowhere, or back where it started
+    _armFlip();
+    (s.before ?? d.box).dispatchEvent(_synthetic("drop"));   // a header: in front of it; the table itself: after the last (BoardPage.DropGroupAtEnd)
     _settling = d;
     d.giveUp = setTimeout(() => _restore(d, true), 800);
     return;
@@ -476,6 +553,21 @@ addEventListener("keydown", (e) => {
   _follow = { key: e.key, until: performance.now() + 1200 };   // the moved selection is scrolled into view once the board has re-rendered (below)
   wrap.dispatchEvent(new KeyboardEvent("keydown", { key: e.key, bubbles: true }));
 }, true);
+
+/**
+ * The element the open view scrolls in: the page itself, or the list, board or calendar pane inside it (not the list beside an open item; a code box
+ * that scrolls sideways is not the view). Deepest first: when saving, the one the user moved; when restoring, the one that can reach the saved spot.
+ * Null while the view is still too short for it.
+ */
+function _scroller(top, left) {
+  const area = document.querySelector("main");
+  if (!area) return null;
+  const all = [area, ...area.querySelectorAll(".tbl-wrap, .board-wrap, .rm-scroll, .split-item")].filter(e => !e.closest(".split-list")
+    && (e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1));
+  const hit = all.reverse().find(e => top === undefined ? e.scrollTop > 0 || e.scrollLeft > 0
+    : e.scrollHeight - e.clientHeight >= top - 1 && e.scrollWidth - e.clientWidth >= left - 1);
+  return hit ?? (top === undefined ? area : null);
+}
 
 let _follow = null;   // { key, until }: an arrow move is waiting for its re-render, to bring what moved into view
 /**
@@ -708,3 +800,34 @@ rtm.autoGrow = function (ta, dotnet) {
 
 // Worklog: the side menu's Days list scrolls the feed to a day (or to "Linked earlier"), once the page has drawn it.
 rtm.scrollToDay = function (selector) { requestAnimationFrame(() => document.querySelector(selector)?.scrollIntoView({ block: "start", behavior: "smooth" })); };
+
+// Page errors (#wi178): a script error or an unhandled promise rejection is handed to the app (PageErrors.Report), which logs it at Warning, at most 20 a minute.
+// Until Blazor can take a call the errors wait in a short queue; a failed hand-over is dropped, never reported again (it would only be a new error to report).
+(function () {
+  const pending = [];
+  let retry = 0, sending = false;
+  const hand = (e) => {
+    try { return window.DotNet.invokeMethodAsync("TaskManager", "Report", e.message, e.source, e.line, e.column, e.stack).then(() => true, () => false); }
+    catch (_) { return Promise.resolve(false); }
+  };
+  const flush = async () => {
+    if (sending) return;
+    sending = true;
+    while (pending.length) {
+      if (!(await hand(pending[0]))) { if (++retry > 20) { pending.length = 0; retry = 0; } else setTimeout(flush, 1000); break; }
+      retry = 0; pending.shift();
+    }
+    sending = false;
+  };
+  const report = (message, source, line, column, stack) => {
+    if (pending.length < 20) pending.push({ message: String(message ?? ""), source: String(source ?? ""), line: line | 0, column: column | 0, stack: String(stack ?? "") });
+    flush();
+  };
+  window.addEventListener("error", (ev) => report(ev.message, ev.filename, ev.lineno, ev.colno, ev.error && ev.error.stack));
+  window.addEventListener("unhandledrejection", (ev) => {
+    const r = ev.reason;
+    report("Unhandled promise rejection: " + (r && r.message ? r.message : r), "", 0, 0, r && r.stack);
+  });
+  // The framework's error bar (index.html): Dismiss hides it, Reload reloads the page.
+  document.addEventListener("click", (ev) => { if (ev.target.closest && ev.target.closest("#blazor-error-ui .dismiss")) document.getElementById("blazor-error-ui").style.display = "none"; });
+})();

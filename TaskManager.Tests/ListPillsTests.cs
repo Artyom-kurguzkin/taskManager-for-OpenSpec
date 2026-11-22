@@ -44,8 +44,8 @@ public sealed class ListPillsTests : IDisposable
     {
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
-        nav.Find("button[aria-label=Layout]").Click();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "List").Click();
+        nav.ClickWhenReady("button[aria-label=Layout]");
+        nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "List"));
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         BoardOptions o = settings.Board(repo.Root);
         settings.SaveBoard(repo.Root, o with { ListGroupBy = o.GroupBy, ListSwimlane = o.Swimlane });
@@ -70,13 +70,13 @@ public sealed class ListPillsTests : IDisposable
         Assert.NotEmpty(board.FindAll("tr[data-id] button[data-pill=priority]"));
         Assert.Empty(board.FindAll(".menu-pop"));
 
-        await board.InvokeAsync(() => Pill(board, 107, "status").Click());
+        Act(board, () => Pill(board, 107, "status"), e => e.Click());
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));   // one picker, for the one cell
         Assert.Empty(board.FindComponents<RadzenDropDown<string>>());
 
-        await board.InvokeAsync(() => board.FindAll(".menu-backdrop").Single().Click());   // the open picker's backdrop covers the page: the next click lands on it first
+        board.FireWhenReady(".menu-backdrop", e => e.Click(), all => all.Single());   // the open picker's backdrop covers the page: the next click lands on it first
         board.WaitForAssertion(() => Assert.Empty(board.FindAll(".menu-pop")));
-        await board.InvokeAsync(() => Pill(board, 123, "priority").Click());
+        Act(board, () => Pill(board, 123, "priority"), e => e.Click());
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));   // never two at a time
     }
 
@@ -91,7 +91,7 @@ public sealed class ListPillsTests : IDisposable
         Assert.Contains("--fill:", status.GetAttribute("style"));
         Assert.Equal("Planned", status.TextContent.Trim());
 
-        await board.InvokeAsync(() => status.Click());
+        Act(board, () => status, e => e.Click());
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));
         string[] items = [.. board.FindAll(".menu-pop .menu-item").Select(i => i.TextContent.Trim())];
         Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"], items);
@@ -105,8 +105,8 @@ public sealed class ListPillsTests : IDisposable
         IRenderedComponent<BoardPage> board = await ListAsync(ctx);
         Assert.Equal("Planned", WorkItemsApi.Get(107)!.Status);
 
-        await board.InvokeAsync(() => Pill(board, 107, "status").Click());
-        await board.InvokeAsync(() => board.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Blocked").Click());
+        Act(board, () => Pill(board, 107, "status"), e => e.Click());
+        board.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Blocked"));
 
         board.WaitForAssertion(() => Assert.Equal("Blocked", WorkItemsApi.Get(107)!.Status));
         board.WaitForAssertion(() => Assert.Empty(board.FindAll(".menu-pop")));   // picking closes it
@@ -118,12 +118,12 @@ public sealed class ListPillsTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = await ListAsync(ctx);
 
-        await board.InvokeAsync(() => Pill(board, 107, "label").Click());
-        await board.InvokeAsync(() => board.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "bug").Click());
+        Act(board, () => Pill(board, 107, "label"), e => e.Click());
+        board.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "bug"));
         board.WaitForAssertion(() => Assert.Equal("bug", WorkItemsApi.Get(107)!.Label));
 
-        await board.InvokeAsync(() => Pill(board, 107, "priority").Click());
-        await board.InvokeAsync(() => board.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "high").Click());
+        Act(board, () => Pill(board, 107, "priority"), e => e.Click());
+        board.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "high"));
         board.WaitForAssertion(() => Assert.Equal("high", WorkItemsApi.Get(107)!.Priority));
     }
 
@@ -133,12 +133,12 @@ public sealed class ListPillsTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = await ListAsync(ctx);
 
-        await board.InvokeAsync(() => Pill(board, 107, "status").Click());
-        await board.InvokeAsync(() => board.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Completed").Click());
+        Act(board, () => Pill(board, 107, "status"), e => e.Click());
+        board.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Completed"));
 
         overlays!.WaitForAssertion(() => Assert.Contains("Complete and archive?", overlays.Find(".dialog").TextContent));
         Assert.Equal("Planned", WorkItemsApi.Get(107)!.Status);   // nothing happens before the answer
-        await overlays.InvokeAsync(() => overlays.FindAll(".dialog button").Single(b => b.TextContent.Trim() == "Cancel").Click());
+        overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(b => b.TextContent.Trim() == "Cancel"));
 
         overlays.WaitForAssertion(() => Assert.Empty(overlays.FindAll(".dialog")));
         Assert.Equal("Planned", WorkItemsApi.Get(107)!.Status);
@@ -151,12 +151,12 @@ public sealed class ListPillsTests : IDisposable
         IRenderedComponent<BoardPage> board = await ListAsync(ctx);
 
         Assert.Equal("BUTTON", Pill(board, 107, "status").TagName);   // focusable, so Tab reaches it
-        await board.InvokeAsync(() => Pill(board, 107, "status").KeyDown(new KeyboardEventArgs { Key = "Enter" }));
+        Act(board, () => Pill(board, 107, "status"), e => e.KeyDown(new KeyboardEventArgs { Key = "Enter" }));
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));
-        await board.InvokeAsync(() => board.FindAll(".menu-backdrop").Single().Click());   // outside click (Esc clicks it, see app.js)
+        board.FireWhenReady(".menu-backdrop", e => e.Click(), all => all.Single());   // outside click (Esc clicks it, see app.js)
         board.WaitForAssertion(() => Assert.Empty(board.FindAll(".menu-pop")));
 
-        await board.InvokeAsync(() => Pill(board, 107, "priority").KeyDown(new KeyboardEventArgs { Key = " " }));
+        Act(board, () => Pill(board, 107, "priority"), e => e.KeyDown(new KeyboardEventArgs { Key = " " }));
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));
     }
 
@@ -166,7 +166,7 @@ public sealed class ListPillsTests : IDisposable
         await using BunitContext ctx = NewContext();
         IRenderedComponent<BoardPage> board = await ListAsync(ctx);
 
-        await board.InvokeAsync(() => Pill(board, 107, "status").Click(new MouseEventArgs { ShiftKey = true }));
+        Act(board, () => Pill(board, 107, "status"), e => e.Click(new MouseEventArgs { ShiftKey = true }));
         await board.InvokeAsync(() => { });
         Assert.Empty(board.FindAll(".menu-pop"));
     }
@@ -190,5 +190,10 @@ public sealed class ListPillsTests : IDisposable
     {
         repo.Dispose();
         File.Delete(settingsFile);
+    }
+    private static void Act<T>(Bunit.IRenderedComponent<T> cut, Func<AngleSharp.Dom.IElement?> find, Action<AngleSharp.Dom.IElement> fire) where T : Microsoft.AspNetCore.Components.IComponent
+    {
+        cut.Eventually(() => Xunit.Assert.NotNull(find()));   // rendered and present, or the test fails
+        cut.InvokeAsync(() => fire(find()!)).GetAwaiter().GetResult();
     }
 }

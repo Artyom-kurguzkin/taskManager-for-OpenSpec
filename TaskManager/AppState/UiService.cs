@@ -60,6 +60,12 @@ public sealed class UiService
 
     public event Action? Changed;
 
+    /// <summary>Where each view was scrolled to (top, left) when the user left it, by repository and view: it comes back to the same spot (#wi202). Per window, never saved.</summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<(string Repo, string View), (double Top, double Left)> ScrollSpots { get; } = new();
+
+    /// <summary>The tab the Settings page is on: "general" or an open project's folder (#wi160). Per window, never saved; a project no longer open is General again.</summary>
+    public string SettingsTab { get; set; } = "general";
+
     // ── The worklog on screen: the side menu shows its filters and actions, and the feed reads the filters from here ──
 
     /// <summary>Fired when a worklog opens or closes, or its filters or people change; the side menu and the feed redraw.</summary>
@@ -196,6 +202,10 @@ public sealed class UiService
 
     public async Task<bool> Confirm(string title, string text, string yes = "OK", string no = "Cancel") =>
         await Show(new DialogRequest(title, text, yes, no, false, "", new())) is not null;
+
+    /// <summary>The confirm for removing a status (Settings, the board's column menu, the list's group menu): names how many open work items move to <paramref name="first"/>. True at once when none have it.</summary>
+    public async Task<bool> ConfirmRemoveStatus(string status, int n, string first) =>
+        n == 0 || await Confirm($"Remove {status}?", $"{n} work item{(n == 1 ? "" : "s")} {(n == 1 ? "has" : "have")} this status and move{(n == 1 ? "s" : "")} to {first}, the project's first status. Archived work items keep the name.", yes: "Remove");
 
     public Task<string?> Prompt(string title, string placeholder, string action, string value = "") =>
         Show(new DialogRequest(title, "", action, "Cancel", true, placeholder, new(), Value: value));

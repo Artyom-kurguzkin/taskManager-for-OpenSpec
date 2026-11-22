@@ -1,0 +1,67 @@
+2026-11-11T07:44:18 | Artyom-kurguzkin | created | New work item
+2026-11-11T07:45:46 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-11T07:46:11 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-11T07:46:26 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-11T07:47:44 | Artyom-kurguzkin | title | New work item -> list view moving tasks
+2026-11-11T07:47:46 | Artyom-kurguzkin | status | Backlog -> Planned
+2026-11-11T07:47:50 | Artyom-kurguzkin | priority | low -> high
+2026-11-11T07:47:53 | Artyom-kurguzkin | label | none -> bug
+2026-11-11T07:47:56 | Artyom-kurguzkin | feature | none -> general-ux
+2026-11-11T07:48:01 | Artyom-kurguzkin | dates | none -> 11 Nov – 11 Nov
+2026-11-11T07:48:27 | Artyom-kurguzkin | attachment-added | n241: pasted-20261111-074827.png
+2026-11-13T12:12:52 | Claude chunk list-drag | test-linked | UsingTheBoardTests / In the list view a work item row carries the drag handle so a press off the text starts a drag
+2026-11-13T12:12:52 | Claude chunk list-drag | test-linked | UsingTheBoardTests / Dropping a list row on another group moves the work item there
+2026-11-13T12:12:52 | Claude chunk list-drag | test-linked | UsingTheBoardTests / Dropping a list row above another row in my order reorders them
+2026-11-13T12:15:30 | Claude | status | Planned -> In Review
+2026-11-13T12:54:12 | Claude chunk list-select-drag | test-unlinked | UsingTheBoardTests / In the list view a work item row carries the drag handle so a press off the text starts a drag
+2026-11-13T12:54:12 | Claude chunk list-select-drag | test-linked | UsingTheBoardTests / In the list view only a Shift-click selected row is a drag handle: it drags after a few pixels wherever the press lands
+2026-11-13T12:54:12 | Claude chunk list-select-drag | test-linked | UsingTheBoardTests / Dragging a selected list row moves every selected row to the drop group in their order
+2026-11-13T12:54:12 | Claude chunk list-select-drag | test-linked | UsingTheBoardTests / A press on an unselected list row selects cells and never starts a drag
+2026-11-13T12:56:22 | Claude | log | Integrated the selection-then-drag chunk into main (app.js, app.css, UsingTheBoardTests.cs) and ran the fast suite once: Passed 961, Failed 0, 1 m 7 s. The three linked tests pass in latest.trx. Shots tests/out/shots/list-select-drag-*.png. Still In Review.
+2026-11-16T07:14:41 | Artyom-kurguzkin | status | In Review -> Blocked
+2026-11-16T07:17:05 | Artyom-kurguzkin | status | Blocked -> In Progress
+2026-11-16T07:30:34 | Artyom-kurguzkin | attachment-added | n407: pasted-20261116-073034.png
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / The list always has a Status column, whatever the grouping
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / The colour-by value tints the whole list row and the text stays readable
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / Arrow keys move the selected list rows within their group and into the next group at the edge
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | ArrangingTheBoardTests / Arrow keys at a group's edge send the selected rows to the neighbouring group's end or start, and inside the group they only step
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / What the list is grouped by is not repeated, except the Status column: no Label column by label, no Features by bucket, no Contributors by contributor
+2026-11-16T08:31:30 | Claude chunk list-dates | test-linked | UsingTheBoardTests / List cells wear their colours: status, label and priority are filled pills, and a status group's name wears its band
+2026-11-16T08:31:52 | Claude chunk list-dates | status | In Progress -> In Review
+2026-11-16T08:43:35 | Claude | log | Integrated the list-dates chunk into main (Status column always shown, whole-row tint, arrow keys cross groups). Clean rebuild, one suite run with all six chunks: Passed 1059, Failed 0.
+2026-11-16T09:22:27 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-16T09:22:41 | Artyom-kurguzkin | attachment-added | n442: pasted-20261116-092241.png
+2026-11-16T09:24:52 | Claude chunk list-header | test-linked | UsingTheBoardTests / The list's sticky column headers paint the strip band above them over the whole table width, so no row shows above the headers when the table is scrolled sideways
+2026-11-16T11:31:18 | Claude chunk arrows | status | In Progress -> In Review
+2026-11-16T11:31:18 | Claude chunk arrows | test-linked | UsingTheBoardTests / Arrow up in the list swaps the selected row within its subgroup, then crosses into the subgroup above, then into the group above; arrow down brings it back
+2026-11-16T11:31:18 | Claude chunk arrows | test-linked | UsingTheBoardTests / Arrow keys on the board move a selected card one place per press and keep it selected, within its row's cell, then into the row above, and sideways into the next column's cell
+2026-11-16T11:31:18 | Claude chunk arrows | test-linked | UsingTheBoardTests / After an arrow move app.js scrolls the moved card or row into view once the board has re-rendered, clear of the sticky header and the action bar
+2026-11-16T11:31:18 | Claude chunk arrows | test-linked | ArrangingTheBoardTests / With subgroups an arrow at a subgroup's edge crosses into the neighbouring subgroup, then at the group's edge into the neighbouring group; on the board it crosses rows only
+2026-11-16T13:02:19 | Claude | log | Integrated the arrows chunk into main (cell-based moves in list subgroups and board rows, app.js reveal). One run with all chunks and test fixes: Passed 1083, Failed 0, 3 m 32 s.
+2026-11-17T12:58:26 | Artyom-kurguzkin | created | New work item
+2026-11-17T12:58:35 | Artyom-kurguzkin | feature | none -> general-ux
+2026-11-17T12:58:59 | Artyom-kurguzkin | title | New work item -> list view can't swap groups around
+2026-11-17T12:59:03 | Artyom-kurguzkin | label | none -> bug
+2026-11-17T12:59:06 | Artyom-kurguzkin | dates | none -> 17 Nov – 17 Nov
+2026-11-17T13:19:05 | Artyom-kurguzkin | converted | note #n700 -> bug
+2026-11-17T13:19:08 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-18T08:28:41 | Claude | plan-linked | DevResources/plans/in-progress-ui-fixes-2026-11-18.md
+2026-11-18T08:53:25 | Artyom-kurguzkin | status | In Progress -> Research
+2026-11-18T08:54:06 | Artyom-kurguzkin | status | Research -> In Progress
+2026-11-18T08:59:48 | Claude | test-linked | MovingGroupsInTheListTests / Shift-click on a list group header selects it, Up swaps it with the group above, and the board's column order follows
+2026-11-18T08:59:48 | Claude | test-linked | MovingGroupsInTheListTests / A plain click on a list group header selects nothing, and Down on a selected group moves it below the next one
+2026-11-18T08:59:48 | Claude | test-linked | MovingGroupsInTheListTests / With the grid's header sort on, the groups keep their saved order and only the rows inside a group sort(afterAMove: True)
+2026-11-18T08:59:48 | Claude | test-linked | MovingGroupsInTheListTests / With the grid's header sort on, the groups keep their saved order and only the rows inside a group sort(afterAMove: False)
+2026-11-18T08:59:48 | Claude | test-linked | MovingGroupsInTheListTests / A subgroup moves among its siblings only: the groups keep their order and no row changes group
+2026-11-18T09:19:49 | Claude | status | In Progress -> In Review
+2026-11-18T09:29:19 | Artyom-kurguzkin | status | In Review -> Planned
+2026-11-18T09:29:30 | Artyom-kurguzkin | created | list view moving tasks
+2026-11-18T09:29:30 | Artyom-kurguzkin | merged-from | #wi198 list view can't swap groups around
+2026-11-18T09:30:21 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-18T09:44:05 | Claude | plan-linked | DevResources/plans/in-progress-items-2026-11-18b.md
+2026-11-18T10:39:51 | Claude | status | In Progress -> In Review
+2026-11-18T10:39:52 | Claude | test-linked | MovingGroupsInTheListTests / A list group header carries the drag handler, and only a Shift-selected one is pressed as a group by the drag script
+2026-11-18T10:39:52 | Claude | test-linked | MovingGroupsInTheListTests / A selected group dragged above another reorders the board's columns, and a group dragged without being selected moves nothing
+2026-11-18T10:39:52 | Claude | test-linked | MovingGroupsInTheListTests / Two selected groups dragged together keep their order, and a drop at the table's end puts them last
+2026-11-18T10:39:52 | Claude | test-linked | MovingGroupsInTheListTests / A selected subgroup dragged onto its sibling swaps them in every group, and no group or row moves
+2026-11-18T10:54:37 | Artyom-kurguzkin | status | In Review -> Completed

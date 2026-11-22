@@ -14,10 +14,11 @@ public static class NotesApi
     /// Hands the module the host's cached read of the notes (<paramref name="current"/>) and its hand-over of the renumberings made since the last call (<paramref name="renumbered"/>),
     /// for <see cref="GetAll"/> and the module's own rules. Null = read every notes folder afresh on every call.
     /// </summary>
-    public static void UseNotes(Func<NotesRead>? current, Func<IReadOnlyList<(int OldId, int NewId, string Path)>>? renumbered)
+    public static void UseNotes(Func<NotesRead>? current, Func<IReadOnlyList<(int OldId, int NewId, string Path)>>? renumbered, Func<int, IReadOnlyList<Note>>? forWorkItem = null)
     {
         NotesModule.Reader = current;
         NotesModule.Drain = renumbered;
+        NotesModule.ForItem = forWorkItem;
     }
 
     /// <summary>One change's notes/ folder read from disk now (nothing is kept).</summary>
@@ -33,7 +34,8 @@ public static class NotesApi
     public static NotesRead Settle(IReadOnlyList<NotesFolderRead> folders, out IReadOnlyList<(int OldId, int NewId, string Path)> renumbered) => Queries.Settle(folders, out renumbered, out _);
 
     public static IReadOnlyList<Note> GetAll() => Queries.GetAll();
-    public static IReadOnlyList<Note> GetForWorkItem(int workItemId) => Queries.GetAll().Where(n => n.WorkItemId == workItemId).ToList();
+    /// <summary>One item's notes: from the host's cache of that item's folder when it installed one (nothing of the other items is read), else from all the notes.</summary>
+    public static IReadOnlyList<Note> GetForWorkItem(int workItemId) => NotesModule.ForItem?.Invoke(workItemId) ?? Queries.GetAll().Where(n => n.WorkItemId == workItemId).ToList();
     /// <summary>
     /// Settles note ids used twice (two branches or computers each made a note offline, then merged): the note created first keeps its id, every other
     /// one is renamed to the next free id with its frontmatter and its own #nN references rewritten, and a <c>renumbered</c> event is recorded on its work item.
@@ -118,14 +120,11 @@ public static class NotesApi
     /// </summary>
     public static AttachmentsMoveResult MoveAttachments(string repoRoot, string fromDir, string toDir) => AttachmentsFolder.Move(repoRoot, fromDir, toDir);
 
-    /// <summary>Whether a folder may be a project's files folder (images and plans go inside it): like <see cref="CheckAttachmentsDir"/>, but empty gives the default, <c>attachments</c>.</summary>
-    public static (bool Ok, string Dir, string Message) CheckFilesDir(string? dir) => AttachmentsFolder.CheckFiles(dir);
-
-    /// <summary>The project's files folder as openspec/config.yaml names it (<c>x-rtm.filesDir</c>, tidied), or null when the project has none (the old layout) or the value is not allowed.</summary>
+    /// <summary>The project's old one-folder key as openspec/config.yaml names it (<c>x-rtm.filesDir</c>, tidied; plans and images were inside it), or null when the project has none or the value is not allowed. Still read, never written.</summary>
     public static string? ProjectFilesDir(string repoRoot) => AttachmentsFolder.ProjectFilesDir(repoRoot);
 
-    /// <summary>The plans (*.md files) and all the files (the drawings beside them too) below a repository-relative plans folder, not following links; (0, 0) when there is none.</summary>
-    public static (int Plans, int Files) CountPlanFiles(string repoRoot, string dir) => AttachmentsFolder.CountPlans(repoRoot, dir);
+    /// <summary>The project's plans folder as openspec/config.yaml names it (<c>x-rtm.plansDir</c>, tidied), or null when the project has none or the value is not allowed.</summary>
+    public static string? ProjectPlansDir(string repoRoot) => AttachmentsFolder.ProjectPlansDir(repoRoot);
 
     /// <summary>
     /// Moves a folder of plans like <see cref="MoveAttachments"/> moves the attachments (same rules: nothing overwritten, a file with the same bytes dropped, another kept as name-2,
@@ -183,7 +182,7 @@ public static class NotesApi
     /// </summary>
     public static DuplicateRepairs RepairDuplicates(bool items = true, string by = "App") => Feed.RepairDuplicates(items, by);
 
-    /// <summary>A word about where plans go when the project keeps them in its files folder and the plan is linked from somewhere else; null when there is none to say.</summary>
+    /// <summary>A word about where plans go when the project has a plans folder and the plan is linked from somewhere else; null when there is none to say.</summary>
     public static string? PlanFolderWarning(string plan) => Feed.PlanFolderWarning(plan);
 
     /// <summary>Puts a conflict the sync settled on its work item: an event for a changed field of .openspec.yaml or tasks.md, a note holding the dropped text for any other file. False when it could not be recorded.</summary>

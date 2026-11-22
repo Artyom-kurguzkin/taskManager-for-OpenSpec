@@ -95,7 +95,7 @@
   /* the page, the side menu, the board and the list show none: the edge fades on those scroll areas show that there is more */
   html, main, nav.side, .board-wrap, .tbl-wrap { scrollbar-width: none; }
   html::-webkit-scrollbar, main::-webkit-scrollbar, nav.side::-webkit-scrollbar, .board-wrap::-webkit-scrollbar, .tbl-wrap::-webkit-scrollbar { display: none; }
-  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (prefers-reduced-motion: reduce) { *:not(nav.side:not(.expanded)) { transition: none !important; } }   /* the hidden side menu keeps its 400 ms wait (below), without the slide */
 }
 
 /* ───────────────────────────────────────────── primitives ───────────────────────────────────────────── */
@@ -272,6 +272,23 @@
   .grp-row:hover { background: color-mix(in srgb, var(--stone) 45%, transparent); }
   .grp-row .nm { padding-left: 6px; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .grp-row .count { margin-left: 0; padding-inline: 6px; text-align: right; }
+  /* auto-hiding: collapsed, the rail leaves the page's layout (the page takes the whole width) and waits off the left edge. The pointer on the thin
+     zone before it, or on the rail itself, slides it in over the page; it leaves again 400 ms after the pointer does (the delay is on the hiding).
+     It stays while it is in use: keyboard focus inside, an open popup (a menu keeps its backdrop in the rail), the hint letters. A shown rail has no
+     transform at all, so the popups fixed inside it still place against the window. The narrow window's header bar is not hidden. */
+  @media (min-width: 901px) {
+    #app:has(> nav.side:not(.expanded)) { grid-template-columns: minmax(0, 1fr); }
+    nav.side:not(.expanded) { position: fixed; left: 0; transform: translateX(-100%); transition: transform 150ms ease 400ms; }
+    .side-edge { position: fixed; top: 0; bottom: 0; left: 0; z-index: 20; width: 8px; }
+    .side-edge:hover + nav.side:not(.expanded),
+    nav.side:not(.expanded):hover,
+    nav.side:not(.expanded):has(:focus-visible),
+    nav.side:not(.expanded):has(.menu-backdrop),
+    nav.side:not(.expanded):has(.rz-dropdown-panel),
+    body.hints-on nav.side:not(.expanded) { transform: none; transition-delay: 0s; box-shadow: 4px 0 0 var(--shadow); }
+    body.hints-on nav.side:not(.expanded) { transition: none; }
+    @media (prefers-reduced-motion: reduce) { nav.side:not(.expanded) { transition-duration: 1ms; } }   /* no slide: it jumps, after the same wait */
+  }
   @media (min-width: 901px) { .nav-view-btn { display: none; } }   /* desktop: ☰ shows the options; the view icon is for the header bar */
   @media (max-width: 900px) {
     /* a header bar on top; main takes the rest of the window so the list / board / page scroll inside it */
@@ -316,8 +333,17 @@
   .cat-h { display: flex; align-items: baseline; gap: 12px; padding: 1px 8px; font-size: var(--t-md); font-weight: 700; }
   .cat-cols { display: flex; gap: var(--s2); align-items: stretch; }
   /* columns fill the board's height, so the whole column is a drop target, not just the area around its cards */
+  /* the first frame while a project is read (index.html paints the same before Blazor boots; Components/Shared/BoardSkeleton draws it after): grey columns and cards, no spinner */
+  .skeleton { display: flex; gap: var(--s2); align-items: flex-start; padding: 2px; }
+  .sk-col { width: 230px; flex: none; display: flex; flex-direction: column; gap: var(--s2); padding: 2px 4px; }
+  .sk { display: block; border-radius: 10px; background: var(--line-soft); opacity: .6; }
+  .sk-head { width: 96px; height: 20px; margin: 4px 8px 6px; }
+  .sk-card { height: 64px; border-radius: var(--r); }
+  .sk-card.tall { height: 104px; }
+  nav.side .sk-btn { width: 26px; height: 26px; margin: 4px 5px 6px; border-radius: 8px; flex: none; }
   .col { width: 230px; min-height: calc(100vh - 110px); display: flex; flex-direction: column; gap: 6px; padding: 2px 4px; border-radius: 10px; transition: background .15s; }
   .col > .lane:last-child { flex: 1; }
+  .col.absent { background: repeating-linear-gradient(135deg, transparent 0 9px, var(--line-soft) 9px 10px); opacity: .6; }   /* another project's status this one lacks: a drop asks to add it */
   .col-h { display: flex; align-items: baseline; gap: 8px; padding: 2px 8px; align-self: flex-start; user-select: none; }   /* the pointer changes only once a drag is under way */
   .col-h h3 { font-size: var(--t-md); }
   .lane { display: flex; flex-direction: column; gap: var(--s2); min-height: 48px; padding: 2px; border-radius: 8px; }
@@ -345,7 +371,6 @@
   .card .band { padding: 7px 12px; background: var(--band, var(--stone)); color: var(--on-fill); font-weight: 700; line-height: 1.3; border-bottom: 2px solid var(--line); }
   .card.collapsed { padding-bottom: 0; }
   .card.collapsed .band { border-bottom: 0; }
-  .card.hidden-item { opacity: .55; border-style: dashed; }
   .card-features { display: flex; flex-wrap: wrap; gap: 4px 5px; }
   .meta-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 4px; font-size: 13px; }
   .ico { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1.5px dashed var(--line); border-radius: 8px; margin-left: 6px; flex: none; }
@@ -439,13 +464,14 @@
   .tbl-wrap thead th:has(.rz-column-resizer:hover) .th-hide { width: 0; margin: 0; opacity: 0; }
   /* rows */
   .tbl-wrap tr[data-id]:hover td { background: color-mix(in srgb, var(--ink) 6%, transparent); }
-  .tbl-wrap tr[data-hidden] td { opacity: .55; }
-  .tbl-wrap tr[data-hidden] .row-title::after { content: " (hidden)"; font-weight: 400; color: var(--ink-2); }
   body.shift-held .tbl-wrap tr[data-id] td { cursor: cell; }
   body.shift-held .tbl-wrap tr[data-id]:hover td { background: color-mix(in srgb, var(--sun) 30%, transparent); }
   /* a selected row (Shift-click, shown by the row's tint) is dragged by pressing anywhere on it (app.js); an unselected row's press selects
      cells. While dragged the row is lifted: its cells go opaque with a ring round the row, and the cursor is a grabbing hand */
   .tbl-wrap tr.lifted td { box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+  /* a dragged group header's gap: a bar above the header it would land in front of, or below the last group's last row */
+  .tbl-wrap tr.group-drop td { box-shadow: 0 -4px 0 var(--ink); }
+  .tbl-wrap tr.group-drop-end td { box-shadow: 0 4px 0 var(--ink); }
   /* title: the header and the cells share one left padding, wide enough for the chevron of a row with subtasks to hang in, so every
      title starts exactly under the "Title" header; the title is one line, cut with an ellipsis (the tooltip has it whole) */
   .tbl-wrap th.title, .tbl-wrap td.title { padding-left: 24px; }
@@ -481,6 +507,11 @@
   .tbl-wrap tr[data-group] .gname[style] { display: inline-block; padding: 1px 10px; border-radius: 6px; background: var(--fill); color: var(--on-fill); }
   .tbl-wrap tr[data-group] .rz-button { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; color: var(--ink-2); }
   .tbl-wrap tr[data-group] .rz-button:hover { background: var(--stone); color: var(--on-fill); }
+  /* a group's "…" menu (delete the status or feature): shown on hover or focus of the group row, like a column header's × */
+  .tbl-wrap .gh-menu { width: 22px; height: 22px; margin-left: 6px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-2); font: 700 14px/1 var(--f-body); cursor: pointer; opacity: 0; vertical-align: middle; }
+  .tbl-wrap tr[data-group]:hover .gh-menu, .tbl-wrap .gh-menu:focus-visible { opacity: 1; }
+  .tbl-wrap .gh-menu:hover { background: var(--stone); color: var(--on-fill); }
+  .tbl-wrap tr[data-group] .menu-wrap { display: inline-block; }
   /* an empty group's "No items" and the "+ Add item" row under each group: short, faint, no rule under them */
   .tbl-wrap tr[data-empty] td { height: 32px; color: var(--ink-2); font-size: 13px; border-bottom: 0; }
   .tbl-wrap tbody tr:has(.rz-column-footer) td { height: 32px; border-bottom: 0; }
@@ -566,6 +597,7 @@
   .ln-rail .menu-wrap > button, .ln-rail .menu-wrap .btn { align-self: flex-start; padding: 0; border: 0; background: none; font: inherit; font-size: 14px; color: var(--ink-2); }
   /* the related list: one row per document, plan, link or image, its kind first */
   .rel-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+  .rel-from { padding: 10px 0 2px; font-size: var(--t-xs); }
   .rel { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 6px 0; border-top: 1.5px solid var(--line-soft); }
   .rel:first-child { border-top: 0; }
   .rel .k { flex: none; min-width: 3.4rem; color: var(--ink-2); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .04em; }
@@ -635,21 +667,26 @@
   /* settings */
   .settings { max-width: 880px; gap: 0; }
   .settings h2 { font-size: var(--t-xl); margin-bottom: 8px; }
-  .set-row { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, auto); gap: 12px 32px; align-items: center; padding-block: 20px; border-top: 2px dashed var(--line-soft); }
-  .set-row h3 { font-size: 1rem; }
-  .set-row p { margin: 2px 0 0; }
-  .set-val { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-width: 0; }
-  .set-val #f-repo { width: min(380px, 34vw); }
-  .set-val.set-folders { display: grid; grid-template-columns: auto minmax(0, 28rem); gap: 10px 12px; }
-  .set-folders .text-in { width: 100%; min-width: 0; box-sizing: border-box; }
   .set-loc { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .set-loc .btn { flex: none; white-space: nowrap; }
   .set-path { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
-  .set-row pre.box { display: block; flex: 1 1 100%; margin: 0; min-width: 0; max-width: 100%; overflow-x: auto; user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.5; text-align: left; }
-  .set-row code { font-family: ui-monospace, Consolas, monospace; font-size: .85em; overflow-wrap: anywhere; user-select: text; }
+  .settings-tabs { margin: 8px 0 20px; }
+  .settings-panel h3 { font-size: var(--t-lg); }
+  .set-help { margin: 2px 0 14px; }
+  .set-table { width: 100%; border-collapse: collapse; table-layout: fixed; }   /* the columns do not follow the content: every tab is as wide as the next */
+  .set-table th, .set-table td { padding: 12px 0; vertical-align: top; text-align: left; border-top: 2px dashed var(--line-soft); }
+  .set-table > tbody:first-of-type > tr:first-child > * { border-top: 0; }   /* the table's first row has no line above it */
+  .set-table th { width: 11rem; padding-right: 24px; font-weight: 600; font-size: 1rem; }
+  .set-table td { display: table-cell; min-width: 0; }
+  .set-table td > * + * { margin-top: 8px; }
+  .set-table .text-in { width: 100%; min-width: 0; box-sizing: border-box; }
+  .set-table p { margin: 0; }
+  .set-note { font-size: 13px; }
+  .set-table pre.box { display: block; margin: 0; min-width: 0; max-width: 100%; overflow-x: auto; user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.5; text-align: left; }
+  .set-table code { font-family: ui-monospace, Consolas, monospace; font-size: .85em; overflow-wrap: anywhere; user-select: text; }
+  @media (max-width: 640px) { .set-table th { width: 7rem; } }
   .mcp-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 10px; }   /* the hint column is narrow: the button drops under the chip */
   .mcp-status .chip.on { border-style: solid; background: var(--lilac); color: var(--on-fill); }
-  @media (max-width: 640px) { .set-row { grid-template-columns: 1fr; } }
 }
 
 /* ───────────────────────────────────────────── overlays ───────────────────────────────────────────── */
@@ -890,6 +927,8 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   .wk-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; overflow-wrap: anywhere; }
   .wk-title { font-weight: 700; }
   .wk-from { font-size: var(--t-xs); }
+  .wk-kind { font-size: var(--t-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }   /* an agent event's kind (started, tests green, done...) */
+  .wk-etext { white-space: pre-line; }   /* the breaks of a multi-line event text show */
   .wk-meta { display: flex; align-items: baseline; justify-content: flex-end; gap: 12px; white-space: nowrap; }
   .wk-by { font-size: var(--t-xs); }
   .wk-time { min-width: 3.2em; text-align: right; font-size: var(--t-xs); color: var(--ink-2); }
@@ -990,44 +1029,6 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   .proj-name-btn { font: inherit; color: inherit; padding: 0 8px; border: 2px solid var(--stroke); border-radius: 8px; background: var(--fill); }
   .proj-h h2 .menu-wrap, .proj-h h2 .menu-activator { display: inline-flex; }
 }
-/* table helper */
-@layer overlays {
-  /* the markdown editors' /table grid and table bar (wwwroot/js/md-editor.js): small panels fixed next to the caret, drawn like the menus */
-  .md-pop { position: fixed; z-index: 55; padding: 6px; background: var(--card); color: var(--ink); border: 2px solid var(--line); border-radius: 14px; box-shadow: 4px 4px 0 var(--shadow); }
-  .md-grid { padding: 10px; }
-  .md-gg { display: grid; grid-template-columns: repeat(8, 22px); gap: 3px; }
-  .md-gc { display: block; width: 22px; height: 22px; border: 1.5px solid var(--line-soft); border-radius: 5px; cursor: pointer; }
-  .md-gc.on { background: var(--sun); border-color: var(--line); }
-  .md-gl { margin-top: 8px; font: 700 14px var(--f-body); text-align: center; }
-  .md-gh { margin-top: 2px; font: 500 11px var(--f-body); color: var(--ink-2); text-align: center; white-space: nowrap; }
-  .md-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; max-width: calc(100vw - 8px); }
-  .md-grp { display: inline-flex; align-items: center; gap: 2px; }
-  .md-b { padding: 5px 9px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: 500 13px var(--f-body); white-space: nowrap; cursor: pointer; }
-  .md-b:hover { background: var(--stone); color: var(--on-fill); }
-  .md-b.ic { display: inline-flex; align-items: center; padding: 5px 7px; }
-  .md-b.on { background: var(--sun); color: var(--on-fill); }
-  .md-sep { align-self: stretch; width: 2px; margin: 3px 4px; background: var(--line-soft); border-radius: 1px; }
-
-  /* the grid overlay: a real grid laid over the table's lines in the textarea (md-editor.js sets its box, font and background); every row is one text line high */
-  .md-ov { position: fixed; z-index: 40; box-sizing: border-box; overflow: hidden; color: var(--ink); line-height: var(--lh); cursor: default; user-select: none; }
-  .md-gx { width: fit-content; max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
-  .md-t { border-collapse: separate; border-spacing: 0; table-layout: auto; }
-  .md-t th, .md-t td { box-sizing: border-box; height: var(--lh); padding: 0; font-weight: 500; white-space: nowrap; text-align: left; }
-  .md-t td { position: relative; padding: 0 9px; box-shadow: inset -1px -1px 0 var(--line-soft); }
-  .md-v { min-width: 4.5em; max-width: 26em; height: var(--lh); overflow: hidden; text-overflow: ellipsis; }
-  .md-t th { color: var(--ink-2); font-size: .78em; background: color-mix(in srgb, var(--stone) 32%, transparent); box-shadow: inset -1px -1px 0 var(--line-soft); text-align: center; }
-  .md-rh { min-width: 2.4em; padding: 0 6px !important; }
-  .md-corner { cursor: pointer; }
-  .md-ch, .md-rh { cursor: pointer; }
-  .md-ch:hover, .md-rh:hover, .md-corner:hover { background: color-mix(in srgb, var(--stone) 55%, transparent); }
-  .md-t th.sel { background: color-mix(in srgb, var(--sun) 55%, transparent); color: var(--ink); }
-  .md-hd td { font-weight: 700; box-shadow: inset -1px -2px 0 var(--ink-2); }
-  .md-t td.al-center { text-align: center; }
-  .md-t td.al-right { text-align: right; }
-  .md-t td.sel { background: color-mix(in srgb, var(--sun) 38%, transparent); }
-  .md-t td.act { box-shadow: inset 0 0 0 2px var(--line); }
-  .md-in { position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box; margin: 0; padding: 0 9px; border: 0; border-radius: 0; outline: 2px solid var(--line); outline-offset: -2px; background: var(--card); color: var(--ink); font: inherit; text-align: inherit; user-select: text; }
-}
 
 /* bugs */
 @layer page {
@@ -1082,7 +1083,6 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
 
 /* board storage */
 @layer page {
-  .bs .bs-wide { grid-column: 1 / -1; }
   .bs-actions { display: flex; flex-wrap: wrap; gap: 10px; }
   .bs-state, .bs-test-result, .bs-ask-detail, .bs-skipped, .bs-toolarge { margin: 0; overflow-wrap: anywhere; user-select: text; }
   .bs-state.bad, .bs-test-result.bad { font-weight: 600; }
@@ -1090,20 +1090,14 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   .bs-attach .nav-pill { margin-left: -6px; }   /* the pill reaches 6px left of plain text, like the menu's */
   .bs-trash { margin: 0; }
   .bs-open-trash { padding: 0; border: 0; background: none; color: var(--ink); font: 500 13.5px var(--f-body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-  .bs .seg { flex-wrap: wrap; }
 }
 
 /* files folder */
 @layer page {
-  .set-row.set-sub { border-top: 0; padding-top: 0; }   /* a project's Board storage belongs to its folders block above: one group, no line between */
-  .files-now, .files-legacy { overflow-wrap: anywhere; user-select: text; }
-  .files-put-both { padding: 0; border: 0; background: none; color: var(--ink); font: 500 13.5px var(--f-body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-  .att-row { grid-column: 2; margin: 0; min-width: 0; }   /* under the field, in its column */
-  .att-ask p, p.att-row { margin: 0; overflow-wrap: anywhere; user-select: text; }
+  p.att-row { margin: 0; overflow-wrap: anywhere; user-select: text; }
   .att-actions { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 8px; }
   .att-warn { font-weight: 600; }
   /* a project's statuses (Settings) */
-  .set-val.st { display: grid; gap: 10px; justify-items: start; }
   .st-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .st-row { display: flex; align-items: center; gap: 10px; min-height: 28px; }
   .st-name { min-width: 8rem; justify-content: flex-start; }
@@ -1112,7 +1106,6 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   .st-add { display: flex; gap: 8px; align-items: center; }
   .st-add .text-in { width: 16rem; }
 }
-@media (max-width: 640px) { @layer page { .att-row { grid-column: 1 / -1; } } }
 
 /* card dates */
 @layer page {
@@ -1242,4 +1235,13 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   button.cell.filled.pick:hover::after, button.cell.filled.pick:focus-visible::after, tr:hover button.cell.filled.pick::after { opacity: .6; }
   button.cell.filled.pick:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .tbl-wrap td .menu-wrap, .tbl-wrap td .menu-activator { display: block; min-width: 0; max-width: 100%; }
+}
+
+/* Blazor errors: the boundary's inline message and the framework's own bar (#blazor-error-ui in index.html, hidden until Blazor shows it) */
+@layer overlays {
+  .app-error { align-self: start; justify-self: start; width: fit-content; max-width: calc(100% - 2 * var(--s4)); display: flex; align-items: center; gap: var(--s3); margin: var(--s4); padding: var(--s3) var(--s4); background: var(--card); color: var(--ink); border: 2px solid var(--alert); border-radius: var(--r); font: 600 var(--t-md) var(--f-body); }
+  .app-error .error-reload { color: var(--ink); text-decoration: underline; cursor: pointer; }
+  #blazor-error-ui { display: none; position: fixed; z-index: 90; left: 0; right: 0; bottom: 0; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4); background: var(--alert); color: var(--on-alert); font: 600 var(--t-sm) var(--f-body); }
+  #blazor-error-ui .reload { color: var(--on-alert); text-decoration: underline; }
+  #blazor-error-ui .dismiss { margin-left: auto; cursor: pointer; }
 }

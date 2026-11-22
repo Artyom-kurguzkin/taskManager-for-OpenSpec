@@ -12,6 +12,8 @@ internal sealed class CacheState
     public readonly GitCache.State Git = new();
     public readonly RenderedCache.State Rendered = new();
     public readonly TestResultsCache.State TestResults = new();
+    /// <summary>What the pages read of items on demand (descriptions, events, notes), for the last 64 items used.</summary>
+    public readonly BodyCache Bodies = new();
 }
 
 /// <summary>All caching of the app lives in this folder: one static class per kind of data, each remembering the module versions it was read at.</summary>
@@ -34,7 +36,9 @@ public static class Caches
     {
         if (Interlocked.Exchange(ref installed, 1) == 1) return;
         WorkItems.WorkItemsApi.UseBoard(ItemsCache.Board, ItemsCache.LastSeen);
-        Notes.NotesApi.UseNotes(NotesCache.Get, NotesCache.TakeRenumbered);
+        Notes.NotesApi.UseNotes(NotesCache.Get, NotesCache.TakeRenumbered, NotesCache.ForWorkItem);
+        WorkItems.WorkItemsApi.UseDescriptions(ItemsCache.Description);
+        WorkItems.WorkItemsApi.UseEvents(ItemsCache.Events);
         Features.FeaturesApi.UseReader(FeaturesCache.Get);
         GitHistory.GitHistoryApi.UseReads(new(GitCache.Changes, GitCache.Log, GitCache.Single, GitCache.People, GitCache.Uncommitted));
         LinkedTestRuns.LinkedTestRunsApi.UseReader(TestResultsCache.Get);

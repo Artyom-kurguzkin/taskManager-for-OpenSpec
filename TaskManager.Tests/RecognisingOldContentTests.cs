@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using BoardSync;
 using BoardSync.PublicDTOs;
+using BoardSync.Sync;
 
 namespace TaskManager.Tests;
 
@@ -79,7 +80,10 @@ public sealed class RecognisingOldContentTests : IDisposable
     /// <summary>The tasks text of version i; version 0 is the seed.</summary>
     private static string Version(int i) => i == 0 ? SeedTasks : SeedTasks + $"\n<!-- version {i} -->\n";
 
-    /// <summary>A writes versions 1..count of the tasks, syncing after each, so the manifest's history of twenty entries is long gone past version 0 and 1.</summary>
+    /// <summary>Versions A writes so that the manifest, which keeps <see cref="SyncModels.HistoryLimit"/> earlier ones of a path, has forgotten versions 0 and 1 (each version is one sync: no more than that is written).</summary>
+    private const int Enough = SyncModels.HistoryLimit + 2;   // the first two are out of the history after that many
+
+    /// <summary>A writes versions 1..count of the tasks, syncing after each, so the manifest's history is long gone past version 0 and 1.</summary>
     private async Task Evolve(Computer a, int count)
     {
         for (int i = 1; i <= count; i++)
@@ -144,7 +148,7 @@ public sealed class RecognisingOldContentTests : IDisposable
     public async Task OwnMemoryRecognisesVeryOldContent()
     {
         (Computer a, Computer b) = await TwoSyncedComputers();
-        await Evolve(a, 25);                                          // the manifest keeps twenty earlier versions: version 0 is long gone from it
+        await Evolve(a, Enough);                                      // the manifest keeps a few earlier versions: version 0 is long gone from it
         await Sync(b);
         Tick(1);
         Write(b, Tasks, Version(0));                                  // a week-old branch is checked out
@@ -155,9 +159,9 @@ public sealed class RecognisingOldContentTests : IDisposable
         Assert.Equal([Tasks], report.Stale);
         Assert.Equal([Tasks], report.Downloaded);
         Assert.Empty(report.Uploaded);
-        Assert.Equal(Version(25), Read(b, Tasks));
+        Assert.Equal(Version(Enough), Read(b, Tasks));
         Assert.Equal(puts, b.Storage.Puts);                           // recognised here, nothing was even offered to the storage
-        Assert.Equal(Sha(Version(25)), ManifestHash(a.Storage, Tasks));
+        Assert.Equal(Sha(Version(Enough)), ManifestHash(a.Storage, Tasks));
     }
 
     [Fact(DisplayName = "Content this computer never saw but the storage has had for that file is recognised when the upload is refused, with no extra request")]
@@ -166,9 +170,9 @@ public sealed class RecognisingOldContentTests : IDisposable
         (Computer a, Computer b) = await TwoSyncedComputers();
         Computer c = NewComputer("C");
         await Sync(c);
-        await Evolve(a, 25);
+        await Evolve(a, Enough);
         await Sync(b);
-        await Sync(c);                                                // both know version 0 and 25 and the last twenty, never version 1
+        await Sync(c);                                                // both know version 0 and the last one and the few before it, never version 1
         Tick(1);
         Write(b, Tasks, Version(1));                                  // content the storage had once (a put of its object is refused)
         Write(c, Tasks, SeedTasks + "\n<!-- written by a commit nobody has seen -->\n");
@@ -181,9 +185,9 @@ public sealed class RecognisingOldContentTests : IDisposable
         Assert.Equal([Tasks], stale.Stale);
         Assert.Equal([Tasks], stale.Downloaded);
         Assert.Empty(stale.Uploaded);
-        Assert.Equal(Version(25), Read(b, Tasks));
+        Assert.Equal(Version(Enough), Read(b, Tasks));
         Assert.Equal(1, b.Storage.Puts - putsB);                      // the one put of the object, which was refused; the manifest was not touched
-        Assert.Equal(Sha(Version(25)), afterStale);
+        Assert.Equal(Sha(Version(Enough)), afterStale);
         Assert.Equal([Tasks], real.Uploaded);                         // the same kind of sync of a genuinely new file...
         Assert.Empty(real.Stale);
         Assert.True(b.Storage.Calls - callsB <= c.Storage.Calls - callsC, $"stale {b.Storage.Calls - callsB} calls, new {c.Storage.Calls - callsC}");   // ...costs at least as many requests
@@ -245,7 +249,7 @@ public sealed class RecognisingOldContentTests : IDisposable
     public async Task AppEditIsNeverStale()
     {
         (Computer a, Computer b) = await TwoSyncedComputers();
-        await Evolve(a, 25);
+        await Evolve(a, Enough);
         await Sync(b);
         Tick(1);
         Write(b, Tasks, Version(1));                                  // the user typed this in the app; the storage had it a long time ago
@@ -320,7 +324,7 @@ public sealed class RecognisingOldContentTests : IDisposable
     public async Task WithoutConditionalWritesOnlyOwnMemoryIsUsed()
     {
         (Computer a, Computer b) = await TwoSyncedComputers(conditionalWritesAtB: false);
-        await Evolve(a, 25);
+        await Evolve(a, Enough);
         await Sync(b);
         Tick(1);
         Write(b, Tasks, Version(1));                                  // the storage had it, this computer never saw it: not recognisable without the refusal
@@ -344,7 +348,7 @@ public sealed class RecognisingOldContentTests : IDisposable
     public async Task OldContentOfADeletedFileIsRecognisedByTheRefusal()
     {
         (Computer a, Computer b) = await TwoSyncedComputers();
-        await Evolve(a, 25);
+        await Evolve(a, Enough);
         Tick(1);
         File.Delete(Path.Combine(a.Root, Tasks));
         await Sync(a);

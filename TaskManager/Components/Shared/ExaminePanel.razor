@@ -116,7 +116,7 @@
         if (pick is null) return;
         (bool ok, string message, int newId) = Workspace.In(root, () => pick == "dep" ? WorkItemsApi.MoveSubtasksToDependency(id, [s.Number]) : WorkItemsApi.MoveSubtasksToNew(id, [s.Number]));
         if (!ok) Popups.Toast(message, ToastKind.Warning);
-        else Popups.Toast(pick == "dep" ? $"#wi{newId} created: #wi{id} now waits on it" : $"Made #wi{newId} from subtask {s.Number}", ToastKind.Success);
+        else { UiLog.Action("Examine", pick == "dep" ? "MoveSubtasksToDependency" : "MoveSubtasksToNew", $"#wi{id} #wi{newId}"); Popups.Toast(pick == "dep" ? $"#wi{newId} created: #wi{id} now waits on it" : $"Made #wi{newId} from subtask {s.Number}", ToastKind.Success); }
         Read();
         StateHasChanged();
     }

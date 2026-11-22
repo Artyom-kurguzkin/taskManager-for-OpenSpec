@@ -195,11 +195,14 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         return ctx;
     }
 
-    private static AngleSharp.Dom.IElement Section(IRenderedComponent<SettingsPage> page) => page.Find("section[data-storage]");
+    private static AngleSharp.Dom.IElement Section(IRenderedComponent<SettingsPage> page) => page.Find("[data-storage]");
 
     /// <summary>Changes an input inside the storage section on the renderer's thread, so a re-render between finding it and changing it cannot leave the event without a handler.</summary>
-    private static Task Change(IRenderedComponent<SettingsPage> page, string selector, string value) =>
-        page.InvokeAsync(() => Section(page).QuerySelector(selector)!.Change(value));
+    private static Task Change(IRenderedComponent<SettingsPage> page, string selector, string value)
+    {
+        page.ChangeWhenReady("[data-storage] " + selector, value);
+        return Task.CompletedTask;
+    }
 
     // ── settings ──
 
@@ -208,7 +211,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
     {
         Computer c = NewComputer("a");
         await using BunitContext ctx = PageContext(c);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
         Assert.Null(c.Settings.Config(c.Root));
         Assert.Equal("This folder only", Section(page).QuerySelector(".seg-o.is-sel")!.TextContent.Trim());
@@ -230,28 +233,28 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
     {
         Computer c = NewComputer("a");
         await using BunitContext ctx = PageContext(c);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
         await Change(page, "input[value='connected']", "connected");
-        page.WaitForAssertion(() => Assert.NotNull(Section(page).QuerySelector("input[value='folder']")));
+        page.Eventually(() => Assert.NotNull(Section(page).QuerySelector("input[value='folder']")));
         await Change(page, "input[value='folder']", "folder");
-        page.WaitForAssertion(() => Assert.NotNull(Section(page).QuerySelector("input[data-field='path']")));
+        page.Eventually(() => Assert.NotNull(Section(page).QuerySelector("input[data-field='path']")));
         await Change(page, "input[data-field='path']", Storage);
 
-        page.WaitForAssertion(() =>
+        page.Eventually(() =>
         {
             string config = c.Read("openspec/config.yaml");
-            Assert.Contains("boardStorage:", config);
-            Assert.Contains("provider: folder", config);
-            Assert.Contains("path:", config);
-            Assert.Contains("In Progress: [High priority, Lower priority]", config);   // the other settings in the block stay
+            page.Eventually(() => Assert.Contains("boardStorage:", config));
+            page.Eventually(() => Assert.Contains("provider: folder", config));
+            page.Eventually(() => Assert.Contains("path:", config));
+            page.Eventually(() => Assert.Contains("In Progress: [High priority, Lower priority]", config));   // the other settings in the block stay
         });
-        Assert.Equal("folder", c.Settings.Config(c.Root)!.Provider);
-        Assert.Equal(Storage, c.Settings.Config(c.Root)!.Values["path"]);
+        page.Eventually(() => Assert.Equal("folder", c.Settings.Config(c.Root)!.Provider));
+        page.Eventually(() => Assert.Equal(Storage, c.Settings.Config(c.Root)!.Values["path"]));
 
         await Change(page, "input[value='this']", "this");                 // and back
-        page.WaitForAssertion(() => Assert.DoesNotContain("boardStorage", c.Read("openspec/config.yaml")));
-        Assert.Null(c.Settings.Config(c.Root));
+        page.Eventually(() => Assert.DoesNotContain("boardStorage", c.Read("openspec/config.yaml")));
+        page.Eventually(() => Assert.Null(c.Settings.Config(c.Root)));
     }
 
     [Fact(DisplayName = "The S3 secret is kept on this computer only: it is not in the repository and is never shown back")]
@@ -282,7 +285,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.True(again.IsSet(c.Root, "secretKey"));
 
         await using BunitContext ctx = PageContext(c);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.DoesNotContain(secret, page.Markup);
         AngleSharp.Dom.IElement input = Section(page).QuerySelector("input[data-field='secretKey']")!;
         Assert.Equal("password", input.GetAttribute("type"));
@@ -308,7 +311,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.Contains("this computer", c.Line, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, c.Sync.Runs(c.Root));                                   // nothing to sync with yet
         await using BunitContext ctx = PageContext(c);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.Equal("https://acct.r2.cloudflarestorage.com", Section(page).QuerySelector("input[data-field='endpoint']")!.GetAttribute("value"));
     }
 
@@ -319,22 +322,22 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         c.ConnectFolder(Storage);
         await c.Pass();
         await using BunitContext ctx = PageContext(c);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
-        page.Find("section[data-storage] button.bs-test").Click();
-        page.WaitForAssertion(() => Assert.Contains("Connected", Section(page).QuerySelector(".bs-test-result")!.TextContent));
+        page.ClickWhenReady("[data-storage] button.bs-test");
+        page.Eventually(() => Assert.Contains("Connected", Section(page).QuerySelector(".bs-test-result")!.TextContent));
 
         string notAFolder = Path.Combine(temp, "a-file");
         File.WriteAllText(notAFolder, "x");
         c.Settings.SetValue(c.Root, "path", Path.Combine(notAFolder, "inside"));
-        page.WaitForAssertion(() => Assert.Null(Section(page).QuerySelector(".bs-test-result")));   // an old answer is not shown for new settings
+        page.Eventually(() => Assert.Null(Section(page).QuerySelector(".bs-test-result")));   // an old answer is not shown for new settings
         await ctx.Renderer.Dispatcher.InvokeAsync(() => { });
-        page.Find("section[data-storage] button.bs-test").Click();
-        page.WaitForAssertion(() =>
+        page.ClickWhenReady("[data-storage] button.bs-test");
+        page.Eventually(() =>
         {
             string answer = Section(page).QuerySelector(".bs-test-result")!.TextContent;
-            Assert.DoesNotContain("Connected", answer);
-            Assert.Contains("Could not", answer);
+            page.Eventually(() => Assert.DoesNotContain("Connected", answer));
+            page.Eventually(() => Assert.Contains("Could not", answer));
         });
     }
 
@@ -346,22 +349,22 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
             values => BoardSyncApi.FolderStorage(Path.Combine(temp, "vault-" + values["site"].Replace(':', '_').Replace('/', '_'))));
         Computer c = NewComputer("a", [.. StorageProviders.Builtin, memory]);
         await using BunitContext ctx = PageContext(c);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
         await Change(page, "input[value='connected']", "connected");
-        page.WaitForAssertion(() => Assert.NotNull(Section(page).QuerySelector("input[value='vault']")));
+        page.Eventually(() => Assert.NotNull(Section(page).QuerySelector("input[value='vault']")));
         await Change(page, "input[value='vault']", "vault");
-        page.WaitForAssertion(() => Assert.Equal(["site", "token", "area"], Section(page).QuerySelectorAll("[data-field]").Select(e => e.GetAttribute("data-field")).ToList()));
-        Assert.Equal("password", Section(page).QuerySelector("input[data-field='token']")!.GetAttribute("type"));
-        Assert.Contains("Site address", Section(page).TextContent);
+        page.Eventually(() => Assert.Equal(["site", "token", "area"], Section(page).QuerySelectorAll("[data-field]").Select(e => e.GetAttribute("data-field")).ToList()));
+        page.Eventually(() => Assert.Equal("password", Section(page).QuerySelector("input[data-field='token']")!.GetAttribute("type")));
+        page.Eventually(() => Assert.Contains("Site address", Section(page).TextContent));
 
         await Change(page, "input[data-field='site']", "https://vault.example");
         await Change(page, "input[data-field='token']", "t0ken-value");
-        page.WaitForAssertion(() => Assert.Contains("site: https://vault.example", c.Read("openspec/config.yaml")));
-        Assert.DoesNotContain("t0ken-value", c.Read("openspec/config.yaml"));
-        Assert.Equal("t0ken-value", c.Settings.ComputerValue(c.Root, "token"));
+        page.Eventually(() => Assert.Contains("site: https://vault.example", c.Read("openspec/config.yaml")));
+        page.Eventually(() => Assert.DoesNotContain("t0ken-value", c.Read("openspec/config.yaml")));
+        page.Eventually(() => Assert.Equal("t0ken-value", c.Settings.ComputerValue(c.Root, "token")));
         await c.Pass();
-        Assert.True(c.Sync.Runs(c.Root) > 0);   // the descriptor built a storage and the project synced with it
+        page.Eventually(() => Assert.True(c.Sync.Runs(c.Root) > 0));   // the descriptor built a storage and the project synced with it
     }
 
     // ── syncing ──
@@ -787,18 +790,18 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         a.ConnectFolder(Storage);
         await a.Pass();
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
         a.Engine = _ => Task.FromResult(Blocked(SyncBlock.MassDelete, "A message that does not say what the old host looked for."));   // the reason decides, not the wording
         await a.Sync.SyncNow(a.Root);
         Assert.True(a.Sync.Status(a.Root).CanAllow);
-        page.WaitForAssertion(() => Assert.NotNull(Section(page).QuerySelector("button.bs-allow")));
+        page.Eventually(() => Assert.NotNull(Section(page).QuerySelector("button.bs-allow")));
 
         a.Engine = _ => Task.FromResult(Blocked(SyncBlock.GitBusy, "Sync is paused while a git merge is in progress. If you want to allow it, finish the merge."));   // even a wording that once looked like the brake's
         await a.Sync.SyncNow(a.Root);
         Assert.False(a.Sync.Status(a.Root).CanAllow);
         Assert.StartsWith("Paused: Sync is paused while a git merge", a.Line);
-        page.WaitForAssertion(() =>
+        page.Eventually(() =>
         {
             Assert.Null(Section(page).QuerySelector("button.bs-allow"));
             Assert.StartsWith("Paused:", Section(page).QuerySelector(".bs-state")!.TextContent.Trim());
@@ -830,7 +833,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.Equal(runs, a.Sync.Runs(a.Root));
 
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();                           // Settings opened in the middle of the merge
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();                           // Settings opened in the middle of the merge
 
         string line = Section(page).QuerySelector(".bs-state")!.TextContent.Trim();
         Assert.StartsWith("Paused: Sync is paused while a git merge is in progress", line);
@@ -907,7 +910,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         (Computer a, Computer b) = await TwoConnected();
         string? opened = null;
         await using BunitContext ctx = PageContext(b, opener: p => { opened = p; return (true, ""); });
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.Null(Section(page).QuerySelector(".bs-open-trash"));                                   // nothing was removed yet: no folder, no link
 
         File.Delete(Path.Combine(a.Root, Item, "notes", "n123.md"));
@@ -921,15 +924,15 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.StartsWith(trash, report.TrashFolder);
         Assert.True(File.Exists(report.Trashed[0]));
 
-        page.WaitForAssertion(() => Assert.Equal("Open trash folder", Section(page).QuerySelector(".bs-open-trash")!.TextContent.Trim()));
-        await page.InvokeAsync(() => Section(page).QuerySelector(".bs-open-trash")!.Click());
-        page.WaitForAssertion(() => Assert.Equal(trash, opened));
+        page.Eventually(() => Assert.Equal("Open trash folder", Section(page).QuerySelector(".bs-open-trash")!.TextContent.Trim()));
+        page.ClickWhenReady("[data-storage] .bs-open-trash");
+        page.Eventually(() => Assert.Equal(trash, opened));
 
         b.Engine = _ => Task.FromResult(new SyncReport(SyncOutcome.Synced, null, [], [], [], ["a", "b", "c"], [], [], [], trashed: ["x", "y", "z"]));
         await b.Sync.SyncNow(b.Root);
-        Assert.Contains("3 files the sync removed are kept in the trash for 30 days", b.Toasts);
+        page.Eventually(() => Assert.Contains("3 files the sync removed are kept in the trash for 30 days", b.Toasts));
 
-        Assert.Null(a.Sync.Status(a.Root).TrashFolder);                                              // the computer that deleted it has none
+        page.Eventually(() => Assert.Null(a.Sync.Status(a.Root).TrashFolder));                                              // the computer that deleted it has none
     }
 
     [Fact(DisplayName = "The backup folder in the first-sync toast is the one the engine reports")]
@@ -1262,7 +1265,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.Equal(["Received 1 change from the storage"], a.Toasts.Skip(before));                  // not a word about the trash or removals
         Assert.Equal(trash, a.Sync.Status(a.Root).TrashFolder);
         await using BunitContext ctx = PageContext(a, opener: _ => (true, ""));
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.Equal("Open trash folder", Section(page).QuerySelector(".bs-open-trash")!.TextContent.Trim());
     }
 
@@ -1274,7 +1277,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         await a.Pass();
         int before = a.Toasts.Count;
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.Null(Section(page).QuerySelector(".bs-skipped"));
 
         a.Engine = _ => Task.FromResult(new SyncReport(SyncOutcome.NothingToDo, null, [], [], [], [], [], [], [], skippedLinks: ["add-health-check/shortcut", "other/link"]));
@@ -1409,14 +1412,14 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         string[] stored = [.. Directory.EnumerateFiles(Path.Combine(Storage, "attachments"), "*", SearchOption.AllDirectories)];
 
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.Equal("true", Section(page).QuerySelector(".bs-attachments")!.GetAttribute("aria-pressed"));
-        await page.InvokeAsync(() => Section(page).QuerySelector(".bs-attachments")!.Click());                  // the switch
+        page.ClickWhenReady("[data-storage] .bs-attachments");                  // the switch
 
-        page.WaitForAssertion(() => Assert.Equal("false", Section(page).QuerySelector(".bs-attachments")!.GetAttribute("aria-pressed")));
-        Assert.False(a.Settings.SyncAttachments(a.Root));
-        Assert.Matches(@"(?m)^\s+attachments: false\s*$", a.Read("openspec/config.yaml"));                      // saved with the project, under boardStorage
-        Assert.Equal("folder", a.Settings.Config(a.Root)!.Provider);          // the storage itself is as it was
+        page.Eventually(() => Assert.Equal("false", Section(page).QuerySelector(".bs-attachments")!.GetAttribute("aria-pressed")));
+        page.Eventually(() => Assert.False(a.Settings.SyncAttachments(a.Root)));
+        page.Eventually(() => Assert.Matches(@"(?m)^\s+attachments: false\s*$", a.Read("openspec/config.yaml")));                      // saved with the project, under boardStorage
+        page.Eventually(() => Assert.Equal("folder", a.Settings.Config(a.Root)!.Provider));          // the storage itself is as it was
         await a.Pass();
         int runs = a.AttachmentRuns.Count();
 
@@ -1425,14 +1428,14 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         await a.Sync.SyncNow(a.Root);
         await b.Sync.SyncNow(b.Root);
 
-        Assert.Equal(runs, a.AttachmentRuns.Count());
-        Assert.True(Directory.Exists(state));                                  // its state is left alone
-        Assert.Equal(stored, Directory.EnumerateFiles(Path.Combine(Storage, "attachments"), "*", SearchOption.AllDirectories));   // nothing uploaded, nothing deleted
-        Assert.True(b.HasAttachment(Pic));
+        page.Eventually(() => Assert.Equal(runs, a.AttachmentRuns.Count()));
+        page.Eventually(() => Assert.True(Directory.Exists(state)));                                  // its state is left alone
+        page.Eventually(() => Assert.Equal(stored, Directory.EnumerateFiles(Path.Combine(Storage, "attachments"), "*", SearchOption.AllDirectories)));   // nothing uploaded, nothing deleted
+        page.Eventually(() => Assert.True(b.HasAttachment(Pic)));
 
-        await page.InvokeAsync(() => Section(page).QuerySelector(".bs-attachments")!.Click());                  // and on again
-        page.WaitForAssertion(() => Assert.DoesNotContain("attachments:", a.Read("openspec/config.yaml")));      // absent = on
-        Assert.True(a.Settings.SyncAttachments(a.Root));
+        page.ClickWhenReady("[data-storage] .bs-attachments");                  // and on again
+        page.Eventually(() => Assert.DoesNotContain("attachments:", a.Read("openspec/config.yaml")));      // absent = on
+        page.Eventually(() => Assert.True(a.Settings.SyncAttachments(a.Root)));
     }
 
     [Fact(DisplayName = "The attachments switch is not part of the approval: flipping it never asks again")]
@@ -1565,10 +1568,10 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.Contains(a.Toasts, t => t.Contains("Attachments sync paused") && t.Contains("12 files"));
 
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         await a.Pass();                                                                // opening the page queued a pass of its own: let it finish, so the allowance goes to the next pass
         Assert.Contains("bad", Section(page).QuerySelector(".bs-state")!.ClassName);
-        page.WaitForAssertion(() => Assert.NotNull(Section(page).QuerySelector(".bs-allow")));   // the page offers it; its button asks for exactly this sync
+        page.Eventually(() => Assert.NotNull(Section(page).QuerySelector(".bs-allow")));   // the page offers it; its button asks for exactly this sync
         await a.Sync.SyncNow(a.Root, allowMassDelete: true);
         Assert.DoesNotContain("Attachments:", a.Line);
 
@@ -1589,7 +1592,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         (Computer a, _) = await TwoConnected();
         a.WriteAttachment(Pic, Png);
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.Null(Section(page).QuerySelector(".bs-toolarge"));
 
         a.Engine = o => Task.FromResult(o.WholeFilesOnly ? Report(SyncOutcome.NothingToDo, tooLarge: ["wi1/n1/film.mov"]) : Report(SyncOutcome.NothingToDo));
@@ -1621,7 +1624,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         (Computer a, Computer b) = await TwoConnected();
         string? opened = null;
         await using BunitContext ctx = PageContext(b, opener: p => { opened = p; return (true, ""); });
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         foreach (string name in new[] { "one", "two", "three" }) a.WriteAttachment($"wi1/n1/{name}.png", Png);
         await a.Sync.SyncNow(a.Root);
         await b.Sync.SyncNow(b.Root);
@@ -1646,8 +1649,8 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.Equal("2 files the sync removed are kept in the trash for 30 days", b.Toasts.Last(t => t.Contains("kept in the trash")));   // one toast for the cycle
         page.Render();
         Assert.Single(Section(page).QuerySelectorAll(".bs-open-trash"));
-        await page.InvokeAsync(() => Section(page).QuerySelector(".bs-open-trash")!.Click());
-        page.WaitForAssertion(() => Assert.Equal(both, opened));
+        page.ClickWhenReady("[data-storage] .bs-open-trash");
+        page.Eventually(() => Assert.Equal(both, opened));
     }
 
     [Fact(DisplayName = "After the storage address changes, the board and the attachments both start as a first connection")]
@@ -1781,22 +1784,22 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         string[] before = StoredSnapshot();
         string oldFolder = b.AttachDir;
         await using BunitContext ctx = PageContext(b);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
-        await page.InvokeAsync(() => page.Find("input[aria-label='Files folder']").Change("media"));   // the images folder becomes media/images
-        page.WaitForAssertion(() => Assert.NotNull(page.Find(".att-ask .att-keep")));
-        await page.InvokeAsync(() => page.Find(".att-ask .att-keep").Click());
-        page.WaitForAssertion(() => Assert.Equal("media/images", b.App.AttachmentsDir(b.Root)));
+        page.ChangeWhenReady("[data-folder='images'] input", "media/images");   // the images folder becomes media/images
+        page.Eventually(() => Assert.NotNull(page.Find("[data-folder='images'] .folder-point")));
+        page.ClickWhenReady("[data-folder='images'] .folder-point");   // Point here: the files stay
+        page.Eventually(() => Assert.Equal("media/images", b.App.AttachmentsDir(b.Root)));
         b.Sync.BoardChanged();
         await b.Sync.QuietElapsed(b.Root);
         await b.Sync.SyncNow(b.Root);
 
-        Assert.DoesNotContain(b.Toasts, t => t.StartsWith("Attachments moved to"));
-        Assert.True(File.Exists(Path.Combine(oldFolder, "wi1/n1/pic.png")));            // the user chose to keep them: they are where they were
-        Assert.True(File.Exists(Path.Combine(oldFolder, "wi1/n1/other.png")));
-        Assert.Equal(before.Length, StoredSnapshot().Length);                            // nothing in the storage was deleted because the watched folder changed
-        Assert.DoesNotContain(b.AttachmentRuns, o => o.LocalRoot == b.AttachDir && o.AllowMassDelete);
-        Assert.Equal(Png, b.ReadAttachment("wi1/n1/pic.png"));                           // the new folder is a first connection: what the storage holds comes down
+        page.Eventually(() => Assert.DoesNotContain(b.Toasts, t => t.StartsWith("Attachments moved to")));
+        page.Eventually(() => Assert.True(File.Exists(Path.Combine(oldFolder, "wi1/n1/pic.png"))));            // the user chose to keep them: they are where they were
+        page.Eventually(() => Assert.True(File.Exists(Path.Combine(oldFolder, "wi1/n1/other.png"))));
+        page.Eventually(() => Assert.Equal(before.Length, StoredSnapshot().Length));                            // nothing in the storage was deleted because the watched folder changed
+        page.Eventually(() => Assert.DoesNotContain(b.AttachmentRuns, o => o.LocalRoot == b.AttachDir && o.AllowMassDelete));
+        page.Eventually(() => Assert.Equal(Png, b.ReadAttachment("wi1/n1/pic.png")));                           // the new folder is a first connection: what the storage holds comes down
     }
 
     // ---- service chunk ----

@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-20
+x-rtm:
+  id: 210
+  title: 'Start as fast as Notepad: window first, headers first, the rest behind'
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-20
+  moved: 2026-11-21
+  plan: DevResources/plans/fast-startup-2026-11-20.md
+  tests: [{suite: StartingTheAppTests, test: 'Opening a repository returns before its files are read, and the board shows a skeleton until they are'}, {suite: StartingTheAppTests, test: 'The board shows the cards once the headers are in, before git and the duplicate scan have run'}, {suite: StartingTheAppTests, test: 'The contributor filter says loading until git is ready, then lists the people'}, {suite: StartingTheAppTests, test: 'The startup marks are logged in order: main, window-created, first-render, headers-read, repo-loaded, git-ready, scan-done'}, {suite: StartingTheAppTests, test: An agent tool call that arrives during the load waits for it instead of answering from an empty board}, {suite: StartingTheAppTests, test: index.html paints a skeleton and takes the theme from storage before Blazor boots}, {suite: StartingTheAppTests, test: 'A header sort saved with the list is applied when the rows arrive from the load, and stays when git becomes ready'}, {suite: ReadingOnlyWhatIsNeededTests, test: "Building the board reads only the yaml header, tasks and the worklog's newest time of each item, never a proposal, note, event list or spec"}, {suite: ReadingOnlyWhatIsNeededTests, test: 'Opening one item reads its proposal, notes and events, and nothing of the other items'}, {suite: ReadingOnlyWhatIsNeededTests, test: 'Building the board again with nothing changed parses no file: every stamp still matches'}, {suite: ReadingOnlyWhatIsNeededTests, test: 'A changed file is read again, an unchanged one is not'}, {suite: ReadingOnlyWhatIsNeededTests, test: A file written in the same second as it was read is checked again on the next build}, {suite: ReadingOnlyWhatIsNeededTests, test: The body cache never holds more than its bound and drops the least recently used item}, {suite: StartupScriptTests, test: 'startup-time.ps1 -WhatIf prints the exe, the runs and the repository it would measure and starts nothing'}]
+  agentBy: Claude
+  agentAt: 2026-11-21T04:55:32

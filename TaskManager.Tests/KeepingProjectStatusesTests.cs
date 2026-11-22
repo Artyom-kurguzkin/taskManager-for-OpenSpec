@@ -67,11 +67,6 @@ public sealed class KeepingProjectStatusesTests : IDisposable
         }
         Assert.Contains("Backlog", WorkItemsApi.GetStatuses());
 
-        (bool used, string why) = WorkItemsApi.RemoveStatus("Planned");   // #wi107 is Planned
-        Assert.False(used);
-        Assert.Contains("1 work item has the status \"Planned\"", why);
-        Assert.Contains("Planned", WorkItemsApi.GetStatuses());
-
         Assert.True(WorkItemsApi.RemoveStatus("Confirmed").Success);   // nobody has it
         Assert.Equal(["Backlog", "Planned", "In Progress", "Blocked", "In Review", "Completed", "Review ready"], WorkItemsApi.GetStatuses());
 
@@ -109,6 +104,62 @@ public sealed class KeepingProjectStatusesTests : IDisposable
         Assert.Equal("Backlog", WorkItemsApi.Get(107)!.Status);
         Assert.DoesNotContain("Planned", WorkItemsApi.GetStatuses());
         Assert.Contains(WorkItemsApi.GetEvents(107), e => e.Kind == "status" && e.Text == "Planned -> Backlog");
+    }
+
+    [Fact(DisplayName = "Deleting a status that open items have moves them to the project's first status; archived items keep the name and still show as Completed")]
+    public void DeletingAUsedStatusMovesOpenItemsToTheFirstStatus()
+    {
+        const string archivedYaml = "openspec/changes/archive/2026-09-18-session-timeout/.openspec.yaml";
+        repo.Write(archivedYaml, repo.Read(archivedYaml).Replace("x-rtm:", "x-rtm:\n  status: Review ready"));   // it was in Review ready when it was archived
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.True(WorkItemsApi.AddStatus("Review ready").Success);
+        Assert.True(WorkItemsApi.SetStatus(107, "Review ready").Success);
+        Assert.Equal(1, WorkItemsApi.CountWithStatus("Review ready"));   // the archived one shows as Completed: not counted
+
+        Assert.True(WorkItemsApi.RemoveStatus("Review ready").Success);
+
+        Assert.Equal("Backlog", WorkItemsApi.Get(107)!.Status);
+        Assert.DoesNotContain("Review ready", WorkItemsApi.GetStatuses());
+        Assert.Contains("status: Review ready", repo.Read(archivedYaml));   // history is not rewritten
+        Assert.Equal("Completed", WorkItemsApi.Get(124)!.Status);
+        Assert.Contains(WorkItemsApi.GetEvents(107), e => e.Kind == "status" && e.Text == "Review ready -> Backlog");
+
+        // the first status is the first column, not always Backlog
+        Assert.True(WorkItemsApi.MoveStatus("Confirmed", -2).Success);
+        Assert.Equal("Confirmed", WorkItemsApi.GetStatuses()[0]);
+        Assert.True(WorkItemsApi.SetStatus(123, "Blocked").Success);
+        Assert.True(WorkItemsApi.RemoveStatus("Blocked").Success);
+        Assert.Equal("Confirmed", WorkItemsApi.Get(123)!.Status);
+    }
+
+    [Fact(DisplayName = "Deleting a status moves its items to the first status even when one of them waits on an open dependency, and none stays behind half-moved")]
+    public void DeletingAStatusIgnoresWaitingOnADependency()
+    {
+        OpenSpecStoreApi.Open(repo.Root);
+        Assert.True(WorkItemsApi.AddStatus("Review ready").Success);
+        Assert.True(WorkItemsApi.SetStatus(125, "Review ready").Success);
+        Assert.True(WorkItemsApi.AddDependency(107, 123).Success);   // #wi107 waits on the open #wi123: Blocked, and no other status is allowed for it
+        Assert.False(WorkItemsApi.SetStatus(107, "Review ready").Success);   // the gate is real
+
+        (bool ok, string message) = WorkItemsApi.RemoveStatus("Blocked");
+
+        Assert.True(ok, message);
+        Assert.DoesNotContain("Blocked", WorkItemsApi.GetStatuses());
+        Assert.Equal("Backlog", WorkItemsApi.Get(107)!.Status);
+        Assert.Equal("Review ready", WorkItemsApi.Get(125)!.Status);   // other statuses are untouched
+    }
+
+    [Fact(DisplayName = "A default status cannot be deleted, with or without items in it")]
+    public void DefaultStatusesCannotBeDeleted()
+    {
+        OpenSpecStoreApi.Open(repo.Root);
+        foreach (string fixedOne in WorkItemsApi.FixedStatuses)
+        {
+            (bool ok, string message) = WorkItemsApi.RemoveStatus(fixedOne);
+            Assert.False(ok);
+            Assert.Contains("stays", message);
+        }
+        Assert.Equal(Defaults, WorkItemsApi.GetStatuses());
     }
 
     [Fact(DisplayName = "A status outside the project's list is refused with the list named, and an item that has one shows in Backlog until the list has it")]
@@ -162,7 +213,7 @@ public sealed class KeepingProjectStatusesTests : IDisposable
     public async Task TheSettingsPageEditsTheList()
     {
         await using BunitContext ctx = NewContext(out _);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
         Assert.Equal(Defaults, Rows(page));
         foreach (string fixedOne in WorkItemsApi.FixedStatuses) Assert.Empty(page.Find($"[data-status='{fixedOne}']").QuerySelectorAll("button.st-remove"));
@@ -170,36 +221,41 @@ public sealed class KeepingProjectStatusesTests : IDisposable
         Assert.True(page.Find("[data-status='Backlog'] button.st-up").HasAttribute("disabled"));
         Assert.Equal("1 work item", page.Find("[data-status='Planned'] .st-count").TextContent);
 
-        page.Find("input.st-new").Input("Review ready");
-        page.Find("button.st-add-btn").Click();
+        page.InputWhenReady("input.st-new", "Review ready");
+        page.ClickWhenReady("button.st-add-btn");
         page.WaitForAssertion(() => Assert.Equal([.. Defaults, "Review ready"], Rows(page)));
         Assert.Contains("Review ready", Yaml());
         Assert.Equal("", page.Find("input.st-new").GetAttribute("value") ?? "");
 
-        page.Find("[data-status='Review ready'] button.st-up").Click();
+        page.ClickWhenReady("[data-status='Review ready'] button.st-up");
         page.WaitForAssertion(() => Assert.Equal("Review ready", Rows(page)[^2]));
         Assert.Equal("Review ready", WorkItemsApi.GetStatuses()[^2]);
 
-        page.Find("[data-status='Review ready'] button.st-remove").Click();   // nobody has it: gone at once
+        page.ClickWhenReady("[data-status='Review ready'] button.st-remove");   // nobody has it: gone at once
         page.WaitForAssertion(() => Assert.Equal(Defaults, Rows(page)));
     }
 
-    [Fact(DisplayName = "Removing a status that work items have asks where they go, moves them there and then removes it")]
-    public async Task RemovingAUsedStatusAsksWhereTheItemsGo()
+    [Fact(DisplayName = "Removing a status that work items have asks first, naming how many move to the first status, then moves them and removes it")]
+    public async Task RemovingAUsedStatusAsksBeforeMovingTheItems()
     {
         await using BunitContext ctx = NewContext(out IRenderedComponent<Overlays> overlays);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
-        page.Find("[data-status='Planned'] button.st-remove").Click();   // #wi107 is Planned
+        page.ClickWhenReady("[data-status='Planned'] button.st-remove");   // #wi107 is Planned
 
-        overlays.WaitForAssertion(() => Assert.NotEmpty(overlays.FindAll(".dialog .choice")));
-        List<string> choices = overlays.FindAll(".dialog .choice").Select(c => c.TextContent.Trim()).ToList();
-        Assert.Equal(["Backlog", "Confirmed", "In Progress", "Blocked", "In Review"], choices);   // not itself, not Completed
-        overlays.FindAll(".dialog .choice").Single(c => c.TextContent.Trim() == "Confirmed").Click();
+        overlays.WaitForAssertion(() => Assert.Contains("1 work item", overlays.Find(".dialog").TextContent));
+        Assert.Contains("Backlog", overlays.Find(".dialog").TextContent);   // where it goes
+        overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(b => b.TextContent.Trim() == "Cancel"));
+        overlays.WaitForAssertion(() => Assert.Empty(overlays.FindAll(".dialog")));
+        Assert.Contains("Planned", WorkItemsApi.GetStatuses());   // nothing moved
+
+        page.ClickWhenReady("[data-status='Planned'] button.st-remove");   // found and clicked in one dispatcher step: a late Changed (git watcher, scan) re-renders the list and re-issues its handler ids between a Find and a Click
+        overlays.WaitForAssertion(() => Assert.Contains("1 work item", overlays.Find(".dialog").TextContent));
+        overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(b => b.TextContent.Trim() == "Remove"));
 
         page.WaitForAssertion(() => Assert.DoesNotContain("Planned", Rows(page)));
-        Assert.Equal("Confirmed", WorkItemsApi.Get(107)!.Status);
-        Assert.Equal("1 work item", page.Find("[data-status='Confirmed'] .st-count").TextContent);
+        Assert.Equal("Backlog", WorkItemsApi.Get(107)!.Status);
+        Assert.Equal("2 work items", page.Find("[data-status='Backlog'] .st-count").TextContent);   // #wi125 was there already
     }
 
     // ---- add-status chunk ----
@@ -221,5 +277,33 @@ public sealed class KeepingProjectStatusesTests : IDisposable
         Assert.True(WorkItemsApi.MoveStatus("Completed", -1).Success);
         Assert.True(WorkItemsApi.AddStatus("Parked", beforeCompleted: true).Success);
         Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed", "Review ready", "Parked"], WorkItemsApi.GetStatuses());
+    }
+
+    [Fact(DisplayName = "A status column the project does not have is marked absent under a shared header row and left out otherwise; a merged column counts when the project has one of its statuses")]
+    public void ColumnsOfOtherProjectsStatusesAreMarkedAbsent()
+    {
+        BoardOptions o = new() { GroupBy = "status", Merges = [new("Done", ["Completed", "Finished"])] };
+        IReadOnlyList<BoardColumn> columns = [.. new[] { "Backlog", "Research", "Done" }.Select(k => new BoardColumn(k, k, [], []))];
+        IReadOnlyList<BoardSection> sections = [new BoardSection(null, columns)];
+        IReadOnlyList<string> mine = ["Backlog", "In Progress", "Completed"];
+
+        Assert.Equal(["Research"], BoardModel.MarkAbsent(sections, o, mine, keep: true)[0].Columns.Where(c => c.Absent).Select(c => c.Key));
+        Assert.Equal(["Backlog", "Done"], BoardModel.MarkAbsent(sections, o, mine, keep: false)[0].Columns.Select(c => c.Key));
+        Assert.Same(sections, BoardModel.MarkAbsent(sections, o with { GroupBy = "feature" }, mine, keep: true));   // other groupings are never touched
+    }
+
+    [Fact(DisplayName = "A status column can be deleted from where it is seen only when it is the project's own custom status: not a fixed one, not a merged column, not one the project lacks")]
+    public void OnlyACustomStatusOfTheProjectCanBeDeletedFromAColumn()
+    {
+        BoardOptions o = new() { GroupBy = "status", Merges = [new("Done", ["Completed", "Finished"])] };
+        IReadOnlyList<string> mine = ["Backlog", "Planned", "In Progress", "Completed"];
+
+        Assert.True(BoardModel.CanDeleteStatus(o, mine, "Planned"));
+        Assert.False(BoardModel.CanDeleteStatus(o, mine, "Backlog"));
+        Assert.False(BoardModel.CanDeleteStatus(o, mine, "In Progress"));
+        Assert.False(BoardModel.CanDeleteStatus(o, mine, "Completed"));
+        Assert.False(BoardModel.CanDeleteStatus(o, mine, "Research"));   // another project's status
+        Assert.False(BoardModel.CanDeleteStatus(o, mine, "Done"));   // a merged column
+        Assert.False(BoardModel.CanDeleteStatus(o with { GroupBy = "feature" }, mine, "Planned"));   // only a status grouping has statuses
     }
 }

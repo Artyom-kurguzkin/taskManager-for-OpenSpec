@@ -4,7 +4,7 @@ created: 2026-11-05
 x-rtm:
   id: 95
   title: sync tasks with target remote branch automatically
-  status: Research
+  status: Backlog
   contributors: [Artyom-kurguzkin]
   features: [integration-with-agents]
   label: feature

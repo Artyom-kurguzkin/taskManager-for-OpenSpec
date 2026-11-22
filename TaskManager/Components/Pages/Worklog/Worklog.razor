@@ -143,6 +143,7 @@
         public MarkupString? Html;   // a note's text as HTML, converted once per Load
         public CommitInfo? Commit;
         public int Mention;
+        public int? From;            // an event a merge carried over from that work item
         public string? Unlink;       // "commit:abc1234", "test:Suite / Test" or "doc:path" when a Shift-click may unlink it
         public bool Linked;          // a link event whose link still stands
     }
@@ -173,6 +174,7 @@
 
     /// <summary>The worklog reads again when it shows another item; a re-render of the page it sits in is not a reason.</summary>
     protected override object? LoadKey => (Item.Id, Root);
+    protected override string? LogTarget => $"#wi{Item.Id}";
 
     protected override void OnInitialized()
     {
@@ -297,7 +299,7 @@
         {
             int i = entry.EventIndex;
             WorkItemEvent e = events[i];
-            Row r = new() { Key = $"e{i}", Kind = e.Kind, At = e.At, By = e.By, Text = e.Text, Order = entry.Order };
+            Row r = new() { Key = $"e{i}", Kind = e.Kind, At = e.At, By = e.By, Text = e.Text, From = e.From, Order = entry.Order };
             string? what = e.Kind switch
             {
                 "commit-linked" when commits.Any(h => SameHash(h, e.Text)) => "commit",
@@ -412,7 +414,7 @@
         }
     </text>;
 
-    private RenderFragment Line(Row r) => @<article class="wk-e @(r.Note is not null ? "wk-note " + NoteClass(r.Note) : Choices(r).Count > 0 ? "wk-ev hov" : "wk-ev") @(r.Note is not null && r.Note.Id == flashNote ? "flash" : null)" data-note="@r.Note?.Id" data-kind="@(r.Note is not null ? NoteName(r.Note) : r.Kind)" tabindex="0" data-sk="@(Choices(r).Count == 0 ? null : "")"
+    private RenderFragment Line(Row r) => @<article class="wk-e @(r.Note is not null ? "wk-note " + NoteClass(r.Note) : Choices(r).Count > 0 ? "wk-ev hov" : "wk-ev") @(r.Note is null && r.Kind == "decision" ? "wk-decision" : null) @(r.Note is not null && r.Note.Id == flashNote ? "flash" : null)" data-note="@r.Note?.Id" data-kind="@(r.Note is not null ? NoteName(r.Note) : r.Kind)" tabindex="0" data-sk="@(Choices(r).Count == 0 ? null : "")"
                  title="@(r.Note is not null ? "Shift-click to edit or convert" : r.Unlink is not null ? "Shift-click to unlink" : Choices(r).Count > 0 ? "Shift-click to convert" : null)" @onkeydown="e => EntryKey(e, r)">
         <span class="wk-mark" aria-hidden="true"></span>
         <div class="wk-main">
@@ -430,7 +432,7 @@
             }
             else
             {
-                <div class="wk-line">@What(r)</div>
+                <div class="wk-line">@What(r) @if (r.From is int src) { <span class="muted wk-from">from #wi@(src)</span> }</div>
             }
         </div>
         <div class="wk-meta">
@@ -472,6 +474,8 @@
             case "mention": <span>mentions #wi@(r.Mention) <span class="mono">@r.Commit!.Hash</span> @r.Commit.Subject</span> break;
             case "test": <span>test: @r.Text @Dot(r.Text)</span> break;
             case "doc": <span>document: @DocLink(r.Text)</span> break;
+            case "decision": <span class="wk-tag">Decision</span> <span class="wk-etext">@r.Text</span> break;
+            case string standard when TaskManager.Mcp.BoardTools.EventKinds.Contains(standard): <span class="wk-kind">@standard.Replace('-', ' ')</span> <span class="wk-etext">@r.Text</span> break;
             default: <span>@r.Kind: @r.Text</span> break;
         }
     </text>;
@@ -541,7 +545,6 @@
     private int? editId;
     private string editTitle = "", editBody = "";
     private bool focusEditor;
-    private string? tableFor;   // the textarea (its element reference) the markdown table helper (rtm.markdownEditor) was last attached to: a new one, when the feed changes around the editor, needs it again
     private string pasting = "";   // which paste listener the script has for this view: "note", "desc" or none
     private ElementReference editorWrap, editorBox, firstSection;
     private DotNetObjectReference<Worklog>? self;
@@ -674,14 +677,14 @@
             {
                 if (!leaving) { _ = SaveNote(id, body, title, () => ShowNote(n, body, title)); return true; }   // the entry shows the saved note now, the write follows
                 (bool ok, string why, made) = NotesApi.SaveEdit(id, body, title);
-                if (!ok) Popups.Toast(why, ToastKind.Warning);
+                if (!ok) Popups.Toast(why, ToastKind.Warning); else LogAction("SaveEdit", $"#wi{item.Id} #n{id}");
                 Run((true, ""));
             }
             else
             {
                 (bool promoted, string why, made) = NotesApi.SaveEdit(id, null, null);   // nothing typed: the checkboxes only
                 if (!promoted) Popups.Toast(why, ToastKind.Warning);
-                if (made.Count > 0) Run((true, ""));
+                if (made.Count > 0) { LogAction("PromoteSubtasks", $"#wi{item.Id} #n{id}"); Run((true, "")); }
             }
             if (made.Count > 0) Popups.Toast(CreatedText(made.Count), ToastKind.Info);
         }
@@ -693,7 +696,7 @@
     private async Task SaveNote(int id, string? body, string? title, Action show)
     {
         IReadOnlyList<string> made = [];
-        bool ok = await RunInBackground(() => { (bool done, string why, made) = NotesApi.SaveEdit(id, body, title); return (done, why); }, show);
+        bool ok = await RunInBackground(() => { (bool done, string why, made) = NotesApi.SaveEdit(id, body, title); return (done, why); }, show, $"#wi{item.Id} #n{id}");
         if (ok && made.Count > 0) { Popups.Toast(CreatedText(made.Count), ToastKind.Info); Refresh(); }   // subtasks and their events are more than the entry shows: read again
     }
 
@@ -736,7 +739,6 @@
                 if (want == "note") await Js.InvokeVoidAsync("rtm.pasteImages", self ??= DotNetObjectReference.Create(this));
                 else if (want == "desc") await Js.InvokeVoidAsync("rtm.pasteDescription", self ??= DotNetObjectReference.Create(this));
             }
-            if (editDesc || editId is not null) { if (editorBox.Id is string box && box != tableFor) { tableFor = box; await Js.InvokeVoidAsync("rtm.markdownEditor", editorBox); } } else tableFor = null;
             if (editId is not null && !editDesc) { if (editorBox.Id is string grow && (grow != growFor || regrow)) { growFor = grow; await Js.InvokeVoidAsync("rtm.autoGrow", editorBox, self ??= DotNetObjectReference.Create(this)); } } else growFor = null;
             if (regrow && editId is not null) { regrow = false; if (editExpanded) await Js.InvokeVoidAsync("rtm.fillEditor", editorWrap); }
             if (descCaret is int caret && editDesc)
@@ -801,14 +803,14 @@
         if (r.Note is Note n)
         {
             if (choice == EditChoice) StartEdit(n);
-            else if (choice == ToSubtask) { (bool ok, string why, _) = NotesApi.ConvertToSubtask(n.Id); await Linked((ok, why)); }
+            else if (choice == ToSubtask) { (bool ok, string why, _) = NotesApi.ConvertToSubtask(n.Id); await Linked((ok, why), what: "NotesApi.ConvertToSubtask("); }
             else await Linked(NotesApi.ConvertKind(n.Id, KindOfChoice(choice)));
             return;
         }
         if (OpenSubtaskOf(r) is Subtask s)
         {
             (bool ok, string why, _) = NotesApi.ConvertSubtask(item.Id, s.Number, KindOfChoice(choice), Workspace.Me);
-            await Linked((ok, why));
+            await Linked((ok, why), what: "NotesApi.ConvertSubtask(");
         }
     }
 
@@ -904,6 +906,7 @@
         (bool ok, string message, int id) = NotesApi.Create(item.Id, Workspace.Me, created, kind);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
         if (title is not null) NotesApi.SetTitle(id, title);
+        LogAction("AddNote", $"#wi{item.Id} #n{id}");
         Workspace.Notify();   // every page (this one too) reads again
         folded.Remove(day);
         if (NotesCache.Get(id) is Note note) StartEdit(note);
@@ -984,9 +987,9 @@
     }
 
     /// <summary>After a link command: its failure is a toast, its success is read again and told to the page.</summary>
-    private async Task Linked((bool Success, string Message) result)
+    private async Task Linked((bool Success, string Message) result, [System.Runtime.CompilerServices.CallerArgumentExpression(nameof(result))] string? what = null, [System.Runtime.CompilerServices.CallerMemberName] string? member = null)
     {
-        if (!Run(result)) return;
+        if (!Run(result, null, what, member)) return;
         await OnChanged.InvokeAsync();
     }
 

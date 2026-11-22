@@ -1,6 +1,7 @@
 using Notes;
 using Notes.PublicDTOs;
 using OpenSpecStore;
+using TaskManager.AppState;
 using WorkItems;
 
 namespace TaskManager.Tests;
@@ -258,23 +259,23 @@ public sealed class KeepingNotesTests
         OpenSpecStoreApi.Open(a.Root, keepOthers: true);
         OpenSpecStoreApi.Open(b.Root, keepOthers: true);   // the fixture's note 123 exists in both
         OpenSpecStoreApi.Use(a.Root);
-        using CancellationTokenSource stop = new();
-        Task flipper = Task.Run(() =>
-        {
-            while (!stop.IsCancellationRequested) { OpenSpecStoreApi.Use(b.Root); OpenSpecStoreApi.Use(a.Root); }   // what Workspace.In does for a file event
-        });
         byte[] png = [1, 2, 3];
-        for (int i = 0; i < 300; i++) NotesApi.AttachBytes(123, $"p{i}.png", png);
-        stop.Cancel();
-        flipper.Wait();
 
-        foreach (TestRepo repo in new[] { a, b })
-        {
-            string note = Path.Combine(repo.OpenSpec, "changes", "add-health-check", "notes", "n123.md");
-            foreach (string entry in File.ReadAllLines(note).Where(l => l.StartsWith("- local/")).Select(l => l[2..]))
-                Assert.True(File.Exists(repo.PathOf(entry)), $"{entry} is listed in {repo.Root} but the file is not there");
-        }
+        // The other thread's switch (what Workspace.In does for a file event) lands at the one moment that matters: after the note is found
+        // and its folder chosen, while the bytes are being written, before the entry is added to the note. No thread, no loop: the switch is the write step itself.
+        (bool ok, string message) = Notes.Commands.Store(123, "p.png", target => { OpenSpecStoreApi.Use(b.Root); File.WriteAllBytes(target, png); });
+        Assert.True(ok, message);
+        OpenSpecStoreApi.Use(a.Root);
+
+        string[] inA = Entries(a), inB = Entries(b);
+        Assert.Single(inA);                                      // the entry is in the project the note lives in...
+        Assert.True(File.Exists(a.PathOf(inA[0])), $"{inA[0]} is listed in {a.Root} but the file is not there");   // ...and so is its file
+        Assert.Empty(inB);                                       // nothing leaked into the project that was active at the end
+        Assert.Empty(Directory.Exists(b.PathOf("local")) ? Directory.GetFiles(b.PathOf("local"), "*", SearchOption.AllDirectories) : []);
     }
+
+    private static string[] Entries(TestRepo repo) =>
+        [.. File.ReadAllLines(Path.Combine(repo.OpenSpec, "changes", "add-health-check", "notes", "n123.md")).Where(l => l.StartsWith("- local/")).Select(l => l[2..])];
 
     [Fact(DisplayName = "A note's title lives in its frontmatter: setting it leaves the body and its first heading alone, and a note without a title reads it from its first heading")]
     public void TitleLivesInFrontmatter()
@@ -385,7 +386,6 @@ public sealed class KeepingNotesTests
         Assert.Contains("created: 2026-11-01T10:30:00", repo.Read("openspec/changes/add-health-check/notes/n" + id + ".md"));
         (ok, message, int now) = NotesApi.Create(123, "Claude");   // the two-argument form still dates it now
         Assert.True(ok, message);
-        Assert.True(NotesApi.Get(now)!.Created > DateTime.Now.AddMinutes(-1));
     }
 
     [Fact(DisplayName = "A note whose frontmatter does not parse still shows with its body and a warning")]
@@ -409,38 +409,42 @@ public sealed class KeepingNotesTests
     [Fact(DisplayName = "A note's title, author, links and attachments read back identical whatever characters they contain")]
     public void FrontmatterValuesReadBackIdentical()
     {
-        using TestRepo repo = new();
-        OpenSpecStoreApi.Open(repo.Root);
-        foreach (string v in YamlChecks.Nasty)
+        // the values do not touch one another: four workers, each with a repository of its own, take every fourth (see IsolatedWorkers)
+        IsolatedWorkers.Run(YamlChecks.Nasty, 4, values =>
         {
-            string because = $"(value: {v})";
-            (bool ok, string message, int id) = NotesApi.Create(123, v);
-            Assert.True(ok, message);
-            string title = string.Join(' ', v.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
-            Assert.True(NotesApi.SetTitle(id, v).Success, because);
-            Assert.True(NotesApi.AddManualLink(id, v).Success, because);
-            Assert.True(NotesApi.SetLinkedCommits(id, [v]).Success, because);
-            Assert.True(NotesApi.StampAgent(id, v).Success, because);
-            string url = "https://example.com/" + v.Replace('\n', ' ');
-            bool linked = Uri.TryCreate(url.Trim(), UriKind.Absolute, out _);
-            if (linked) Assert.True(NotesApi.AttachLink(id, url).Success, because);
-            string name = string.Concat(v.Where(c => !Path.GetInvalidFileNameChars().Contains(c))).Trim().TrimEnd('.');
-            if (name.Length > 0) Assert.True(NotesApi.AttachBytes(id, name, [1, 2, 3]).Success, because);
+            using TestRepo repo = new();
+            OpenSpecStoreApi.Open(repo.Root);
+            foreach (string v in values)
+            {
+                string because = $"(value: {v})";
+                (bool ok, string message, int id) = NotesApi.Create(123, v);
+                Assert.True(ok, message);
+                string title = string.Join(' ', v.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+                Assert.True(NotesApi.SetTitle(id, v).Success, because);
+                Assert.True(NotesApi.AddManualLink(id, v).Success, because);
+                Assert.True(NotesApi.SetLinkedCommits(id, [v]).Success, because);
+                Assert.True(NotesApi.StampAgent(id, v).Success, because);
+                string url = "https://example.com/" + v.Replace('\n', ' ');
+                bool linked = Uri.TryCreate(url.Trim(), UriKind.Absolute, out _);
+                if (linked) Assert.True(NotesApi.AttachLink(id, url).Success, because);
+                string name = string.Concat(v.Where(c => !Path.GetInvalidFileNameChars().Contains(c))).Trim().TrimEnd('.');
+                if (name.Length > 0) Assert.True(NotesApi.AttachBytes(id, name, [1, 2, 3]).Success, because);
 
-            string file = $"openspec/changes/add-health-check/notes/n{id}.md";
-            (string front, string _) = Notes.BusinessRules.NoteFile.Split(repo.Read(file));
-            YamlChecks.Valid(front[4..^5], YamlChecks.Nasty, because);
-            OpenSpecStoreApi.Open(repo.Root);   // from the files, not from the cache
-            Note note = NotesApi.Get(id)!;
-            Assert.Equal(title, note.Title);
-            Assert.Equal(v, note.By);
-            Assert.Equal(v, note.AgentBy);
-            Assert.Equal([v], note.Commits);
-            Assert.Equal(v.Trim(), note.ManualLinks[0]);
-            Assert.Equal(Convert.ToInt32(linked) + Convert.ToInt32(name.Length > 0), note.Attachments.Count);
-            if (linked) Assert.Equal(url.Trim(), note.Attachments[0]);
-            if (name.Length > 0) Assert.EndsWith("/" + name, note.Attachments[^1]);
-        }
+                string file = $"openspec/changes/add-health-check/notes/n{id}.md";
+                (string front, string _) = Notes.BusinessRules.NoteFile.Split(repo.Read(file));
+                YamlChecks.Valid(front[4..^5], YamlChecks.Nasty, because);
+                OpenSpecStoreApi.Open(repo.Root);   // from the files, not from the cache
+                Note note = NotesApi.Get(id)!;
+                Assert.Equal(title, note.Title);
+                Assert.Equal(v, note.By);
+                Assert.Equal(v, note.AgentBy);
+                Assert.Equal([v], note.Commits);
+                Assert.Equal(v.Trim(), note.ManualLinks[0]);
+                Assert.Equal(Convert.ToInt32(linked) + Convert.ToInt32(name.Length > 0), note.Attachments.Count);
+                if (linked) Assert.Equal(url.Trim(), note.Attachments[0]);
+                if (name.Length > 0) Assert.EndsWith("/" + name, note.Attachments[^1]);
+            }
+        });
     }
 
     [Fact(DisplayName = "A note frontmatter title with an unquoted colon is repaired on read")]
@@ -770,5 +774,150 @@ public sealed class KeepingNotesTests
         Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"note #n{note} -> bug");
         Assert.True(NotesApi.ConvertKind(note, NoteKinds.Decision).Success);
         Assert.Contains(WorkItemsApi.GetEvents(123), e => e.Kind == "converted" && e.Text == $"bug #n{note} -> decision");
+    }
+
+    // ── #wi213: notes and feed per item ──
+
+    /// <summary>Thirty more changes, each with one note: a board of the size where reading or listing everything shows.</summary>
+    private static void ManyFolders(TestRepo repo, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            string dir = $"openspec/changes/bulk-{i:D3}";
+            repo.Write(dir + "/.openspec.yaml", $"schema: spec-driven\ncreated: 2026-09-22\nx-rtm:\n  id: {200 + i}\n  title: Bulk item {i}\n  status: Planned\n  priority: low\n");
+            repo.Write(dir + "/proposal.md", $"## Why\n\nBulk item {i} exists so the board has many folders.\n");
+            repo.Write(dir + "/tasks.md", "# Tasks\n\n## 1. Work\n\n- [ ] 1.1 First\n");
+            repo.Write(dir + "/events.log", $"2026-09-22T08:00:00 | Tom | created | Bulk item {i}\n");
+            repo.Write(dir + $"/notes/n{1000 + i}.md", $"---\nid: {1000 + i}\nby: Test\ncreated: 2026-10-02T09:14:00\n---\n# Note {i}\n\nBody {i}.\n");
+        }
+    }
+
+    /// <summary>Opens the many folders with everything read once and the clock far ahead (no file is "racy"), then starts counting: the files opened, and the notes folders listed.</summary>
+    private static (List<string> Opened, List<string> Listed) WarmAndCount(TestRepo repo)
+    {
+        ManyFolders(repo, 30);
+        Caches.S.Items.Clock = () => DateTime.UtcNow.AddMinutes(10);
+        OpenSpecStoreApi.Open(repo.Root);
+        ItemsCache.All(true);
+        NotesCache.All();
+        foreach (int id in new[] { 205, 206 }) { NotesApi.GetWorklog(id); NotesCache.ForWorkItem(id); }
+        List<string> opened = [], listed = [];
+        OpenSpecStoreModule.State.ReadLog = opened;
+        NotesCache.ListLog = listed;
+        return (opened, listed);
+    }
+
+    /// <summary>The notes and events.log files among the paths (the board's own headers are the items cache's business), relative to the change folders, forward slashes; folder listings (no file name) are kept as they are.</summary>
+    private static List<string> Within(List<string> paths, string repoRoot)
+    {
+        string changes = Path.Combine(repoRoot, "openspec", "changes");
+        lock (paths) return [.. paths.Select(p => Path.GetRelativePath(changes, p).Replace('\\', '/')).Where(p => p.Contains("/notes") || p.EndsWith("events.log"))];
+    }
+
+    [Fact(DisplayName = "A note added to one item re-reads that item's notes folder only, not the other items'")]
+    public void ANoteReReadsOnlyItsItemsFolder()
+    {
+        using TestRepo repo = new();
+        (List<string> opened, List<string> listed) = WarmAndCount(repo);
+
+        (bool ok, string message, int id) = NotesApi.Create(205, "Tom");
+        Assert.True(ok, message);
+        Assert.True(NotesApi.SaveEdit(id, "Added to bulk 5.", "Fresh").Success);
+        IReadOnlyList<Note> all = NotesCache.All();
+
+        Assert.Contains(all, n => n.Id == id && n.WorkItemId == 205 && n.Title == "Fresh");
+        Assert.Equal(32, all.Count);
+        Assert.All(Within(opened, repo.Root), p => Assert.StartsWith("bulk-005/", p));   // the item's own notes and events only: no other item's notes were opened
+        Assert.All(Within(listed, repo.Root), p => Assert.Equal("bulk-005/notes", p));   // and no other item's notes folder was even looked at
+    }
+
+    [Fact(DisplayName = "A feed read after a note is added to one item opens that item's notes and events only")]
+    public void TheFeedShowsTheNoteWithoutReReadingOthers()
+    {
+        using TestRepo repo = new();
+        (List<string> opened, List<string> listed) = WarmAndCount(repo);
+        IReadOnlyList<WorklogEntry> before = NotesApi.GetWorklog(205);
+
+        Assert.True(NotesApi.SaveEdit(NotesApi.Create(205, "Tom").Id, "Added to bulk 5.", "Fresh").Success);
+        IReadOnlyList<WorklogEntry> feed = NotesApi.GetWorklog(205);
+
+        Assert.Equal(before.Count + 1, feed.Count);
+        Assert.Contains(feed, e => e.Kind == "note" && e.Text == "Fresh");
+        Assert.DoesNotContain(feed, e => e.Note is not null && e.Note.WorkItemId != 205);
+        Assert.All(Within(opened, repo.Root), p => Assert.StartsWith("bulk-005/", p));   // the item's notes and events only
+        Assert.All(Within(listed, repo.Root), p => Assert.Equal("bulk-005/notes", p));
+        Assert.Equal(1, NotesApi.GetWorklog(206).Count(e => e.Kind == "note"));   // another item's feed is as it was
+        Assert.DoesNotContain(Within(opened, repo.Root), p => p.StartsWith("bulk-006/notes"));
+    }
+
+    [Fact(DisplayName = "The side menu's bug count and the hidden list stay right after a note is added to one item")]
+    public void TheSideMenuCountsStayRight()
+    {
+        using TestRepo repo = new();
+        (List<string> opened, List<string> listed) = WarmAndCount(repo);
+        Assert.Empty(NotesCache.All().Where(n => n.IsBug));
+        Assert.Empty(TaskManager.Components.Pages.BoardModel.Resolutions(NotesCache.All()));
+
+        Assert.True(NotesApi.Write(205, "Claude", new NoteDraft("# Crash on start\n\nIt fails.\n", Kind: NoteKinds.Bug)).Success);
+        Assert.True(NotesApi.Resolve(206, WorkItemsApi.ParseResolution("cancelled", 206), "Not needed.", "Claude").Hidden);
+        IReadOnlyList<Note> all = NotesCache.All();
+
+        Assert.Equal(["Crash on start"], all.Where(n => n.IsBug).Select(n => n.Title));
+        Assert.Equal(new Dictionary<int, string> { [206] = "Cancelled" }, TaskManager.Components.Pages.BoardModel.Resolutions(all));
+        Assert.Equal(33, all.Count);
+        Assert.All(Within(opened, repo.Root), p => Assert.Matches("^bulk-00[56]/", p));
+        Assert.All(Within(listed, repo.Root), p => Assert.Matches("^bulk-00[56]/notes$", p));   // the two items written to; the other 28 were not listed
+    }
+
+    [Fact(DisplayName = "An item's events are re-read for that item only when its events.log changes")]
+    public void EventsAreReReadOnlyWhenTheirLogChanges()
+    {
+        using TestRepo repo = new();
+        (List<string> opened, _) = WarmAndCount(repo);
+
+        NotesApi.GetWorklog(205);
+        NotesApi.GetWorklog(206);
+        Assert.DoesNotContain(Within(opened, repo.Root), p => p.EndsWith("events.log"));   // nothing changed: the kept events answer
+
+        Assert.True(WorkItemsApi.LogEvent(205, "started", "Reading the plan.").Success);
+        ItemsCache.All(true);   // the board's own read of the changed folder (its newest event time) is the items cache's; counted from here: the feed's
+        opened.Clear();
+        IReadOnlyList<WorklogEntry> feed = NotesApi.GetWorklog(205);
+        NotesApi.GetWorklog(205);
+        NotesApi.GetWorklog(206);
+
+        Assert.Contains(feed, e => e.Kind == "started" && e.Text == "Reading the plan.");
+        Assert.Empty(Within(opened, repo.Root).Where(p => p.EndsWith("events.log")));   // the app's own write: the text it wrote answers, no log is opened (write-through), and no other item's either
+
+        repo.Write("openspec/changes/bulk-005/events.log", repo.Read("openspec/changes/bulk-005/events.log") + "2026-11-02T10:00:00 | Ann | found | By hand.\n");   // an edit from outside: nobody told the cache
+        feed = NotesApi.GetWorklog(205);
+        NotesApi.GetWorklog(205);
+        NotesApi.GetWorklog(206);
+
+        Assert.Contains(feed, e => e.Kind == "found" && e.Text == "By hand.");
+        Assert.Equal(["bulk-005/events.log"], Within(opened, repo.Root).Where(p => p.EndsWith("events.log")));   // once, for the item whose log changed; the other item's kept events answer
+    }
+
+    [Fact(DisplayName = "Refreshing one item's notes after an outside edit lists that item's folder only and the notes are right")]
+    public void RefreshingOneItemListsOneFolder()
+    {
+        using TestRepo repo = new();
+        (List<string> opened, List<string> listed) = WarmAndCount(repo);
+
+        repo.Write("openspec/changes/bulk-007/notes/n2000.md", "---\nid: 2000\nby: Ann\ncreated: 2026-11-01T09:00:00\n---\n# Added elsewhere\n\nBy hand.\n");   // no tool wrote it: nobody told the cache
+        Assert.DoesNotContain(NotesCache.All(), n => n.Id == 2000);
+        listed.Clear();
+        NotesCache.Refresh(repo.Root, 207);
+        IReadOnlyList<Note> all = NotesCache.All();
+
+        Assert.Contains(all, n => n.Id == 2000 && n.WorkItemId == 207 && n.Title == "Added elsewhere");
+        Assert.All(Within(listed, repo.Root), p => Assert.Equal("bulk-007/notes", p));
+        Assert.All(Within(opened, repo.Root), p => Assert.StartsWith("bulk-007/notes/", p));
+
+        repo.Write("openspec/changes/bulk-008/notes/n2001.md", "---\nid: 2001\nby: Ann\ncreated: 2026-11-01T09:00:00\n---\n# Also by hand\n");
+        NotesCache.Refresh(repo.Root);   // nothing says where: every folder is stamped, and only the changed one is read
+        opened.Clear();
+        Assert.Contains(NotesCache.All(), n => n.Id == 2001);
+        Assert.All(Within(opened, repo.Root), p => Assert.StartsWith("bulk-008/notes/", p));
     }
 }

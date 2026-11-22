@@ -1,0 +1,14 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-20
+x-rtm:
+  id: 209
+  title: A window that found the agent port taken never takes it over when the holder exits
+  status: Backlog
+  priority: high
+  contributors: [Claude]
+  features: [maintainability]
+  label: bug
+  moved: 2026-11-20
+  agentBy: Claude
+  agentAt: 2026-11-20T09:25:22

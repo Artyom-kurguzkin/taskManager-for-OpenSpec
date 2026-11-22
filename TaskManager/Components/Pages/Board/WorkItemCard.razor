@@ -6,7 +6,7 @@
 @inject IServiceProvider Services
 
 @* data-id: the drag script (wwwroot/js/app.js) animates cards from their old to their new place by it *@
-<article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @(Item.Hidden ? "hidden-item" : "") @Examine" data-sk data-id="@Item.Id" data-examined="@(Examine == "ex-on" ? "" : null)"
+<article class="card @(Options.Compact ? "collapsed" : "") @(Selected ? "selected" : "") @Examine" data-sk data-id="@Item.Id" data-examined="@(Examine == "ex-on" ? "" : null)"
          @ondragstart="() => OnDragStart.InvokeAsync(Item)" @onclick="OnClick"
          @ondrop="() => OnDrop.InvokeAsync(Item)" @ondrop:stopPropagation="true">
     <span class="band" style="--band:var(@BoardModel.ColourOf(Item, Options.ColorBy, Day, Colours))">@if (Uncommitted) { <i class="dirty-dot" title="Uncommitted changes"></i> }@Item.Title</span>

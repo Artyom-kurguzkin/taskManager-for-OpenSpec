@@ -50,6 +50,21 @@ public sealed class RememberingSettingsTests
         File.Delete(file);
     }
 
+    [Fact(DisplayName = "The Settings tab a window is on is that window's own state: it starts on General, and it is not written to the settings file")]
+    public void SettingsTabIsPerWindowAndNotSaved()
+    {
+        SettingsStore store = new(file);
+        UiService first = new(), second = new();
+        Assert.Equal("general", first.SettingsTab);
+
+        first.SettingsTab = @"C:epo";
+
+        Assert.Equal(("general", @"C:epo"), (second.SettingsTab, first.SettingsTab));   // another window keeps its own
+        store.Update(s => s with { Hints = true });
+        Assert.DoesNotContain("SettingsTab", File.ReadAllText(file), StringComparison.OrdinalIgnoreCase);
+        File.Delete(file);
+    }
+
     [Fact(DisplayName = "Which repositories are open as tabs is remembered between sessions")]
     public void OpenReposRoundTrip()
     {
@@ -62,20 +77,21 @@ public sealed class RememberingSettingsTests
         File.Delete(file);
     }
 
-    [Fact(DisplayName = "The plans folder is a per-repository setting: DevResources/plans unless changed, remembered between sessions, other repositories unaffected")]
+    [Fact(DisplayName = "The plans folder is a per-repository setting: DevResources/plans unless changed, saved with the project, other repositories unaffected")]
     public void PlansFolderPerRepo()
     {
         string file = Path.Combine(Path.GetTempPath(), "rtm-" + Guid.NewGuid().ToString("N") + ".json");
+        using TestRepo a = new(), b = new();
         SettingsStore store = new(file);
-        Assert.Equal("DevResources/plans", store.PlansDir(@"C:\repo-a"));
+        Assert.Equal("DevResources/plans", store.PlansDir(a.Root));
 
-        store.SetPlansDir(@"C:\repo-a", @"local\plans\");
-        Assert.Equal("local/plans", store.PlansDir(@"C:\repo-a"));   // forward slashes, no trailing slash: it is written into a markdown guide
-        Assert.Equal("DevResources/plans", store.PlansDir(@"C:\repo-b"));
-        Assert.Equal("local/plans", new SettingsStore(file).PlansDir(@"C:\repo-a"));
+        Assert.True(store.SetPlansDir(a.Root, @"local\plans\").Success);
+        Assert.Equal("local/plans", store.PlansDir(a.Root));   // forward slashes, no trailing slash: it is written into a markdown guide
+        Assert.Equal("DevResources/plans", store.PlansDir(b.Root));
+        Assert.Equal("local/plans", new SettingsStore(file).PlansDir(a.Root));
 
-        store.SetPlansDir(@"C:\repo-a", " ");   // empty = back to the default
-        Assert.Equal("DevResources/plans", store.PlansDir(@"C:\repo-a"));
+        Assert.True(store.SetPlansDir(a.Root, " ").Success);   // empty = back to the default
+        Assert.Equal("DevResources/plans", store.PlansDir(a.Root));
         File.Delete(file);
     }
 

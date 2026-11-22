@@ -1,0 +1,14 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-21
+x-rtm:
+  id: 214
+  title: adding new property
+  status: Planned
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  started: 2026-11-21
+  due: 2026-11-21
+  moved: 2026-11-21

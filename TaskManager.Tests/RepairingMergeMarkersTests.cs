@@ -26,7 +26,7 @@ public sealed class RepairingMergeMarkersTests : IDisposable
 
     private readonly string temp = Directory.CreateTempSubdirectory("rtm-markers-").FullName;
     private readonly TestRepo repo = new();
-    private readonly UiService ui = new();
+    private readonly UiService ui = new() { ToastLifetime = Timeout.InfiniteTimeSpan };
     private readonly BoardStorageSettings settings;
     private readonly BoardSyncService sync;
 

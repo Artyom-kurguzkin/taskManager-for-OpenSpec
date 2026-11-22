@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Applied to every `dotnet test` of this project (RunSettingsFilePath in TaskManager.Tests.csproj).
-     A healthy fast suite takes 1 to 3 minutes; past 6 minutes something is stuck, so the session is aborted
+     A healthy fast suite takes 1 to 3 minutes; past 5 minutes something is stuck, so the session is aborted
      (TestSessionTimeout) instead of hanging, and a single test that runs 2 minutes is named in the output (blame hang). -->
 <RunSettings>
   <RunConfiguration>
-    <TestSessionTimeout>360000</TestSessionTimeout>
+    <TestSessionTimeout>300000</TestSessionTimeout>
   </RunConfiguration>
   <DataCollectionRunSettings>
     <DataCollectors>
       <DataCollector friendlyName="blame" enabled="True">
         <Configuration>
-          <CollectDumpOnTestSessionHang TestTimeout="2m" HangDumpType="None" />
+          <CollectDumpOnTestSessionHang TestTimeout="1m" HangDumpType="None" />
         </Configuration>
       </DataCollector>
     </DataCollectors>

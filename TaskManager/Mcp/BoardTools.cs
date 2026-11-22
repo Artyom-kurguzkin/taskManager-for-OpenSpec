@@ -1,4 +1,8 @@
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
+using TaskManager.Helpers;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Features;
@@ -29,17 +33,20 @@ public sealed partial class BoardTools(BoardHost? host = null)
     // ponytail: one global lock; per-repo locks if agents ever queue behind each other
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    private const string RepoHelp = "Any path inside the repository or a git worktree of it; the folder holding openspec/ is found by walking up. Default: the RTM_REPO environment variable, else the server's working directory.";
-    private const string AgentHelp = "Your name, written as the author of this change (default: the RTM_AGENT environment variable, else Claude). Letters, digits, spaces, dots, dashes and underscores only.";
+    // ponytail: 2 s between looks at the files (the watcher lags 300 ms and can drop events in a server that runs for hours); shorter costs a listing per call, longer shows an outside edit late
+    private static readonly TimeSpan VerifyAfter = TimeSpan.FromSeconds(2);
+
+    private const string RepoHelp = "Any path inside the repository or a worktree of it (default: RTM_REPO, else the working directory).";
+    private const string AgentHelp = "Your name as author (default: RTM_AGENT, else Claude); letters, digits, spaces, dots, dashes, underscores.";
     private const string FormatHelp = "concise (default) or detailed.";
-    private const string RevisionHelp = "The revision board_get returned; the write is refused when the item changed since.";
+    private const string RevisionHelp = "The revision from board_get; refused if the item changed since.";
 
 
     [McpServerTool(Name = "board_validate", ReadOnly = true, UseStructuredContent = true)]
-    [Description("Run the pinned OpenSpec validator (validate --strict) on one work item, or on every open item when `id` is left out (slow: about a second per item), plus the app's own warnings: duplicate ids, items that are Completed but not archived, linked test names that are not in the latest results. Run it before you stop.")]
+    [Description("Run the OpenSpec validator on one item, or on every open item without `id` (slow), plus the app's warnings; run it before you stop.")]
     public Task<ValidateResult> BoardValidate(
-        [Description("The work item number; leave out to validate every open item.")] int? id = null,
-        [Description(FormatHelp + " Concise gives the validator's output only for items it rejects.")] string? format = null,
+        [Description("The work item number; leave out for all open items.")] int? id = null,
+        [Description("concise (default) or detailed (the validator's full output).")] string? format = null,
         [Description(RepoHelp)] string? repo = null) =>
         Run(repo, _ =>
         {
@@ -58,8 +65,10 @@ public sealed partial class BoardTools(BoardHost? host = null)
 
     // ── Plumbing ──
 
-    private async Task<T> Run<T>(string? repo, Func<string, T> body)
+    private async Task<T> Run<T>(string? repo, Func<string, T> body, [CallerMemberName] string tool = "")
     {
+        using Activity? call = AppLog.Start("tool", tool);   // the whole call, lock wait included; a write's scan afterwards is its child
+        ILogger log = AppLog.For<BoardTools>();
         string root = ResolveRoot(repo, host.DefaultToWorkingDirectory);
         bool wrote = false;
         await Gate.WaitAsync();
@@ -70,15 +79,19 @@ public sealed partial class BoardTools(BoardHost? host = null)
             using IDisposable repository = OpenSpecStoreApi.InRepo(root), history = GitHistoryApi.InRepo(root), actor = WorkItemsApi.ActingAs("Board tools");
             // What this call read is its own: the window keeps what it read, so an edit made there on an older read still finds that the file changed (see OpenSpecStoreApi.AsCaller).
             using IDisposable seen = OpenSpecStoreApi.AsCaller();
-            OpenSpecStoreApi.Refresh();   // ponytail: every call re-reads the repository (the watcher lags 300 ms and can drop events in a server that runs for hours); cache per call if it ever shows
+            int listed = OpenSpecStoreApi.Listings;   // not a blanket re-read: one listing compared to the held stamps, only what differs is read again, and none at all within 2 s of the last look
+            OpenSpecStoreApi.Verify(VerifyAfter);
+            log.LogDebug("Tool {Tool}: {Verification}", tool, OpenSpecStoreApi.Listings == listed ? "no listing, verified less than 2 s ago" : "listed the tree and compared the stamps");
             try
             {
                 NotesApi.RepairDuplicates();   // a merge or a sync may have left two items or notes with one id: settled before the call reads, the way the desktop app settles them when it sees the files change
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or TimeoutException) { }   // files moving under the repair: the call reads what is there, the next one repairs
             long version = OpenSpecStoreApi.Version;   // after the refresh above: only this call's own writes move it from here
-            try { return body(root); }
-            finally { wrote = OpenSpecStoreApi.Version != version; }
+            try { T result = body(root); call?.SetTag("result", "ok"); return result; }
+            catch (McpException e) { call?.SetTag("result", "refused"); log.LogWarning("Tool {Tool} refused: {Message}", tool, e.Message); throw; }
+            catch (Exception e) { call?.SetTag("result", "failed"); log.LogError(e, "Tool {Tool} failed", tool); throw; }
+            finally { wrote = OpenSpecStoreApi.Version != version; call?.SetTag("wrote", wrote); }
         }
         finally
         {

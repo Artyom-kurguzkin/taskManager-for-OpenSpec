@@ -1,9 +1,0 @@
-schema: spec-driven
-created: 2026-10-18
-x-rtm:
-  id: 4
-  status: Backlog
-  priority: low
-  contributors: [Artyom-kurguzkin]
-  hidden: true
-  tests: [{suite: UsingThePagesTests, test: "The note page edits in place: the title is an input, clicking the note opens the editor, focusing out saves and shows the rendered note; a pasted image becomes an attachment"}, {suite: UsingThePagesTests, test: "A note is saved automatically shortly after typing stops"}, {suite: UsingThePagesTests, test: "Typing a [[doc]] link in a note adds it to the linked list straight away"}]

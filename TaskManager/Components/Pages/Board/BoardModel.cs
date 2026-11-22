@@ -3,6 +3,7 @@ using TaskManager.Components;
 using Features.PublicDTOs;
 using WorkItems;
 using WorkItems.PublicDTOs;
+using Notes.PublicDTOs;
 using TaskManager.AppState;
 using TaskManager.Helpers;
 
@@ -22,7 +23,6 @@ public sealed record BoardOptions(
     string View = "board",         // board | list
     bool Compact = false,          // the board: cards show only their title band
     bool ShowSubtasks = false,     // the list: every row shows its subtasks (otherwise only rows opened by their chevron)
-    bool ShowHidden = false,       // include work items "deleted" (hidden) in the app
     IReadOnlyList<string>? Hidden = null,   // ColumnKey of columns taken off the board
     IReadOnlyList<string>? Order = null,    // column and card (item:<id>) keys in the user's order; anything not listed keeps its usual place after them
     string? ListSettings = null,            // the list view's grid settings (column widths, order, sort, filters) as JSON
@@ -47,7 +47,8 @@ public sealed record BoardOptions(
 /// <summary>Statuses of different projects that mean the same thing ("completed", "Completed", "Done"): shown as one column called <see cref="Name"/>. A view setting, matched by exact status text.</summary>
 public sealed record StatusMerge(string Name, IReadOnlyList<string> Statuses);
 
-public sealed record BoardColumn(string Key, string Label, IReadOnlyList<WorkItem> Items, IReadOnlyList<string> Lanes);
+/// <summary><see cref="Absent"/>: a status column of another project that this project does not have (kept only so a shared header row stays aligned; a drop on it asks to add the status).</summary>
+public sealed record BoardColumn(string Key, string Label, IReadOnlyList<WorkItem> Items, IReadOnlyList<string> Lanes, bool Absent = false);
 
 /// <summary><see cref="Rows"/> is set when the options ask for rows: the section split by the row field, each row spanning every column.</summary>
 public sealed record BoardSection(string? Category, IReadOnlyList<BoardColumn> Columns, IReadOnlyList<SwimRow>? Rows = null);
@@ -115,7 +116,7 @@ public static class BoardModel
         List<BoardColumn> columns =
         [
             .. values.Where(v => v.Key == Unassigned).Select(Col),
-            .. Arrange(values.Where(v => v.Key != Unassigned), v => ColumnKey(o, v.Key), o).Select(Col),
+            .. Arrange(values.Where(v => v.Key != Unassigned), v => ColumnKey(o, v.Key), o, inPlace: o.GroupBy == "status").Select(Col),
         ];
 
         // rows: the same values for the row field, in the user's order without the hidden ones, each a copy of every column holding only the row's items
@@ -261,12 +262,27 @@ public static class BoardModel
         return o with { Merges = left.Count == 0 ? null : left };
     }
 
+    /// <summary>Whether a status column can be deleted from where it is seen: a status grouping, the column is a plain status (not a merge), the project has it, and it is not Backlog, In Progress or Completed.</summary>
+    public static bool CanDeleteStatus(BoardOptions o, IReadOnlyList<string> projectStatuses, string columnKey) =>
+        o.GroupBy == "status" && MergeOf(o, columnKey) is null && projectStatuses.Contains(columnKey) && !WorkItemsApi.FixedStatuses.Contains(columnKey);
+
     /// <summary>
     /// The statuses a card dropped into a column can get in its own project: the column's key when it is a plain status the project has, else the merge's statuses that project has
     /// (<paramref name="projectStatuses"/>). One is the answer, several are for the user to pick from, none means the project cannot take the card there.
     /// </summary>
     public static IReadOnlyList<string> StatusesFor(BoardOptions o, IReadOnlyList<string> projectStatuses, string columnKey) =>
         MergeOf(o, columnKey) is StatusMerge m ? [.. projectStatuses.Where(m.Statuses.Contains)] : projectStatuses.Contains(columnKey) ? [columnKey] : [];
+
+    /// <summary>
+    /// The sections with the status columns the project does not have marked <see cref="BoardColumn.Absent"/> (statuses are per project, the columns of several projects are the union of their lists),
+    /// or left out when <paramref name="keep"/> is false (no shared header row to stay aligned with). Other groupings are returned as they are.
+    /// </summary>
+    public static IReadOnlyList<BoardSection> MarkAbsent(IReadOnlyList<BoardSection> sections, BoardOptions o, IReadOnlyList<string> projectStatuses, bool keep)
+    {
+        if (o.GroupBy != "status") return sections;
+        IReadOnlyList<BoardColumn> Mark(IReadOnlyList<BoardColumn> columns) => [.. columns.Select(c => StatusesFor(o, projectStatuses, c.Key).Count == 0 ? c with { Absent = true } : c).Where(c => keep || !c.Absent)];
+        return [.. sections.Select(s => s with { Columns = Mark(s.Columns), Rows = s.Rows?.Select(r => r with { Columns = Mark(r.Columns) }).ToList() })];
+    }
 
     /// <summary>
     /// What a status column's menu suggests: the fixed status the column is or looks like ("completed" and "Completed"), and every column among <paramref name="columns"/> that is it or looks
@@ -300,6 +316,7 @@ public static class BoardModel
         for (int ci = 0; ci < s.Columns.Count; ci++)
         {
             BoardColumn c = s.Columns[ci];
+            if (c.Absent) continue;   // a status this project does not have: no group
             int first = rows.Count;
             int lane = 0;
             foreach (SwimRow swim in Swimlanes(s))
@@ -505,26 +522,32 @@ public static class BoardModel
         return counts;
     }
 
+    /// <summary>How an agent ended each work item without doing it (a resolution: "Cancelled", "Duplicate of #wiN", "Superseded by #wiN"): the title of its newest resolution decision note, by item number.</summary>
+    public static IReadOnlyDictionary<int, string> Resolutions(IEnumerable<Note> notes) =>
+        notes.Where(n => n.IsDecision && (n.Title == "Cancelled" || n.Title.StartsWith("Duplicate of #wi", StringComparison.Ordinal) || n.Title.StartsWith("Superseded by #wi", StringComparison.Ordinal)))
+            .GroupBy(n => n.WorkItemId).ToDictionary(g => g.Key, g => g.OrderByDescending(n => n.Created).ThenByDescending(n => n.Id).First().Title);
+
     public static bool IsHidden(BoardOptions o, string key) => o.Hidden?.Contains(key) ?? false;
 
     public static BoardOptions ToggleHidden(BoardOptions o, string key) =>
         o with { Hidden = IsHidden(o, key) ? o.Hidden!.Where(k => k != key).ToList() : [.. o.Hidden ?? [], key] };
 
     /// <summary>
-    /// "Show all hidden" is on: a hidden column, row or grid column (by key) comes back to the board, list and calendar, and so do hidden projects
-    /// and deleted items (<c>ItemsCache.All(includeHidden: o.ShowHidden)</c>). Only the contributor, the due period, the changed period
-    /// (<see cref="Visible"/>) and a project folded to its heading still leave work items out: a folded project stays folded and counts nowhere.
+    /// The user's order first, then the rest in their usual order; hidden ones dropped unless asked for. With <paramref name="inPlace"/> the rest does not go last: each one
+    /// follows the one before it in the usual order (a status the saved order does not hold yet goes where the projects' lists put it).
     /// </summary>
-    public static bool Concealed(BoardOptions o, string key) => !o.ShowHidden && IsHidden(o, key);
-
-    /// <summary>The user's order first, then the rest in their usual order; hidden ones dropped unless asked for (or "show all hidden" is on).</summary>
-    public static IEnumerable<T> Arrange<T>(IEnumerable<T> items, Func<T, string> key, BoardOptions o, bool includeHidden = false)
+    public static IEnumerable<T> Arrange<T>(IEnumerable<T> items, Func<T, string> key, BoardOptions o, bool includeHidden = false, bool inPlace = false)
     {
         List<string> order = o.Order?.ToList() ?? [];
-        return items.Where(x => includeHidden || !Concealed(o, key(x)))
-            .Select((x, i) => (x, i))
-            .OrderBy(t => order.IndexOf(key(t.x)) is int p and >= 0 ? p : order.Count + t.i)
-            .Select(t => t.x);
+        List<T> usual = [.. items.Where(x => includeHidden || !IsHidden(o, key(x)))];
+        if (!inPlace)
+            return usual.Select((x, i) => (x, i))
+                .OrderBy(t => order.IndexOf(key(t.x)) is int p and >= 0 ? p : order.Count + t.i)
+                .Select(t => t.x);
+        List<T> placed = [.. usual.Where(x => order.Contains(key(x))).OrderBy(x => order.IndexOf(key(x)))];
+        for (int i = 0; i < usual.Count; i++)
+            if (!order.Contains(key(usual[i]))) placed.Insert(i == 0 ? 0 : placed.IndexOf(usual[i - 1]) + 1, usual[i]);
+        return placed;
     }
 
     /// <summary>

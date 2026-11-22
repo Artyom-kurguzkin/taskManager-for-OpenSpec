@@ -1,0 +1,11 @@
+schema: spec-driven
+created: 2026-10-18
+x-rtm:
+  id: 5
+  status: Backlog
+  priority: low
+  contributors: [Artyom-kurguzkin]
+  features: [track-work-items]
+  label: feature
+  moved: 2026-11-20
+  unlinkedFeatures: [git-history]

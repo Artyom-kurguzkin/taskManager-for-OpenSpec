@@ -7,6 +7,8 @@
 @using Notes.PublicDTOs
 @inherits RepoPage
 
+<ScrollMemory View="@($"note/{Id}")" />
+
 @if (note is null)
 {
     <NotFound What="@($"#n{Id}")" />
@@ -115,7 +117,6 @@
     private ElementReference editorBox;
     private DotNetObjectReference<NotePage>? self;
     private bool focusEditor;
-    private string? tableFor;   // the textarea (its element reference) the markdown table helper (rtm.markdownEditor) was last attached to
     private CancellationTokenSource? pendingPreview;
     private DateTime modified;
     private IReadOnlyList<NoteLink> links = [];
@@ -128,6 +129,7 @@
     protected override void OnChanged() { if (!saving) base.OnChanged(); }
 
     protected override object? LoadKey => Id;
+    protected override string? LogTarget => $"#n{Id}";
 
     protected override void Load()
     {
@@ -169,6 +171,7 @@
         (bool ok, string message) = NotesApi.SaveBody(Id, saved);
         if (!ok) { saving = false; Popups.Toast(message, ToastKind.Warning); return; }
         modified = Ui.Now(Time);
+        LogAction("SaveBody");
         saving = body != saved;   // more typing arrived while saving: its own save is already scheduled
         if (!saving) Popups.Saved();
         StateHasChanged();
@@ -194,6 +197,7 @@
         if (!ok) Popups.Toast(message, ToastKind.Warning);
         if (made.Count == 0) return;
         Popups.Toast($"Created {made.Count} subtask{(made.Count == 1 ? "" : "s")} from the note", ToastKind.Info);
+        LogAction("PromoteSubtasks");
         Run((true, ""));   // the pages (this one too) read the note and the item again
     }
 
@@ -223,8 +227,6 @@
             self = DotNetObjectReference.Create(this);
             await Js.InvokeVoidAsync("rtm.pasteImages", self);
         }
-        if (!editing) tableFor = null;
-        else if (editorBox.Id is string box && box != tableFor) { tableFor = box; await Js.InvokeVoidAsync("rtm.markdownEditor", editorBox); }
         if (!focusEditor) return;
         focusEditor = false;
         try { await editorBox.FocusAsync(); } catch (InvalidOperationException) { }

@@ -690,6 +690,29 @@ public sealed class ArrangingTheBoardTests
         Assert.Equal(["Backlog", "Planned", "In Progress", "Completed", "Todo", "completed"], BoardModel.StatusColumns([Standard, ["Backlog", "In Progress", "Completed", "Todo", "completed"]]).Select(c => c.Key));
     }
 
+    [Fact(DisplayName = "The saved order wins over the projects' lists for every column, and a status it does not hold yet goes where the lists put it")]
+    public void TheSavedOrderWinsOverTheListsAndTheUnion()
+    {
+        string[] mine = ["Backlog", "Planned", "Research", "Completed"], other = ["Backlog", "Planned", "Completed"];
+        IReadOnlyList<FieldValue> union = BoardModel.StatusColumns([mine, other]);
+        static List<string> Keys(IReadOnlyList<BoardSection> s) => [.. s.Single().Columns.Select(c => c.Key)];
+        IReadOnlyList<BoardSection> Shown(BoardOptions o, IReadOnlyList<FieldValue> columns) => BoardModel.Build([], Features, Lanes, o, statusColumns: columns);
+
+        Assert.Equal(["Backlog", "Planned", "Research", "Completed"], Keys(Shown(new BoardOptions(), union)));
+        BoardOptions dragged = BoardModel.Insert(new BoardOptions(), Keys(Shown(new BoardOptions(), union)).Select(k => "status:" + k).ToList(), ["status:Research"], "status:Planned");
+        Assert.Equal(["Backlog", "Research", "Planned", "Completed"], Keys(Shown(dragged, union)));   // one project or several: the same
+        Assert.Equal(["Backlog", "Research", "Planned", "Completed"], Keys(Shown(dragged, BoardModel.StatusColumns([mine]))));
+        // the project that lacks it keeps the place in its unavailable cell
+        Assert.Equal(["Backlog", "Research", "Planned", "Completed"], BoardModel.MarkAbsent(Shown(dragged, union), dragged, other, true).Single().Columns.Select(c => c.Key));
+        Assert.Equal(["Backlog", "Planned", "Completed"], BoardModel.MarkAbsent(Shown(dragged, union), dragged, other, false).Single().Columns.Select(c => c.Key));
+
+        // an order saved before the status existed (Research came with a project opened later): it goes where the lists put it, not after everything the order holds
+        BoardOptions old = new(Order: ["status:Completed", "status:Backlog", "status:Planned"]);
+        Assert.Equal(["Completed", "Backlog", "Planned", "Research"], Keys(Shown(old, union)));
+        BoardOptions upToPlanned = new(Order: ["status:Backlog", "status:Planned", "status:Completed"]);
+        Assert.Equal(["Backlog", "Planned", "Research", "Completed"], Keys(Shown(upToPlanned, union)));
+    }
+
     [Fact(DisplayName = "A merge folds the statuses it names into one column, at the place of the first of them, matching items by exact status text")]
     public void AMergeIsOneColumn()
     {

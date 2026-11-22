@@ -11,3 +11,21 @@
 2026-11-17T08:07:55 | Artyom-kurguzkin | status | Planned -> Blocked
 2026-11-17T08:07:56 | Artyom-kurguzkin | status | Blocked -> Planned
 2026-11-18T09:33:54 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-18T09:43:35 | Claude | plan-linked | DevResources/plans/in-progress-items-2026-11-18b.md
+2026-11-18T10:39:47 | Claude | status | In Progress -> In Review
+2026-11-18T10:39:47 | Claude | test-linked | KeepingFilesInOneFolderTests / The project card has a Plans line and an Images line, each with a path and Choose folder, and no one-folder option
+2026-11-18T10:39:47 | Claude | test-linked | KeepingFilesInOneFolderTests / Typing a path for plans and one for images each saves on its own with Point here, and a refused folder says why
+2026-11-18T10:39:47 | Claude | test-linked | KeepingFilesInOneFolderTests / Move files here on the Plans line takes the plans to the new folder and leaves the images, and the other way round
+2026-11-18T10:39:47 | Claude | test-linked | KeepingFilesInOneFolderTests / After the moves, notes show their images, work items open their plans, and doc links in notes still resolve
+2026-11-18T10:39:47 | Claude | test-linked | KeepingFilesInOneFolderTests / Point here only changes where new images and new plans go, and every old file and link stays
+2026-11-18T10:39:47 | Claude | test-linked | KeepingFilesInOneFolderTests / A repository with the old one-folder key keeps images in its images folder and plans in its plans folder
+2026-11-18T10:39:47 | Claude | test-linked | KeepingFilesInOneFolderTests / A project without the old one-folder key keeps this computer's folders, and one with it resolves both from it until one of them is set
+2026-11-18T10:39:47 | Claude | test-linked | KeepingFilesInOneFolderTests / The agent guide names the plans and images folders after a change, from Settings or from outside
+2026-11-18T10:39:47 | Claude | test-linked | MovingAttachmentsTests / The images folder has a line of its own in Settings: a typed path offers Move files here and Point here, and Point here only changes where new files go
+2026-11-18T10:39:47 | Claude | test-linked | MovingAttachmentsTests / Move files here moves the images and their references and nothing else: the plans folder is left as it is
+2026-11-18T10:39:47 | Claude | test-linked | MovingAttachmentsTests / Choose folder fills the line with the folder picked, written relative to the repository, and a folder that is not allowed is refused with the reason
+2026-11-18T10:39:47 | Claude | test-linked | ReadingProjectSettingsFromConfigTests / Changing the plans folder in Settings writes only that key
+2026-11-18T10:39:47 | Claude | test-linked | ReadingProjectSettingsFromConfigTests / The plans folder and the images folder are saved with the project one at a time, each read back on its own
+2026-11-18T10:39:47 | Claude | test-linked | ReadingProjectSettingsFromConfigTests / A repository with the old one-folder key resolves both folders from it until one of them is set
+2026-11-18T10:39:47 | Claude | test-linked | ReadingProjectSettingsFromConfigTests / The plans and attachments folders resolve the same way on every screen
+2026-11-18T10:39:47 | Claude | test-linked | RememberingSettingsTests / The plans folder is a per-repository setting: DevResources/plans unless changed, saved with the project, other repositories unaffected

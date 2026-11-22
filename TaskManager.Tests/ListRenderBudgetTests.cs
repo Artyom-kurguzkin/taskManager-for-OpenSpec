@@ -79,8 +79,8 @@ public sealed class ListRenderBudgetTests : IDisposable
 
     private void PickLayout(string name)
     {
-        nav!.Find("button[aria-label=Layout]").Click();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == name).Click();
+        nav!.ClickWhenReady("button[aria-label=Layout]");
+        nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == name));
     }
 
     /// <summary>The fixture plus <paramref name="extra"/> created items, the menu expanded through its toggle, the list shown and settled.</summary>
@@ -89,7 +89,7 @@ public sealed class ListRenderBudgetTests : IDisposable
         for (int i = 0; i < extra; i++) WorkItemsApi.Create("Row " + i);
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         PickLayout("List");
-        nav!.Find("button.nav-toggle").Click();
+        nav!.ClickWhenReady("button.nav-toggle");
         board.WaitForAssertion(() => Assert.True(board.FindAll("tr[data-id]").Count >= extra));
         await board.InvokeAsync(() => { });
         return board;
@@ -113,7 +113,7 @@ public sealed class ListRenderBudgetTests : IDisposable
         IRenderedComponent<BoardPage> board = await ListWithItems(ctx, 20);
         Counts before = Counts.Of(board);
 
-        await board.InvokeAsync(() => Row(board, 123).QuerySelector(".row-title")!.Click());
+        Act(board, () => Row(board, 123).QuerySelector(".row-title")!, e => e.Click());
         board.WaitForAssertion(() => Assert.True(RowMarkProbe.Examined(board, Row(board, 123))));
         await board.InvokeAsync(() => { });
         Counts after = Counts.Of(board);
@@ -134,7 +134,7 @@ public sealed class ListRenderBudgetTests : IDisposable
         IRenderedComponent<BoardPage> board = await ListWithItems(ctx, 20);
         Counts before = Counts.Of(board);
 
-        await board.InvokeAsync(() => Row(board, 123).QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
+        Act(board, () => Row(board, 123).QuerySelector("td.num")!, e => e.Click(new MouseEventArgs { ShiftKey = true }));
         board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, Row(board, 123))));
         await board.InvokeAsync(() => { });
         Counts after = Counts.Of(board);
@@ -146,7 +146,7 @@ public sealed class ListRenderBudgetTests : IDisposable
         Assert.False(Row(board, 123).HasAttribute("data-selected"));
 
         // and letting go (Shift-click again) is as cheap
-        await board.InvokeAsync(() => Row(board, 123).QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
+        Act(board, () => Row(board, 123).QuerySelector("td.num")!, e => e.Click(new MouseEventArgs { ShiftKey = true }));
         board.WaitForAssertion(() => Assert.False(RowMarkProbe.Selected(board, Row(board, 123))));
         await board.InvokeAsync(() => { });
         Assert.Equal(0, Counts.Of(board).RowRenders - before.RowRenders);
@@ -159,8 +159,8 @@ public sealed class ListRenderBudgetTests : IDisposable
         IRenderedComponent<BoardPage> board = await ListWithItems(ctx, 20);
         Counts before = Counts.Of(board);
 
-        await board.InvokeAsync(() => Row(board, 107).QuerySelector("button[data-pill=status]")!.Click());
-        await board.InvokeAsync(() => board.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Blocked").Click());
+        Act(board, () => Row(board, 107).QuerySelector("button[data-pill=status]")!, e => e.Click());
+        board.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Blocked"));
         board.WaitForAssertion(() => Assert.Equal("Blocked", WorkItemsApi.Get(107)!.Status));
         board.WaitForAssertion(() => Assert.Empty(board.FindAll(".menu-pop")));
         board.WaitForAssertion(() => Assert.Contains("Blocked", Row(board, 107).TextContent));
@@ -181,8 +181,8 @@ public sealed class ListRenderBudgetTests : IDisposable
         IDisposable held = OpenSpecStore.FolderLock.Hold(repo.Root, WorkItemsApi.Get(107)!.Folder);   // the write of the label waits on the pool
         try
         {
-            await board.InvokeAsync(() => Row(board, 107).QuerySelector("button[data-pill=label]")!.Click());
-            await board.InvokeAsync(() => board.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "bug").Click());
+            Act(board, () => Row(board, 107).QuerySelector("button[data-pill=label]")!, e => e.Click());
+            board.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "bug"));
             board.WaitForAssertion(() => Assert.Empty(board.FindAll(".menu-pop")));
             await board.InvokeAsync(() => { });
 
@@ -233,12 +233,12 @@ public sealed class ListRenderBudgetTests : IDisposable
         IRenderedComponent<BoardPage> board = await ListWithItems(ctx, 20);
         List<int> shown = [.. board.FindAll("tr[data-id]").Select(r => int.Parse(r.GetAttribute("data-id")!))];
         int pick = shown[shown.Count / 2], above = shown[shown.Count / 2 - 1];
-        await board.InvokeAsync(() => Row(board, pick).QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
+        Act(board, () => Row(board, pick).QuerySelector("td.num")!, e => e.Click(new MouseEventArgs { ShiftKey = true }));
         board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, Row(board, pick))));
         await board.InvokeAsync(() => { });
         (int reads, int loads, int folders, int page) = (board.Instance.Reads, board.Instance.Loads, ItemsCache.FolderReads, RenderCounts.Of<BoardPage>());
 
-        await board.InvokeAsync(() => board.Find(".tbl-wrap").KeyDown("ArrowUp"));
+        board.KeyDownWhenReady(".tbl-wrap", "ArrowUp");
         board.WaitForAssertion(() => Assert.Equal(pick, int.Parse(board.FindAll("tr[data-id]")[shown.Count / 2 - 1].GetAttribute("data-id")!)));
         await board.InvokeAsync(() => { });
 
@@ -263,5 +263,10 @@ public sealed class ListRenderBudgetTests : IDisposable
     {
         repo.Dispose();
         File.Delete(settingsFile);
+    }
+    private static void Act<T>(Bunit.IRenderedComponent<T> cut, Func<AngleSharp.Dom.IElement?> find, Action<AngleSharp.Dom.IElement> fire) where T : Microsoft.AspNetCore.Components.IComponent
+    {
+        cut.Eventually(() => Xunit.Assert.NotNull(find()));   // rendered and present, or the test fails
+        cut.InvokeAsync(() => fire(find()!)).GetAwaiter().GetResult();
     }
 }

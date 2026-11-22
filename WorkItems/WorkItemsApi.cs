@@ -50,6 +50,18 @@ public static class WorkItemsApi
         WorkItemsModule.LastSeen = lastSeen;
     }
 
+    /// <summary>
+    /// Hands the module the host's cache of item descriptions (<paramref name="description"/>, which calls <see cref="ReadDescription"/> when it has to read): <see cref="GetDescription"/> answers from it.
+    /// Null = read the proposal on every call.
+    /// </summary>
+    public static void UseDescriptions(Func<int, string>? description) => WorkItemsModule.Description = description;
+
+    /// <summary>
+    /// Hands the module the host's cache of item events (<paramref name="events"/>, which calls <see cref="ReadEvents"/> when it has to read): <see cref="GetEvents"/> answers from it, so an item's events.log
+    /// is read again only when it changed. Null = read events.log on every call.
+    /// </summary>
+    public static void UseEvents(Func<int, IReadOnlyList<WorkItemEvent>>? events) => WorkItemsModule.Events = events;
+
     /// <summary>The change folders in board order: open changes by folder name, then archived ones.</summary>
     public static IReadOnlyList<(string Dir, bool Archived)> ListFolders() => Queries.ListFolders();
 
@@ -61,6 +73,9 @@ public static class WorkItemsApi
 
     /// <summary>What a folder shows as: its number, its commit authors as contributors until the list is edited (<paramref name="git"/>, from <see cref="ContributorSource"/>), and Backlog for a status outside <paramref name="statuses"/>.</summary>
     public static WorkItem Present(FolderRead folder, int id, IReadOnlyList<string> statuses, (string Token, Func<string, IReadOnlyList<string>> AuthorsOf)? git) => Queries.Present(folder, id, statuses, git);
+
+    /// <summary>An item read back from the host's saved index: what the board shows is as saved, and its folder revision (a body, worked out when asked) is attached again, so a write against it is checked as for any item.</summary>
+    public static WorkItem Restore(WorkItem saved) => Queries.Restore(saved);
 
     /// <summary>The commit authors per change folder with the token that changes on each commit (see <see cref="ConfigureContributors"/>); null outside git.</summary>
     public static (string Token, Func<string, IReadOnlyList<string>> AuthorsOf)? ContributorSource() => WorkItemsModule.Git?.Invoke();
@@ -86,7 +101,9 @@ public static class WorkItemsApi
 
     /// <summary>Gives every change that shares its number with an earlier one the next free number; returns what changed.</summary>
     public static IReadOnlyList<(int OldId, int NewId, string Folder)> ResolveDuplicateIds() => Commands.ResolveDuplicateIds();
-    public static string GetDescription(int id) => Queries.GetDescription(id);
+    public static string GetDescription(int id) => WorkItemsModule.Description?.Invoke(id) ?? Queries.GetDescription(id);
+    /// <summary>The item's description read from its proposal.md now (nothing kept): what the host's cache of descriptions calls when it has to read.</summary>
+    public static string ReadDescription(int id) => Queries.GetDescription(id);
 
     /// <summary>
     /// A short text that changes when a change folder appears, goes, is renamed or archived, or an item's number moves, and not when an item is merely edited.
@@ -172,7 +189,10 @@ public static class WorkItemsApi
     /// <c>subtask-done</c> / <c>subtask-reopened</c> / <c>subtask-added</c> ("number text"), <c>dependency-added</c> / <c>dependency-removed</c> ("#wiN").
     /// Other kinds can be added with <see cref="LogEvent"/>.
     /// </summary>
-    public static IReadOnlyList<WorkItemEvent> GetEvents(int id) => Queries.Get(id) is { } item ? Infrastructure.EventLog.Read(item.Path) : [];
+    public static IReadOnlyList<WorkItemEvent> GetEvents(int id) => WorkItemsModule.Events?.Invoke(id) ?? ReadEvents(id);
+
+    /// <summary>The item's events read from events.log now (nothing kept): what the host's cache of events calls when it has to read.</summary>
+    public static IReadOnlyList<WorkItemEvent> ReadEvents(int id) => Queries.Get(id) is { } item ? Infrastructure.EventLog.Read(item.Path) : [];
 
     /// <summary>Appends one event (now, by the configured actor) to the item's events.log. A blank kind is refused.</summary>
     public static (bool Success, string Message) LogEvent(int id, string kind, string text) => Commands.LogEvent(id, kind, text);

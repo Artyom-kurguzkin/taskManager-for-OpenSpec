@@ -321,11 +321,43 @@ Each list row SHALL have a drag grip. Dragging it in front of another row of its
 - **THEN** its status becomes In Progress and it is the last row of that group
 
 ### Requirement: Move rows with the keyboard
-With rows selected (Shift-click, as on the board; the list has no tick boxes), the arrow keys SHALL move them as on the board, whatever has the keyboard focus, as long as the user is not typing in a field.
+With rows or cards selected (Shift-click), the arrow keys SHALL move them, whatever has the keyboard focus, as long as the user is not typing in a field. They SHALL step inside the cell the selection is in: a group's rows in one subgroup in the list (the whole group without subgroups), a column's cards in one row on the board (the whole column without rows); the neighbours are the items of that cell only. Up and Down SHALL swap the selection with its neighbour one place per press, and the sort order SHALL become my order, as a drag does. In the list, when the selection sits together at the cell's edge in the key's direction, Up and Down SHALL carry it into the neighbouring subgroup that has rows (the end of it going up, the start going down) and set the subgroup field; past the group's last (first) subgroup into the neighbouring group (setting the group field), entering its nearest subgroup and setting that field too, or, when that group has no rows, keeping the selection's own subgroup value; with nothing beyond, nothing moves. On the board Up and Down at the edge of a cell SHALL carry the cards into the neighbouring row's cell in the same column (empty or not), and stop at the first and last row and column end. Left and Right on the board SHALL carry the cards into the neighbouring column's cell in the same row at the same height. The selection and the keyboard focus SHALL stay on what moved, and the moved row or card SHALL be scrolled into view, clear of the list's sticky header, the board's sticky column header and the selection bar.
 
 #### Scenario: Arrow after selecting a row
 - **WHEN** the user Shift-clicks a row and presses the up arrow
 - **THEN** the row moves up one place and the page does not scroll
+
+#### Scenario: Arrow inside a subgroup
+- **WHEN** the list is grouped by status with subgroups by priority and the user Shift-clicks the second row of a Lower priority subgroup and presses Up
+- **THEN** it is the first row of that subgroup, with its status and priority unchanged
+
+#### Scenario: Arrow at the top of a subgroup
+- **WHEN** the user presses Up again
+- **THEN** its priority becomes high and it is the last row of the High priority subgroup of the same group
+
+#### Scenario: Arrow at the top of a group
+- **WHEN** the selected row is the first of the group's first subgroup and the user presses Up
+- **THEN** its status becomes that of the group above and it is the last row of that group's last subgroup that has rows
+
+#### Scenario: Arrow down comes back
+- **WHEN** the row is the last of its group's last subgroup and the user presses Down
+- **THEN** it becomes the first row of the first subgroup that has rows in the group below
+
+#### Scenario: No group beyond
+- **WHEN** the user selects the first row of the first group and presses Up
+- **THEN** nothing changes
+
+#### Scenario: Several rows at the edge
+- **WHEN** the user selects the last two rows of a group without subgroups and presses Down
+- **THEN** both move to the start of the next group, in the order they had
+
+#### Scenario: Board card with rows
+- **WHEN** the board has rows by priority and the user selects the second card of a lower-priority cell and presses Up
+- **THEN** it is the first card of that cell and still selected; one more press moves it to the end of the same column's cell in the high-priority row, and another to the top of that cell; at the top of the first row it stays
+
+#### Scenario: Selection follows
+- **WHEN** a move takes the selected card or row out of the visible part of the scrolling area
+- **THEN** the area scrolls just enough to show it again
 
 ### Requirement: Select cells in the list
 Dragging across the cells of work item rows, from any cell, SHALL select the rectangle between the first and the last cell. Esc, or a click outside the table, SHALL clear it. Ctrl+C SHALL copy the rectangle as tab-separated text, one line per row. The table's text SHALL NOT be selectable as plain text.
@@ -385,11 +417,19 @@ The list SHALL be laid out like the list views of task managers (Asana, Linear, 
 - **THEN** its drag grip appears and the row is tinted; other rows show neither. There are no tick boxes: Shift-click selects a row as it selects a card
 
 ### Requirement: Grouping is not repeated
-Whatever the board or list is grouped by SHALL NOT be shown again inside a group: the list SHALL hide the Status column when grouped by status, Label by label, Feature by feature and Contributors by contributor; a card SHALL leave out its label when grouped by label and its contributors when grouped by contributor.
+Whatever the board or list is grouped by SHALL NOT be shown again inside a group, except the list's Status column: the list SHALL hide Label when grouped by label, Feature by feature and Contributors by contributor, and SHALL always show Status, whatever the grouping (and with subgroups), since the organising operators work on it, unless the user hides that column themselves from its header. A grid layout saved while the column was dropped SHALL NOT keep it hidden. A card SHALL leave out its label when grouped by label and its contributors when grouped by contributor.
 
 #### Scenario: List grouped by status
 - **WHEN** the list is grouped by status
-- **THEN** it has no Status column; grouped by label it has a Status column and no Label column
+- **THEN** it still has a Status column; grouped by label it has a Status column and no Label column
+
+#### Scenario: Status column after a saved layout
+- **WHEN** the list was last used grouped by status and its saved layout has Status hidden, and the user opens it with groups none
+- **THEN** the Status column shows
+
+#### Scenario: The user hides it
+- **WHEN** the user clicks the × in the Status header
+- **THEN** the column is hidden and listed under Hidden in the side menu
 
 #### Scenario: Card grouped by label
 - **WHEN** the board is grouped by label
@@ -627,11 +667,19 @@ Dropping a card into a cell SHALL set the column's field and, when it differs, t
 - **THEN** the card's status is Planned and its feature Maintainability
 
 ### Requirement: Colour by any field
-Every card band, list row stripe and roadmap bar SHALL take its colour from the colour field: status, label and priority by their own colours, due and start dates by period, feature and contributor by a stable colour per value, none in a neutral colour. A legend under the colour choice SHALL name the colours shown.
+Every card band, list row and roadmap bar SHALL take its colour from the colour field: status, label and priority by their own colours, due and start dates by period, feature and contributor by a stable colour per value, none in a neutral colour. In the list the colour SHALL tint the whole row (a light wash of the colour over every cell, the text keeping the theme's colour so it reads in the light and the dark theme), not a strip at its edge; the ring of a selected row and the mark of the open row SHALL stay visible over it, and with colour none the rows are not tinted. A legend under the colour choice SHALL name the colours shown.
 
 #### Scenario: Colour by label
 - **WHEN** colour is by label
 - **THEN** bug cards are peach, feature cards sky and enhancement cards sage, and the legend lists them
+
+#### Scenario: Whole row
+- **WHEN** the list is coloured by status
+- **THEN** every cell of a Planned row has a light blue wash, and a Shift-selected row keeps its ring
+
+#### Scenario: Colour none
+- **WHEN** the colour choice is none
+- **THEN** no list row is tinted
 
 ### Requirement: The same organisation in every view
 The list SHALL group its rows by the column field, then by the row field inside each column (a row group only where the column has items), and the roadmap SHALL group its items by the row field, then by the column field (a row header with column subgroups); both SHALL be coloured by the colour field. With rows none they group by the columns alone.
@@ -687,15 +735,31 @@ While the list is scrolled, its sticky header SHALL show the project (when sever
 - **THEN** the sticky header shows "Completed › Maintainability"
 
 ### Requirement: Rows drag from anywhere
-A list row SHALL have no drag handle. Pressing anywhere on a row (not on a control in it), holding for a quarter of a second and then moving SHALL drag the row (with the other selected rows) as cards drag; releasing without moving SHALL act as a click; pressing and moving at once SHALL select cells. Titles SHALL line up under the Title header whether or not their row has subtasks.
+In the list, Shift-click SHALL mark a row as selected, and only a selected row SHALL drag. A list row has no drag handle: pressing a selected row anywhere (the title, the cell's padding, a pill, empty cell space, the row's edge) and moving a few pixels SHALL drag it at once, without holding, as cards drag; every selected row SHALL move with it, to the same place and in their current order. A press on a row that is not selected SHALL never drag: moving selects cells, as in a spreadsheet. Releasing a press without moving SHALL act as a click: a plain click opens the item, Shift-click toggles its selection, and a click on a pill opens its dropdown. Dropping with the pointer over a group's own header row SHALL put the item at the end of that group, not of the group above. Titles SHALL line up under the Title header whether or not their row has subtasks. With one or more rows selected, the Up and Down arrow keys SHALL move them as described under Move rows with the keyboard.
 
-#### Scenario: Hold and drag
-- **WHEN** the user presses on a Backlog row's label cell, holds, and drags it onto the Planned group
+#### Scenario: Shift-click selects
+- **WHEN** the user Shift-clicks a row in the list
+- **THEN** the row is marked selected, and Shift-clicking it again unselects it
+
+#### Scenario: Drag a selected row
+- **WHEN** the user presses a selected Backlog row, anywhere on it, and moves it onto the Planned group
 - **THEN** the item's status becomes Planned
 
+#### Scenario: Drag several selected rows
+- **WHEN** the user has two Planned rows selected, presses one of them and drags it onto the Confirmed group
+- **THEN** both items' status becomes Confirmed, and they land in the order they had
+
+#### Scenario: Press on an unselected row
+- **WHEN** the user presses a row that is not selected, on its text or off it, and moves to another cell
+- **THEN** cells are selected and no row drags
+
+#### Scenario: Hold and drag
+- **WHEN** the user presses a selected row and holds without moving
+- **THEN** nothing lifts, and the drag starts only once the pointer moves
+
 #### Scenario: Click
-- **WHEN** the user clicks a row's title
-- **THEN** the item opens
+- **WHEN** the user clicks a row's title without moving, or a pill
+- **THEN** the item opens, or the pill's dropdown opens
 
 ### Requirement: Project name opens its options
 With several projects open, clicking a project's name on the board or in the list SHALL open a menu with Collapse (or Expand when collapsed) and Hide project, and Make it the active project for a project that is not the active one. The header SHALL show no "active" label and no options icon. A Shift-click SHALL select the project without opening the menu.
@@ -742,7 +806,7 @@ The List view SHALL name its two Organise options "groups" and "subgroups", both
 
 #### Scenario: Choosing a group
 - **WHEN** the user picks "status" as the list's groups
-- **THEN** the rows are grouped by status, the Status column is left out, the choice is saved, and the board's columns are still status
+- **THEN** the rows are grouped by status, the Status column stays, the choice is saved, and the board's columns are still status
 
 #### Scenario: A saved list keeps its grouping
 - **WHEN** a repository's saved settings hold a list view grouped by columns and rows from before the list had its own
@@ -889,3 +953,166 @@ A work item's updated time (the list's Updated column, the "date modified" sort,
 #### Scenario: No worklog
 - **WHEN** a work item has neither events nor notes
 - **THEN** its Updated is the time its files were last written
+
+### Requirement: Agent changes are flagged
+An item an agent added or changed is flagged while `x-rtm` has `agentBy` and no `reviewedAt` at or after `agentAt`. Cards and list rows SHALL NOT show an agent chip; the flag is reviewed on the work item page. In the list, each subtask an agent added SHALL carry a chip whose click clears that subtask only. The side menu SHALL offer "agent changes only".
+
+#### Scenario: Chip on a card
+- **WHEN** #wi34 has `agentBy: Claude` and `agentAt` and no `reviewedAt`
+- **THEN** its card and list row show no agent chip, "agent changes only" still lists it, and its page reviews it
+
+#### Scenario: Flagged again
+- **WHEN** the agent later stamps a newer `agentAt`
+- **THEN** the item is flagged again: the page shows the review control and the filter lists it
+
+#### Scenario: Agent changes only
+- **WHEN** the user ticks "agent changes only"
+- **THEN** only items with a flagged item or flagged subtask remain
+
+### Requirement: Groups move like columns
+In the list, Shift-click on a group or subgroup header SHALL select it, marked as a selected row is, and Up and Down SHALL then move it among its siblings one place per press, in the same saved order the board's columns (rows, for subgroups) use. The grid's header sort SHALL order only the rows inside each group: groups and subgroups SHALL keep their saved order.
+
+#### Scenario: Select and move a group
+- **WHEN** the list is grouped by status, the user Shift-clicks the Planned group header and presses Up
+- **THEN** Planned is above the group that was above it and still selected, and the board's columns show Planned in that place too
+
+#### Scenario: A plain click selects nothing
+- **WHEN** the user clicks a group header's name without Shift and presses Down
+- **THEN** nothing is selected and no group moves, and the chevron still folds the group
+
+#### Scenario: A subgroup moves among its siblings
+- **WHEN** the list is grouped by status with subgroups by priority and the user Shift-clicks a Low subgroup header and presses Up
+- **THEN** the Low subgroup is above the High one in every group, the groups keep their order, and no row changes group
+
+#### Scenario: A header sort keeps the group order
+- **WHEN** the list is grouped by status with Backlog above Planned, and the user clicks the Updated header
+- **THEN** the rows inside each group are ordered by Updated, and the groups stay in their saved order, the group of the oldest row not moving to the top
+
+### Requirement: Groups drag like columns
+In the list, a selected group or subgroup header SHALL drag with the mouse: pressing it and moving a few pixels lifts the header and shows a drop line between the headers it would land among, and releasing writes the saved order the arrow keys use, so the board's columns (rows, for subgroups) follow. Every selected sibling SHALL move with it, in their current order, and a subgroup SHALL drag only among its own siblings. A header that is not selected SHALL never drag.
+
+#### Scenario: Drag a selected group
+- **WHEN** the list is grouped by status, the user Shift-clicks the Planned header, presses it and moves it above the Backlog header
+- **THEN** the header lifts, a drop line shows above Backlog, and on release Planned is above Backlog, still selected, and the board's columns show Planned first too
+
+#### Scenario: Drag several selected groups
+- **WHEN** the user has two groups selected and drags one of them above another group
+- **THEN** both land there, in the order they had
+
+#### Scenario: Press on an unselected group header
+- **WHEN** the user presses a group header that is not selected and moves
+- **THEN** nothing drags and no group moves, and a plain click still folds the group
+
+#### Scenario: Drag a subgroup
+- **WHEN** the list has subgroups by priority and the user drags a selected Low subgroup header above the High one of the same group
+- **THEN** Low is above High in every group, and the groups and rows keep their place
+
+### Requirement: A project's section shows only its own statuses
+With several projects open and the board grouped by status, the system SHALL show in a project's section only the statuses that project's own openspec/config.yaml lists. The shared header row SHALL list the union of the projects' statuses in the saved order, shown once; under that header a project without a status SHALL show an empty, visibly unavailable cell instead of a working column, and the list SHALL show no group for a status the project lacks.
+
+#### Scenario: A status only one project has
+- **WHEN** two projects are open and only one of them has a Research status
+- **THEN** the header row shows Research once
+- **AND** the other project's Research cell is empty and marked unavailable, and its list has no Research group
+
+### Requirement: Moving a card to a status its project lacks asks to add it
+When a card is dropped, or moved with the arrow keys, onto a status its project does not have, the system SHALL ask "Add <status> to <project>?" and SHALL NOT fail with a message. On yes the status is added to that project's openspec/config.yaml before Completed and the card moves; on no nothing changes.
+
+#### Scenario: Yes adds the status and moves the card
+- **WHEN** the user drops a card of a project without Research onto the Research cell and answers yes
+- **THEN** that project's config.yaml lists Research and the card has the status Research
+
+#### Scenario: No changes nothing
+- **WHEN** the user answers no
+- **THEN** the project's config.yaml and the card are unchanged
+
+### Requirement: Deleting a status
+A status that is not one of the project's default statuses (Backlog, In Progress, Completed) SHALL be deletable from Settings. Open work items that have it SHALL move to the project's first status, after a confirmation that names how many move; archived work items SHALL keep the deleted name in their file and are not rewritten. Open work items SHALL move whatever they wait on: an item waiting on an open dependency does not keep the status in place.
+
+#### Scenario: Open items move to the first status
+- **WHEN** the user confirms removing a status that two open work items have
+- **THEN** the status leaves the project's list and both items have the project's first status
+
+#### Scenario: An item waiting on a dependency moves too
+- **WHEN** the user confirms removing a status that an open work item has while that item waits on an unresolved dependency
+- **THEN** the status leaves the project's list and no item of the status is left behind or half moved
+
+#### Scenario: Archived items keep the name
+- **WHEN** a status is removed that an archived work item was in when it was archived
+- **THEN** the archived item's file still names that status and the item still shows as Completed
+
+#### Scenario: A default status stays
+- **WHEN** the user tries to remove Backlog, In Progress or Completed
+- **THEN** the status is kept and Settings offers no remove button for it
+
+### Requirement: Deleting a status or a feature from the viewers
+The board's column header menu and the list's group header menu SHALL offer "Delete status…" on a custom status and "Delete feature…" on a feature, with the confirmation Settings uses. A default status, a merged column, Unassigned and any other grouping SHALL offer no delete.
+
+#### Scenario: Delete a status from the board column
+- **WHEN** the user opens the menu of a custom status column and chooses Delete status…, then confirms
+- **THEN** the column's open work items move to the project's first status and the status leaves that project's openspec/config.yaml
+
+#### Scenario: A default status has no delete
+- **WHEN** the user opens the menu of the Backlog column or the Backlog group
+- **THEN** there is no Delete status… entry
+
+#### Scenario: Delete from the list's group header
+- **WHEN** the user opens the menu on a custom status group of the list and confirms Delete status…
+- **THEN** the group leaves the list and its items are in the first status's group
+
+#### Scenario: Delete a feature from the list's group header
+- **WHEN** the list is grouped by feature and the user chooses Delete feature… on a feature group and confirms
+- **THEN** the group leaves the list and its open work items are in Unassigned
+
+#### Scenario: Several projects
+- **WHEN** two projects are open and both have the status the user deletes from the shared header row
+- **THEN** the user is asked which project, and only that project loses the status
+
+### Requirement: Deleting a feature
+Deleting a feature SHALL remove it from its open work items, which become unassigned, and SHALL leave archived work items on it.
+
+#### Scenario: Archived items stay on a deleted feature
+- **WHEN** a feature is deleted that an open and an archived work item have
+- **THEN** the open item has no feature and the archived item still lists the deleted feature
+
+### Requirement: Merging items whose feature was deleted
+Merging work items SHALL accept items that share the same deleted feature, SHALL give the merged item the existing feature when another source has one that still exists, and SHALL refuse to merge items that have two different features that no longer exist, saying which.
+
+#### Scenario: The same deleted feature merges
+- **WHEN** two archived items with the same deleted feature are merged
+- **THEN** the merged item keeps that feature
+
+#### Scenario: An existing feature takes over
+- **WHEN** an item with a deleted feature is merged with an item whose feature exists
+- **THEN** the merged item has the existing feature
+
+#### Scenario: Two different deleted features are refused
+- **WHEN** two items with different deleted features are merged
+- **THEN** the merge is refused with a message naming both features and neither item is changed
+
+### Requirement: The user's column order wins
+The system SHALL show every board column in the board's saved order, with one project open or several, under a shared header row or in each project's section, and SHALL save every move of a column (drag, Left and Right on a Shift-clicked header) with the board, so it survives a restart. A status the saved order does not hold yet SHALL take the place the projects' status lists give it.
+
+#### Scenario: Dragging a status of one project in the shared header
+- **WHEN** two projects are open, only one has Research, and the user drags the Research header in front of Blocked
+- **THEN** the header row shows Research in front of Blocked and the other project's unavailable Research cell is in the same place
+- **AND** after the app is closed and opened again the order is the same
+
+#### Scenario: Arrow keys on a selected column
+- **WHEN** the user Shift-clicks the Research header and presses Left
+- **THEN** Research moves one place left, one more for each further press, with one project open as with several
+
+#### Scenario: A status the saved order lacks
+- **WHEN** the saved order was written before a project's status existed
+- **THEN** that status shows where the project's list puts it, not after every column the order holds
+
+### Requirement: Adding a project keeps the board arrangement
+The board SHALL keep showing the arrangement (column order, hidden columns, grouping, filters) of the project the user was viewing when another project is added to the workspace. Only the first project opened and the user's choice of a project tab SHALL change which project's saved view the board shows.
+
+#### Scenario: A project is added while another is shown with a custom column order
+- **WHEN** the user has moved the Research column to the far left of project A's board and then adds project B
+- **THEN** the board still shows project A's view with Research first, and B's statuses that A lacks appear where B's own status list puts them
+
+#### Scenario: The user chooses a project's tab
+- **WHEN** the user clicks project B's tab
+- **THEN** the board shows B's saved view

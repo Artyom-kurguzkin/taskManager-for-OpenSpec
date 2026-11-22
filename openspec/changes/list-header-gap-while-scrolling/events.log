@@ -4,3 +4,4 @@
 2026-11-17T12:56:12 | Claude | priority | low -> high
 2026-11-17T12:56:12 | Claude | label | none -> bug
 2026-11-17T13:09:20 | Claude chunk O | log | chunk O, css reverted to HEAD: ListBugFixesTests|ListRenderBudgetTests|UsingTheBoardTests Passed! 171/171
+2026-11-21T12:36:56 | Artyom-kurguzkin | status | In Progress -> In Review

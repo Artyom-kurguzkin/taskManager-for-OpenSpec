@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-10-18
+x-rtm:
+  id: 12
+  title: hider works wrong
+  status: In Progress
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  started: 2026-11-18
+  moved: 2026-11-20
+  plan: DevResources/plans/in-progress-items-2026-11-18c.md
+  tests: [{suite: HidingInTheAppTests, test: "Pressing 'show all hidden' once brings back every hidden item, column and project, clears the Hidden list and the legacy flags, resets the filters, and draws nothing dashed"}, {suite: HidingInTheAppTests, test: The collapsed menu's show all hidden button does the same one action}, {suite: UsingTheBoardTests, test: "Hidden work items leave the board until 'show all hidden' is pressed, which brings them back and draws nothing dashed"}, {suite: UsingTheBoardTests, test: The collapsed menu has a show all hidden button that is the same one action}, {suite: UsingTheBoardTests, test: After show all hidden every work item of a hidden project renders as a card and the column count equals the cards shown}, {suite: UsingTheBoardTests, test: A collapsed project stays collapsed after show all hidden is pressed}, {suite: UsingTheBoardTests, test: In the list a collapsed project's rows stay folded after show all hidden is pressed}, {suite: UsingTheBoardTests, test: "A collapsed project's work items count in no column header, before and after show all hidden is pressed"}, {suite: UsingTheBoardTests, test: 'Sort by is the first field under Organise, and show all hidden sits under the Hidden header'}, {suite: UsingTheBoardTests, test: 'Show all hidden brings the hidden columns, rows and projects back on the board and the list'}]
+  agentBy: Claude
+  agentAt: 2026-11-18T13:26:24

@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-18
+x-rtm:
+  id: 206
+  title: hider is broken
+  status: In Review
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  moved: 2026-11-18
+  tests: [{suite: HidingInTheAppTests, test: "With 'show all hidden' on, a column or project you hide stays in view marked as hidden, and goes when it is switched off"}, {suite: HidingInTheAppTests, test: Hiding a column and a project takes effect after cards were moved with the arrow keys and a status was changed}, {suite: HidingInTheAppTests, test: "A work item hidden in the app shows again, dashed, under 'show all hidden'; the setting is per repository"}, {suite: HidingInTheAppTests, test: "A work item an agent's resolution hid stays hidden, is listed under Hidden by its resolution, and shows dashed under 'show all hidden'"}, {suite: HidingInTheAppTests, test: Delete (hide) hides the selected work items in the app's settings and writes nothing under openspec; the Hidden section lists them and an eye restores them}, {suite: HidingInTheAppTests, test: 'A work item hidden by an old x-rtm.hidden flag with no resolution is listed under Hidden with an eye, and its page shows the app-hidden banner'}, {suite: HidingInTheAppTests, test: 'The eye of a legacy-flagged item clears x-rtm.hidden in its file, leaves nothing in the settings, and the item is back on the board; Restore on its page does the same'}, {suite: HidingInTheAppTests, test: 'The page of an item hidden in the app says it is hidden in this app and where to restore it, with no word about openspec; one hidden by a resolution says which'}, {suite: HidingInTheAppTests, test: 'An item with a resolution note keeps the resolution behaviour: labelled, no eye, the page names the resolution'}]
+  mergedFrom: [199, 201]
+  mergedFolders: [new-work-item-41, new-work-item-43]

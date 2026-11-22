@@ -29,25 +29,19 @@ public static class BoardMcp
 
     /// <summary>What the model reads once when it connects. Claude Code truncates server instructions at 4,096 characters.</summary>
     public const string Instructions = """
-        Repo Tasks is the board of work items for the repository (openspec/changes/). These tools are the only way to touch the board: never edit openspec/ by hand while they load. They allocate ids, sign your writes and keep the files valid.
-
-        Every tool takes an optional `repo` (any path inside the repository or a worktree; default: the server's working directory). Writes take `agent` (your name; default Claude). Reads take `format`: concise (default) or detailed.
+        Repo Tasks is the board of work items (openspec/changes/). These tools are the only way to touch the board: never edit openspec/ by hand while they load. They allocate ids, sign your writes and keep the files valid. Every tool takes `repo` (any path inside the repository or a worktree); writes take `agent` (your name; default RTM_AGENT, else Claude); reads take `format` concise or detailed.
 
         Rules
-        - One work item per deliverable (one result that can be finished and archived on its own). Steps toward it are subtasks. More than about ten subtasks means several items.
-        - Look before you create: board_list (text, feature) so you do not duplicate an item. board_features shows the capabilities.
-        - Workflow: board_create (or board_update) -> do the work -> board_update (tick subtasks, link tests, commits and docs, set status; its `note` writes the hand-off note in the same call) -> board_note (log as you go, kind decision) -> board_validate.
-        - Looking through items (e.g. the In Progress ones): board_get each in detailed format and read its worklog, not only the description. Notes, decisions and events added since you last looked are part of the brief; say what is new before acting.
-        - Log as you go: the supervisor and every subagent write one short `board_note` per event while the work is in progress (chunk started, tests red, a blocker, a command and its result in a code block, chunk finished with the Passed line, integration done), not one summary at the end; a one-line event ("ran the suite: 525 passed") goes in `board_log`, no note file. Status changes, links and ticked subtasks are logged for you. A subagent in a worktree passes `repo` = the main repository's path. `title` is optional.
-        - Decisions: record each as its own `board_note` with `kind: "decision"`, clear and brief: line one what was decided, line two why, at most a third with what it rules out. The app emphasises them.
-        - Read only what you need: board_get takes `sections`, `since` and `limit`.
-        - Pass `revision` from board_get into board_update and board_note when you read first, so you do not overwrite someone else's edit.
-        - Status: Backlog, Planned, Confirmed, In Progress, Blocked, In Review. When the work is done set In Review. Never Completed: the user archives from the app and reviews what you did.
-        - Write #wiN for another work item and #nN for a note in any text. Commits that mention #wiN link themselves; others go in `commits`.
-        - Linked tests: `tests` take the test class short name as `suite` and the display name as `test`, exactly as the latest results file names them; names that are not in it come back as warnings, so run the tests first.
-        - A change that alters what the product does needs a delta spec per capability (`specs`): requirements with SHALL or MUST and a WHEN/THEN scenario. A refactoring or chore needs none.
-        - Plans are markdown files you write yourself under the project's plans folder (openspec/REPO-TASKS.md names it; DevResources/plans in a project that has not set one); the tools only link them with `plan`.
+        - One work item per deliverable; its steps are subtasks (more than about ten means several items). Look before you create: board_list, board_features.
+        - Workflow: board_create or board_update -> do the work -> board_update (tick subtasks, link tests, commits and docs, set the status; its `note` writes the hand-off in the same call) -> board_validate. Set In Review when done, never Completed: the user archives. Statuses: Backlog, Planned, Confirmed, In Progress, Blocked, In Review (a project may add more).
+        - Before acting on an item, board_get it in detailed format and read its worklog: notes, decisions and events added since you last looked are part of the brief; say what is new before acting. board_get takes `sections`, `since` and `limit`.
+        - board_update's list fields (dependsOn, contributors, tests, commits, docs) replace the whole list: read first, or use testsAdd, testsRemove, docsAdd, docsRemove, commitsAdd. Pass `revision` from board_get when you read first. Subtasks: `number` with `done`, `text` or `remove: true` changes one; without `number` it adds one.
+        - A change that alters what the product does needs a delta spec per capability (`specs`: capability path to markdown): requirements with SHALL or MUST, each with a #### Scenario of WHEN and THEN lines. To MODIFY a requirement repeat it whole: board_features with format detailed, `feature` and `requirement` returns its text. A refactoring or chore needs none.
+        - An item that ends undone: board_update `resolution` (cancelled, duplicate of #wiN, superseded by #wiN) hides it and writes a decision note.
+        - Linked tests: `suite` is the test class short name, `test` the display name, exactly as the latest results file; unknown names come back as warnings, so run the tests first. A plan is a markdown file you write in the plans folder (openspec/REPO-TASKS.md names it) and link with `plan`. Write #wiN or #nN to link items and notes; commits that mention #wiN link themselves.
         - Errors say how to fix the call: read them, fix, call again.
+
+        Log as you go: the supervisor and every subagent post one short event per step with board_log id=N kind=<kind> text=..., which answers one line. Kinds: started, found, decision (line one what was decided, line two why), tests-red, tests-green (with the Passed line), verified, blocked, done (the final report); leave `kind` out for a plain line. The text may span lines up to 4,000 characters (longer becomes a note). A subagent in a worktree passes `repo` = the main repository and its own `agent`. board_note (kind decision for a decision) is for a hand-off worth a note file; status changes, links and ticked subtasks are logged for you.
         """;
 
     /// <summary>Registers the eight board tools and sets the server's name and instructions. <paramref name="host"/>: what the app that serves them tells them (none: a plain library host).</summary>

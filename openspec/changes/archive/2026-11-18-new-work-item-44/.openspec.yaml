@@ -1,0 +1,17 @@
+schema: spec-driven
+created: 2026-11-18
+x-rtm:
+  id: 202
+  title: store previous browsing page state
+  status: In Review
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  started: 2026-11-18
+  due: 2026-11-18
+  moved: 2026-11-18
+  plan: DevResources/plans/in-progress-items-2026-11-18b.md
+  tests: [{suite: UsingThePagesTests, test: 'The board comes back at the scroll spot the user left it at, and the same for the settings page'}, {suite: UsingThePagesTests, test: 'Each repository keeps its own scroll spot: switching to one restores where that one was left'}, {suite: PagesRenderBudgetTests, test: 'Restoring the scroll spot of a view adds no draw: the board draws as often with a saved spot as without one (#wi202)'}]
+  agentBy: Claude
+  agentAt: 2026-11-18T10:39:51

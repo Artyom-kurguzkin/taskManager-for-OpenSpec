@@ -5,3 +5,15 @@
 2026-11-18T09:33:05 | Artyom-kurguzkin | feature | none -> organise-work-items
 2026-11-18T09:33:09 | Artyom-kurguzkin | priority | low -> high
 2026-11-18T09:33:11 | Artyom-kurguzkin | label | none -> bug
+2026-11-18T09:44:08 | Claude | plan-linked | DevResources/plans/in-progress-items-2026-11-18b.md
+2026-11-18T09:55:15 | Claude chunk merge | test-linked | EditingWorkItemsTests / A new item never takes the folder name of an item that was merged away
+2026-11-18T10:08:46 | Claude chunk merge | test-linked | UsingThePagesTests / When only one source of a merge had subtasks, Linked tasks still heads them with where and when they were merged in
+2026-11-18T10:08:46 | Claude chunk merge | test-linked | UsingThePagesTests / A merged item's Linked tasks lists the subtasks of every source under their own group, and its worklog's Bugs filter finds the bug notes of every source
+2026-11-18T10:08:46 | Claude chunk merge | test-linked | EditingWorkItemsTests / Merging two items created in the app keeps the second one's subtasks, bug note with its attachment, linked test and every event
+2026-11-18T10:39:52 | Claude | status | In Progress -> In Review
+2026-11-18T11:08:24 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-18T11:08:31 | Artyom-kurguzkin | attachment-added | n798: pasted-20261118-110831.png
+2026-11-18T13:26:26 | Claude | status | In Progress -> In Review
+2026-11-18T13:26:26 | Claude | test-linked | EditingWorkItemsTests / A merge writes each source's number on the events it carries over, a second merge keeps the earlier sources, and the main item's own events stay unmarked
+2026-11-18T13:26:26 | Claude | test-linked | UsingThePagesTests / A merged item's feed says which source every note, bug and event came from, also with the Notes filter off, and Related lists the files under their source
+2026-11-18T13:26:26 | Claude | test-linked | UsingThePagesTests / Related stays one flat list when nothing in the item was merged in

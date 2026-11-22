@@ -216,46 +216,6 @@ public sealed class UsingTheWorklogTests : IDisposable
         log.WaitForAssertion(() => Assert.Equal(7, MenuItems(log).Count));
     }
 
-    [Fact(DisplayName = "Add note opens an editor in the feed; leaving it saves the title and the text, and a note added under an older day is dated that day")]
-    public async Task AddNoteEditsInPlace()
-    {
-        await using BunitContext ctx = NewContext();
-        int told = 0;
-        IRenderedComponent<Worklog> log = Log(ctx, 123, () => told++);
-        DateTime day = new(2026, 10, 2);
-
-        OpenMenu(log, Header(log, day));
-        Pick(log, "Add note");
-
-        log.WaitForAssertion(() => Assert.NotNull(DayOf(log, day).QuerySelector(".wk-edit")));
-        Note created = NotesApi.GetForWorkItem(123).Single(n => n.Title == "New note");
-        Assert.Equal(day, created.Created.Date);
-        Assert.True(Math.Abs((created.Created.TimeOfDay - DateTime.Now.TimeOfDay).TotalMinutes) < 5 || Math.Abs((created.Created.TimeOfDay - DateTime.Now.TimeOfDay).TotalMinutes) > 1435);
-        Assert.Equal("Tester", created.By);
-        Assert.Equal("New note", log.Find(".wk-edit input.wk-title-in").GetAttribute("value"));
-        Assert.True(told >= 1);
-
-        log.Find(".wk-edit input.wk-title-in").Input("Plan the probe");
-        log.Find(".wk-edit textarea").Input("Use **GET** on /health");
-        Task written = Written(ctx);
-        log.Find(".wk-edit").FocusOut();
-
-        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
-        await written;
-        Note saved = NotesApi.Get(created.Id)!;
-        Assert.Equal("Plan the probe", saved.Title);
-        Assert.Equal("Use **GET** on /health", saved.Body.Trim());
-        Assert.Equal(day, saved.Created.Date);
-        // the feed follows the file a render later: wait for the entry, then read it
-        log.WaitForAssertion(() => Assert.Equal("GET", DayOf(log, day).QuerySelectorAll(".wk-note").Single(e => Text(e).Contains("Plan the probe")).QuerySelector("strong")!.TextContent));
-
-        // a note added under today is dated now
-        OpenMenu(log, Header(log, DateTime.Today));
-        Pick(log, "Add note");
-        log.WaitForAssertion(() => Assert.NotNull(DayOf(log, DateTime.Today).QuerySelector(".wk-edit")));
-        Assert.Equal(DateTime.Today, NotesApi.GetForWorkItem(123).Single(n => n.Id != created.Id && n.Title == "New note").Created.Date);
-    }
-
     [Fact(DisplayName = "Shift-clicking a note offers Edit, which opens it in place")]
     public async Task ShiftClickNoteEdits()
     {
@@ -1068,7 +1028,7 @@ public sealed class UsingTheWorklogTests : IDisposable
         Assert.Contains("the app's scrollbar", baseLayer);
     }
 
-// ── table helper ──
+// ── textarea identity ──
 
     /// <summary>
     /// The element reference id of the textarea on screen. bUnit writes it into the markup (blazor:elementReference) only in the render that created the
@@ -1088,61 +1048,6 @@ public sealed class UsingTheWorklogTests : IDisposable
         return () => Volatile.Read(ref shown);
     }
 
-    [Fact(DisplayName = "Every markdown editor in the app gets the table helper attached")]
-    public async Task EveryEditorGetsTheTableHelper()
-    {
-        await using BunitContext ctx = NewContext();
-        IRenderedComponent<Worklog> log = Log(ctx);
-        int attached() => ctx.JSInterop.Invocations.Count(i => i.Identifier == "rtm.markdownEditor");
-        Assert.Equal(0, attached());   // no editor open: nothing to attach to
-
-        // the note editor
-        OpenMenu(log, Header(log, DateTime.Today));
-        Pick(log, "Add note");
-        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit textarea")));
-        log.WaitForAssertion(() => Assert.True(attached() >= 1));
-        log.Find(".wk-edit").FocusOut();
-        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
-
-        // the description editor
-        int before = attached();
-        OpenMenu(log, log.Find(".wk-first .wk-e"));
-        Pick(log, "Edit");
-        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit textarea.desc-in")));
-        log.WaitForAssertion(() => Assert.True(attached() > before));
-    }
-
-    [Fact(DisplayName = "The table helper is attached to the textarea that is on screen for the editor opened from the side menu's Add note, and again when the editor is closed and reopened")]
-    public async Task TableHelperFollowsTheSideMenuEditor()
-    {
-        await using BunitContext ctx = NewContext();
-        UiService ui = ctx.Services.GetRequiredService<UiService>();
-        IRenderedComponent<Worklog> log = Log(ctx);
-        string? attachedTo() => ctx.JSInterop.Invocations.Where(i => i.Identifier == "rtm.markdownEditor").Select(i => ((Microsoft.AspNetCore.Components.ElementReference)i.Arguments[0]!).Id).LastOrDefault();
-        Func<string?> onScreen = TextareaOnScreen(log);
-
-        for (int round = 0; round < 2; round++)
-        {
-            await log.InvokeAsync(() => ui.WorklogOpen!.AddNote());   // the side menu's block
-            log.WaitForAssertion(() => Assert.NotNull(onScreen()));
-            await log.InvokeAsync(() => { });   // the renderer has finished the after-render work of what was drawn (the attach): no render is needed to see it
-            Assert.Equal(onScreen(), attachedTo());
-
-            // an entry arriving above the editor (the file watcher's echo of the write, another agent's event) must not leave the helper on a textarea that is gone:
-            // the editor is keyed, so Blazor keeps its textarea and the helper stays on it
-            string? before = attachedTo();
-            string next = round == 0 ? "Planned" : "Confirmed";
-            File.AppendAllText(Path.Combine(repo.OpenSpec, "changes", "add-health-check", "events.log"), $"{DateTime.Now.AddMinutes(1 + round):s} | Tester | custom | {next} arrived\n");
-            ctx.Services.GetRequiredService<Workspace>().Notify();
-            log.WaitForAssertion(() => Assert.Contains($"{next} arrived", string.Concat(log.FindAll(".wk-e[data-kind='custom']").Select(Text))));
-            await log.InvokeAsync(() => { });
-            Assert.Equal(before, attachedTo());   // the same textarea, still the one the helper is on
-            Assert.Equal(onScreen(), attachedTo());
-            log.Find(".wk-edit").FocusOut();
-            log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
-        }
-    }
-
     // ── editor survives feed updates ──
 
     [Fact(DisplayName = "An open note editor keeps its textarea, text and focus when a new entry arrives above it, and does not close")]
@@ -1151,10 +1056,10 @@ public sealed class UsingTheWorklogTests : IDisposable
         await using BunitContext ctx = NewContext();
         UiService ui = ctx.Services.GetRequiredService<UiService>();
         IRenderedComponent<Worklog> log = Log(ctx);
-        List<string?> attached() => [.. ctx.JSInterop.Invocations.Where(i => i.Identifier == "rtm.markdownEditor").Select(i => ((Microsoft.AspNetCore.Components.ElementReference)i.Arguments[0]!).Id)];
+        Func<string?> onScreen = TextareaOnScreen(log);
         await log.InvokeAsync(() => ui.WorklogOpen!.AddNote());
-        log.WaitForAssertion(() => Assert.Single(attached()));
-        string? textarea = attached().Single();
+        log.WaitForAssertion(() => Assert.NotNull(onScreen()));
+        string? textarea = onScreen();
         log.Find(".wk-edit textarea").Input("typed while the feed changes");
 
         // an entry arriving above the editor: the file watcher's echo of a write, another agent's event
@@ -1163,9 +1068,10 @@ public sealed class UsingTheWorklogTests : IDisposable
         log.WaitForAssertion(() => Assert.Contains("arrived above", string.Concat(log.FindAll(".wk-e[data-kind='custom']").Select(Text))));
         await log.InvokeAsync(() => { });
 
-        // Blazor kept the textarea: the element reference the page holds is the one from before, so the table helper was not attached again (to a new
-        // element, which would have lost focus and the caret and, a moment later, closed the editor with its focusout), and the text is still in it
-        Assert.Equal([textarea], attached());
+        // Blazor kept the textarea (it was not created again, which would have lost focus and the caret and, a moment later, closed the editor with its
+        // focusout), the text is still in it, and the editor is a plain textarea: no table helper is attached (#wi208)
+        Assert.Equal(textarea, onScreen());
+        Assert.DoesNotContain(ctx.JSInterop.Invocations, i => i.Identifier == "rtm.markdownEditor");
         Assert.Equal("typed while the feed changes", log.Find(".wk-edit textarea").GetAttribute("value"));
         Assert.Single(log.FindAll(".wk-edit"));
     }
@@ -1340,5 +1246,71 @@ public sealed class UsingTheWorklogTests : IDisposable
         Assert.Contains("Planned", reported.Title);
         Assert.Contains("wk-bug", log.Find(".wk-edit").ClassList);
         Assert.NotNull(DayOf(log, today).QuerySelector(".wk-e[data-kind='status']"));
+    }
+
+    // ── #wi212: cheap feed events ──
+
+    [Fact(DisplayName = "A started, tests green and done event each show their kind as a label in the worklog, and a decision event is emphasised")]
+    public void AgentEventsShowTheirKind()
+    {
+        using BunitContext ctx = NewContext();
+        Assert.True(WorkItemsApi.LogEvent(123, "started", "Reading the plan.").Success);
+        Assert.True(WorkItemsApi.LogEvent(123, "tests-green", "12 passed\n0 failed").Success);
+        Assert.True(WorkItemsApi.LogEvent(123, "decision", "Kinds are labels, not new groups.").Success);
+        Assert.True(WorkItemsApi.LogEvent(123, "done", "Chunk finished.").Success);
+        Assert.True(WorkItemsApi.SetStatus(123, "Planned").Success);
+
+        IRenderedComponent<Worklog> log = Log(ctx);
+
+        IElement entry(string kind) => DayOf(log, DateTime.Today).QuerySelector($".wk-e[data-kind='{kind}']")!;
+        Assert.Equal("started", Text(entry("started").QuerySelector(".wk-kind")!));
+        Assert.Equal("tests green", Text(entry("tests-green").QuerySelector(".wk-kind")!));
+        Assert.Equal("done", Text(entry("done").QuerySelector(".wk-kind")!));
+        Assert.Contains("Reading the plan.", Text(entry("started")));
+        Assert.Contains("12 passed\n0 failed", entry("tests-green").QuerySelector(".wk-etext")!.TextContent);   // the breaks of a multi-line text are kept
+        IElement decision = entry("decision");
+        Assert.Contains("wk-decision", decision.ClassList);
+        Assert.Equal("Decision", Text(decision.QuerySelector(".wk-tag")!));
+        Assert.Contains("Kinds are labels", Text(decision));
+        Assert.DoesNotContain("wk-decision", entry("done").ClassList);
+        Assert.Null(entry("status").QuerySelector(".wk-kind"));   // other kinds are unchanged
+    }
+
+    // ── #wi213: notes and feed per item ──
+
+    [Fact(DisplayName = "The feed shows the new note without re-reading the other items' notes")]
+    public async Task TheFeedShowsTheNewNoteWithoutReReadingOthers()
+    {
+        for (int i = 0; i < 25; i++)   // a board with many items, each with a note of its own
+        {
+            string dir = $"openspec/changes/bulk-{i:D3}";
+            repo.Write(dir + "/.openspec.yaml", $"schema: spec-driven\ncreated: 2026-09-22\nx-rtm:\n  id: {200 + i}\n  title: Bulk item {i}\n  status: Planned\n  priority: low\n");
+            repo.Write(dir + "/tasks.md", "# Tasks\n\n## 1. Work\n\n- [ ] 1.1 First\n");
+            repo.Write(dir + $"/notes/n{1000 + i}.md", $"---\nid: {1000 + i}\nby: Test\ncreated: 2026-10-02T09:14:00\n---\n# Note {i}\n\nBody {i}.\n");
+        }
+        await using BunitContext ctx = NewContext();
+        TaskManager.AppState.Caches.S.Items.Clock = () => DateTime.UtcNow.AddMinutes(10);   // reads happen long after the files were written: none is "racy"
+        IRenderedComponent<Worklog> log = Log(ctx);
+        TaskManager.AppState.NotesCache.All();
+        List<string> opened = [], listed = [];
+        OpenSpecStore.OpenSpecStoreModule.State.ReadLog = opened;
+        TaskManager.AppState.NotesCache.ListLog = listed;
+        DateTime today = DateTime.Today;
+
+        OpenMenu(log, Header(log, today));
+        Task written = Written(ctx);
+        Pick(log, "Add note");
+        log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
+        log.Find(".wk-edit input.wk-title-in").Input("Brand new");
+        log.Find(".wk-edit textarea").Input("Seen at once.");
+        log.Find(".wk-edit textarea").FocusOut();
+        log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
+        await written;
+
+        log.WaitForAssertion(() => Assert.Contains("Brand new", Text(DayOf(log, today))), WaitThen.Bound);
+        string changes = Path.Combine(repo.Root, "openspec", "changes") + Path.DirectorySeparatorChar;
+        string mine = Path.Combine(changes, "add-health-check") + Path.DirectorySeparatorChar;
+        lock (opened) Assert.All(opened.Where(p => p.StartsWith(changes, StringComparison.OrdinalIgnoreCase) && p.Contains(Path.DirectorySeparatorChar + "notes" + Path.DirectorySeparatorChar)), p => Assert.StartsWith(mine, p, StringComparison.OrdinalIgnoreCase));   // no note of another change was opened (the board's own headers are the items cache's business)
+        lock (listed) Assert.All(listed, p => Assert.StartsWith(mine, p, StringComparison.OrdinalIgnoreCase));   // and no other change's notes folder was looked at
     }
 }

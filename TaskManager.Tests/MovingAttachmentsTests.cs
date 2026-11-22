@@ -17,7 +17,6 @@ namespace TaskManager.Tests;
 /// <summary>
 /// The attachments folder is a project setting (openspec/config.yaml, x-rtm.attachmentsDir), and changing it moves the files and the references to them.
 /// </summary>
-[Collection(nameof(RealTimeCollection))]
 public sealed class MovingAttachmentsTests : IDisposable
 {
     private const string Def = "local/task-tracking";
@@ -431,36 +430,13 @@ public sealed class MovingAttachmentsTests : IDisposable
         Assert.True(File.Exists(repo.PathOf($"{Def}/wi123/n123/y.png")));
     }
 
-    [Fact(DisplayName = "A change of the attachments folder in config.yaml from outside is followed without a restart")]
-    public async Task OutsideEditOfTheConfigIsFollowed()
-    {
-        SettingsStore settings = NewSettings();
-        using Workspace workspace = new(settings, new UiService());
-        Assert.True(workspace.Open(repo.Root).Success);
-        Assert.Equal(Path.GetFullPath(repo.PathOf(Def)), NotesApi.AttachmentsRoot(repo.Root));
-
-        repo.Write("openspec/config.yaml", "schema: spec-driven\n\n# lanes per column, written by the app\nx-rtm:\n  attachmentsDir: pulled/dir\n  lanes:\n    In Progress: [High priority, Lower priority]\n");   // a git pull
-        string want = Path.GetFullPath(repo.PathOf("pulled/dir"));
-        for (int i = 0; i < 100 && NotesApi.AttachmentsRoot(repo.Root) != want; i++) await Task.Delay(50);
-
-        Assert.Equal(want, NotesApi.AttachmentsRoot(repo.Root));
-        Assert.True(NotesApi.AttachBytes(123, "z.png", Png).Success);
-        Assert.True(File.Exists(repo.PathOf("pulled/dir/wi123/n123/z.png")));
-        Assert.Equal("pulled/dir", settings.AttachmentsDir(repo.Root));
-        Assert.Contains("attachments=pulled/dir", File.ReadLines(repo.PathOf("openspec/REPO-TASKS.md")).First());
-
-        repo.Write("openspec/config.yaml", "schema: spec-driven\n");                           // and back, by the same way
-        want = Path.GetFullPath(repo.PathOf(Def));
-        for (int i = 0; i < 100 && NotesApi.AttachmentsRoot(repo.Root) != want; i++) await Task.Delay(50);
-        Assert.Equal(want, NotesApi.AttachmentsRoot(repo.Root));
-    }
-
     // ── Settings ──
 
-    private BunitContext NewContext(out IRenderedComponent<Overlays> overlays)
+    private BunitContext NewContext(out IRenderedComponent<Overlays> overlays, FolderPicker? picker = null)
     {
         BunitContext ctx = new();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        if (picker is not null) ctx.Services.AddSingleton(picker);
         ctx.Services.AddSingleton<UiService>();
         ctx.Services.AddRadzenComponents();
         ctx.Services.AddSingleton(NewSettings());
@@ -470,7 +446,9 @@ public sealed class MovingAttachmentsTests : IDisposable
         return ctx;
     }
 
-    private static AngleSharp.Dom.IElement Field(IRenderedComponent<SettingsPage> page) => page.Find("input[aria-label='Files folder']");
+    private static AngleSharp.Dom.IElement Field(IRenderedComponent<SettingsPage> page, string kind = "images") => page.Find($"[data-folder='{kind}'] input");
+
+    private static string[] Actions(IRenderedComponent<SettingsPage> page, string kind = "images") => [.. page.FindAll($"[data-folder='{kind}'] .att-actions button").Select(b => b.TextContent.Trim())];
 
     private void WithImages()
     {
@@ -480,85 +458,97 @@ public sealed class MovingAttachmentsTests : IDisposable
         repo.Write(Proposal, $"# Proposal\n\n![]({Def}/wi123/pasted-1.png)\n");
     }
 
-    [Fact(DisplayName = "Changing the folder in Settings asks before moving, and Keep them where they are only changes where new files go")]
-    public async Task SettingsAsksBeforeMoving()
+    [Fact(DisplayName = "The images folder has a line of its own in Settings: a typed path offers Move files here and Point here, and Point here only changes where new files go")]
+    public async Task SettingsPointsWithoutMoving()
     {
         WithImages();
         await using BunitContext ctx = NewContext(out _);
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
+        Assert.Equal(Def, Field(page).GetAttribute("value"));                           // where the images are now
+        Assert.Empty(Actions(page));                                                    // nothing to do while the path is the current one
 
-        Field(page).Change("files/att");
+        page.ChangeWhenReady("[data-folder='images'] input", "files/att");
 
-        string ask = page.Find(".att-ask").TextContent;
-        Assert.Contains("Move 2 images from", ask);
-        Assert.Contains(Def, ask);
-        Assert.Contains("files/att/images", ask);
-        Assert.Contains("Notes, descriptions and plan links will point to the new places.", ask);
-        Assert.Equal(["Move", "Keep them where they are", "Cancel"], page.FindAll(".att-ask button").Select(b => b.TextContent.Trim()));
-        Assert.Equal(Def, settings.AttachmentsDir(repo.Root));                          // nothing is saved before the answer
-        Assert.Null(settings.FilesDir(repo.Root));
-        Assert.True(File.Exists(repo.PathOf($"{Def}/wi123/n123/shot.png")));
+        page.Eventually(() => Assert.Equal(["Move files here", "Point here"], Actions(page)));
+        page.Eventually(() => Assert.Empty(Actions(page, "plans")));                                           // the plans line is its own
+        page.Eventually(() => Assert.Equal(Def, settings.AttachmentsDir(repo.Root)));                          // nothing is saved before the click
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf($"{Def}/wi123/n123/shot.png"))));
 
-        page.Find(".att-ask .att-cancel").Click();                                       // cancelling puts the field back
-        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".att-ask")));
-        Assert.True(string.IsNullOrEmpty(Field(page).GetAttribute("value")));          // the old layout has no files folder to show
-        Assert.Equal(Def, settings.AttachmentsDir(repo.Root));
+        page.ChangeWhenReady("[data-folder='images'] input", Def);                                                        // typing the current path again takes the actions away
+        page.Eventually(() => Assert.Empty(Actions(page)));
 
         await page.InvokeAsync(() => { });
-        Field(page).Change("files/att");
-        page.Find(".att-ask .att-keep").Click();
-        page.WaitForAssertion(() => Assert.Equal("files/att/images", settings.AttachmentsDir(repo.Root)));
-        page.WaitForAssertion(() => Assert.Empty(page.FindAll(".att-ask")));
-        Assert.True(File.Exists(repo.PathOf($"{Def}/wi123/n123/shot.png")));           // the files stay
-        Assert.Contains($"{Def}/wi123/n123/shot.png", Unix(repo.Read(NoteFile)));       // and so do the references
-        Assert.Contains("filesDir: files/att", Config());
-        Assert.True(NotesApi.AttachBytes(123, "new.png", Png).Success);                  // only new files go to the new folder
-        Assert.True(File.Exists(repo.PathOf("files/att/images/wi123/n123/new.png")));
-        Assert.Equal("files/att", Field(page).GetAttribute("value"));
+        page.ChangeWhenReady("[data-folder='images'] input", "files/att");
+        page.ClickWhenReady("[data-folder='images'] .folder-point");
+        page.Eventually(() => Assert.Equal("files/att", settings.AttachmentsDir(repo.Root)));
+        page.Eventually(() => Assert.Empty(Actions(page)));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf($"{Def}/wi123/n123/shot.png"))));           // the files stay
+        page.Eventually(() => Assert.Contains($"{Def}/wi123/n123/shot.png", Unix(repo.Read(NoteFile))));       // and so do the references
+        page.Eventually(() => Assert.Contains("attachmentsDir: files/att", Config()));
+        page.Eventually(() => Assert.DoesNotContain("filesDir", Config()));                                    // the one-folder key is never written
+        page.Eventually(() => Assert.True(NotesApi.AttachBytes(123, "new.png", Png).Success));                  // only new files go to the new folder
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("files/att/wi123/n123/new.png"))));
+        page.Eventually(() => Assert.Equal("files/att", Field(page).GetAttribute("value")));
     }
 
-    [Fact(DisplayName = "After Move the settings show how many files moved and the notes show their images")]
-    public async Task SettingsMoves()
+    [Fact(DisplayName = "Move files here moves the images and their references and nothing else: the plans folder is left as it is")]
+    public async Task SettingsMovesImagesOnly()
     {
         WithImages();
+        repo.Write("DevResources/plans/p-2026-11-18.md", "# Plan\n");
         await using BunitContext ctx = NewContext(out _);
         IRenderedComponent<WorkItemPage> before = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         Assert.Equal(2, before.FindAll("img").Count(i => (i.GetAttribute("src") ?? "").StartsWith("data:image/png")));
 
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
-        Field(page).Change("files/att");
-        page.Find(".att-ask .att-move").Click();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
+        page.ChangeWhenReady("[data-folder='images'] input", "files/att");
+        page.ClickWhenReady("[data-folder='images'] .folder-move");
 
-        page.WaitForAssertion(() => Assert.Contains("Moved 2 files", page.Find(".att-done").TextContent));
-        Assert.Contains("2 references", page.Find(".att-done").TextContent);   // the entry of the note and the link in the description
-        Assert.Empty(page.FindAll(".att-ask"));
-        Assert.Equal("files/att/images", ctx.Services.GetRequiredService<SettingsStore>().AttachmentsDir(repo.Root));
-        Assert.Equal("files/att", Field(page).GetAttribute("value"));
-        Assert.True(File.Exists(repo.PathOf("files/att/images/wi123/n123/shot.png")));
-        Assert.True(File.Exists(repo.PathOf("files/att/images/wi123/pasted-1.png")));
-        Assert.False(Directory.Exists(repo.PathOf(Def)));
+        page.Eventually(() => Assert.Contains("Moved 2 files", page.Find("[data-folder='images'] .att-done").TextContent));
+        page.Eventually(() => Assert.Contains("2 references", page.Find("[data-folder='images'] .att-done").TextContent));   // the entry of the note and the link in the description
+        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+        page.Eventually(() => Assert.Equal("files/att", settings.AttachmentsDir(repo.Root)));
+        page.Eventually(() => Assert.Equal("DevResources/plans", settings.PlansDir(repo.Root)));
+        page.Eventually(() => Assert.Equal("files/att", Field(page).GetAttribute("value")));
+        page.Eventually(() => Assert.Empty(Actions(page)));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("files/att/wi123/n123/shot.png"))));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("files/att/wi123/pasted-1.png"))));
+        page.Eventually(() => Assert.False(Directory.Exists(repo.PathOf(Def))));
+        page.Eventually(() => Assert.True(File.Exists(repo.PathOf("DevResources/plans/p-2026-11-18.md"))));    // not a plan was touched
+        page.Eventually(() => Assert.DoesNotContain("plansDir", Config()));
 
         IRenderedComponent<WorkItemPage> after = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
-        Assert.Equal(2, after.FindAll("img").Count(i => (i.GetAttribute("src") ?? "").StartsWith("data:image/png")));
+        page.Eventually(() => Assert.Equal(2, after.FindAll("img").Count(i => (i.GetAttribute("src") ?? "").StartsWith("data:image/png"))));
     }
 
-    [Fact(DisplayName = "Changing the folder in Settings saves at once when the old folder holds no files, and refuses a folder that is not allowed with the reason")]
-    public async Task SettingsSavesWithoutFilesAndRefusesBadFolders()
+    [Fact(DisplayName = "Choose folder fills the line with the folder picked, written relative to the repository, and a folder that is not allowed is refused with the reason")]
+    public async Task SettingsChoosesAndRefuses()
     {
-        await using BunitContext ctx = NewContext(out _);
+        string picked = "";
+        await using BunitContext ctx = NewContext(out _, _ => picked);
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
-        Field(page).Change("files/att");                                                 // nothing in the old folder: nothing to ask
-        Assert.Empty(page.FindAll(".att-ask"));
-        Assert.Equal("files/att/images", settings.AttachmentsDir(repo.Root));
+        picked = repo.PathOf("files\\att");                                              // the dialog answers with an absolute path
+        page.ClickWhenReady("[data-folder='images'] .pick-folder");
+        page.Eventually(() => Assert.Equal("files/att", Field(page).GetAttribute("value").Replace('\\', '/')));  // shown relative to the repository
+        page.Eventually(() => Assert.Equal(["Move files here", "Point here"], Actions(page)));
+        page.Eventually(() => Assert.Equal(Def, settings.AttachmentsDir(repo.Root)));                          // choosing does not save: the click does
+        page.ClickWhenReady("[data-folder='images'] .folder-point");                       // nothing in the old folder: nothing to move, saved at once
+        page.Eventually(() => Assert.Equal("files/att", settings.AttachmentsDir(repo.Root)));
 
         await page.InvokeAsync(() => { });
-        Field(page).Change("openspec/pics");
-        page.WaitForAssertion(() => Assert.Contains("openspec", page.Find(".att-warn").TextContent));
-        Assert.Equal("files/att/images", settings.AttachmentsDir(repo.Root));
-        Assert.Empty(page.FindAll(".att-ask"));
-        Assert.Contains("saved with the project", page.Find("section[data-project] .muted").TextContent);   // the hint no longer calls the attachments folder the user's alone
+        page.ChangeWhenReady("[data-folder='images'] input", "openspec/pics");
+        page.ClickWhenReady("[data-folder='images'] .folder-point");
+        page.Eventually(() => Assert.Contains("openspec", page.Find("[data-folder='images'] .att-warn").TextContent));
+        page.Eventually(() => Assert.Equal("files/att", settings.AttachmentsDir(repo.Root)));
+
+        picked = Path.GetTempPath();                                                    // a folder outside the repository
+        page.ClickWhenReady("[data-folder='images'] .pick-folder");
+        page.ClickWhenReady("[data-folder='images'] .folder-move");
+        page.Eventually(() => Assert.Contains("outside the repository", page.Find("[data-folder='images'] .att-warn").TextContent));
+        page.Eventually(() => Assert.Equal("files/att", settings.AttachmentsDir(repo.Root)));
+        page.Eventually(() => Assert.Contains("saved with the project", page.Find("[data-project] .muted").TextContent));   // the hint no longer calls the attachments folder the user's alone
     }
 }

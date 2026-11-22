@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -14,13 +15,38 @@ public static class Paths
 
     public static string ServerJson => Path.Combine(Home, "server.json");
     public static string Logs => Path.Combine(Home, "logs");
+
     /// <summary>
-    /// The assembly version plus the newest build time among the app's own dlls: the version number alone never changes between
-    /// builds, and the version says which build of the app answers.
+    /// The folder the run logs, crash notes and freeze dumps go to: <paramref name="chosen"/> (the user's setting, an absolute path) when it is a folder that is there and can be written, else <see cref="Logs"/>
+    /// with a warning that says why. The run markers and publish-stop files are not asked here: they stay in <see cref="Logs"/>, where a publish and the next start look. RTM_HOME moves <see cref="Logs"/>, so
+    /// tests and demos have their own default.
     /// </summary>
-    public static string Version { get; } = $"{typeof(Paths).Assembly.GetName().Version}+{Directory.EnumerateFiles(AppContext.BaseDirectory, "*.dll")
-        .Where(f => Path.GetFileName(f) is var n && (n.StartsWith("TaskManager", StringComparison.Ordinal) || n is "OpenSpecStore.dll" or "WorkItems.dll" or "Notes.dll" or "Features.dll" or "GitHistory.dll" or "LinkedTestRuns.dll"))
-        .Select(File.GetLastWriteTimeUtc).DefaultIfEmpty(DateTime.UnixEpoch).Max():yyyyMMddHHmmss}";
+    public static (string Folder, string? Warning) LogsFor(string? chosen)
+    {
+        if (string.IsNullOrWhiteSpace(chosen)) return (Logs, null);
+        string text = chosen.Trim();
+        try
+        {
+            if (!Path.IsPathFullyQualified(text)) return (Logs, $"The logs folder {text} is not an absolute path; logging to {Logs} instead.");
+            string full = Path.GetFullPath(text);
+            if (!Directory.Exists(full)) return (Logs, $"The logs folder {full} is not there; logging to {Logs} instead.");
+            string probe = Path.Combine(full, $".rtm-write-{Environment.ProcessId}-{Guid.NewGuid():N}.tmp");
+            File.WriteAllText(probe, "");
+            File.Delete(probe);
+            return (full, null);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return (Logs, $"The logs folder {text} cannot be written ({e.Message}); logging to {Logs} instead.");
+        }
+    }
+    /// <summary>One file per repository: what the app read of its change folders, so the next start paints the board at once (see AppState/IndexFile.cs).</summary>
+    public static string Index => Path.Combine(Home, "index");
+    /// <summary>
+    /// The assembly version plus the time this build was made, embedded in the assembly by TaskManager.csproj (AssemblyMetadata "BuildTime"): the version number alone never changes between
+    /// builds, and the version says which build of the app answers. It does not depend on loose files beside the exe, which an older publish may have left behind.
+    /// </summary>
+    public static string Version { get; } = $"{typeof(Paths).Assembly.GetName().Version}+{typeof(Paths).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "BuildTime")?.Value ?? "unknown"}";
 
     /// <summary>RTM_PORT lets the app listen somewhere other than 7431 (a second copy of it, a demo).</summary>
     public static int Port => int.TryParse(Environment.GetEnvironmentVariable("RTM_PORT"), out int p) ? p : DefaultPort;

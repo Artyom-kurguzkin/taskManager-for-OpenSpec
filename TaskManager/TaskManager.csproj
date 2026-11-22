@@ -7,6 +7,13 @@
     <ApplicationIcon>wwwroot/icon.ico</ApplicationIcon>   <!-- drawn from wwwroot/icon.svg (Artyom's signature) -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <!-- the build stamp in every log header and in server.json (Paths.Version): the time of this build, in the assembly itself -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>BuildTime</_Parameter1>
+      <_Parameter2>$([System.DateTime]::UtcNow.ToString("yyyyMMddHHmmss"))</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Photino.Blazor" Version="4.0.13" />
     <PackageReference Include="Markdig" Version="1.4.1" />
@@ -14,6 +21,7 @@
     <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.5" />   <!-- the connected storage's secret: Windows per-user protection (DPAPI) -->
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="10.0.5" />   <!-- SessionEnding: a Windows shutdown or sign-out is named in the run marker, not guessed as a crash -->
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../OpenSpecStore/OpenSpecStore.csproj" />

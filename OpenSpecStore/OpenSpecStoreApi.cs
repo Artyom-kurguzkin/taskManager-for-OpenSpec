@@ -18,6 +18,14 @@ public static class OpenSpecStoreApi
     public static long TotalVersion { get { lock (OpenSpecStoreModule.Repos) return OpenSpecStoreModule.Repos.Values.Sum(r => Interlocked.Read(ref r.Version)); } }
     /// <summary>Makes every module read the current repository from disk again on its next call, for a caller that cannot wait for the watcher (a tool call right after an outside edit).</summary>
     public static void Refresh() => OpenSpecStoreModule.BumpOutside();
+    /// <summary>How many times a verification listed the tree in this process (a log line and a test count them).</summary>
+    public static int Listings => OpenSpecStoreModule.State.Listings;
+    /// <summary>
+    /// Looks for edits made behind the app's back without reading anything: one listing of the change folders, the main specs and config.yaml, compared to the size and modified time held for each file;
+    /// only the files that differ are read again (a racy stamp is checked once more), and <see cref="Changed"/> is raised when one does. Does nothing when the last look is younger than
+    /// <paramref name="maxAge"/>. The first look of a repository has nothing to compare with and makes every reader read again. True when something may have changed.
+    /// </summary>
+    public static bool Verify(TimeSpan? maxAge = null) => OpenSpecStoreModule.Current is { } repo && Verification.Verify(repo, maxAge ?? TimeSpan.Zero);
     public static string? OpenSpecRoot => OpenSpecStoreModule.RepoRoot is null ? null : Path.Combine(OpenSpecStoreModule.RepoRoot, "openspec");
     /// <summary>Opens a repository and makes it current. With <paramref name="keepOthers"/> the other open ones stay open (tabs); otherwise they close.</summary>
     public static (bool Success, string Message) Open(string repoRoot, bool keepOthers = false) => Commands.Open(repoRoot, keepOthers);
@@ -53,6 +61,13 @@ public static class OpenSpecStoreApi
     /// <summary>Every open repository, in the order opened.</summary>
     public static IReadOnlyList<string> OpenRoots { get { lock (OpenSpecStoreModule.Repos) return OpenSpecStoreModule.Repos.Values.OrderBy(r => r.Opened).Select(r => r.Root).ToList(); } }
     public static void Close() => Commands.Close();
+
+    /// <summary>Told of every exception the file watcher's timer callback catches beyond the expected IO errors (a listener of <see cref="Changed"/> that throws); the callback runs on a pool thread, where a throw would end the process. The app sets it to its log.</summary>
+    public static Action<Exception>? BackgroundFault
+    {
+        get => OpenSpecStoreModule.State.Fault;
+        set => OpenSpecStoreModule.State.Fault = value;
+    }
 
     /// <summary>Raised (debounced) when files under openspec/ change on disk, except for the app's own writes.</summary>
     public static event Action? Changed
@@ -93,6 +108,10 @@ public static class OpenSpecStoreApi
 
     // ── Files ──
     public static string ReadText(string path) => Queries.ReadText(path);
+    /// <summary>The file's text (null when it is missing) without recording it for the stale-write check: for a read that only looks (a newest time, a hash) and never backs an edit.</summary>
+    public static string? ReadUnrecorded(string path) => Queries.ReadUnrecorded(path);
+    /// <summary>The first <paramref name="lines"/> lines of the file (null when it is missing), not recorded: a note's frontmatter.</summary>
+    public static string? ReadHead(string path, int lines) => Queries.ReadHead(path, lines);
     public static (bool Success, string Message) WriteText(string path, string content) => Commands.WriteText(path, content);
     /// <summary>Reads the file fresh under the change folder's lock, applies <paramref name="edit"/> to its text and writes that, never refused as stale (append-only files like events.log).</summary>
     public static (bool Success, string Message) UpdateText(string path, Func<string, string> edit) => Commands.UpdateText(path, edit);
@@ -105,6 +124,9 @@ public static class OpenSpecStoreApi
     /// <summary>The de-indented YAML under the top-level <c>x-rtm:</c> key, or null when the file has none.</summary>
     public static string? ReadRtmBlock(string yamlPath) => Queries.ReadRtmBlock(yamlPath);
 
+    /// <summary>The de-indented YAML under <c>x-rtm:</c> in text already read, or null when it has none.</summary>
+    public static string? ExtractRtmBlock(string fileText) => RtmBlock.Extract(fileText);
+
     /// <summary>Replaces (or appends) only the <c>x-rtm:</c> block; every other line stays byte-for-byte.</summary>
     public static (bool Success, string Message) WriteRtmBlock(string yamlPath, string blockYaml) => Commands.WriteRtmBlock(yamlPath, blockYaml);
 
@@ -115,10 +137,8 @@ public static class OpenSpecStoreApi
     public static (bool Success, string Message) WriteRtmSection(string yamlPath, string key, string? sectionYaml) => Commands.WriteRtmSection(yamlPath, key, sectionYaml);
 
     // ── The project's settings: x-rtm in openspec/config.yaml ──
-    /// <summary>The default folder of note attachments in a project that has neither <c>x-rtm.filesDir</c> nor <c>x-rtm.attachmentsDir</c> (the old layout).</summary>
+    /// <summary>The default folder of note attachments in a project that has no <c>x-rtm.attachmentsDir</c> (nor the old <c>x-rtm.filesDir</c>).</summary>
     public const string DefaultAttachmentsDir = "local/task-tracking";
-    /// <summary>The default files folder of a project (<c>x-rtm.filesDir</c>): images and plans go inside it.</summary>
-    public const string DefaultFilesDir = "attachments";
 
     /// <summary>The project's config file: the one place its path is built.</summary>
     public static string ConfigFile(string repoRoot) => Queries.ConfigFile(repoRoot);
@@ -129,6 +149,9 @@ public static class OpenSpecStoreApi
     /// default and shows the problem; a file that is locked right now is <see cref="PublicDTOs.ConfigSection{T}.Unavailable"/>. For an open project the file is read and parsed once per change of the file, not per call.
     /// </summary>
     public static PublicDTOs.ConfigSection<T> ReadConfigSection<T>(string key, string? repoRoot = null) => Queries.ReadConfigSection<T>(key, repoRoot);
+
+    /// <summary>Whether the app itself wrote this file and it still has the size and modified time that write left (so its text is known, and nothing outside has touched it since): what a cache needs to patch an item from a write instead of reading the repository again.</summary>
+    public static bool HoldsWritten(string path) => OpenSpecStoreModule.WrittenText(Path.GetFullPath(path)) is not null;
 
     /// <summary>Moves each time the open project's files may have changed behind the app's back (the file watcher noticed an edit, or <see cref="Refresh"/>); the app's own writes do not move it, they are in <see cref="ChangesSince"/>.</summary>
     public static long OutsideVersion => OpenSpecStoreModule.Outside;

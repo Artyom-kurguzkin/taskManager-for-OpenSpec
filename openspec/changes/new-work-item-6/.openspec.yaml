@@ -7,7 +7,6 @@ x-rtm:
   status: In Review
   contributors: [Artyom-kurguzkin]
   plan: DevResources/plans/in-progress-sweep-2026-11-05.md
-  hidden: true
   tests: [{suite: UsingTheBoardTests, test: 'A card shows its title on a band coloured by status, its feature, its date and people, its subtask count, its coloured label tag, and no priority tag'}]
   agentBy: Claude chunk card-dates
   agentAt: 2026-11-16T11:05:44

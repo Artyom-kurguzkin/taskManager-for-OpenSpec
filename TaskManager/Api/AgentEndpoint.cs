@@ -15,6 +15,9 @@ namespace TaskManager.Api;
 public sealed record AgentEndpointOptions(int Port, string Home, string Token, string Version)
 {
     public Action? AfterWrite { get; init; }
+
+    /// <summary>Awaited before a tool call is handled (the app passes a wait for the repository load, so a call that arrives while the app is starting answers from the loaded board, not an empty one).</summary>
+    public Func<Task>? BeforeCall { get; init; }
 }
 
 /// <summary>What Settings shows: serving on a port, or not, and why (another window of the app holds the port, or the problem).</summary>
@@ -52,7 +55,7 @@ public sealed class AgentEndpoint : IAsyncDisposable
         WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
         builder.WebHost.UseUrls($"http://127.0.0.1:{options.Port}");   // loopback only
         builder.Logging.ClearProviders();
-        builder.Logging.AddProvider(new FileLoggerProvider(Path.Combine(options.Home, "logs", $"agents-{DateTime.Now:yyyyMMdd}.log")));
+        builder.Logging.AddProvider(new SharedLogProvider());   // the endpoint's lines land in the run's log, next to the app's
         builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
         builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(2));
         builder.Services.Configure<ConsoleLifetimeOptions>(o => o.SuppressStatusMessages = true);
@@ -77,6 +80,7 @@ public sealed class AgentEndpoint : IAsyncDisposable
                 ctx.Response.Headers.WWWAuthenticate = "Bearer";
                 return;
             }
+            if (!open && options.BeforeCall is { } before) await before();
             // what the relay knows about its agent: where it works and what it is called (percent-encoded: a header is ASCII)
             (string?, string?) caller = (Header(ctx, "X-Rtm-Repo"), Header(ctx, "X-Rtm-Agent"));
             Task rest = Task.CompletedTask;
@@ -156,31 +160,9 @@ public sealed class AgentEndpoint : IAsyncDisposable
     private static string? Header(HttpContext ctx, string name) => ctx.Request.Headers[name].ToString() is { Length: > 0 } v ? Uri.UnescapeDataString(v) : null;
 }
 
-/// <summary>Appends one line per log entry to a file; the endpoint's only log sink.</summary>
-internal sealed class FileLoggerProvider : ILoggerProvider
+/// <summary>Hands the host's loggers over to the app's one factory (<see cref="TaskManager.Helpers.AppLog"/>), so the endpoint has no sink of its own.</summary>
+internal sealed class SharedLogProvider : ILoggerProvider
 {
-    private readonly string _file;
-    private readonly object _lock = new();
-
-    public FileLoggerProvider(string file)
-    {
-        _file = file;
-        try { Directory.CreateDirectory(Path.GetDirectoryName(file)!); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
-    }
-
-    public ILogger CreateLogger(string category) => new Logger(this, category);
+    public ILogger CreateLogger(string category) => TaskManager.Helpers.AppLog.Logger(category);
     public void Dispose() { }
-
-    private sealed class Logger(FileLoggerProvider owner, string category) : ILogger
-    {
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel level) => level != LogLevel.None;
-
-        public void Log<TState>(LogLevel level, EventId id, TState state, Exception? error, Func<TState, Exception?, string> format)
-        {
-            string line = $"{DateTime.Now:HH:mm:ss.fff} {level,-11} {category}: {format(state, error)}{(error is null ? "" : " " + error)}{Environment.NewLine}";
-            lock (owner._lock)
-                try { File.AppendAllText(owner._file, line); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* a log line is never worth a crash */ }
-        }
-    }
 }

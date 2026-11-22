@@ -13,11 +13,13 @@ public sealed record AppSettings(
     List<string>? OpenRepos = null,    // repos open as tabs, in display order
     bool Hints = false,                // F shows keyboard hints on every clickable element (off until switched on)
     List<string>? HiddenProjects = null,      // tabs taken off the board and list (by Key); the side menu brings them back
+    List<string>? HiddenItems = null,         // work items taken off the board and list by the user (Key of the repository + "#" + the item's number): a view choice, never written into the repository
     List<string>? CollapsedProjects = null,   // tabs folded to their heading on the board (by Key)
-    Dictionary<string, string>? PlansDirs = null,   // old layout only: where plans live, per repository (by Key); missing = DevResources/plans. A project with a files folder keeps them in <filesDir>/plans
+    Dictionary<string, string>? PlansDirs = null,   // only what this computer had saved before the folder became a project setting (openspec/config.yaml plansDir); read until the project has one, cleared when it is saved there; missing = DevResources/plans
     Dictionary<string, string>? AttachmentsDirs = null,   // only what this computer had saved before the folder became a project setting (openspec/config.yaml); read until the project has one, cleared when it is saved there
     bool Split = true,                 // an open work item sits beside the list (half-screen) when the window is wide enough
-    List<string>? OpenMenuSections = null);   // the side menu's Organise / Filters / Hidden sections the user opened (all folded until then); per user, not per project
+    List<string>? OpenMenuSections = null,
+    string? LogsDir = null);                 // where the run logs, crash notes and freeze dumps go: an absolute folder; null = the app's own (Paths.Logs). Read before the settings are opened (PeekLogsDir)   // the side menu's Organise / Filters / Hidden sections the user opened (all folded until then); per user, not per project
 
 /// <summary>
 /// Per-user, per-computer settings in one JSON file (AppData/RepoTaskManager/settings.json by default): the theme, the name, and everything the user arranged for each project
@@ -90,10 +92,23 @@ public sealed class SettingsStore
     private readonly object fileGate = new();
     private ITimer? saveLater;
 
-    public void Update(Func<AppSettings, AppSettings> change)
+    public void Update(Func<AppSettings, AppSettings> change) => Apply(change, log: true);
+
+    // What the log says of a change of the settings (#wi178: one ui line per user action): the settings the user chose. Which tabs are open, the last repository, the boards' arrangements (written by SaveBoard) and the menu's folds are no news.
+    private static readonly System.Reflection.PropertyInfo[] Logged = [.. typeof(AppSettings).GetProperties().Where(p => p.Name is not ("LastRepo" or "OpenRepos" or "Boards" or "OpenMenuSections" or "CollapsedProjects"))];
+
+    private void Apply(Func<AppSettings, AppSettings> change, bool log)
     {
-        Current = change(Current);
+        AppSettings before = Current;
+        Current = change(before);
         Write();
+        if (log)
+            foreach (System.Reflection.PropertyInfo p in Logged)
+            {
+                object? was = p.GetValue(before), now = p.GetValue(Current);
+                if (JsonSerializer.Serialize(was) == JsonSerializer.Serialize(now)) continue;
+                TaskManager.Helpers.UiLog.Action("Settings", "Update", p.Name is "Theme" or "Hints" or "Split" ? $"{p.Name}={now}" : p.Name);
+            }
         Changed?.Invoke();
     }
 
@@ -147,6 +162,35 @@ public sealed class SettingsStore
         return (true, $"Moved to {targetFolder}.");
     }
 
+    /// <summary>Saves the folder the logs go to (null or empty = the app's own). It moves no file and does not switch the log: see <see cref="Helpers.AppLog.SwitchFolder"/>.</summary>
+    public void SetLogsDir(string? folder) => Update(s => s with { LogsDir = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim() });
+
+    /// <summary>
+    /// The logs folder saved in the settings file the app will open (the one the pointer names, else <paramref name="defaultPath"/>), read before the store is opened because the log starts first.
+    /// Any trouble (no file, no pointer, not JSON) reads as none.
+    /// </summary>
+    public static string? PeekLogsDir(string defaultPath, string pointerPath)
+    {
+        try
+        {
+            string file = defaultPath;
+            if (File.Exists(pointerPath) && File.ReadAllText(pointerPath).Trim() is { Length: > 0 } folder && File.Exists(Path.Combine(folder, FileName))) file = Path.Combine(folder, FileName);
+            return PeekLogsDir(file);
+        }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>The logs folder saved in this settings file, or null when it has none or the file cannot be read.</summary>
+    public static string? PeekLogsDir(string settingsFile)
+    {
+        try
+        {
+            using JsonDocument d = JsonDocument.Parse(File.ReadAllText(settingsFile));
+            return d.RootElement.TryGetProperty(nameof(AppSettings.LogsDir), out JsonElement v) && v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 } s ? s : null;
+        }
+        catch (Exception) { return null; }
+    }
+
     private static bool SamePath(string a, string b) => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     public BoardOptions Board(string repo)
@@ -190,6 +234,45 @@ public sealed class SettingsStore
     }
 
     public bool ProjectHidden(string repo) => Current.HiddenProjects?.Contains(Key(repo)) ?? false;
+    private static string ItemKey(string repo, int id) => Key(repo) + "#" + id;
+    public bool ItemHidden(string repo, int id) => Current.HiddenItems?.Contains(ItemKey(repo, id)) ?? false;
+    /// <summary>The numbers of the repository's work items the user hid in the app.</summary>
+    public IReadOnlySet<int> HiddenItemsOf(string repo)
+    {
+        string prefix = Key(repo) + "#";
+        return Current.HiddenItems?.Where(k => k.StartsWith(prefix, StringComparison.Ordinal) && int.TryParse(k.AsSpan(prefix.Length), out _)).Select(k => int.Parse(k[prefix.Length..])).ToHashSet() ?? [];
+    }
+    /// <summary>Hides (or shows again) work items of the repository in the app, in one write; nothing in the repository changes.</summary>
+    public void SetItemsHidden(string repo, IEnumerable<int> ids, bool hidden)
+    {
+        List<string> keys = [.. ids.Select(i => ItemKey(repo, i))];
+        TaskManager.Helpers.UiLog.Action("Settings", hidden ? "Hide" : "Show", string.Join(' ', ids.Select(i => "#wi" + i)));
+        Apply(s => s with { HiddenItems = Normalise([.. (s.HiddenItems ?? []).Where(k => !keys.Contains(k)), .. hidden ? keys : []]) }, log: false);
+    }
+    /// <summary>
+    /// "Show all hidden": in one write (one <see cref="Changed"/>), the repositories' hidden work items and projects come back, the view's hidden columns, rows and grid columns come back,
+    /// and the view's filters (contributor, period, changed, commit) return to their defaults, so nothing is left to keep a work item off the board.
+    /// </summary>
+    public void ShowAllHidden(IEnumerable<string> repos, string? viewRoot)
+    {
+        HashSet<string> keys = [.. repos.Select(Key)];
+        Update(s =>
+        {
+            Dictionary<string, BoardOptions> boards = new(s.Boards ?? []);
+            if (viewRoot is not null && boards.TryGetValue(Key(viewRoot), out BoardOptions? b))
+            {
+                BoardOptions d = new();
+                boards[Key(viewRoot)] = b with { Hidden = null, Who = d.Who, Period = d.Period, Commit = d.Commit, ChangedFrom = null, ChangedTo = null, ChangedFromTime = null, ChangedToTime = null };
+            }
+            return s with
+            {
+                Boards = s.Boards is null ? null : boards,
+                HiddenProjects = Normalise([.. (s.HiddenProjects ?? []).Where(k => !keys.Contains(k))]),
+                HiddenItems = Normalise([.. (s.HiddenItems ?? []).Where(k => !keys.Any(r => k.StartsWith(r + "#", StringComparison.Ordinal)))]),
+            };
+        });
+    }
+    private static List<string>? Normalise(List<string> list) => list.Count == 0 ? null : [.. list.Distinct()];
     public bool ProjectCollapsed(string repo) => Current.CollapsedProjects?.Contains(Key(repo)) ?? false;
     public void ToggleProjectHidden(string repo) => Update(s => s with { HiddenProjects = Toggle(s.HiddenProjects, Key(repo)) });
     public bool MenuSectionOpen(string section) => Current.OpenMenuSections?.Contains(section) ?? false;
@@ -200,11 +283,26 @@ public sealed class SettingsStore
     private string LegacyPlansDir(string repo) => Current.PlansDirs?.GetValueOrDefault(Key(repo)) ?? DefaultPlansDir;
 
     /// <summary>
-    /// The folder plans are in: <c>&lt;files folder&gt;/plans</c> when the project has a files folder, else the one this computer set (the old layout; default
-    /// <see cref="DefaultPlansDir"/>). Every reader of "the plans folder" asks here.
+    /// The folder plans are in. Reading order: the project's own (<c>x-rtm.plansDir</c> in openspec/config.yaml, so every computer that shares the project uses it), else
+    /// <c>&lt;old files folder&gt;/plans</c> when the config still has the old one-folder key, else the one this computer had saved (the oldest layout), else
+    /// <see cref="DefaultPlansDir"/>. Every reader of "the plans folder" asks here.
     /// </summary>
-    public string PlansDir(string repo) => Notes.NotesApi.ProjectFilesDir(repo) is string files ? files + "/" + PlansName : LegacyPlansDir(repo);
-    public void SetPlansDir(string repo, string? dir) => Update(s => s with { PlansDirs = WithDir(s.PlansDirs, repo, dir, DefaultPlansDir) });
+    public string PlansDir(string repo) => Notes.NotesApi.ProjectPlansDir(repo) ?? (FilesDir(repo) is string files ? files + "/" + PlansName : LegacyPlansDir(repo));
+
+    /// <summary>
+    /// Saves the project's plans folder in openspec/config.yaml (<c>plansDir: &lt;folder&gt;</c> inside the x-rtm block; empty means <see cref="DefaultPlansDir"/>, which removes the line
+    /// unless the old one-folder key is there, whose plans folder it would bring back) and clears the one this computer had kept. A folder that is not allowed, or a config.yaml
+    /// that cannot be written, is refused and nothing changes. It does not move any file: see <see cref="Notes.NotesApi.MovePlans"/>.
+    /// </summary>
+    public (bool Success, string Message) SetPlansDir(string repo, string? dir)
+    {
+        (bool ok, string clean, string why) = string.IsNullOrWhiteSpace(dir) ? (true, DefaultPlansDir, "") : Notes.NotesApi.CheckAttachmentsDir(dir);
+        if (!ok) return (false, why);
+        (bool saved, string message) = WriteProjectKey(repo, PlansKey, clean == DefaultPlansDir && FilesDir(repo) is null ? null : clean);
+        if (!saved) return (false, message);
+        Update(s => s with { PlansDirs = WithDir(s.PlansDirs, repo, null, DefaultPlansDir) });   // also tells the app, which follows the new folder
+        return (true, "");
+    }
 
     /// <summary>
     /// The repository-relative folder note attachments are copied to, under wi&lt;item&gt;/n&lt;note&gt;/ (forward slashes, no trailing slash). It is a project setting
@@ -212,27 +310,23 @@ public sealed class SettingsStore
     /// value, else the one this computer had saved for the repository before it was a project setting, else the default. A value that is not allowed is skipped.
     /// </summary>
     public const string DefaultAttachmentsDir = OpenSpecStoreApi.DefaultAttachmentsDir;
-    private const string AttachmentsKey = "attachmentsDir", FilesKey = "filesDir";
+    private const string AttachmentsKey = "attachmentsDir", PlansKey = "plansDir";
 
-    /// <summary>The project's files folder (<c>x-rtm.filesDir</c>): inside it <c>images</c> (what notes and descriptions attach) and <c>plans</c>. Default <c>attachments</c>.</summary>
-    public const string DefaultFilesDir = OpenSpecStoreApi.DefaultFilesDir, ImagesName = "images", PlansName = "plans";
+    /// <summary>The names of <c>images</c> and <c>plans</c> inside the old one-folder key (<c>x-rtm.filesDir</c>), which is still read for a repository that has it but never written.</summary>
+    public const string ImagesName = "images", PlansName = "plans";
 
-    /// <summary>The project's files folder, or null when its config.yaml has none: then the old plans and attachments folders are in use (nothing moves by itself).</summary>
-    public string? FilesDir(string repo) => Notes.NotesApi.ProjectFilesDir(repo);
+    /// <summary>The project's old one-folder key, or null when its config.yaml has none.</summary>
+    private static string? FilesDir(string repo) => Notes.NotesApi.ProjectFilesDir(repo);
 
     /// <summary>
-    /// The folder the attachments (images) are in: <c>&lt;files folder&gt;/images</c> when the project has a files folder, else the old layout's (below). It is the folder that is
-    /// git-ignored and synced with the board storage. Every reader of "the attachments folder" asks here.
+    /// The folder the attachments (images) are in: the project's own (<c>x-rtm.attachmentsDir</c>), else <c>&lt;old files folder&gt;/images</c> when the config still has the old
+    /// one-folder key, else this computer's (the oldest layout), else the default. It is the folder that is git-ignored and synced with the board storage. Every reader of
+    /// "the attachments folder" asks here.
     /// </summary>
     public string AttachmentsDir(string repo)
     {
-        if (FilesDir(repo) is string files) return files + "/" + ImagesName;
-        return LegacyAttachmentsDir(repo);
-    }
-
-    private string LegacyAttachmentsDir(string repo)
-    {
         if (ProjectAttachmentsDir(repo) is string project) return project;
+        if (FilesDir(repo) is string files) return files + "/" + ImagesName;
         string? mine = Current.AttachmentsDirs?.GetValueOrDefault(Key(repo));
         return mine is not null && Notes.NotesApi.CheckAttachmentsDir(mine) is { Ok: true } c ? c.Dir : DefaultAttachmentsDir;
     }
@@ -244,36 +338,19 @@ public sealed class SettingsStore
     }
 
     /// <summary>
-    /// Saves the project's attachments folder in openspec/config.yaml (<c>attachmentsDir: &lt;folder&gt;</c> inside the x-rtm block; the default removes the line) and
-    /// clears the one this computer had kept for the repository. A folder that is not allowed, or a config.yaml that cannot be written, is refused and nothing changes.
+    /// Saves the project's attachments folder in openspec/config.yaml (<c>attachmentsDir: &lt;folder&gt;</c> inside the x-rtm block; the default removes the line, unless the old
+    /// one-folder key is there, whose images folder it would bring back) and clears the one this computer had kept for the repository. A folder that is not allowed, or a config.yaml that cannot be written, is refused and nothing changes.
     /// It does not move any file: see <see cref="Notes.NotesApi.MoveAttachments"/>.
     /// </summary>
     public (bool Success, string Message) SetAttachmentsDir(string repo, string? dir)
     {
         (bool ok, string clean, string why) = Notes.NotesApi.CheckAttachmentsDir(dir);
         if (!ok) return (false, why);
-        (bool saved, string message) = WriteProjectAttachmentsDir(repo, clean == DefaultAttachmentsDir ? null : clean);
+        (bool saved, string message) = WriteProjectKey(repo, AttachmentsKey, clean == DefaultAttachmentsDir && FilesDir(repo) is null ? null : clean);
         if (!saved) return (false, message);
         Update(s => s with { AttachmentsDirs = WithDir(s.AttachmentsDirs, repo, null, DefaultAttachmentsDir) });   // also tells the app, which follows the new folder
         return (true, "");
     }
-
-    /// <summary>
-    /// Saves the project's files folder in openspec/config.yaml (<c>filesDir: &lt;folder&gt;</c> inside the x-rtm block; the default is written too, because a project without the line
-    /// has the old layout) and clears this computer's own plans and attachments folders for the repository, which nothing reads once the project has one. It does not move any file:
-    /// see <see cref="Notes.NotesApi.MoveAttachments"/> and <see cref="Notes.NotesApi.MovePlans"/>. A folder that is not allowed, or a config.yaml that cannot be written, is refused.
-    /// </summary>
-    public (bool Success, string Message) SetFilesDir(string repo, string? dir)
-    {
-        (bool ok, string clean, string why) = Notes.NotesApi.CheckFilesDir(dir);
-        if (!ok) return (false, why);
-        (bool saved, string message) = WriteProjectKey(repo, FilesKey, clean);
-        if (!saved) return (false, message);
-        Update(s => s with { PlansDirs = WithDir(s.PlansDirs, repo, null, DefaultPlansDir), AttachmentsDirs = WithDir(s.AttachmentsDirs, repo, null, DefaultAttachmentsDir) });   // also tells the app, which follows the new folders
-        return (true, "");
-    }
-
-    private static (bool Success, string Message) WriteProjectAttachmentsDir(string repo, string? dir) => WriteProjectKey(repo, AttachmentsKey, dir);
 
     private static (bool Success, string Message) WriteProjectKey(string repo, string key, string? dir) => OpenSpecStoreApi.WriteConfigValue(key, dir, repo);   // only that key
 

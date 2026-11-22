@@ -1,0 +1,11 @@
+@* The board's first frame while its project is being read: five grey columns with a few grey cards, the same markup as wwwroot/index.html paints before Blazor boots, so the hand-over does not jump. No spinner. *@
+<div class="skeleton" aria-hidden="true" data-testid="board-skeleton">
+    @foreach (int[] cards in Columns)
+    {
+        <div class="sk-col"><i class="sk sk-head"></i>@foreach (int tall in cards) { <i class="sk sk-card @(tall == 1 ? "tall" : "")"></i> }</div>
+    }
+</div>
+
+@code {
+    private static readonly int[][] Columns = [[0, 1, 0], [0, 0], [1, 0, 0], [0], [0, 1]];
+}

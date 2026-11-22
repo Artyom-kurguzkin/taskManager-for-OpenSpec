@@ -1,10 +1,9 @@
 schema: spec-driven
-skip_specs: true
 created: 2026-11-16
 x-rtm:
   id: 177
   title: attachments location
-  status: In Progress
+  status: In Review
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [maintainability]
@@ -12,3 +11,7 @@ x-rtm:
   started: 2026-11-16
   due: 2026-11-16
   moved: 2026-11-18
+  plan: DevResources/plans/in-progress-items-2026-11-18b.md
+  tests: [{suite: KeepingFilesInOneFolderTests, test: 'The project card has a Plans line and an Images line, each with a path and Choose folder, and no one-folder option'}, {suite: KeepingFilesInOneFolderTests, test: 'Typing a path for plans and one for images each saves on its own with Point here, and a refused folder says why'}, {suite: KeepingFilesInOneFolderTests, test: 'Move files here on the Plans line takes the plans to the new folder and leaves the images, and the other way round'}, {suite: KeepingFilesInOneFolderTests, test: 'After the moves, notes show their images, work items open their plans, and doc links in notes still resolve'}, {suite: KeepingFilesInOneFolderTests, test: 'Point here only changes where new images and new plans go, and every old file and link stays'}, {suite: KeepingFilesInOneFolderTests, test: A repository with the old one-folder key keeps images in its images folder and plans in its plans folder}, {suite: KeepingFilesInOneFolderTests, test: "A project without the old one-folder key keeps this computer's folders, and one with it resolves both from it until one of them is set"}, {suite: KeepingFilesInOneFolderTests, test: 'The agent guide names the plans and images folders after a change, from Settings or from outside'}, {suite: MovingAttachmentsTests, test: 'The images folder has a line of its own in Settings: a typed path offers Move files here and Point here, and Point here only changes where new files go'}, {suite: MovingAttachmentsTests, test: 'Move files here moves the images and their references and nothing else: the plans folder is left as it is'}, {suite: MovingAttachmentsTests, test: 'Choose folder fills the line with the folder picked, written relative to the repository, and a folder that is not allowed is refused with the reason'}, {suite: ReadingProjectSettingsFromConfigTests, test: Changing the plans folder in Settings writes only that key}, {suite: ReadingProjectSettingsFromConfigTests, test: 'The plans folder and the images folder are saved with the project one at a time, each read back on its own'}, {suite: ReadingProjectSettingsFromConfigTests, test: A repository with the old one-folder key resolves both folders from it until one of them is set}, {suite: ReadingProjectSettingsFromConfigTests, test: The plans and attachments folders resolve the same way on every screen}, {suite: RememberingSettingsTests, test: 'The plans folder is a per-repository setting: DevResources/plans unless changed, saved with the project, other repositories unaffected'}]
+  agentBy: Claude
+  agentAt: 2026-11-18T10:39:48

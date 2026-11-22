@@ -46,8 +46,8 @@ public sealed class ListBugFixesTests : IDisposable
     {
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
-        nav.Find("button[aria-label=Layout]").Click();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "List").Click();
+        nav.ClickWhenReady("button[aria-label=Layout]");
+        nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "List"));
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         BoardOptions o = settings.Board(repo.Root);
         settings.SaveBoard(repo.Root, o with { ListGroupBy = "label", ListSwimlane = o.Swimlane });
@@ -72,7 +72,7 @@ public sealed class ListBugFixesTests : IDisposable
         board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-id='124']").Count));   // the archived item of each project
 
         // a redraw (a select click) keeps each row's status as it was
-        await board.InvokeAsync(() => board.FindAll("tr[data-id='123']").First().QuerySelector("td.num")!.Click(new MouseEventArgs { ShiftKey = true }));
+        Act(board, () => board.FindAll("tr[data-id='123']").First().QuerySelector("td.num")!, e => e.Click(new MouseEventArgs { ShiftKey = true }));
         await board.InvokeAsync(() => { });
 
         Assert.All(board.FindAll("tr[data-id='124']"), r =>
@@ -93,17 +93,17 @@ public sealed class ListBugFixesTests : IDisposable
         ui.SetMenuExpanded(true);
         await board.InvokeAsync(() => { });
 
-        await board.InvokeAsync(() => Pill(board, 107, "status").Click());
+        Act(board, () => Pill(board, 107, "status"), e => e.Click());
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));   // the picker opened
         Assert.Null(ui.Examined);   // and the row was not examined
 
-        await board.InvokeAsync(() => board.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Blocked").Click());   // choosing a value is the pill's too
+        board.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Blocked"));   // choosing a value is the pill's too
         board.WaitForAssertion(() => Assert.Equal("Blocked", WorkItemsApi.Get(107)!.Status));
         Assert.Null(ui.Examined);
 
-        await board.InvokeAsync(() => Pill(board, 123, "priority").Click());
+        Act(board, () => Pill(board, 123, "priority"), e => e.Click());
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));
-        await board.InvokeAsync(() => board.FindAll(".menu-backdrop").Single().Click());   // so is the click outside that closes it
+        board.FireWhenReady(".menu-backdrop", e => e.Click(), all => all.Single());   // so is the click outside that closes it
         board.WaitForAssertion(() => Assert.Empty(board.FindAll(".menu-pop")));
         Assert.Null(ui.Examined);
     }
@@ -120,7 +120,7 @@ public sealed class ListBugFixesTests : IDisposable
         (string Root, int Id)? before = ui.Examined;
         Assert.Equal(123, before!.Value.Id);
 
-        await board.InvokeAsync(() => Pill(board, 107, "status").Click());
+        Act(board, () => Pill(board, 107, "status"), e => e.Click());
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));
 
         Assert.Equal(before, ui.Examined);   // neither moved to the pill's row nor let go
@@ -135,7 +135,7 @@ public sealed class ListBugFixesTests : IDisposable
         ui.SetMenuExpanded(true);
         await board.InvokeAsync(() => { });
 
-        await board.InvokeAsync(() => Pill(board, 107, "status").Click(new MouseEventArgs { ShiftKey = true }));
+        Act(board, () => Pill(board, 107, "status"), e => e.Click(new MouseEventArgs { ShiftKey = true }));
         board.WaitForAssertion(() => Assert.True(RowMarkProbe.Selected(board, Row(board, 107))));
         Assert.Empty(board.FindAll(".menu-pop"));
         Assert.Null(ui.Examined);
@@ -150,7 +150,7 @@ public sealed class ListBugFixesTests : IDisposable
         ui.SetMenuExpanded(true);
         await board.InvokeAsync(() => { });
 
-        await board.InvokeAsync(() => Row(board, 107).QuerySelector("td.num")!.Click());
+        Act(board, () => Row(board, 107).QuerySelector("td.num")!, e => e.Click());
         board.WaitForAssertion(() => Assert.Equal(107, ui.Examined?.Id));
     }
 
@@ -162,12 +162,12 @@ public sealed class ListBugFixesTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".head-row")));
 
-        await board.InvokeAsync(() => board.Find(".head-row > button.add-col").Click());
+        board.ClickWhenReady(".head-row > button.add-col");
         overlays!.WaitForAssertion(() => Assert.Equal([NameOf(repo), NameOf(repo2), "All projects"], overlays.FindAll(".dialog .choice").Select(c => c.TextContent.Trim())));
-        await overlays.InvokeAsync(() => overlays.FindAll(".dialog .choice").Single(c => c.TextContent.Trim() == "All projects").Click());
+        overlays.FireWhenReady(".dialog .choice", e => e.Click(), all => all.Single(c => c.TextContent.Trim() == "All projects"));
         overlays.WaitForAssertion(() => Assert.Contains("New status", overlays.Find(".dialog").TextContent));
-        await overlays.InvokeAsync(() => overlays.Find(".dialog input").Input("Design"));
-        await overlays.InvokeAsync(() => overlays.Find(".dialog button.primary").Click());
+        overlays.InputWhenReady(".dialog input", "Design");
+        overlays.ClickWhenReady(".dialog button.primary");
 
         board.WaitForAssertion(() => Assert.Contains("Design", ws.In(repo.Root, () => WorkItemsApi.GetStatuses())));
         Assert.Contains("Design", ws.In(repo2.Root, () => WorkItemsApi.GetStatuses()));
@@ -178,5 +178,10 @@ public sealed class ListBugFixesTests : IDisposable
         repo.Dispose();
         repo2.Dispose();
         File.Delete(settingsFile);
+    }
+    private static void Act<T>(Bunit.IRenderedComponent<T> cut, Func<AngleSharp.Dom.IElement?> find, Action<AngleSharp.Dom.IElement> fire) where T : Microsoft.AspNetCore.Components.IComponent
+    {
+        cut.Eventually(() => Xunit.Assert.NotNull(find()));   // rendered and present, or the test fails
+        cut.InvokeAsync(() => fire(find()!)).GetAwaiter().GetResult();
     }
 }

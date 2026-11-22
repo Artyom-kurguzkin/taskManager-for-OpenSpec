@@ -1,4 +1,8 @@
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.Logging;
 using OpenSpecStore;
 using TaskManager.AppState;
 using TaskManager.BackgroundJobs;
@@ -28,8 +32,14 @@ public abstract class RepoPage : RtmComponent, IDisposable
     private void LoadNow() { using IDisposable? scope = WindowScope(); lock (gate) loadedStamp = Stamp(); Loads++; Load(); }
 
     // What the repositories held when the page last read: a trailing reload that would read the same is skipped.
-    private (string?, long) loadedStamp;
-    private static (string?, long) Stamp() => (OpenSpecStoreApi.RepoRoot, OpenSpecStoreApi.TotalVersion);
+    private (string?, long, string) loadedStamp;
+
+    /// <summary>
+    /// What a read depends on: the store's version, and how far the start's load has come (headers in, git ready), which writes nothing to the store. Git becoming ready changes what the page
+    /// shows (the commit filter, the uncommitted marks), so a change that only carries it must not look like the echo of what the page already read.
+    /// </summary>
+    private (string?, long, string) Stamp() => (OpenSpecStoreApi.RepoRoot, OpenSpecStoreApi.TotalVersion,
+        string.Join('|', Workspace.Projects.Select(p => (Workspace.IsLoading(p) ? "L" : "") + (Workspace.IsGitReady(p) ? "G" : ""))));
 
     /// <summary>
     /// What the page's data depends on among its parameters (the item id, the document path). Blazor calls OnParametersSet again whenever the
@@ -60,7 +70,7 @@ public abstract class RepoPage : RtmComponent, IDisposable
     private bool windowOpen, dirty, disposed;
 
     // The store's stamp when this page's own background write finished, once the page showed that write's result itself: the Changed it raises is the page's own echo.
-    private (string?, long)? ownStamp;
+    private (string?, long, string)? ownStamp;
 
     protected virtual void OnChanged()
     {
@@ -79,18 +89,30 @@ public abstract class RepoPage : RtmComponent, IDisposable
         Reload();
     }
 
-    private void WindowEnded()
+    /// <summary>
+    /// The coalescing window's timer ended. It can be the timer's callback that is already running when the page closes (the window and its services go first): nothing here may throw into the timer,
+    /// so a page that is disposed does nothing and any other failure is logged at Warning.
+    /// </summary>
+    internal void WindowEnded()
     {
-        using IDisposable? scope = WindowScope();   // the stamp is of this window's project, like the one taken when the page read
-        lock (gate)
+        try
         {
-            if (disposed) return;
-            // Nothing was written since the page read (the echo of its own write): another reload would only re-render an identical tree.
-            if (!dirty || Stamp() == loadedStamp) { dirty = false; windowOpen = false; window?.Dispose(); window = null; return; }
-            dirty = false;
-            window?.Change(TimeSpan.FromMilliseconds(CoalesceMs), Timeout.InfiniteTimeSpan);
+            lock (gate) if (disposed) return;
+            using IDisposable? scope = WindowScope();   // the stamp is of this window's project, like the one taken when the page read
+            lock (gate)
+            {
+                if (disposed) return;
+                // Nothing was written since the page read (the echo of its own write): another reload would only re-render an identical tree.
+                if (!dirty || Stamp() == loadedStamp) { dirty = false; windowOpen = false; window?.Dispose(); window = null; return; }
+                dirty = false;
+                window?.Change(TimeSpan.FromMilliseconds(CoalesceMs), Timeout.InfiniteTimeSpan);
+            }
+            Reload();
         }
-        Reload();
+        catch (Exception e)
+        {
+            AppLog.Logger(GetType().Name).LogWarning(e, "The page's reload window ended with an error; the page was closed or its window is gone");
+        }
     }
 
     private void Reload() => _ = InvokeAsync(() =>
@@ -100,10 +122,37 @@ public abstract class RepoPage : RtmComponent, IDisposable
         StateHasChanged();
     });
 
-    /// <summary>Runs a module command; a success refreshes every page through the workspace, a failure is shown as a toast.</summary>
-    protected bool Run((bool Success, string Message) result)
+    /// <summary>What a log line names when the call gives no target: the page's work item or note (<c>#wi123</c>, <c>#n7</c>), or nothing.</summary>
+    protected virtual string? LogTarget => null;
+
+    private static readonly Regex ModuleCall = new(@"\b[A-Z]\w*Api\.(\w+)\(", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The action of a command: the module call in the expression the page passed (<c>WorkItemsApi.SetStatus(...)</c> gives SetStatus), else the name of the method that ran it.
+    /// A command that is no change, only a refresh of what the page shows (<c>(true, "")</c>), is no action: null.
+    /// </summary>
+    internal static string? ActionOf(string? expression, string? member) =>
+        expression is not null && expression.TrimStart().StartsWith("(true", StringComparison.Ordinal) ? null
+        : ModuleCall.Match(expression ?? "") is { Success: true } m ? m.Groups[1].Value : member;
+
+    /// <summary>
+    /// One Information line for a user action that changed something: <c>ui &lt;page&gt; &lt;action&gt; &lt;#wiN | target&gt;</c>. Every command of a page passes here when it succeeds
+    /// (<see cref="Run"/>, <see cref="RunInBackground"/>); a page that writes some other way calls it itself.
+    /// </summary>
+    protected void LogAction(string? action, string? target = null)
     {
-        if (Workspace.Do(result).Success) { Popups.Saved(); return true; }
+        if (action is null) return;
+        string name = GetType().Name, page = name.Length > 4 && name.EndsWith("Page", StringComparison.Ordinal) ? name[..^4] : name;
+        UiLog.Action(page, action, target ?? LogTarget);
+    }
+
+    /// <summary>Runs a module command; a success refreshes every page through the workspace and logs the action, a failure is shown as a toast. <paramref name="target"/> names what it changed (the page's own item by default).</summary>
+    protected bool Run((bool Success, string Message) result, string? target = null, [CallerArgumentExpression(nameof(result))] string? what = null, [CallerMemberName] string? member = null)
+    {
+        using Activity? command = AppLog.Start("ui.command", GetType().Name);
+        if (Workspace.Do(result).Success) { command?.SetTag("result", "ok"); LogAction(ActionOf(what, member), target); Popups.Saved(); return true; }
+        command?.SetTag("result", "refused: " + result.Message);
+        AppLog.Logger(GetType().Name).LogWarning("A command was refused: {Message}", result.Message);
         Popups.Toast(result.Message, ToastKind.Warning);
         return false;
     }
@@ -113,26 +162,32 @@ public abstract class RepoPage : RtmComponent, IDisposable
     /// and the file write, its lock wait and the refresh of every page follow without holding the window. A failed command puts the page right by reading and shows a toast.
     /// With <paramref name="show"/> the page's own echo of the write is skipped: it already shows the result. Pass the command as a call (<c>() =&gt; Api.Do(...)</c>), not its result.
     /// </summary>
-    protected async Task<bool> RunInBackground(Func<(bool Success, string Message)> command, Action? show = null)
+    protected async Task<bool> RunInBackground(Func<(bool Success, string Message)> command, Action? show = null, string? target = null, [CallerArgumentExpression(nameof(command))] string? what = null, [CallerMemberName] string? member = null)
     {
+        using Activity? trace = AppLog.Start("ui.command", GetType().Name);   // the write and the scan that follow are its children: one trace id
         if (show is not null) { show(); StateHasChanged(); }
-        (bool ok, string message) = await Workspace.DoLater(command, show is null ? null : () =>
-        {
-            using (WindowScope()) { (string?, long) stamp = Stamp(); lock (gate) ownStamp = stamp; }
-        });
-        if (ok) { Popups.Saved(); return true; }
+        (bool ok, string message) = await Workspace.DoLater(command, show is null ? null : NoteOwnWrite);
+        trace?.SetTag("result", ok ? "ok" : "refused: " + message);
+        if (ok) { LogAction(ActionOf(what, member), target); Popups.Saved(); return true; }
+        AppLog.Logger(GetType().Name).LogWarning("A command was refused: {Message}", message);
         if (show is not null) Refresh();   // what was shown ahead of the write is put right by what is written
         Popups.Toast(message, ToastKind.Warning);
         return false;
+    }
+
+    /// <summary>Notes that the page showed the result of the write that has just finished itself: the Changed it raises (after the writes' quiet time, see <see cref="Workspace.NotifyWritten()"/>) is this page's own echo and reads nothing. Runs on the pool, after the write.</summary>
+    protected void NoteOwnWrite()
+    {
+        using (WindowScope()) { (string?, long, string) stamp = Stamp(); lock (gate) ownStamp = stamp; }
     }
 
     /// <summary>Reads again and draws: for a page whose background command made more than <c>show</c> projected (its own echo was skipped).</summary>
     protected void Refresh() { LoadNow(); StateHasChanged(); }
 
     /// <summary>Like <see cref="Run"/>, for a command that saved or removed an attachment file: the connected storage's sync follows even when no board file moved.</summary>
-    protected bool RunAttachment((bool Success, string Message) result)
+    protected bool RunAttachment((bool Success, string Message) result, string? target = null, [CallerArgumentExpression(nameof(result))] string? what = null, [CallerMemberName] string? member = null)
     {
-        bool ok = Run(result);
+        bool ok = Run(result, target, what, member);
         if (ok) Workspace.AttachmentsChanged();
         return ok;
     }

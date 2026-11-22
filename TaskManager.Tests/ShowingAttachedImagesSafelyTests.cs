@@ -143,10 +143,10 @@ public sealed class ShowingAttachedImagesSafelyTests : IDisposable
         Assert.StartsWith("data:image/png;base64,", shown);
 
         using FileStream held = new(repo.PathOf("files/att/ok.png"), FileMode.Open, FileAccess.Read, FileShare.None);
-        page.Find(".note-view").Click();
-        page.Find("textarea.desc-in").Input("typed one");
-        page.Find("textarea.desc-in").Input("typed two");
+        page.ClickWhenReady(".note-view");
+        page.InputWhenReady("textarea.desc-in", "typed one");
+        page.InputWhenReady("textarea.desc-in", "typed two");
 
-        Assert.Equal(shown, page.Find("img.att-img").GetAttribute("src"));
+        page.Eventually(() => Assert.Equal(shown, page.Find("img.att-img").GetAttribute("src")));
     }
 }

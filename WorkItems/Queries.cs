@@ -69,20 +69,29 @@ internal static partial class Queries
         return statuses.Contains(item.Status) ? item : item with { Status = "Backlog" };
     }
 
+    /// <summary>The item with its folder revision attached (an item the host kept between runs has none: it was not built from the folder in this run).</summary>
+    internal static WorkItem Restore(WorkItem saved)
+    {
+        string dir = saved.Path, root = OpenSpecStoreApi.RepoRoot ?? dir;
+        return saved with { RevisionOf = new RevisionSource(() => Revision(dir, root)) };
+    }
+
     private static FolderRead Parse(string dir, bool archived)
     {
-        List<FileSystemInfo> infos = [.. new DirectoryInfo(dir).EnumerateFileSystemInfos("*", SearchOption.AllDirectories)];
+        List<FileInfo> files = [.. new DirectoryInfo(dir).EnumerateFiles("*", SearchOption.AllDirectories)];   // names, sizes and times of the folder in one pass: no file is opened for it
         WorkItemsModule.FolderParses++;
         string? problem = null;
         Rtm meta;
+        string yaml = OpenSpecStoreApi.ReadText(Yaml(dir));   // the header: read once, for the block and the created line
         // A .openspec.yaml that does not parse (a hand edit, an agent) must not take the board down: the item shows from what is readable, with the reason as its warning.
-        try { meta = Metadata.Read<Rtm>(Yaml(dir), out problem); }   // a value written without quotes that YAML cannot read is mended: the item shows it, with a note
+        try { meta = Metadata.ReadFrom<Rtm>(Yaml(dir), yaml, out problem); }   // a value written without quotes that YAML cannot read is mended: the item shows it, with a note
         catch (MetadataException e)
         {
             problem = e.Message + "; fix it and the item's fields will show";
-            meta = new Rtm { Id = StoredIdIn(OpenSpecStoreApi.ReadText(Yaml(dir))) };   // its number, when the line can still be found, so links to #wiN hold
+            meta = new Rtm { Id = StoredIdIn(yaml) };   // its number, when the line can still be found, so links to #wiN hold
         }
-        return new FolderRead { Dir = dir, Archived = archived, StoredId = meta.Id, Meta = meta, Item = Build(dir, archived, meta, meta.Id ?? 0, [.. infos.OfType<FileInfo>()], problem) };
+        WorkItem built = Build(dir, archived, meta, meta.Id ?? 0, files, yaml, problem);
+        return new FolderRead { Dir = dir, Archived = archived, StoredId = meta.Id, Meta = meta, Item = built };
     }
 
     /// <summary>Changes that carry no x-rtm.id of their own, so their number is provisional until their first edit; ResolveDuplicateIds writes it down.</summary>
@@ -186,27 +195,38 @@ internal static partial class Queries
             : [];
     }
 
-    private static WorkItem Build(string dir, bool archived, Rtm meta, int id, IReadOnlyList<FileInfo> files, string? problem)
+    /// <summary>The same from the folder's file list already taken (no second walk of the folder).</summary>
+    private static IEnumerable<string> DeltaCapabilities(string dir, IReadOnlyList<FileInfo> files)
+    {
+        string specs = Path.Combine(dir, "specs");
+        return files.Where(f => f.Name == "spec.md" && f.FullName.StartsWith(specs + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .Select(f => Path.GetRelativePath(specs, f.DirectoryName!).Replace('\\', '/')).Order();
+    }
+
+    /// <summary>
+    /// What the board needs of a folder: the header (<c>.openspec.yaml</c>, already read as <paramref name="yaml"/>), <c>tasks.md</c> for the subtask counts, the names of the spec folders (from the file list), and the
+    /// worklog's newest time for "updated". The proposal is read only when the header has no title; notes, events and specs are bodies, read when a page asks (see ItemsCache and NotesCache).
+    /// </summary>
+    private static WorkItem Build(string dir, bool archived, Rtm meta, int id, IReadOnlyList<FileInfo> files, string yaml, string? problem)
     {
         string folder = Path.GetFileName(dir);
-        string proposal = OpenSpecStoreApi.ReadText(Path.Combine(dir, "proposal.md"));
-        string yaml = OpenSpecStoreApi.ReadText(Yaml(dir));
+        string root = OpenSpecStoreApi.RepoRoot ?? dir;   // the revision is worked out later, perhaps in another repository's scope
         string? warning = problem;
         string status = archived ? "Completed" : meta.Status ?? "Backlog";
         if (!archived && status == "Completed") (status, warning) = ("Blocked", "Marked Completed but not archived");
 
-        List<string> derived = DeltaCapabilities(dir).ToList();
+        List<string> derived = DeltaCapabilities(dir, files).ToList();
         List<string> unlinked = [.. (meta.UnlinkedFeatures ?? []).Intersect(derived)];
         // one feature per item: the one picked by hand wins over the change's specs, else its first spec (older files may list several)
         List<FeatureLink> features = [.. (meta.Features ?? []).Except(derived).Select(p => new FeatureLink(p, false)), .. derived.Except(unlinked).Select(p => new FeatureLink(p, true))];
         features = features.Take(1).ToList();
 
         DateTime created = CreatedLine().Match(yaml) is { Success: true } c && DateTime.TryParse(c.Groups["d"].Value, out DateTime d) ? d : Directory.GetCreationTime(dir);
-        DateTime modified = WorklogChange(dir, files) ?? files.Select(f => f.LastWriteTime).DefaultIfEmpty(created).Max();   // the worklog's last change; a checkout or sync rewrites every file, so file times only stand in when there is no worklog
+        DateTime modified = WorklogChange(dir, files, archived) ?? files.Select(f => f.LastWriteTime).DefaultIfEmpty(created).Max();   // the worklog's last change; a checkout or sync rewrites every file, so file times only stand in when there is no worklog
 
         return new WorkItem(
             id, folder, dir,
-            meta.Title ?? Proposal.Title(proposal) ?? Proposal.FolderTitle(folder),
+            meta.Title ?? Proposal.Title(OpenSpecStoreApi.ReadText(Path.Combine(dir, "proposal.md"))) ?? Proposal.FolderTitle(folder),
             status, meta.Priority ?? "low",
             meta.Contributors ?? [],
             features,
@@ -214,36 +234,55 @@ internal static partial class Queries
             meta.Lanes ?? [],
             archived, created, modified, warning, meta.Hidden == true, meta.Contributors,
             meta.Label, meta.Commits ?? [], (meta.Tests ?? []).Select(t => new TestLink(t.Suite, t.Test, t.Note)).ToList(), meta.DependsOn ?? [], meta.MergedFrom ?? [], unlinked,
-            meta.AgentBy, Time(meta.AgentAt), Time(meta.ReviewedAt), Day(meta.Started), Day(meta.Due), Day(meta.Moved), meta.Plan, Revision(dir, files), meta.Docs ?? []);
+            meta.AgentBy, Time(meta.AgentAt), Time(meta.ReviewedAt), Day(meta.Started), Day(meta.Due), Day(meta.Moved), meta.Plan, meta.Docs ?? [], meta.MergedFolders ?? []) { RevisionOf = new RevisionSource(() => Revision(dir, root)) };
     }
+
+    /// <summary>The revisions worked out, by folder, with the look of the folder they were worked out for (see <see cref="Revision"/>).</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Stamp, string Revision)> Revisions = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// First 12 hex chars of SHA-256 over path + content of every file in the change folder, sorted by repo-relative path; "" when the folder cannot be read.
-    /// It hashes contents, not the folder's look (sizes and times): an agent compares it across processes and copies of the repository, which times do not survive,
-    /// and it is computed only when the folder is parsed, so unchanged folders never pay for it.
+    /// It hashes contents, not the folder's look (sizes and times): an agent compares it across processes and copies of the repository, which times do not survive.
+    /// It reads every file of the folder, so it is worked out when asked (see <see cref="WorkItem.Revision"/>), never when the board is built; the answer is kept while the folder looks the same
+    /// (names, sizes and times of its files, none of them written in the last two seconds, when two edits can share a timestamp).
     /// </summary>
-    private static string Revision(string dir, IReadOnlyList<FileInfo> files)
+    private static string Revision(string dir, string root)
     {
         try
         {
-            string root = OpenSpecStoreApi.RepoRoot ?? dir;
+            List<FileInfo> files = [.. new DirectoryInfo(dir).EnumerateFiles("*", SearchOption.AllDirectories)];
+            string stamp = string.Join('\n', files.Select(f => $"{f.FullName}|{f.Length}|{f.LastWriteTimeUtc.Ticks}"));
+            bool settled = files.All(f => f.LastWriteTimeUtc < DateTime.UtcNow.AddSeconds(-2));
+            if (settled && Revisions.TryGetValue(dir, out var known) && known.Stamp == stamp) return known.Revision;
             using var sha = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
             foreach (string file in files.Select(f => (Path: Path.GetRelativePath(root, f.FullName).Replace('\\', '/'), Full: f.FullName)).OrderBy(f => f.Path, StringComparer.Ordinal).Select(f => f.Full))
-                sha.AppendData(System.Text.Encoding.UTF8.GetBytes(Path.GetRelativePath(root, file).Replace('\\', '/') + "\n" + File.ReadAllText(file)));
-            return Convert.ToHexStringLower(sha.GetHashAndReset())[..12];
+                sha.AppendData(System.Text.Encoding.UTF8.GetBytes(Path.GetRelativePath(root, file).Replace('\\', '/') + "\n" + (OpenSpecStoreApi.ReadUnrecorded(file) ?? "")));
+            string revision = Convert.ToHexStringLower(sha.GetHashAndReset())[..12];
+            if (settled) Revisions[dir] = (stamp, revision);
+            return revision;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return ""; }
     }
 
-    /// <summary>When the worklog last changed: the newest line of events.log or note's <c>created</c> time; null when the change has neither.</summary>
-    private static DateTime? WorklogChange(string dir, IReadOnlyList<FileInfo> files)
+    /// <summary>How much later a note's <c>created</c> may be than its file's modified time and still be found (a hand-written timestamp is a guess; the app's own are the time of the write).</summary>
+    private static readonly TimeSpan CreatedAfterWritten = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// When the worklog last changed: the newest line of events.log or note's <c>created</c> time; null when the change has neither. events.log is read for its times only. A note is never created
+    /// after its file was last written (give or take <see cref="CreatedAfterWritten"/>), so the notes are taken newest file first and a note's head is read only while its file is newer than the newest time
+    /// found so far: in a repository somebody has been using that is a note or two, not every note. After a checkout wrote every file now, none can be skipped and each head is read, as before.
+    /// An archived change with a log is taken from the log alone (archiving rewrites the folder, so its file times say nothing).
+    /// </summary>
+    private static DateTime? WorklogChange(string dir, IReadOnlyList<FileInfo> files, bool archived)
     {
-        DateTime? last = EventLog.Read(dir).Select(e => (DateTime?)e.At).Max();
-        foreach (FileInfo f in files.Where(f => f.Extension == ".md" && f.Directory?.Name == "notes"))
+        DateTime? last = EventLog.Newest(dir);
+        if (archived && last is not null) return last;   // an archived change's files were all written when it was moved: its log says when it last changed, and its notes are not opened for the board
+        foreach (FileInfo f in files.Where(f => f.Extension == ".md" && f.Directory?.Name == "notes").OrderByDescending(f => f.LastWriteTime))
         {
+            if (last is DateTime best && f.LastWriteTime < best - CreatedAfterWritten) break;   // this and every older file: no note in them can be newer
             try
             {
-                string head = string.Join(Environment.NewLine, File.ReadLines(f.FullName).Take(10));
+                string head = OpenSpecStoreApi.ReadHead(f.FullName, 10) ?? "";
                 if (NoteCreated().Match(head) is { Success: true } m && DateTime.TryParse(m.Groups["d"].Value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime at) && at > (last ?? DateTime.MinValue)) last = at;
             }
             catch (IOException) { }

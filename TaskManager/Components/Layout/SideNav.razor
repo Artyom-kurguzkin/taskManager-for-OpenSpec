@@ -5,6 +5,11 @@
 @implements IDisposable
 @* Left icon rail; ☰ expands it to labels, the board's view options and the list of hidden columns.
    On narrow windows the same markup lays out as a top header bar (see app.css "side menu"), where the view icon opens the options. *@
+@if (!expanded)
+{
+    @* Collapsed, the rail is hidden off the left edge (app.css "auto-hiding"); this thin zone before it brings it back while the pointer is on it. *@
+    <div class="side-edge" aria-hidden="true"></div>
+}
 <nav class="side @(expanded ? "expanded" : "")" @onclick="LetGo">
     @* The collapse icon is the rail's first row; expanded, it shares the first visible row instead (the projects row, or the Worklog header). *@
     @if (!ToggleInRow) { @Toggle(false) }
@@ -62,9 +67,8 @@
             <button class="nav-btn compact-btn @(OnBoard && on ? "is-sel" : "")" aria-label="@(listView ? "Show subtasks" : "Compact cards")" aria-pressed="@(on ? "true" : "false")"
                     title="@(listView ? (on ? "Subtasks: shown" : "Subtasks: folded") : on ? "Compact cards: on" : "Compact cards: off")"
                     disabled="@(!OnBoard)" @onclick="() => Set(listView ? ViewOptions() with { ShowSubtasks = !on } : ViewOptions() with { Compact = !on })">@Ui.Icon("compact")</button>
-            <button class="nav-btn hidden-btn @(OnBoard && o.ShowHidden ? "is-sel" : "")" aria-label="Show all hidden" aria-pressed="@(o.ShowHidden ? "true" : "false")"
-                    title="@(o.ShowHidden ? "Show all hidden: on" : "Show all hidden: off")"
-                    disabled="@(!OnBoard)" @onclick="ToggleShowHidden">@Ui.Icon(o.ShowHidden ? "eye" : "eyeoff")</button>
+            <button class="nav-btn hidden-btn" aria-label="Show all hidden" title="Show all hidden"
+                    disabled="@(!OnBoard)" @onclick="Workspace.ShowAllHidden">@Ui.Icon("eye")</button>
         }
         <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="ToggleMenu">@Ui.Icon("sliders")</button>
         @if (expanded && Popups.WorklogOpen is { } worklog)
@@ -121,6 +125,10 @@
         }
     }
     <span class="spacer"></span>
+    @if (expanded)
+    {
+        <button class="nav-btn nav-log" aria-label="Open current log" title="Open this run's log file in the default editor" @onclick="OpenLog">@Ui.Icon("doc")<span class="nav-l">Open current log</span></button>
+    }
     <button class="nav-btn @(OnSettings ? "is-sel" : "")" aria-label="Settings" title="Settings" @onclick='() => Nav.NavigateTo("settings")'>@Ui.Icon("gear")<span class="nav-l">Settings</span></button>
 </nav>
 
@@ -195,7 +203,7 @@
     /// </summary>
     private sealed record WorklogKey(WorklogActions Actions, WorklogFilters Filter, string People, string Days, string Picked, bool CanLinkTest, bool CanLinkCommit);
     private sealed record NavKey(bool Expanded, bool OnBoard, bool Split, bool Fills, bool OnSettings, string? Root, string Repos, string HiddenRepos, string View,
-        bool Compact, bool Subtasks, bool ShowHidden, bool Examining, WorklogKey? Worklog);
+        bool Compact, bool Subtasks, bool Examining, WorklogKey? Worklog);
 
     private NavKey MakeKey()
     {
@@ -207,7 +215,7 @@
                 w.CanLinkTest?.Invoke() ?? true, w.CanLinkCommit?.Invoke() ?? true)
             : null;
         return new NavKey(open, OnBoard, SplitItem, ItemFillsWindow, OnSettings, Workspace.Root, string.Join('|', repos), string.Concat(repos.Select(r => Settings.ProjectHidden(r) ? '1' : '0')),
-            options.View, !open && options.Compact, !open && options.ShowSubtasks, !open && options.ShowHidden, examining, worklog);
+            options.View, !open && options.Compact, !open && options.ShowSubtasks, examining, worklog);
     }
 
     private NavKey? requested;
@@ -243,10 +251,11 @@
         Redraw();
     }
 
-    private void ToggleShowHidden()
+    /// <summary>Opens this run's log file with the OS default handler, through the same seam that shows a folder (the file manager is the default handler of a folder, the editor of a .log).</summary>
+    private void OpenLog()
     {
-        BoardOptions current = ViewOptions();
-        Set(current with { ShowHidden = !current.ShowHidden });
+        if (AppLog.CurrentFile is not string file) { Popups.Toast("This run has no log file.", ToastKind.Warning); return; }
+        if (Services.GetService(typeof(FolderOpener)) is FolderOpener open && open(file) is { Success: false, Message: string message }) Popups.Toast(message, ToastKind.Warning);
     }
 
     private void Set(BoardOptions options)
@@ -289,6 +298,7 @@
         if (await Workspace.PickProject("New work item in…", Popups) is not string root) return;
         (bool ok, string message, int id) = Workspace.CreateItem(project: root);
         if (!ok) { Popups.Toast(message, ToastKind.Warning); return; }
+        UiLog.Action("SideNav", "CreateItem", $"#wi{id}");
         if (!IsActive(root)) Workspace.Open(root);
         Popups.Toast($"Created #wi{id}", ToastKind.Success);
         Nav.NavigateTo($"item/{id}");

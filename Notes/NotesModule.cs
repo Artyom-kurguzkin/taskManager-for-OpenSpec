@@ -22,6 +22,9 @@ internal static class NotesModule
     internal static Func<PublicDTOs.NotesRead>? Reader;
     internal static Func<IReadOnlyList<(int OldId, int NewId, string Path)>>? Drain;
 
+    /// <summary>The host's cached read of one item's notes (see NotesApi.UseNotes); null = read all notes and pick.</summary>
+    internal static Func<int, IReadOnlyList<PublicDTOs.Note>>? ForItem;
+
     /// <summary>How many change folders' notes were read from disk (tests use it to prove an edit re-reads only its own folder).</summary>
     internal static int FolderReads { get => S.FolderReads; set => S.FolderReads = value; }
 }

@@ -116,11 +116,11 @@ public sealed class OpeningSeparateWindowsTests : IDisposable
         IRenderedComponent<WorkItemPage> mainPage = main.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         IRenderedComponent<WorkItemPage> otherPage = other.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        otherPage.Find("input.title-in").Change("Health-check endpoint v2");
+        otherPage.ChangeWhenReady("input.title-in", "Health-check endpoint v2");
 
-        otherOverlays.WaitForAssertion(() => Assert.Equal("Saved", otherOverlays.Find(".toast.success").TextContent.Trim()));
-        mainPage.WaitForAssertion(() => Assert.Equal("Health-check endpoint v2", mainPage.Find("input.title-in").GetAttribute("value")));   // the main window has the change by now
-        Assert.Empty(mainOverlays.FindAll(".toast"));
+        otherOverlays.Eventually(() => Assert.Equal("Saved", otherOverlays.Find(".toast.success").TextContent.Trim()));
+        mainPage.Eventually(() => Assert.Equal("Health-check endpoint v2", mainPage.Find("input.title-in").GetAttribute("value")));   // the main window has the change by now
+        mainOverlays.Eventually(() => Assert.Empty(mainOverlays.FindAll(".toast")));
     }
 
     [Fact(DisplayName = "A notice from the workspace reaches every open window, and a closed window gets no more")]
@@ -134,8 +134,8 @@ public sealed class OpeningSeparateWindowsTests : IDisposable
         EditingWorkItemsTests.Duplicate(repo, "second-check");   // a pull brought a second change numbered #wi123
         workspace.Notify();
 
-        mainOverlays.WaitForAssertion(() => Assert.Contains("#wi123 was used twice", mainOverlays.Find(".toast.warning").TextContent));
-        otherOverlays.WaitForAssertion(() => Assert.Contains("#wi123 was used twice", otherOverlays.Find(".toast.warning").TextContent));
+        mainOverlays.Eventually(() => Assert.Contains("#wi123 was used twice", mainOverlays.Find(".toast.warning").TextContent));
+        otherOverlays.Eventually(() => Assert.Contains("#wi123 was used twice", otherOverlays.Find(".toast.warning").TextContent));
 
         built[0].Closed();   // the window is closed
         UiService closed = other.Services.GetRequiredService<UiService>();
@@ -155,11 +155,11 @@ public sealed class OpeningSeparateWindowsTests : IDisposable
         IRenderedComponent<WorkItemPage> mainPage = main.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         IRenderedComponent<WorkItemPage> otherPage = other.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
 
-        otherPage.Find("input.title-in").Change("Edited in the separate window");
-        mainPage.WaitForAssertion(() => Assert.Equal("Edited in the separate window", mainPage.Find("input.title-in").GetAttribute("value")));
+        otherPage.ChangeWhenReady("input.title-in", "Edited in the separate window");
+        mainPage.Eventually(() => Assert.Equal("Edited in the separate window", mainPage.Find("input.title-in").GetAttribute("value")));
 
-        mainPage.Find("input.title-in").Change("Edited in the main window");
-        otherPage.WaitForAssertion(() => Assert.Equal("Edited in the main window", otherPage.Find("input.title-in").GetAttribute("value")));
+        mainPage.ChangeWhenReady("input.title-in", "Edited in the main window");
+        otherPage.Eventually(() => Assert.Equal("Edited in the main window", otherPage.Find("input.title-in").GetAttribute("value")));
     }
 
     [Fact(DisplayName = "A separate window keeps to its own project when the main window switches to another one: it reads it and saves to it")]
@@ -177,11 +177,11 @@ public sealed class OpeningSeparateWindowsTests : IDisposable
         IRenderedComponent<WorkItemPage> page = other.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         Assert.Equal("Health-check endpoint", page.Find("input.title-in").GetAttribute("value"));
 
-        page.Find("input.title-in").Change("Renamed in the separate window");
-        page.WaitForAssertion(() => Assert.Equal("Renamed in the separate window", page.Find("input.title-in").GetAttribute("value")));
+        page.ChangeWhenReady("input.title-in", "Renamed in the separate window");
+        page.Eventually(() => Assert.Equal("Renamed in the separate window", page.Find("input.title-in").GetAttribute("value")));
         // the page shows the title ahead of the write, which lands on the thread pool: wait for the file, not for the screen
-        page.WaitForAssertion(() => Assert.Equal("Renamed in the separate window", workspace.In(repo.Root, () => WorkItemsApi.Get(123)!.Title)));
-        Assert.Equal("The other project's item", workspace.In(second.Root, () => WorkItemsApi.Get(123)!.Title));
+        page.Eventually(() => Assert.Equal("Renamed in the separate window", workspace.In(repo.Root, () => WorkItemsApi.Get(123)!.Title)));
+        page.Eventually(() => Assert.Equal("The other project's item", workspace.In(second.Root, () => WorkItemsApi.Get(123)!.Title)));
     }
 
     [Fact(DisplayName = "A status change from the separate window writes to its own project while the main window is on another")]
@@ -200,9 +200,9 @@ public sealed class OpeningSeparateWindowsTests : IDisposable
         string target = ownStatus == "Blocked" ? "In Review" : "Blocked";
         Assert.NotEqual(secondStatus, target);
 
-        page.Find(".status-field .dd").Click();
-        page.FindAll(".status-field .rz-dropdown-item").First(i => i.TextContent.Trim() == target).Click();
-        page.WaitForAssertion(() => Assert.Equal(target, workspace.In(repo.Root, () => WorkItemsApi.Get(123)!.Status)));
-        Assert.Equal(secondStatus, workspace.In(second.Root, () => WorkItemsApi.Get(123)!.Status));
+        page.ClickWhenReady(".status-field .dd");
+        page.ClickWhenReady(".status-field .rz-dropdown-item", target);
+        page.Eventually(() => Assert.Equal(target, workspace.In(repo.Root, () => WorkItemsApi.Get(123)!.Status)));
+        page.Eventually(() => Assert.Equal(secondStatus, workspace.In(second.Root, () => WorkItemsApi.Get(123)!.Status)));
     }
 }

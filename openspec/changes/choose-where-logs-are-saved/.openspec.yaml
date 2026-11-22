@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-23
+x-rtm:
+  id: 218
+  title: Choose where logs are saved
+  status: In Review
+  contributors: [Claude]
+  features: [maintainability]
+  label: feature
+  started: 2026-11-23
+  moved: 2026-11-23
+  plan: DevResources/plans/choose-the-logs-folder-2026-11-23.md
+  tests: [{suite: ChoosingTheLogsFolderTests, test: RTM_HOME still decides the logs folder for tests and demos}, {suite: ChoosingTheLogsFolderTests, test: Crash notes and freeze dumps go to the chosen logs folder}, {suite: ChoosingTheLogsFolderTests, test: A logs folder that is missing or cannot be written falls back to the default with a warning}, {suite: ChoosingTheLogsFolderTests, test: 'Move existing logs here moves run logs, crash notes and dumps, and nothing else'}, {suite: ChoosingTheLogsFolderTests, test: 'The General tab has a Logs folder row with a path, Choose folder, Open folder, Use default and Move existing logs here'}, {suite: ChoosingTheLogsFolderTests, test: "Choosing a logs folder writes the run log there at once, and the new log's first line names the previous file"}, {suite: ChoosingTheLogsFolderTests, test: Use default puts the logs back in the app's folder}, {suite: ChoosingTheLogsFolderTests, test: Run markers and publish-stop files stay in the app's own folder}]
+  agentBy: Claude merge
+  agentAt: 2026-11-23T08:42:13

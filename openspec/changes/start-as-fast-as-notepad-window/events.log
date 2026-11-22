@@ -1,0 +1,29 @@
+2026-11-20T10:39:56 | Claude | created | Start as fast as Notepad: window first, headers first, the rest behind
+2026-11-20T10:39:56 | Claude | status | Planned -> In Progress
+2026-11-20T10:39:56 | Claude | description-edited | proposal.md
+2026-11-20T10:39:56 | Claude | priority | low -> high
+2026-11-20T10:39:56 | Claude | label | none -> enhancement
+2026-11-20T10:39:56 | Claude | plan-linked | DevResources/plans/fast-startup-2026-11-20.md
+2026-11-20T10:39:56 | Claude | subtask-added | 1.1 window-first: window before work, skeleton first frame, git/scan/tracking after first paint, timing marks
+2026-11-20T10:39:56 | Claude | subtask-added | 1.2 headers-first: board from yaml headers and tasks.md, bodies on demand into a bounded cache, size+mtime stamps
+2026-11-20T10:39:56 | Claude | subtask-added | 1.3 publish-and-measure: ReadyToRun uncompressed publish profiles, tests/startup-time.ps1
+2026-11-20T10:39:56 | Claude | subtask-added | 2.1 full suite, exploratory 52/52, startup-time before/after in the hand-off note
+2026-11-20T10:54:23 | Claude | subtask-done | 1.1 window-first: window before work, skeleton first frame, git/scan/tracking after first paint, timing marks
+2026-11-20T11:09:13 | Claude | subtask-done | 1.2 headers-first: board from yaml headers and tasks.md, bodies on demand into a bounded cache, size+mtime stamps
+2026-11-20T11:09:14 | Claude | subtask-done | 1.3 publish-and-measure: ReadyToRun uncompressed publish profiles, tests/startup-time.ps1
+2026-11-20T12:01:40 | Claude merge | test-linked | StartingTheAppTests / Opening a repository returns before its files are read, and the board shows a skeleton until they are
+2026-11-20T12:01:40 | Claude merge | test-linked | StartingTheAppTests / The board shows the cards once the headers are in, before git and the duplicate scan have run
+2026-11-20T12:01:40 | Claude merge | test-linked | StartingTheAppTests / The contributor filter says loading until git is ready, then lists the people
+2026-11-20T12:01:40 | Claude merge | test-linked | StartingTheAppTests / The startup marks are logged in order: main, window-created, first-render, headers-read, repo-loaded, git-ready, scan-done
+2026-11-20T12:01:40 | Claude merge | test-linked | StartingTheAppTests / An agent tool call that arrives during the load waits for it instead of answering from an empty board
+2026-11-20T12:01:40 | Claude merge | test-linked | StartingTheAppTests / index.html paints a skeleton and takes the theme from storage before Blazor boots
+2026-11-20T12:01:40 | Claude merge | test-linked | StartingTheAppTests / A header sort saved with the list is applied when the rows arrive from the load, and stays when git becomes ready
+2026-11-20T12:01:40 | Claude merge | test-linked | ReadingOnlyWhatIsNeededTests / Building the board reads only the yaml header, tasks and the worklog's newest time of each item, never a proposal, note, event list or spec
+2026-11-20T12:01:40 | Claude merge | test-linked | ReadingOnlyWhatIsNeededTests / Opening one item reads its proposal, notes and events, and nothing of the other items
+2026-11-20T12:01:40 | Claude merge | test-linked | ReadingOnlyWhatIsNeededTests / Building the board again with nothing changed parses no file: every stamp still matches
+2026-11-20T12:01:40 | Claude merge | test-linked | ReadingOnlyWhatIsNeededTests / A changed file is read again, an unchanged one is not
+2026-11-20T12:01:40 | Claude merge | test-linked | ReadingOnlyWhatIsNeededTests / A file written in the same second as it was read is checked again on the next build
+2026-11-20T12:01:40 | Claude merge | test-linked | ReadingOnlyWhatIsNeededTests / The body cache never holds more than its bound and drops the least recently used item
+2026-11-20T12:01:40 | Claude merge | test-linked | StartupScriptTests / startup-time.ps1 -WhatIf prints the exe, the runs and the repository it would measure and starts nothing
+2026-11-21T04:54:40 | Claude | status | In Progress -> In Review
+2026-11-21T04:54:40 | Claude | subtask-done | 2.1 full suite, exploratory 52/52, startup-time before/after in the hand-off note

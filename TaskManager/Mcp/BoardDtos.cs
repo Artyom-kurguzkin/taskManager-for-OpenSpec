@@ -6,15 +6,15 @@ namespace TaskManager.Mcp;
 // What the tools take and return. Results are structured content; the SDK also serialises them as the text block.
 
 public sealed record SubtaskInput(
-    [property: Description("New subtask: the group heading it goes under (created if missing). board_create only; board_update appends to the last group.")] string? Group = null,
-    [property: Description("Text of the subtask, one line.")] string? Text = null,
-    [property: Description("board_update: the number of an existing subtask (like 1.2) to change. Leave out to add a new one.")] string? Number = null,
-    [property: Description("board_update: tick (true) or untick (false) the subtask.")] bool? Done = null,
-    [property: Description("board_update: true, with `number`, removes that subtask (the rest of its group is renumbered, so read the numbers again with board_get afterwards). Not together with `done` or `text`.")] bool? Remove = null);
+    [property: Description("Group heading it goes under.")] string? Group = null,
+    [property: Description("Subtask text, one line.")] string? Text = null,
+    [property: Description("Existing subtask number, like 1.2 (board_update).")] string? Number = null,
+    [property: Description("Tick or untick.")] bool? Done = null,
+    [property: Description("true removes it (alone, with `number`).")] bool? Remove = null);
 
 public sealed record TestInput(
-    [property: Description("Test class short name, as the latest results file names it.")] string Suite,
-    [property: Description("Test display name, exactly as the latest results file names it.")] string Test,
+    [property: Description("Test class short name.")] string Suite,
+    [property: Description("Test display name.")] string Test,
     [property: Description("Optional id of the note (#nN) that describes the test.")] int? Note = null);
 
 public sealed record ListRow(
@@ -83,10 +83,6 @@ public sealed record ValidationRow(int Id, string Folder, bool Valid, string? Ou
 public sealed record ValidateResult(bool AllValid, IReadOnlyList<ValidationRow> Items, IReadOnlyList<string> Warnings);
 
 public sealed record NoteInput(
-    [property: Description("The entry in markdown: what happened, in plain words; put command output in a code block.")] string Body,
-    [property: Description("Short title. Default: the first non-empty line of the body.")] string? Title = null,
-    [property: Description("null for an ordinary entry, or \"decision\".")] string? Kind = null);
-
-public sealed record LogEventRow(string At, string By, string Kind, string Text);
-
-public sealed record LogResult(int Id, LogEventRow Event, string Revision);
+    [property: Description("The entry in markdown.")] string Body,
+    [property: Description("Short title.")] string? Title = null,
+    [property: Description("decision, or null.")] string? Kind = null);

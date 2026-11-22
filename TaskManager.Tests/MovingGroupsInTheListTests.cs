@@ -50,8 +50,8 @@ public sealed class MovingGroupsInTheListTests : IDisposable
     {
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
-        nav.Find("button[aria-label=Layout]").Click();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "List").Click();
+        nav.ClickWhenReady("button[aria-label=Layout]");
+        nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "List"));
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { ListGroupBy = groups, ListSwimlane = subgroups });
         await board.InvokeAsync(() => { });
@@ -69,13 +69,13 @@ public sealed class MovingGroupsInTheListTests : IDisposable
     private static string? SelectedGroups(IRenderedComponent<BoardPage> board) => board.Find("style[data-rowmarks]").GetAttribute("data-selected-groups");
 
     private static async Task ShiftClickGroup(IRenderedComponent<BoardPage> board, string group) =>
-        await board.InvokeAsync(() => board.Find($"tr[data-group='{group}']").Click(new MouseEventArgs { ShiftKey = true }));
+        board.FireWhenReady($"tr[data-group='{group}']", e => e.Click(new MouseEventArgs { ShiftKey = true }));
 
     private static async Task Arrow(IRenderedComponent<BoardPage> board, string key) =>
-        await board.InvokeAsync(() => board.Find(".tbl-wrap").KeyDown(key));
+        board.KeyDownWhenReady(".tbl-wrap", key);
 
     private static async Task SortByUpdated(IRenderedComponent<BoardPage> board) =>
-        await board.InvokeAsync(() => board.FindAll("th.rz-sortable-column").First(h => h.TextContent.Contains("Updated")).QuerySelector("div")!.Click());
+        board.FireWhenReady("th.rz-sortable-column", e => e.QuerySelector("div")!.Click(), all => all.First(h => h.TextContent.Contains("Updated")));
 
     [Fact(DisplayName = "Shift-click on a list group header selects it, Up swaps it with the group above, and the board's column order follows")]
     public async Task ShiftClickOnAGroupHeaderSelectsItAndUpSwapsItWithTheGroupAbove()
@@ -93,13 +93,13 @@ public sealed class MovingGroupsInTheListTests : IDisposable
         Assert.Contains("\"Planned\"", SelectedGroups(board));   // marked as a selected row is
         await Arrow(board, "ArrowUp");
 
-        board.WaitForAssertion(() => Assert.Equal(expected, GroupOrder(board)), TimeSpan.FromSeconds(5));
+        board.WaitForAssertion(() => Assert.Equal(expected, GroupOrder(board)), WaitThen.Bound);
         Assert.Contains("\"Planned\"", SelectedGroups(board));   // and still selected, so another press moves it on
 
         IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
-        nav.Find("button[aria-label=Layout]").Click();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Board").Click();
-        board.WaitForAssertion(() => Assert.Equal(expected, board.FindAll("header.col-h h3").Select(h => h.TextContent.Trim()).ToList()), TimeSpan.FromSeconds(5));
+        nav.ClickWhenReady("button[aria-label=Layout]");
+        nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Board"));
+        board.WaitForAssertion(() => Assert.Equal(expected, board.FindAll("header.col-h h3").Select(h => h.TextContent.Trim()).ToList()), WaitThen.Bound);
     }
 
     [Fact(DisplayName = "A plain click on a list group header selects nothing, and Down on a selected group moves it below the next one")]
@@ -110,7 +110,7 @@ public sealed class MovingGroupsInTheListTests : IDisposable
         IRenderedComponent<BoardPage> board = await ListAsync(ctx, "status");
         List<string> before = GroupOrder(board);
         int at = before.IndexOf("Planned");
-        await board.InvokeAsync(() => board.Find("tr[data-group='Planned']").Click());
+        board.ClickWhenReady("tr[data-group='Planned']");
         Assert.Null(SelectedGroups(board));
         await Arrow(board, "ArrowDown");
         Assert.Equal(before, GroupOrder(board));   // nothing selected: nothing moves
@@ -120,7 +120,7 @@ public sealed class MovingGroupsInTheListTests : IDisposable
 
         List<string> expected = [.. before];
         (expected[at], expected[at + 1]) = (expected[at + 1], expected[at]);
-        board.WaitForAssertion(() => Assert.Equal(expected, GroupOrder(board)), TimeSpan.FromSeconds(5));
+        board.WaitForAssertion(() => Assert.Equal(expected, GroupOrder(board)), WaitThen.Bound);
     }
 
     [Theory(DisplayName = "With the grid's header sort on, the groups keep their saved order and only the rows inside a group sort")]
@@ -143,7 +143,7 @@ public sealed class MovingGroupsInTheListTests : IDisposable
             Assert.NotNull(board.FindAll("th.rz-sortable-column").First(h => h.TextContent.Contains("Updated")).GetAttribute("aria-sort"));
             Assert.Equal([ids[2], ids[1]], Shown(board).Where(i => i == ids[1] || i == ids[2]).ToList());   // oldest first inside the group
             Assert.Equal(groups, GroupOrder(board));   // not the order of the groups' first rows (Confirmed, the oldest, would come first)
-        }, TimeSpan.FromSeconds(5));
+        }, WaitThen.Bound);
     }
 
     [Fact(DisplayName = "A subgroup moves among its siblings only: the groups keep their order and no row changes group")]
@@ -164,7 +164,100 @@ public sealed class MovingGroupsInTheListTests : IDisposable
             Assert.Equal(groups, GroupOrder(board));
             Assert.Equal([ids[2], ids[1]], Shown(board).Where(i => i == ids[1] || i == ids[2]).ToList());   // inside Planned, low now above high
             Assert.All(Shown(board), i => Assert.Equal(home[i], Home(board, i)));
-        }, TimeSpan.FromSeconds(5));
+        }, WaitThen.Bound);
+    }
+
+    private static async Task DragGroup(IRenderedComponent<BoardPage> board, string from, string? onto)
+    {
+        board.Find($"tr[data-group='{from}']").DragStart();
+        (onto is null ? board.Find(".tbl-wrap") : board.Find($"tr[data-group='{onto}']")).Drop();   // the end: the script drops on the table, as the board's header row takes a drop at its end
+    }
+
+    private static string AppJs() => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js"));
+
+    [Fact(DisplayName = "A list group header carries the drag handler, and only a Shift-selected one is pressed as a group by the drag script")]
+    public async Task OnlyASelectedGroupHeaderDrags()
+    {
+        await using BunitContext ctx = NewContext();
+        Items(ctx);
+        IRenderedComponent<BoardPage> board = await ListAsync(ctx, "status");
+        Assert.NotNull(board.Find("tr[data-group='Planned']").GetAttribute("blazor:ondragstart"));
+        Assert.Null(SelectedGroups(board));   // the script reads the marks: nothing selected, nothing is pressed as a group
+        await ShiftClickGroup(board, "Planned");
+        Assert.Contains("\"Planned\"", SelectedGroups(board));
+        string js = AppJs(), down = js[js.IndexOf("document.addEventListener(\"pointerdown\"", StringComparison.Ordinal)..];
+        down = down[..down.IndexOf("if (e.target.closest(\"input, button", StringComparison.Ordinal)];
+        Assert.Contains("_groupSelected(", down);
+        Assert.Contains("kind: \"group\"", down);
+        Assert.Contains("function _startGroupDrag(", js);
+        Assert.Contains("function _groupSpot(", js);
+    }
+
+    [Fact(DisplayName = "A selected group dragged above another reorders the board's columns, and a group dragged without being selected moves nothing")]
+    public async Task ADraggedGroupReordersTheColumns()
+    {
+        await using BunitContext ctx = NewContext();
+        Items(ctx);
+        IRenderedComponent<BoardPage> board = await ListAsync(ctx, "status");
+        List<string> before = GroupOrder(board);
+        int at = before.IndexOf("Planned");
+        Assert.True(at > 0, string.Join(' ', before));
+        await DragGroup(board, "Planned", before[0]);   // not selected: it does not drag
+        Assert.Equal(before, GroupOrder(board));
+
+        await ShiftClickGroup(board, "Planned");
+        await DragGroup(board, "Planned", before[0]);
+
+        List<string> expected = ["Planned", .. before.Where(g => g != "Planned")];
+        board.WaitForAssertion(() => Assert.Equal(expected, GroupOrder(board)), WaitThen.Bound);
+        Assert.Contains("\"Planned\"", SelectedGroups(board));
+        IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
+        nav.ClickWhenReady("button[aria-label=Layout]");
+        nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Board"));
+        board.WaitForAssertion(() => Assert.Equal(expected, board.FindAll("header.col-h h3").Select(h => h.TextContent.Trim()).ToList()), WaitThen.Bound);
+    }
+
+    [Fact(DisplayName = "Two selected groups dragged together keep their order, and a drop at the table's end puts them last")]
+    public async Task SelectedGroupsDragTogether()
+    {
+        await using BunitContext ctx = NewContext();
+        Items(ctx);
+        IRenderedComponent<BoardPage> board = await ListAsync(ctx, "status");
+        List<string> before = GroupOrder(board);
+        Assert.True(before.IndexOf("Planned") < before.IndexOf("Confirmed"), string.Join(' ', before));
+        await ShiftClickGroup(board, "Confirmed");
+        await ShiftClickGroup(board, "Planned");
+
+        await DragGroup(board, "Confirmed", before[0] == "Planned" ? before[1] : before[0]);   // onto the first group that is not one of them
+        string first = before[0] == "Planned" ? before[1] : before[0];
+        List<string> expected = [.. before.TakeWhile(g => g != first), "Planned", "Confirmed", .. before.SkipWhile(g => g != first).Where(g => g != "Planned" && g != "Confirmed")];
+        board.WaitForAssertion(() => Assert.Equal(expected, GroupOrder(board)), WaitThen.Bound);
+
+        await DragGroup(board, "Planned", null);
+        List<string> last = [.. expected.Where(g => g != "Planned" && g != "Confirmed"), "Planned", "Confirmed"];
+        board.WaitForAssertion(() => Assert.Equal(last, GroupOrder(board)), WaitThen.Bound);
+    }
+
+    [Fact(DisplayName = "A selected subgroup dragged onto its sibling swaps them in every group, and no group or row moves")]
+    public async Task ADraggedSubgroupMovesAmongItsSiblingsOnly()
+    {
+        await using BunitContext ctx = NewContext();
+        int[] ids = Items(ctx);
+        IRenderedComponent<BoardPage> board = await ListAsync(ctx, "status", "priority");
+        List<string> groups = GroupOrder(board);
+        Dictionary<int, string> home = Shown(board).ToDictionary(i => i, i => Home(board, i));
+        await DragGroup(board, "swim:low", "swim:high");   // not selected: nothing
+        Assert.Equal([ids[1], ids[2]], Shown(board).Where(i => i == ids[1] || i == ids[2]).ToList());
+
+        await ShiftClickGroup(board, "swim:low");
+        await DragGroup(board, "swim:low", "swim:high");
+
+        board.WaitForAssertion(() =>
+        {
+            Assert.Equal(groups, GroupOrder(board));
+            Assert.Equal([ids[2], ids[1]], Shown(board).Where(i => i == ids[1] || i == ids[2]).ToList());
+            Assert.All(Shown(board), i => Assert.Equal(home[i], Home(board, i)));
+        }, WaitThen.Bound);
     }
 
     /// <summary>The group header a row is drawn under.</summary>

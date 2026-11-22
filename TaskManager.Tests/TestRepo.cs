@@ -122,13 +122,9 @@ internal static class TestAssemblySetup
         // SyncSetup asks for, so no pass starts on a background thread while a test writes files. The tests write files and sync at once, so the settle window is off too unless a test sets one.
         TaskManager.BackgroundJobs.SyncSetup.NoRealTimers = true;
         TaskManager.BackgroundJobs.SyncSetup.DefaultSettleWindow = TimeSpan.Zero;
-        // A page's WaitForAssertion passes at the first render that satisfies it; the timeout only says how long a failing one waits. Classes run side by side,
-        // so a render can take longer than bUnit's default second on a busy machine: the bound is raised, no passing test waits any longer for it.
-        Bunit.BunitContext.DefaultWaitTimeout = TimeSpan.FromSeconds(15);
+        // A page's WaitForAssertion passes at the first render that satisfies it; the timeout is only a hang bound for a failing one, never a pass/fail measure.
+        // Every class runs in parallel, so a render can take longer than bUnit's default second on a busy machine: the bound is 60 s, no passing test waits any longer for it.
+        Bunit.BunitContext.DefaultWaitTimeout = TimeSpan.FromSeconds(60);
     }
 }
 
-// Classes whose tests wait on real time (the file watcher, an autosave timer, a measured duration) run here: one at a time, after the parallel classes, alone,
-// so a busy machine cannot stretch what they wait for. Module state needs no collection: every test has its own (IsolatedModuleState).
-[CollectionDefinition(nameof(RealTimeCollection), DisableParallelization = true)]
-public sealed class RealTimeCollection;

@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-21
+x-rtm:
+  id: 212
+  title: 'Cheap feed events for agents: board_log takes the event standard'
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [maintainability]
+  label: enhancement
+  started: 2026-11-21
+  moved: 2026-11-21
+  plan: DevResources/plans/cheap-feed-events-2026-11-21.md
+  tests: [{suite: UsingTheBoardOverMcpTests, test: board_log takes a multi-line text and a kind from the event standard and answers with one short line}, {suite: UsingTheBoardOverMcpTests, test: board_log with a kind outside the standard is refused and the answer lists the standard}, {suite: UsingTheBoardOverMcpTests, test: 'board_log text over 4,000 characters becomes a note by the same call'}, {suite: UsingTheBoardOverMcpTests, test: board_log takes the agent name from RTM_AGENT and accepts parentheses in it}, {suite: UsingTheBoardOverMcpTests, test: The board tools' definitions and the server instructions fit the budget}, {suite: UsingTheWorklogTests, test: 'A started, tests green and done event each show their kind as a label in the worklog, and a decision event is emphasised'}]
+  agentBy: Claude
+  agentAt: 2026-11-21T05:31:10

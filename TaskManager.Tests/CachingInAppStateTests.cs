@@ -66,6 +66,7 @@ public sealed class CachingInAppStateTests : IDisposable
         WorkItemsApi.ConfigureContributors(null);
         using TestRepo repo = new();
         ManyFolders(repo, 30);
+        Caches.S.Items.Clock = () => DateTime.UtcNow.AddMinutes(10);   // reads happen long after the files were written: none is "racy" (a folder written within milliseconds of a read is read once more, see ItemsCache.Folder.Racy)
         OpenSpecStoreApi.Open(repo.Root);
         IReadOnlyList<WorkItem> before = ItemsCache.All(true);
         NotesCache.All();

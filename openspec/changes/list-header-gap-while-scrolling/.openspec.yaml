@@ -4,12 +4,12 @@ created: 2026-11-17
 x-rtm:
   id: 197
   title: List header floats below a gap while scrolling
-  status: In Progress
+  status: In Review
   priority: high
   contributors: [Claude]
   features: [board]
   label: bug
   started: 2026-11-17
-  moved: 2026-11-17
+  moved: 2026-11-21
   agentBy: Claude chunk O
   agentAt: 2026-11-17T13:08:38

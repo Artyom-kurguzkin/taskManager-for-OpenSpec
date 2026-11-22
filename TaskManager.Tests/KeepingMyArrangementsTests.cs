@@ -38,9 +38,9 @@ public sealed class KeepingMyArrangementsTests : IDisposable
     {
         // Click returns before its handler while the renderer is busy (a render the tab switch queued): the empty InvokeAsync runs after
         // everything queued before it, so the menu is open before it is searched and the pick has landed before the test goes on. No clock.
-        nav!.Find("button[aria-label=Layout]").Click();
+        nav!.ClickWhenReady("button[aria-label=Layout]");
         Settle();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == view).Click();
+        nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == view));
         Settle();
     }
 
@@ -63,12 +63,12 @@ public sealed class KeepingMyArrangementsTests : IDisposable
         board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
         List<int> Shown() => [.. board.FindAll("tr[data-id]").Select(r => int.Parse(r.GetAttribute("data-id")!))];
         int pick = Shown()[2];
-        await board.InvokeAsync(() => board.FindAll("tr[data-id]").First(r => r.GetAttribute("data-id") == pick.ToString()).QuerySelector("td.num")!.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }));
+        board.FireWhenReady("tr[data-id]", e => e.QuerySelector("td.num")!.Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { ShiftKey = true }), all => all.First(r => r.GetAttribute("data-id") == pick.ToString()));
         int writes = settings.Writes;
 
         for (int press = 0; press < 3; press++)   // up, up, and the third is at the top already
         {
-            await board.InvokeAsync(() => board.Find(".tbl-wrap").KeyDown("ArrowUp"));
+            board.KeyDownWhenReady(".tbl-wrap", "ArrowUp");
             await board.InvokeAsync(() => { });
         }
         Assert.Equal(pick, Shown()[0]);
@@ -80,7 +80,7 @@ public sealed class KeepingMyArrangementsTests : IDisposable
         Assert.Equal("manual", new SettingsStore(settingsFile).Board(repo.Root).SortBy);
         Assert.Contains("item:" + pick, new SettingsStore(settingsFile).Board(repo.Root).Order!);
 
-        await board.InvokeAsync(() => board.Find(".tbl-wrap").KeyDown("ArrowUp"));   // already first: nothing changes
+        board.KeyDownWhenReady(".tbl-wrap", "ArrowUp");   // already first: nothing changes
         await board.InvokeAsync(() => { });
         time.Advance(TimeSpan.FromSeconds(5));
         Assert.Equal(writes + 1, settings.Writes);
@@ -111,11 +111,11 @@ public sealed class KeepingMyArrangementsTests : IDisposable
         await using BunitContext ctx = NewContext();
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        board.FindAll("header.col-h").First(h => h.TextContent.Contains("Blocked")).Click();
-        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Hide column").Click();
+        board.FireWhenReady("header.col-h", e => e.Click(), all => all.First(h => h.TextContent.Contains("Blocked")));
+        board.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Hide column"));
         Assert.DoesNotContain("Blocked", Columns(board));
 
-        nav!.Find("button[aria-label='New work item']").Click();   // adds an item and opens its page, where the list sits beside it (a new page of the board)
+        nav!.ClickWhenReady("button[aria-label='New work item']");   // adds an item and opens its page, where the list sits beside it (a new page of the board)
         board.Dispose();
         IRenderedComponent<BoardPage> beside = ctx.Render<BoardPage>(p => p.Add(b => b.Embedded, true).Add(b => b.Current, 1));
         Show("List");
@@ -141,10 +141,10 @@ public sealed class KeepingMyArrangementsTests : IDisposable
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         Show("List");
         IRenderedComponent<BoardPage> list = ctx.Render<BoardPage>();
-        list.Find("button[aria-label='Hide Progress column']").Click();
+        list.ClickWhenReady("button[aria-label='Hide Progress column']");
         list.WaitForAssertion(() => Assert.DoesNotContain(list.FindAll("thead th"), h => h.TextContent.Contains("Progress")));
 
-        nav!.Find("button[aria-label='New work item']").Click();
+        nav!.ClickWhenReady("button[aria-label='New work item']");
         list.Dispose();
         IRenderedComponent<BoardPage> beside = ctx.Render<BoardPage>(p => p.Add(b => b.Embedded, true).Add(b => b.Current, 1));
         beside.WaitForAssertion(() => Assert.NotEmpty(beside.FindAll("tr[data-id]")));
@@ -159,8 +159,8 @@ public sealed class KeepingMyArrangementsTests : IDisposable
 
     private void HideColumn(IRenderedComponent<BoardPage> board, string column)
     {
-        board.FindAll("header.col-h").First(h => h.TextContent.Contains(column)).Click();
-        board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Hide column").Click();
+        board.FireWhenReady("header.col-h", e => e.Click(), all => all.First(h => h.TextContent.Contains(column)));
+        board.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Hide column"));
     }
 
     [Fact(DisplayName = "Opening or adding a work item in another project leaves the board's arrangement as it is, instead of showing that project's (empty) hidden list")]
@@ -248,6 +248,38 @@ public sealed class KeepingMyArrangementsTests : IDisposable
         static void Save(IRenderedComponent<BoardPage> page, string width) =>
             page.InvokeAsync(() => typeof(BoardPage).GetMethod("SaveGridSettings", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
                 .Invoke(page.Instance, [new DataGridSettings { Columns = [new DataGridColumnSettings { Property = "Title", Width = width }] }])).GetAwaiter().GetResult();
+    }
+
+    [Fact(DisplayName = "A status column the user drags in the shared header of two projects keeps its place after the app is closed and opened again on the same settings file")]
+    public async Task ADraggedStatusColumnSurvivesARestart()
+    {
+        string[] want = ["Backlog", "Planned", "Confirmed", "In Progress", "Research", "Blocked", "In Review", "Completed"];
+        await using (BunitContext first = NewContext())
+        {
+            Workspace ws = first.Services.GetRequiredService<Workspace>();
+            ws.OpenTab(repo2.Root);
+            ws.Open(repo.Root);
+            Assert.True(ws.In(repo.Root, () => WorkItems.WorkItemsApi.AddStatus("Research", beforeCompleted: true)).Success);
+            IRenderedComponent<BoardPage> board = first.Render<BoardPage>();
+            board.Find(".head-row section.col.head-only[data-key='Research'] header.col-h").DragStart();
+            board.Find(".head-row section.col.head-only[data-key='Blocked']").Drop();
+            board.WaitForAssertion(() => Assert.Equal(want, board.FindAll(".head-row section.col.head-only").Select(c => c.GetAttribute("data-key")!)));
+            first.Services.GetRequiredService<SettingsStore>().Flush();   // the app writes the pending save when it closes
+        }
+
+        await using BunitContext second = new();   // a new start: nothing but the settings file is shared
+        second.JSInterop.Mode = JSRuntimeMode.Loose;
+        second.Services.AddSingleton<UiService>();
+        second.Services.AddRadzenComponents();
+        second.Services.AddSingleton(new SettingsStore(settingsFile));
+        second.Services.AddSingleton<Workspace>();
+        Workspace again = second.Services.GetRequiredService<Workspace>();
+        Assert.True(again.OpenTab(repo2.Root).Success);   // the first project opened is the view, as in the first run (opening another one does not move it, #wi19)
+        Assert.True(again.OpenTab(repo.Root).Success);
+        again.Open(repo.Root);
+        IRenderedComponent<BoardPage> restarted = second.Render<BoardPage>();
+        Assert.Equal(want, restarted.FindAll(".head-row section.col.head-only").Select(c => c.GetAttribute("data-key")!));
+        Assert.Equal(want, restarted.FindAll($".proj[data-proj='{Path.GetFileName(repo2.Root)}'] section.col").Select(c => c.GetAttribute("data-key")!));
     }
 
     public void Dispose()

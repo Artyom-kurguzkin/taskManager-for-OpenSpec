@@ -1,0 +1,23 @@
+2026-11-18T11:03:00 | Artyom-kurguzkin | title | being able to create new features from work item view -> hider works wrong
+2026-11-18T11:04:24 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-18T11:05:16 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-18T11:06:12 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-18T11:06:16 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-18T11:06:19 | Artyom-kurguzkin | priority | low -> high
+2026-11-18T11:06:20 | Artyom-kurguzkin | label | none -> bug
+2026-11-18T11:06:25 | Artyom-kurguzkin | feature | none -> general-ux
+2026-11-18T11:15:11 | Claude | plan-linked | DevResources/plans/in-progress-items-2026-11-18c.md
+2026-11-18T13:26:10 | Claude | status | In Progress -> In Review
+2026-11-18T13:26:10 | Claude | test-linked | HidingInTheAppTests / Pressing 'show all hidden' once brings back every hidden item, column and project, clears the Hidden list and the legacy flags, resets the filters, and draws nothing dashed
+2026-11-18T13:26:10 | Claude | test-linked | HidingInTheAppTests / The collapsed menu's show all hidden button does the same one action
+2026-11-18T13:26:10 | Claude | test-linked | UsingTheBoardTests / Hidden work items leave the board until 'show all hidden' is pressed, which brings them back and draws nothing dashed
+2026-11-18T13:26:10 | Claude | test-linked | UsingTheBoardTests / The collapsed menu has a show all hidden button that is the same one action
+2026-11-18T13:26:10 | Claude | test-linked | UsingTheBoardTests / After show all hidden every work item of a hidden project renders as a card and the column count equals the cards shown
+2026-11-18T13:26:10 | Claude | test-linked | UsingTheBoardTests / A collapsed project stays collapsed after show all hidden is pressed
+2026-11-18T13:26:10 | Claude | test-linked | UsingTheBoardTests / In the list a collapsed project's rows stay folded after show all hidden is pressed
+2026-11-18T13:26:10 | Claude | test-linked | UsingTheBoardTests / A collapsed project's work items count in no column header, before and after show all hidden is pressed
+2026-11-18T13:26:10 | Claude | test-linked | UsingTheBoardTests / Sort by is the first field under Organise, and show all hidden sits under the Hidden header
+2026-11-18T13:26:10 | Claude | test-linked | UsingTheBoardTests / Show all hidden brings the hidden columns, rows and projects back on the board and the list
+2026-11-20T05:11:02 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-20T05:14:51 | Artyom-kurguzkin | status | In Progress -> Completed
+2026-11-20T09:39:43 | Claude | log | Determinism fix in HidingInTheAppTests "Pressing 'show all hidden' once...": the change count is asserted inside WaitForAssertion after the click, and again once everything settled (bUnit's Click returns before the handler). Full suite after: Passed 1323, Skipped 1, Total 1324.

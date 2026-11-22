@@ -3,6 +3,8 @@
 @using OpenSpecStore
 @inherits RepoPage
 
+<ScrollMemory View="@($"doc/{Path}")" />
+
 @* Any markdown file under the open repository, rendered. A missing file, or a path that climbs out of the repository, is "not found". *@
 @if (text is null)
 {
@@ -24,6 +26,7 @@
     private string? text;
 
     protected override object? LoadKey => Path;
+    protected override string? LogTarget => Path;
 
     protected override void Load()
     {

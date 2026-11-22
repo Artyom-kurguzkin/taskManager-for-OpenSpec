@@ -53,10 +53,10 @@
         <div class="nav-sec-body" id="sec-filters-body" hidden="@(!openFilters)">
         @if (openFilters)
         {
-    <div class="field"><label>contributor</label><Dropdown Label="contributor" Class="@Look(o.Who, "all")" Options="people" Value="@o.Who" ValueChanged="v => Set(Saved with { Who = v })" /></div>
+    <div class="field" data-filter="contributor"><label>contributor</label>@if (gitPending) { <span class="muted loading">loading…</span> } else { <Dropdown Label="contributor" Class="@Look(o.Who, "all")" Options="people" Value="@o.Who" ValueChanged="v => Set(Saved with { Who = v })" /> }</div>
     <div class="field"><label>period</label><Dropdown Label="period" Class="@Look(o.Period, "all")" Options="BoardPage.Periods" Value="@o.Period" ValueChanged="v => Set(Saved with { Period = v })" /></div>
     @* the filter: only the work items one commit (or the work tree) changed *@
-    <div class="field commit"><label>commit</label><Dropdown Label="commit" Class="@Look(o.Commit, "any")" PopupStyle="max-width: 224px; min-width: 0 !important" Options="commits" Value="@o.Commit" ValueChanged="v => Set(Saved with { Commit = v })" /></div>
+    <div class="field commit" data-filter="commit"><label>commit</label>@if (gitPending) { <span class="muted loading">loading…</span> } else { <Dropdown Label="commit" Class="@Look(o.Commit, "any")" PopupStyle="max-width: 224px; min-width: 0 !important" Options="commits" Value="@o.Commit" ValueChanged="v => Set(Saved with { Commit = v })" /> }</div>
     @* the filter: only work that changed between two days is shown *@
     <div class="field changed"><label>changed</label>
         <DateRange Label="changed" Empty="any time" ClearLabel="Show all" WithTime="true" Start="@o.ChangedFrom" End="@o.ChangedTo" StartTime="@o.ChangedFromTime" EndTime="@o.ChangedToTime"
@@ -82,8 +82,9 @@
     <div class="nav-sec-body" id="sec-hidden-body" hidden="@(!openHidden)">
     @if (openHidden)
     {
-    @Pill("show all hidden", o.ShowHidden, v => Set(Saved with { ShowHidden = v }), id: "f-hidden")
-    @if (hiddenHere.Count > 0 || hiddenProjects.Count > 0 || hiddenRows.Count > 0)
+    @* one action, not a view: everything hidden comes back and the filters are reset; what an agent's resolution hid comes back from its own page *@
+    <button type="button" class="nav-pill" id="f-hidden" disabled="@(!canShowAll)" @onclick="Workspace.ShowAllHidden">show all hidden</button>
+    @if (hiddenHere.Count > 0 || hiddenProjects.Count > 0 || hiddenRows.Count > 0 || hiddenItems.Count > 0)
     {
         foreach (string root in hiddenProjects)
         {
@@ -102,6 +103,13 @@
             <div class="grp-row"><span class="nm">@name</span><span class="count" title="@(o.Unit == "subtasks" ? "subtasks" : "work items") in this row">@count</span>
                 <button class="ic" aria-label="Show @name" title="Show" @onclick="() => Set(BoardModel.ToggleHidden(Saved, key))">@Ui.Icon("eye")</button></div>
         }
+        @* work items: the ones hidden here have an eye; the ones an agent's resolution ended are labelled by it, and come back from their own page *@
+        foreach (HiddenItem h in hiddenItems)
+        {
+            <div class="grp-row item-row" title="@h.Project"><span class="nm">#wi@(h.Id) @h.Title</span>
+                @if (h.Resolution is null) { <button class="ic" aria-label="Show work item #wi@(h.Id)" title="Show" @onclick="() => Restore(h)">@Ui.Icon("eye")</button> }
+                else { <span class="count resolution">@h.Resolution</span> }</div>
+        }
     }
     }
     </div>
@@ -119,7 +127,7 @@
     /// Everything the blocks read. The settings part is read off the saved options (cheap, value-compared); the board's content (items, features, commits,
     /// who changed what) is one counter, moved by every Workspace.Changed. A theme or any other setting moves nothing here.
     /// </summary>
-    private sealed record Key(string ListView, BoardOptions O, long Changes, DateOnly Today, string? Root, string Open, string HiddenProjects, bool Folded);
+    private sealed record Key(string ListView, BoardOptions O, long Changes, DateOnly Today, string? Root, string Open, string HiddenProjects, bool Folded, string HiddenItems);
 
     private Key built = default!;
     private long changes;
@@ -127,13 +135,24 @@
     private BoardOptions o = new(), ov = new();
     private bool analytics, openOrganise, openFilters, openHidden;
     private IReadOnlyList<(string, string)> people = [], commits = [];
+    private bool gitPending;   // the project's git is still being read (the start): the contributor and commit filters say "loading" and ask git nothing
     private IReadOnlyList<(string Label, string Colour)> legend = [];
     private (int InPeriod, int Others)? shownCount;
     private IReadOnlyList<Feature> features = [];
     private IReadOnlyList<WorkItems.PublicDTOs.WorkItem> items = [];
-    private (long, bool, string?) contentRead = (-1, false, null);
+    private (long, string?) contentRead = (-1, null);
     private (long, string?) commitsRead = (-1, null);
     private List<string> hiddenHere = [], hiddenProjects = [];
+    private sealed record HiddenItem(string Root, string Project, int Id, string Title, string? Resolution, bool Flag = false);   // Flag: hidden by an x-rtm.hidden an older version wrote, with no resolution
+    /// <summary>Shows the item again: from the settings, or, for an old flag with no resolution, by clearing the flag it already has (nothing is added to the repository).</summary>
+    private void Restore(HiddenItem h)
+    {
+        if (!h.Flag) { Settings.SetItemsHidden(h.Root, [h.Id], false); return; }
+        Workspace.In(h.Root, () => WorkItems.WorkItemsApi.Unhide(h.Id));
+        Workspace.Notify();
+    }
+    private IReadOnlyList<HiddenItem> hiddenItems = [];
+    private bool canShowAll;
     private IReadOnlyList<(string Key, string Label, int Count)> hiddenRows = [];
     private Dictionary<string, int> held = [];
     private string? organiseSummary, filtersSummary, hiddenSummary;
@@ -146,9 +165,9 @@
         BoardOptions options = root is null ? new() : Settings.Board(root);
         List<string> hidden = Workspace.Projects.Where(Settings.ProjectHidden).ToList();
         // the Hidden counts add up no items while this project is folded to its heading among several (shown or not), as the column headers leave it out
-        bool folded = root is not null && Settings.ProjectCollapsed(root) && Workspace.Projects.Count(p => options.ShowHidden || !Settings.ProjectHidden(p)) > 1;
+        bool folded = root is not null && Settings.ProjectCollapsed(root) && Workspace.Projects.Count(p => !Settings.ProjectHidden(p)) > 1;
         string open = string.Concat(new[] { "organise", "filters", "hidden" }.Select(s => Settings.MenuSectionOpen(s) ? '1' : '0'));
-        return new Key(ListView, options, Interlocked.Read(ref changes), Today, root, open, string.Join('|', hidden), folded);
+        return new Key(ListView, options, Interlocked.Read(ref changes), Today, root, open, string.Join('|', hidden), folded, string.Join('|', Settings.Current.HiddenItems ?? []));
     }
 
     private bool Refresh()
@@ -172,14 +191,16 @@
 
         // what the board's content gives (items, features, the people and the commits to pick from) is read again only when the content moved or the
         // hidden items came or went; picking a filter keeps the same lists, so their dropdowns have nothing new to draw
-        (long, bool, string?) content = (key.Changes, o.ShowHidden, key.Root);
+        (long, string?) content = (key.Changes, key.Root);
         if (!content.Equals(contentRead))
         {
             contentRead = content;
-            items = ItemsCache.All(includeHidden: o.ShowHidden);
-            features = FeaturesCache.Get();
+            bool reading = key.Root is string project && Workspace.IsLoading(project);   // the headers are being read on the pool: this block reads nothing of the project until they are in
+            gitPending = key.Root is string gp && !Workspace.IsGitReady(gp);
+            items = reading ? [] : ItemsCache.All();
+            features = reading ? [] : FeaturesCache.Get();
             people = [("all", "everyone"), .. items.SelectMany(i => i.Contributors).Distinct().Order().Select(p => (p, p))];
-            if (commitsRead != (key.Changes, key.Root))
+            if (commitsRead != (key.Changes, key.Root) && !gitPending)
             {
                 commitsRead = (key.Changes, key.Root);
                 commits = [("any", "any"), (BoardModel.UncommittedCommit, "uncommitted"), .. GitCache.Recent(30).Select(c => (c.Hash, $"{c.Hash} {c.Subject} · {Ui.Day(c.Date)}"))];
@@ -195,13 +216,34 @@
         hiddenRows = BoardModel.HiddenRows(counted, features, lanes, ov, today);
         held = hiddenHere.Count > 0 ? BoardModel.HiddenCounts(counted, features, lanes, ov, today) : [];
 
+        hiddenItems = openHidden ? HiddenItems() : [];
+        canShowAll = hiddenHere.Count + hiddenProjects.Count + hiddenRows.Count > 0 || hiddenItems.Any(h => h.Resolution is null);   // a resolution is not undone here
+
         organiseSummary = OrganiseSummary(list);
         filtersSummary = FiltersSummary(key.ListView);
-        int n = hiddenHere.Count + hiddenProjects.Count + hiddenRows.Count;
+        int n = hiddenHere.Count + hiddenProjects.Count + hiddenRows.Count + Workspace.Projects.Sum(r => Settings.HiddenItemsOf(r).Count);
         List<string> hiddenParts = [];
         if (n > 0) hiddenParts.Add($"{n} hidden");
-        if (o.ShowHidden) hiddenParts.Add("showing all");
         hiddenSummary = hiddenParts.Count == 0 ? null : string.Join(" · ", hiddenParts);
+    }
+
+    /// <summary>
+    /// The work items of the open projects that are hidden: the ones the user hid in the app, then the ones an agent's resolution (cancelled, duplicate, superseded) ended, with the resolution
+    /// as their label. Read once per key, only while the Hidden section is open; an item hidden by an old x-rtm.hidden with no resolution note is listed like one hidden here (its eye clears the flag).
+    /// </summary>
+    private IReadOnlyList<HiddenItem> HiddenItems()
+    {
+        List<HiddenItem> rows = [];
+        foreach (string root in Workspace.Projects)
+        {
+            IReadOnlySet<int> mine = Settings.HiddenItemsOf(root);
+            (IReadOnlyList<WorkItems.PublicDTOs.WorkItem> all, IReadOnlyDictionary<int, string> resolutions) = Workspace.In(root, () => (ItemsCache.All(includeHidden: true), BoardModel.Resolutions(NotesCache.All())));
+            string project = System.IO.Path.GetFileName(root);
+            rows.AddRange(all.Where(i => mine.Contains(i.Id)).Select(i => new HiddenItem(root, project, i.Id, i.Title, null)));
+            rows.AddRange(all.Where(i => i.Hidden && !mine.Contains(i.Id) && resolutions.TryGetValue(i.Id, out _)).Select(i => new HiddenItem(root, project, i.Id, i.Title, resolutions[i.Id])));
+            rows.AddRange(all.Where(i => i.Hidden && !mine.Contains(i.Id) && !resolutions.ContainsKey(i.Id)).Select(i => new HiddenItem(root, project, i.Id, i.Title, null, Flag: true)));
+        }
+        return rows;
     }
 
     private static string Label(IReadOnlyList<(string, string)> options, string value) => options.Where(x => x.Item1 == value).Select(x => x.Item2).FirstOrDefault() ?? value;

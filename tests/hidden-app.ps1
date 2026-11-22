@@ -234,7 +234,11 @@ function Assert-Swap($before, $after, $id, $dir) {
 
 # The side menu's Organise section open (a collapsed menu opened first); the list's groups dropdown lives there.
 function Open-Organise {
-    if ((Eval "!!document.querySelector('.nav-view')") -ne $true) { Click (Center "document.querySelector('button.nav-toggle')") }
+    if ((Eval "!!document.querySelector('.nav-view')") -ne $true) {
+        # collapsed, the menu hides off the left edge (#wi211) and slides in when the pointer reaches it, as for a person: hover the edge, wait for the slide, then click the toggle
+        Mouse "mouseMoved" 2 300 0; Start-Sleep -Milliseconds 400
+        Click (Center "document.querySelector('button.nav-toggle')")
+    }
     if ((Eval "document.querySelector('.nav-sec-h[data-sec=organise]')?.getAttribute('aria-expanded')") -ne 'true') { Click (Center "document.querySelector('.nav-sec-h[data-sec=organise]')") }
 }
 # The list's groups (side menu, Organise, "groups"): none, status, feature, label, priority, contributor, due date or start date.

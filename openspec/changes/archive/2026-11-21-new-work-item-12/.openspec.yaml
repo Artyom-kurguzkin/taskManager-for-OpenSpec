@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-10-18
+x-rtm:
+  id: 19
+  title: Research collun position
+  status: In Review
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  started: 2026-11-20
+  moved: 2026-11-21
+  plan: DevResources/plans/in-progress-items-2026-11-20.md
+  tests: [{suite: SwitchingProjectsTests, test: "Opening a second project keeps the first project's column arrangement: Research stays first"}, {suite: SwitchingProjectsTests, test: "A status only the second project has appears where its own list puts it, without moving the user's arrangement"}, {suite: SwitchingProjectsTests, test: Choosing the second project's tab still switches the view to its own options}]
+  agentBy: Claude
+  agentAt: 2026-11-20T09:24:44

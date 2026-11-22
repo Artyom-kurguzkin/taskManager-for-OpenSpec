@@ -35,17 +35,15 @@ internal static partial class AttachmentsFolder
         return (true, clean.Equals(Commands.DefaultAttachmentsDir, Cmp) ? Commands.DefaultAttachmentsDir : clean, "");
     }
 
-    /// <summary>The default files folder of a project: <c>images</c> and <c>plans</c> go inside it.</summary>
-    internal const string DefaultFilesDir = OpenSpecStoreApi.DefaultFilesDir;
+    /// <summary>The old one-folder key of a project (<c>x-rtm.filesDir</c> in its openspec/config.yaml, tidied; plans and images were inside it): still read, never written; null when the key is missing, empty, not allowed or the file cannot be read.</summary>
+    internal static string? ProjectFilesDir(string repoRoot) => ProjectKey("filesDir", repoRoot);
 
-    /// <summary>A project's files folder: the same rules as <see cref="Check"/>, but empty means <see cref="DefaultFilesDir"/>.</summary>
-    internal static (bool Ok, string Dir, string Message) CheckFiles(string? dir) =>
-        string.IsNullOrWhiteSpace(dir) ? (true, DefaultFilesDir, "") : Check(dir);
+    /// <summary>The project's plans folder: <c>x-rtm.plansDir</c> in its openspec/config.yaml, tidied; null when the key is missing, empty, not allowed or the file cannot be read.</summary>
+    internal static string? ProjectPlansDir(string repoRoot) => ProjectKey("plansDir", repoRoot);
 
-    /// <summary>The project's files folder: <c>x-rtm.filesDir</c> in its openspec/config.yaml, tidied; null when the key is missing, empty, not allowed or the file cannot be read (the old layout then).</summary>
-    internal static string? ProjectFilesDir(string repoRoot)
+    private static string? ProjectKey(string key, string repoRoot)
     {
-        string value = OpenSpecStoreApi.ReadConfigSection<string>("filesDir", repoRoot).Value ?? "";   // unreadable or locked reads as none: the old layout
+        string value = OpenSpecStoreApi.ReadConfigSection<string>(key, repoRoot).Value ?? "";   // unreadable or locked reads as none: the next level answers
         return value.Trim().Length > 0 && Check(value) is { Ok: true } c ? c.Dir : null;
     }
 
@@ -92,17 +90,6 @@ internal static partial class AttachmentsFolder
         List<(string, string)> files = [];
         try { Walk(path, "", files, []); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         return files.Count;
-    }
-
-    /// <summary>The plans (*.md) and all the files (drawings beside them included) below a plans folder; (0, 0) when it is missing, not allowed or a link.</summary>
-    internal static (int Plans, int Files) CountPlans(string repoRoot, string dir)
-    {
-        (bool ok, string clean, string _) = Check(dir);
-        string root = Root(repoRoot), path = Abs(root, clean);
-        if (!ok || !Directory.Exists(path) || LinkOnTheWay(root, clean) is not null) return (0, 0);
-        List<(string Full, string Rel)> files = [];
-        try { Walk(path, "", files, []); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
-        return (files.Count(f => f.Rel.EndsWith(".md", StringComparison.OrdinalIgnoreCase)), files.Count);
     }
 
     // ── moving ──

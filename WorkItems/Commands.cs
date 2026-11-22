@@ -185,12 +185,13 @@ internal static partial class Commands
         return (ok, message);
     }
 
-    internal static (bool Success, string Message) SetStatus(int id, string status)
+    /// <param name="ignoreDependencies">Deleting a status moves its items whatever they wait on: their status is going away, not chosen.</param>
+    internal static (bool Success, string Message) SetStatus(int id, string status, bool ignoreDependencies = false)
     {
         if (!Queries.GetStatuses().Contains(status)) return (false, $"Unknown status \"{status}\": this project's statuses are {string.Join(", ", Queries.GetStatuses())}");
         if (Queries.Get(id) is not WorkItem item) return (false, NotFound);
         if (item.Archived) return item.Status == status ? (true, "") : (false, Archived);
-        if (status != "Blocked" && (item.DependsOn ?? []).Select(Queries.Get).OfType<WorkItem>().FirstOrDefault(d => !WorkItemsApi.IsResolved(d)) is WorkItem dep)
+        if (!ignoreDependencies && status != "Blocked" && (item.DependsOn ?? []).Select(Queries.Get).OfType<WorkItem>().FirstOrDefault(d => !WorkItemsApi.IsResolved(d)) is WorkItem dep)
             return (false, $"Waiting on #wi{dep.Id} \"{dep.Title}\" — can't change status until it's resolved");
         if (status != "Completed")   // the first move to In Progress stamps the start day; a day already there is kept
         {
@@ -399,7 +400,7 @@ internal static partial class Commands
 
     /// <summary>
     /// A folder name no change has ever had: not under changes/ and not under changes/archive/ either (there with its
-    /// yyyy-MM-dd- prefix stripped, any date). Numbers duplicates: name, name-2, name-3, ...
+    /// yyyy-MM-dd- prefix stripped, any date), and not one a merge removed (x-rtm.mergedFolders). Numbers duplicates: name, name-2, name-3, ...
     /// </summary>
     private static string FreeFolderName(string baseName)
     {
@@ -417,6 +418,7 @@ internal static partial class Commands
         HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
         if (Directory.Exists(changes)) used.UnionWith(Directory.EnumerateDirectories(changes).Select(d => Path.GetFileName(d)));
         if (Directory.Exists(archive)) used.UnionWith(Directory.EnumerateDirectories(archive).Select(d => DatePrefix().Replace(Path.GetFileName(d), "")));
+        used.UnionWith(Queries.GetAll(includeHidden: true).SelectMany(w => w.MergedFolders ?? []));   // a merge deletes its sources' folders, but git remembers them
         return used;
     }
 
@@ -595,12 +597,29 @@ internal static partial class Commands
         lock (OpenSpecStoreApi.StepsGate) return MergeSteps(ids, into);   // readers that repair note ids wait: halfway through, a note is in two folders
     }
 
+    /// <summary>
+    /// Features that were deleted stay on archived items. Two different deleted features cannot merge (the reason is returned); the same deleted
+    /// one can; and when an existing feature is among the items it takes over: <paramref name="carried"/> says which feature paths the merged item keeps.
+    /// </summary>
+    private static string? CategoryRule(IReadOnlyList<WorkItem> items, out Func<string, bool> carried)
+    {
+        HashSet<string> existing = [.. Features.FeaturesApi.GetAll().Select(f => f.Path)];
+        List<(WorkItem Item, string Path)> gone = [.. items.SelectMany(i => i.Features, (i, f) => (Item: i, f.Path)).Where(x => !existing.Contains(x.Path))];
+        bool existingWins = items.SelectMany(i => i.Features).Any(f => existing.Contains(f.Path));
+        carried = p => !existingWins || existing.Contains(p);
+        if (gone.Select(g => g.Path).Distinct().Count() < 2) return null;
+        (WorkItem a, string pa) = gone[0];
+        (WorkItem b, string pb) = gone.First(g => g.Path != pa);
+        return $"#wi{a.Id} and #wi{b.Id} have different features that no longer exist ({pa} and {pb}): move one of them to an existing feature first";
+    }
+
     private static (bool Success, string Message, int Id) MergeSteps(IReadOnlyList<int> ids, int into)
     {
         List<WorkItem> items = ids.Select(Queries.Get).OfType<WorkItem>().ToList();
         if (items.Count < 2) return (false, "Select at least two work items to merge", 0);
         if (items.FirstOrDefault(i => i.Id == into) is not WorkItem main) return (false, $"#wi{into} is not one of the work items to merge", 0);
         bool allArchived = items.All(i => i.Archived);
+        if (CategoryRule(items, out Func<string, bool> carried) is string refusal) return (false, refusal, 0);
 
         // Delta specs: refuse when two active items change the same requirement; otherwise concatenate per capability.
         // An archived item keeps its specs/ folder, but they are already merged into openspec/specs: they can't conflict, and
@@ -635,7 +654,7 @@ internal static partial class Commands
         HashSet<int> sources = [.. items.Select(i => i.Id)];
         (bool ok, string message, int id) = CreateFolder(
             main.Title, status,
-            items.SelectMany(i => i.Features.Where(f => !f.Locked).Select(f => f.Path)),
+            items.SelectMany(i => i.Features.Where(f => !f.Locked).Select(f => f.Path).Where(carried)),
             items.SelectMany(i => i.Contributors),
             items.Any(i => i.Priority == "high") ? "high" : null,
             body, tasks, deltas, folder: "merge-" + string.Join("-", items.Select(i => $"wi{i.Id}")), inArchive: allArchived,
@@ -644,7 +663,7 @@ internal static partial class Commands
 
         // Nothing but the folders is dropped: notes and any other files move over, and items that waited on a source now wait on this one.
         string merged = Queries.Get(id)!.Path;
-        EventLog.Prepend(merged, EventLog.SortedLines(items.Select(i => i.Path)));   // every source's events, oldest first, then the merged item's own created
+        EventLog.Prepend(merged, EventLog.SortedLines(items.Select(i => (i.Path, i.Id == main.Id ? (int?)null : i.Id))));   // every source's events, oldest first, a source's that is not the main item's marked "from #wiN"; then the merged item's own created
         EventLog.Append(merged, Actor(), [.. items.Where(i => i.Id != main.Id).Select(i => ("merged-from", $"#wi{i.Id} {i.Title}"))]);   // one per item merged into the main one
         foreach (WorkItem it in items) CopyExtras(it.Path, merged, it.Id, keepSpecs: it.Archived && !allArchived, stampNotes: it.Id == main.Id ? null : mergedOn);
         // Note numbers are repository-wide and WorkItems can't reference Notes (Notes references WorkItems), so the files are written here in the notes format.
@@ -723,6 +742,7 @@ internal static partial class Commands
         if (lanes.Count > 0) m.Lanes = lanes;
         if (items.SelectMany(i => i.DependsOn ?? []).Where(d => !sources.Contains(d)).Distinct().ToList() is { Count: > 0 } deps) m.DependsOn = deps;
         m.MergedFrom = [.. items.SelectMany(i => (i.MergedFrom ?? []).Prepend(i.Id)).Distinct()];
+        m.MergedFolders = [.. items.SelectMany(i => (i.MergedFolders ?? []).Prepend(i.Folder)).Distinct()];
     }
 
     /// <summary>Copies a source's notes into the merged change as they are, and its other files under from-wi&lt;id&gt;/.</summary>
@@ -808,13 +828,18 @@ internal static partial class Commands
 
     internal static int CountWithStatus(string status) => Queries.GetAll(includeHidden: true).Count(w => w.Status == status);
 
-    /// <summary>Takes a status out of the project's list: not a fixed one, and only when no work item (hidden ones included) has it.</summary>
+    /// <summary>
+    /// Takes a status out of the project's list: not a fixed one. Open work items (hidden ones included) that have it move to the project's first status
+    /// (the uncategorised one); archived items are not touched: they keep the name in their file and show as Completed.
+    /// </summary>
     internal static (bool Success, string Message) RemoveStatus(string name)
     {
         if (WorkItemsApi.FixedStatuses.Contains(name)) return (false, $"{name} stays: Backlog, In Progress and Completed are in every project");
-        if (CountWithStatus(name) is int n and > 0) return (false, $"{n} work item{(n == 1 ? " has" : "s have")} the status \"{name}\": move {(n == 1 ? "it" : "them")} first");
-        return EditStatuses(l => l.Remove(name) ? null : $"This project has no status \"{name}\"");
+        string? first = Queries.GetStatuses().FirstOrDefault(s => s != name && s != "Completed");
+        return first is null ? RemoveFromList(name) : RemoveStatusMoving(name, first);
     }
+
+    private static (bool Success, string Message) RemoveFromList(string name) => EditStatuses(l => l.Remove(name) ? null : $"This project has no status \"{name}\"");
 
     /// <summary>Moves every work item that has <paramref name="name"/> to <paramref name="to"/>, then removes the status. Stops at the first item that cannot move (nothing is removed then).</summary>
     internal static (bool Success, string Message) RemoveStatusMoving(string name, string to)
@@ -825,8 +850,8 @@ internal static partial class Commands
         if (to == name || !statuses.Contains(to)) return (false, "Pick another of this project's statuses to move the work items to");
         if (to == "Completed") return (false, "Completed means archived: move them to another status");
         foreach (WorkItem item in Queries.GetAll(includeHidden: true).Where(w => w.Status == name).ToList())
-            if (SetStatus(item.Id, to) is { Success: false } failed) return (false, $"#wi{item.Id} did not move: {failed.Message}");
-        return RemoveStatus(name);
+            if (SetStatus(item.Id, to, ignoreDependencies: true) is { Success: false } failed) return (false, $"#wi{item.Id} did not move: {failed.Message}");
+        return RemoveFromList(name);
     }
 
     /// <summary>Moves a status up (<paramref name="by"/> -1) or down (+1) in the project's order; any status, the fixed ones too.</summary>

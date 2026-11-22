@@ -1,0 +1,16 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-20
+x-rtm:
+  id: 208
+  title: move table editor
+  status: In Review
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: feature
+  started: 2026-11-20
+  moved: 2026-11-20
+  plan: DevResources/plans/in-progress-items-2026-11-20.md
+  tests: [{suite: UsingThePagesTests, test: The note editor is a plain textarea with no table helper attached}, {suite: UsingThePagesTests, test: index.html loads no markdown table scripts}]
+  agentBy: Claude
+  agentAt: 2026-11-20T09:25:10

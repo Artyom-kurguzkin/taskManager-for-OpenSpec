@@ -11,6 +11,13 @@
 @inject TaskManager.AppState.SettingsStore Settings
 @inject IServiceProvider Services
 
+<ScrollMemory View="@($"item/{Id}")" />
+
+@if (item is null && Workspace.Root is string loadingRoot && Workspace.IsLoading(loadingRoot))
+{
+    <p class="muted loading">Loading…</p>   @* the project is still being read (the start): not "not found" *@
+    return;
+}
 @if (item is null)
 {
     <NotFound What="@($"#wi{Id}")">It may have been merged or deleted.</NotFound>
@@ -26,6 +33,10 @@
         {
             <button class="btn ghost hide-item" title="Shows it on the board again" @onclick="() => Run(WorkItemsApi.Unhide(item.Id))">Restore</button>
         }
+        else if (AppHidden)
+        {
+            <button class="btn ghost hide-item" title="Shows it on the board again" @onclick="() => Settings.SetItemsHidden(ItemRoot!, [item.Id], false)">Restore</button>
+        }
         @if (!Detached)
         {
             <Menu Label="Split screen">
@@ -39,7 +50,8 @@
             <BackButton />
         }
     </div>
-    @if (item.Hidden) { <p class="warning">Hidden from the board. Restore it to show it again; nothing was removed from openspec/.</p> }
+    @if (AppHidden || (item.Hidden && Resolution is null)) { <p class="warning">Hidden in this app. Restore it from the side menu's Hidden section.</p> }
+    else if (item.Hidden) { <p class="warning">Hidden from the board@(Resolution is string how ? $" by its resolution: {how}" : ""). Restore it to show it again.</p> }
     <div class="head kvs">
         <div class="kv"><label>feature</label>
             <Dropdown @key="featureKey" Label="feature" Class="mini" Placeholder="no feature" Options="FeatureChoices" Value="@(item.Features.FirstOrDefault()?.Path ?? "")" ValueChanged="SetFeature" />
@@ -110,8 +122,8 @@
                     List<Subtask> open = g.Where(s => !s.Done).ToList(), done = g.Where(s => s.Done).ToList();
                     bool unfolded = subUnfolded.Contains(g.Key);
                     <div class="sub-grp">
-                        @* more than one task group (merged items): each has a header with its progress *@
-                        @if (SubGroups.Count > 1)
+                        @* more than one task group (merged items): each has a header with its progress; a lone group says so too when it was merged in *@
+                        @if (SubGroups.Count > 1 || SubGroupName(g.Key).Contains(" · merged ", StringComparison.Ordinal))
                         {
                             <div class="sub-group"><span class="g-name">@SubGroupName(g.Key)</span><span class="g-prog mono">@done.Count / @g.Count()</span></div>
                         }
@@ -174,8 +186,15 @@
                     else
                     {
                         <ul class="rel-list">
+                            @* files of an item made by a merge sit under the item they came from *@
+                            @{ bool grouped = related.Any(x => x.From is not null); int? group = null; }
                             @foreach (Rel r in related)
                             {
+                                @if (grouped && (r == related[0] || r.From != group))
+                                {
+                                    <li class="rel-from muted">@(r.From is int src ? $"from #wi{src}" : "this item")</li>
+                                }
+                                group = r.From;
                                 <li class="rel" data-kind="@r.Kind">
                                     <span class="k">@r.Kind</span>
                                     @if (IsUrl(r.Target)) { <a class="rel-open" href="@r.Target" target="_blank" rel="noopener" title="@r.Target">@r.Name</a> }
@@ -222,6 +241,10 @@
     }
 
     private WorkItem? item;
+    /// <summary>The user hid the item in this app (the settings, per repository).</summary>
+    private bool AppHidden => ItemRoot is string root && item is not null && Settings.ItemHidden(root, item.Id);
+    /// <summary>How an agent ended the item without doing it ("Cancelled", "Duplicate of #wiN", ...), from its notes; null when it has no resolution.</summary>
+    private string? Resolution => TaskManager.Components.Pages.BoardModel.Resolutions(notes).GetValueOrDefault(item?.Id ?? 0);
     /// <summary>The notes' markdown as HTML for the page's life: a tick or any other reload converts only the notes that changed (the worklog, which comes and goes with the view, reads from it).</summary>
     public NoteHtmlCache NoteHtml { get; } = new();
     private bool dirty;               // the item's files are changed or new in the work tree
@@ -292,10 +315,12 @@
     private void AddContributor(string person) => Run(WorkItemsApi.SetContributors(Id, item!.Contributors.Append(person)));
 
     protected override object? LoadKey => Id;
+    protected override string? LogTarget => $"#wi{Id}";
 
     protected override void Load()
     {
         (featureChoices, subGroups, waitingOn, blocking) = (null, null, null, null);
+        if (Workspace.Root is string active && Workspace.IsLoading(active)) { item = null; return; }   // the pool is reading the headers: the page says Loading… and reads nothing; the load's Changed brings it back here
         item = ItemsCache.Get(Id);
         if (item is null) return;
         description = WorkItemsApi.GetDescription(Id);
@@ -531,7 +556,7 @@
 
     /// <summary>One row of the Related list. <see cref="Target"/> is a repository-relative path (forward slashes) or an http(s) address.</summary>
     /// <summary>Stored = a link the item keeps itself (its plan, x-rtm.docs), which can be unlinked here; the rest is found in its text and notes.</summary>
-    private sealed record Rel(string Kind, string Name, string Target, bool Stored = false);
+    private sealed record Rel(string Kind, string Name, string Target, bool Stored = false, int? From = null);   // From: the item a merge brought the note that names it from
 
     private void Unlink(Rel r)
     {
@@ -558,11 +583,12 @@
         foreach (Rel r in ReferencesIn(description, root)) Add(r);
         foreach (Note n in notes)
         {
-            foreach (Rel r in ReferencesIn(n.Body, root)) Add(r);
+            foreach (Rel r in ReferencesIn(n.Body, root)) Add(r with { From = n.MergedFrom });
             foreach (string a in n.Attachments)
-                Add(IsUrl(a) ? new("link", a, a) : new(Ui.IsImage(a) ? "image" : "file", System.IO.Path.GetFileName(a), a));
+                Add(IsUrl(a) ? new("link", a, a, From: n.MergedFrom) : new(Ui.IsImage(a) ? "image" : "file", System.IO.Path.GetFileName(a), a, From: n.MergedFrom));
         }
-        return found;
+        // a merged item lists its own first, then each source's (stable: the order found is kept inside a group)
+        return found.Any(r => r.From is not null) ? [.. found.OrderBy(r => r.From is null ? 0 : 1).ThenBy(r => r.From)] : found;
     }
 
     private static IEnumerable<Rel> ReferencesIn(string text, string? root)

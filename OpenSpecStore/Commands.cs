@@ -172,6 +172,7 @@ internal static class Commands
         }
         catch { try { File.Delete(tmp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } throw; }
         OpenSpecStoreModule.LastSeen[full] = content;
+        OpenSpecStoreModule.Remember(full, content);   // what was written and the stamp it left: readers and the watcher's echo go by it (a write that failed above never gets here)
         OpenSpecStoreModule.Touch(full);   // this write's one version bump, after it, so a cache rebuilt meanwhile still counts as stale
         return (true, "");
     }
@@ -226,6 +227,7 @@ internal static class Commands
             }
         }
         catch (TimeoutException e) { return (false, e.Message); }
+        OpenSpecStoreModule.DropWritten(full);
         OpenSpecStoreModule.Touch(full);
         return (true, "");
     }
@@ -237,6 +239,7 @@ internal static class Commands
         OpenSpecStoreModule.Own(full);
         File.Delete(full);
         OpenSpecStoreModule.LastSeen.TryRemove(full, out _);
+        OpenSpecStoreModule.DropWritten(full);
         OpenSpecStoreModule.Touch(full);
         return (true, "");
     }
@@ -252,6 +255,8 @@ internal static class Commands
         Directory.Move(src, dst);
         OpenSpecStoreModule.Own(dst);
         foreach (string entry in Directory.EnumerateFileSystemEntries(dst, "*", SearchOption.AllDirectories)) OpenSpecStoreModule.Own(entry);
+        OpenSpecStoreModule.DropWritten(src);
+        OpenSpecStoreModule.DropWritten(dst);
         OpenSpecStoreModule.Touch(src, dst);
         return (true, "");
     }

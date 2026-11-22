@@ -13,7 +13,7 @@ namespace TaskManager.AppState;
 /// Composition-root glue for the UI: opens a repository (configuring every module), and tells pages to
 /// re-read when files change on disk or after the app's own edits.
 /// </summary>
-public sealed class Workspace : IDisposable
+public sealed partial class Workspace : IDisposable
 {
     private readonly SettingsStore settings;
     private readonly UiService ui;   // the first window's: where a dialog asked for without a window goes
@@ -43,8 +43,9 @@ public sealed class Workspace : IDisposable
         if (line.Length > 0) guideNotice = guideNotice is null ? line : guideNotice + " " + line;
     }
 
-    public Workspace(SettingsStore settings, UiService ui, BoardSyncService? sync = null)
+    public Workspace(SettingsStore settings, UiService ui, BoardSyncService? sync = null, TimeProvider? time = null)
     {
+        this.time = time ?? TimeProvider.System;
         this.settings = settings;
         this.ui = ui;
         windows.Add(ui);
@@ -57,7 +58,7 @@ public sealed class Workspace : IDisposable
     }
 
     private string plansSeen;
-    /// <summary>What the guides and the Notes module are configured from: every open project's plans folder and attachments (images) folder (the project's files folder, which a pull can change, or the old per-computer values).</summary>
+    /// <summary>What the guides and the Notes module are configured from: every open project's plans folder and attachments (images) folder (the project's own, which a pull can change, the old one-folder key, or the old per-computer values).</summary>
     private string PlansState => string.Join(";", ConfiguredRoots().Select(r => r + "=" + settings.PlansDir(r) + "|" + settings.AttachmentsDir(r)));
 
     private readonly HashSet<string> configured = new(StringComparer.OrdinalIgnoreCase);   // the open projects ConfigureProject has been through: a project is configured when it opens, not when its folder is first read
@@ -139,6 +140,12 @@ public sealed class Workspace : IDisposable
 
     public (bool Success, string Message) Open(string root)
     {
+        if (LoadOf(root) is { Done.IsCompleted: false })   // the start's own load is still reading this project: choosing it only makes it the one shown; the load goes on and tells the pages as it finishes steps
+        {
+            (bool started, string text) = Register(root);
+            if (started) Changed?.Invoke();
+            return (started, text);
+        }
         bool fresh = !OpenSpecStoreApi.OpenRoots.Any(r => SettingsStore.Key(r) == SettingsStore.Key(root));
         (bool ok, string message) = OpenSpecStoreApi.Open(root, keepOthers: true);
         if (!ok) return (ok, message);
@@ -155,8 +162,198 @@ public sealed class Workspace : IDisposable
         sync?.Attach(root);
         OpenTabs(root);
         KeepTabs();
+        // The store's first look at each project not looked at yet (as the start's headers step takes it): the stamps the watcher's signal, the focused-window timer and the tool calls verify against.
+        // Without it the first outside change after opening (a pull bringing a change numbered twice) would only be that first look, which tells nobody.
+        foreach (string project in Projects) In(project, () => OpenSpecStoreApi.Verify(TimeSpan.MaxValue));
         Notify(wait: true);   // a project being opened has its duplicate numbers repaired before its first page reads it
         return (true, "");
+    }
+
+    // ── Starting: the window first, the files after ──
+
+    /// <summary>Where a project's load is: each step that has happened. Created by <see cref="Register"/>, finished by <see cref="LoadAsync"/> (a step that fails still completes: nothing waits for ever).</summary>
+    private sealed class ProjectLoad
+    {
+        public readonly TaskCompletionSource HeadersIn = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource GitIn = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource DoneIn = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>The board was painted from the saved index at <see cref="Register"/>: pages draw it at once, though the headers are not verified yet (<see cref="Headers"/> still says when they are).</summary>
+        public volatile bool Painted;
+
+        public Task Headers => HeadersIn.Task;
+        public Task Git => GitIn.Task;
+        public Task Done => DoneIn.Task;
+    }
+
+    private readonly Dictionary<string, ProjectLoad> loads = new(StringComparer.OrdinalIgnoreCase);
+
+    private ProjectLoad? LoadOf(string root) { lock (loads) return loads.TryGetValue(Path.GetFullPath(root), out ProjectLoad? l) ? l : null; }
+
+    /// <summary>A test seam: called on the loading thread before each step of <see cref="LoadAsync"/> ("headers", "repo", "git", "scan") with the project's root; a test holds the step here until it opens its gate.</summary>
+    public Action<string, string>? BeforeLoadStep { get; set; }
+
+    /// <summary>True from <see cref="Register"/> until the project's headers (what the board is drawn from) are in: pages draw a skeleton and read nothing meanwhile. False for a project that is not being loaded.</summary>
+    public bool IsLoading(string root) => LoadOf(root) is { } l && !l.Headers.IsCompleted && !l.Painted;
+
+    /// <summary>True while any project's headers are not in yet (a project painted from its saved index has its headers: they are being verified).</summary>
+    public bool Loading { get { lock (loads) return loads.Values.Any(l => !l.Headers.IsCompleted && !l.Painted); } }
+
+    /// <summary>False from <see cref="Register"/> until git has been configured and read for the project (the contributor and commit filters say "loading" meanwhile). True for a project that is not being loaded.</summary>
+    public bool IsGitReady(string root) => LoadOf(root) is not { } l || l.Git.IsCompleted;
+
+    /// <summary>Waits until the headers of every project being loaded are in, at most <paramref name="limit"/>; false when the limit passed first. What an agent's call waits on, so it never answers from an empty board.</summary>
+    public async Task<bool> WaitLoaded(TimeSpan limit)
+    {
+        Task all;
+        lock (loads) all = Task.WhenAll(loads.Values.Select(l => l.Headers));
+        try { await all.WaitAsync(limit).ConfigureAwait(false); return true; }
+        catch (TimeoutException) { return false; }
+    }
+
+    /// <summary>Waits until every step of every load has finished (git, the duplicate scan, worklog tracking too), at most <paramref name="limit"/>.</summary>
+    public async Task<bool> WaitSettled(TimeSpan limit)
+    {
+        Task all;
+        lock (loads) all = Task.WhenAll(loads.Values.Select(l => l.Done));
+        try { await all.WaitAsync(limit).ConfigureAwait(false); return true; }
+        catch (TimeoutException) { return false; }
+    }
+
+    /// <summary>
+    /// The cheap half of opening a repository, for the app's start: the project is open (<see cref="Projects"/>, <see cref="ViewRoot"/>, the last repository and the tabs are right at once), and it counts as loading,
+    /// but not one change folder, git or note is read. <see cref="LoadAsync"/> reads them. <see cref="Open"/> does both in one call.
+    /// </summary>
+    public (bool Success, string Message) Register(string root)
+    {
+        bool fresh = !OpenSpecStoreApi.OpenRoots.Any(r => SettingsStore.Key(r) == SettingsStore.Key(root));
+        (bool ok, string message) = OpenSpecStoreApi.Open(root, keepOthers: true);
+        if (!ok) return (ok, message);
+        if (viewRoot is null || !OpenSpecStoreApi.OpenRoots.Any(r => SettingsStore.Key(r) == SettingsStore.Key(viewRoot))) viewRoot = root;
+        if (message.Length > 0) guideNotice = message;
+        GitHistoryApi.Configure(root, reset: fresh);   // what git will say is read later; this only makes the project known to it
+        WorkItemsApi.ConfigureActor(() => Me);
+        settings.Update(s => s with { LastRepo = OpenSpecStoreApi.RepoRoot });
+        foreach (string tab in OpenRepos.Where(t => !OpenSpecStoreApi.OpenRoots.Any(o => SettingsStore.Key(o) == SettingsStore.Key(t))))
+            if (OpenSpecStoreApi.Open(tab, keepOthers: true).Success) GitHistoryApi.Configure(tab);
+        OpenSpecStoreApi.Use(root);
+        GitHistoryApi.Configure(root);
+        KeepTabs();
+        lock (loads)
+            foreach (string project in new[] { root }.Concat(Projects))
+                if (!loads.TryGetValue(Path.GetFullPath(project), out ProjectLoad? l) || l.Done.IsCompleted) loads[Path.GetFullPath(project)] = new ProjectLoad();
+        if (PaintFromIndex(root)) Changed?.Invoke();
+        return (true, "");
+    }
+
+    /// <summary>
+    /// Paints every open project that has a saved index (<see cref="ItemsCache.TryLoadIndex"/>): its board is what it was at the last save, read from one file, with no change folder listed or opened. The load that follows
+    /// (<see cref="LoadAsync"/>) verifies it against the disk. True when any project was painted.
+    /// </summary>
+    private bool PaintFromIndex(string root)
+    {
+        bool any = false;
+        foreach (string project in new[] { root }.Concat(Projects).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (LoadOf(project) is not { } load || load.Painted) continue;
+            bool painted = false;
+            try { Scoped(project, () => painted = ItemsCache.TryLoadIndex(project)); }
+            catch (Exception e) { Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(AppLog.For<Workspace>(), e, "Painting {Project} from its saved index failed; it is read as usual", ProjectName(project)); }   // the index is a cache: never a reason not to start
+            if (!painted) continue;
+            load.Painted = true;
+            AppLog.Mark($"index-painted {ProjectName(project)}");
+            any = true;
+        }
+        return any;
+    }
+
+    private static string ProjectName(string project) => Path.GetFileName(project.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+    /// <summary>Saves the index of every open project that read or changed anything since its last save: what the app calls when it closes, so the next start paints from it. A repository only painted and never verified is left as it is.</summary>
+    public void SaveIndexes()
+    {
+        foreach (string project in OpenSpecStoreApi.OpenRoots)
+            try { Scoped(project, () => ItemsCache.SaveIndex(project)); }
+            catch (Exception e) { Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(AppLog.For<Workspace>(), e, "Saving the index of {Project} failed", ProjectName(project)); }   // a cache: the next start reads the repository as usual
+    }
+
+    /// <summary>"Rebuild index", the safety valve: drops the saved index of the project, reads every change folder again, saves a fresh index and tells the pages.</summary>
+    public void RebuildIndex(string root)
+    {
+        In(root, () => ItemsCache.RebuildIndex(root));
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// The other half, on the thread pool: for every open project in turn, its headers (the items and features the board is drawn from), then the rest of what the project needs (notes folder, agent guide,
+    /// sync), then git (configured, watched, read), then worklog tracking and the duplicate-number scan. Each step ends with <see cref="Changed"/> so the pages draw what arrived, and with an
+    /// <see cref="AppLog.Mark"/>. A step that fails is told in a toast and the load goes on.
+    /// </summary>
+    public Task LoadAsync(string root) => Task.Run(() => LoadCore(root));
+
+    private void LoadCore(string root)
+    {
+        List<string> projects = [.. new[] { Path.GetFullPath(root) }.Concat(Projects.Select(Path.GetFullPath)).Distinct(StringComparer.OrdinalIgnoreCase)];
+        string Name(string p) => Path.GetFileName(p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        void Told()
+        {
+            if (TakeGuideNotice() is string notice) Say(notice);
+            Changed?.Invoke();
+        }
+        void Step(string step, string? mark, Action<string> work, Action<ProjectLoad>? finished = null, bool changed = true)
+        {
+            foreach (string p in projects)
+            {
+                BeforeLoadStep?.Invoke(step, p);
+                try { Scoped(p, () => work(p)); }
+                catch (Exception e)
+                {
+                    Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(AppLog.For<Workspace>(), e, "Loading {Step} of {Project} failed", step, Name(p));
+                    Say($"Couldn't read {Name(p)} just now ({e.Message}); it refreshes on the next change.", ToastKind.Warning);
+                }
+                if (mark is not null) AppLog.Mark($"{mark} {Name(p)}");
+                if (LoadOf(p) is { } l) finished?.Invoke(l);
+                if (changed) Told();
+            }
+        }
+        try
+        {
+            using System.Diagnostics.Activity? load = AppLog.Start("load", Name(root));
+            Step("headers", "headers-read", p => { OpenSpecStoreApi.Verify(); ItemsCache.Verify(); _ = ItemsCache.All(); _ = FeaturesCache.Get(); }, l => l.HeadersIn.TrySetResult());   // the store takes its first look (the stamps the watcher and the tool calls verify against), then a board painted from the saved index is verified: one listing, only a changed folder is read
+            Step("repo", "repo-loaded", p => { ConfigureProject(p); sync?.Attach(p); });
+            WorkItemsApi.ConfigureContributors(() => GitHistoryApi.IsRepository() ? (GitHistoryApi.HeadToken(), GitHistoryApi.AuthorsOfChange) : null);   // every item takes its commit authors again, from here
+            Step("git", "git-ready", p =>
+            {
+                GitHistoryApi.Watch(p);
+                _ = GitHistoryApi.IsRepository();
+                _ = ItemsCache.All();   // the items with their authors
+                _ = GitCache.Uncommitted();   // what the first board draw and the commit filter ask
+                _ = GitCache.Recent(30);
+            }, l => l.GitIn.TrySetResult());
+            Step("scan", null, p => { TrackWorklog(p); ItemsCache.Rescan(p); }, null, changed: false);
+            Notify(wait: true);   // the duplicate numbers are repaired, once, for every project; then the pages are told
+            foreach (string p in projects)   // every step is done, the numbers are final: what the load read is saved for the next start (not in the middle of it, and before scan-done, which a script or a kill may act on)
+                try { Scoped(p, () => ItemsCache.SaveIndex(p)); }
+                catch (Exception e) { Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(AppLog.For<Workspace>(), e, "Saving the index of {Project} failed", Name(p)); }
+            foreach (string p in projects)
+            {
+                AppLog.Mark($"scan-done {Name(p)}");
+                if (LoadOf(p) is { } l) l.DoneIn.TrySetResult();
+            }
+            Told();
+        }
+        finally
+        {
+            lock (loads) foreach (ProjectLoad l in loads.Values) { l.HeadersIn.TrySetResult(); l.GitIn.TrySetResult(); l.DoneIn.TrySetResult(); }   // however it ended, nothing waits for ever
+        }
+    }
+
+    /// <summary>Runs <paramref name="work"/> with the store and git reading the project of the call, whatever tab the window is on.</summary>
+    private static void Scoped(string root, Action work)
+    {
+        using (OpenSpecStoreApi.InRepo(root))
+        using (GitHistoryApi.InRepo(root))
+            work();
     }
 
     /// <summary>Makes an open project the active one and the one whose arrangement the board shows, keeping the tabs in their order ("Make it the active project").</summary>
@@ -217,7 +414,8 @@ public sealed class Workspace : IDisposable
     {
         List<string> before = OpenRepos.ToList();   // snapshot before Open() switches Root, which OpenRepos falls back on
         string? viewBefore = viewRoot;
-        viewRoot = root;   // switching to a tab is choosing its view; set first, so the board that settings.Update tells reads the right project's
+        bool alreadyOpen = before.Any(p => SettingsStore.Key(p) == SettingsStore.Key(root));
+        if (alreadyOpen) viewRoot = root;   // choosing a project's tab is choosing its view (set first, so the board that settings.Update tells reads the right project's); adding a project leaves the user's arrangement where it is
         settings.Update(s => s with { OpenRepos = [.. before.Where(p => SettingsStore.Key(p) != SettingsStore.Key(root)), root] });   // first, so Open keeps every tab
         (bool ok, string message) = Open(root);
         if (!ok) { viewRoot = viewBefore; settings.Update(s => s with { OpenRepos = before }); }
@@ -272,13 +470,13 @@ public sealed class Workspace : IDisposable
 
     /// <summary>
     /// Runs a module command on the thread pool, one at a time in the order asked (two quick edits of one file would otherwise read the same text and
-    /// the later write would drop the earlier one), then refreshes the UI as <see cref="Do"/> does. The caller keeps the window free meanwhile.
+    /// the later write would drop the earlier one); a success tells the pages after the writes' quiet time (<see cref="NotifyWritten()"/>), where <see cref="Do"/> tells them at once. The caller keeps the window free meanwhile.
     /// <paramref name="written"/> runs on the pool after a successful command and before the refresh.
     /// </summary>
     public async Task<(bool Success, string Message)> DoLater(Func<(bool Success, string Message)> command, Action? written = null)
     {
         // Task.Run carries the caller's ambient state (the AsyncLocal repository scope, the test's module state) to the pool thread.
-        // The refresh (Do) runs after the write is down and the queue is free: it draws on the window's thread, which is gone once the window closed, and must not hold the next write or Drain.
+        // The pages are told after the quiet time, on the workspace's clock (NotifyWritten): nothing draws inside the queue, so the window's thread (gone once the window closed) never holds the next write or Drain.
         TaskCompletionSource landed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         Task<(bool Success, string Message)> run = Task.Run(async () =>
         {
@@ -286,11 +484,16 @@ public sealed class Workspace : IDisposable
             await writes.WaitAsync().ConfigureAwait(false);
             try
             {
-                result = command();
-                if (result.Success) written?.Invoke();
+                // The write is a child of the command that queued it: Task.Run carried the caller's Activity.Current here, so the lines of both share one trace id.
+                using System.Diagnostics.Activity? write = AppLog.Start("write");
+                try { result = command(); }
+                catch (Exception e) { Microsoft.Extensions.Logging.LoggerExtensions.LogError(AppLog.For<Workspace>(), e, "A queued write threw"); write?.SetTag("result", "threw"); throw; }
+                write?.SetTag("result", result.Success ? "ok" : "refused: " + result.Message);
+                if (!result.Success) Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(AppLog.For<Workspace>(), "A queued write was refused: {Message}", result.Message);
+                if (result.Success) { written?.Invoke(); NotifyWritten(); }   // only arms the quiet-time timer (see NotifyWritten): done before the write counts as landed, so whoever drained the queue can move the clock past it
             }
             finally { writes.Release(); landed.SetResult(); }
-            return Do(result);
+            return result;
         });
         lock (laterGate) later = later.IsCompleted ? landed.Task : Task.WhenAll(later, landed.Task);   // registered before the first await: Drain sees every command asked so far
         return await run;
@@ -319,6 +522,22 @@ public sealed class Workspace : IDisposable
     /// </summary>
     public void Notify() => Notify(wait: false);
 
+    /// <summary>
+    /// "Show all hidden" as one action: the settings give back every hidden item, column and project and reset the filters (<see cref="SettingsStore.ShowAllHidden"/>), and an x-rtm.hidden an older
+    /// version wrote, on an item with no resolution note, is cleared (the one write the app makes for it, as the eye did). An item an agent's resolution hid stays hidden: it is board state.
+    /// </summary>
+    public void ShowAllHidden()
+    {
+        foreach (string root in Projects)
+            In(root, () =>
+            {
+                IReadOnlyDictionary<int, string> resolutions = TaskManager.Components.Pages.BoardModel.Resolutions(NotesCache.All());
+                foreach (WorkItems.PublicDTOs.WorkItem item in ItemsCache.All(includeHidden: true).Where(i => i.Hidden && !resolutions.ContainsKey(i.Id))) WorkItemsApi.Unhide(item.Id);
+            });
+        settings.ShowAllHidden(Projects, ViewRoot);
+        Notify();
+    }
+
     private void Notify(bool wait)
     {
         if (Monitor.IsEntered(scanGate) || wait)   // the scan's own writes raise this again (its caller reads when it is done); a project being opened needs the numbers repaired before it goes on
@@ -330,7 +549,11 @@ public sealed class Workspace : IDisposable
         }
         sync?.BoardChanged();   // the one place the board's content is reported changing: connected projects sync two quiet minutes after
         Changed?.Invoke();
-        Task scan = Task.Run(() => { if (Resolve()) { sync?.BoardChanged(); Changed?.Invoke(); } });
+        Task scan = Task.Run(() =>
+        {
+            using System.Diagnostics.Activity? a = AppLog.Start("scan", level: Microsoft.Extensions.Logging.LogLevel.Debug);   // under the trace of whatever raised the change: Task.Run carries it
+            if (Resolve()) { a?.SetTag("result", "renumbered"); sync?.BoardChanged(); Changed?.Invoke(); }
+        });
         lock (pendingGate) pending = Task.WhenAll(pending, scan);
     }
 
@@ -397,8 +620,32 @@ public sealed class Workspace : IDisposable
         return (ok, message, id);
     }
 
+    private ITimer? verifying;
+
+    /// <summary>
+    /// Starts the check for edits the file watcher dropped (or reports late): every <paramref name="every"/> (5 seconds by default) while <paramref name="focused"/> says a window has focus, each open project is verified:
+    /// one listing, no file read while nothing changed (<see cref="OpenSpecStoreApi.Verify"/>). A change found tells the pages as the watcher's signal does. Only the app host starts it.
+    /// </summary>
+    public void StartVerifying(TimeProvider time, Func<bool> focused, TimeSpan? every = null)
+    {
+        verifying?.Dispose();
+        TimeSpan period = every ?? TimeSpan.FromSeconds(5);
+        verifying = time.CreateTimer(_ => VerifyOpenProjects(focused), null, period, period);
+    }
+
+    private void VerifyOpenProjects(Func<bool> focused)
+    {
+        if (!focused()) return;   // ponytail: no window to show a change in: the next tool call or the watcher's signal verifies
+        foreach (string project in OpenSpecStoreApi.OpenRoots)
+            // a timer callback that throws ends the process: files moving under the listing are retried at the next tick
+            try { In(project, () => OpenSpecStoreApi.Verify()); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { }
+    }
+
     public void Dispose()
     {
+        DisposeBursts();
+        verifying?.Dispose();
         OpenSpecStoreApi.Changed -= Notify;
         GitHistoryApi.Changed -= OnGitChanged;
         if (sync is not null) sync.Touched -= Notify;

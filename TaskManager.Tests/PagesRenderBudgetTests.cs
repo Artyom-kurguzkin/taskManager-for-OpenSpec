@@ -72,26 +72,41 @@ public sealed class PagesRenderBudgetTests : IDisposable
 
     private static void OpenEditor(IRenderedComponent<Worklog> log, int id)
     {
-        log.Find($".wk-note[data-note='{id}']").Click(Shift);
+        log.FireWhenReady($".wk-note[data-note='{id}']", e => e.Click(Shift));
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".menu-pop")));
-        log.FindAll(".menu-pop .menu-item").Single(i => i.TextContent.Trim() == "Edit").Click();
+        log.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Edit"));
         log.WaitForAssertion(() => Assert.NotEmpty(log.FindAll(".wk-edit")));
+    }
+
+    [Fact(DisplayName = "Restoring the scroll spot of a view adds no draw: the board draws as often with a saved spot as without one (#wi202)")]
+    public async Task RestoringTheScrollSpotAddsNoDraw()
+    {
+        await using BunitContext ctx = NewContext();
+        IRenderedComponent<BoardPage> first = ctx.Render<BoardPage>();
+        await first.InvokeAsync(() => { });
+        int plain = RenderCounts.Of<BoardPage>();
+        await ctx.DisposeComponentsAsync();
+        RenderCounts.Reset();
+
+        ctx.Services.GetRequiredService<UiService>().ScrollSpots[(SettingsStore.Key(repo.Root), "board")] = (1200, 0);
+        IRenderedComponent<BoardPage> back = ctx.Render<BoardPage>();
+        back.WaitForAssertion(() => Assert.Single(ctx.JSInterop.Invocations["rtm.restoreScroll"]));
+        await back.InvokeAsync(() => { });
+        Assert.Equal(plain, RenderCounts.Of<BoardPage>());
     }
 
     [Fact(DisplayName = "Typing in a worklog note redraws only the editor")]
     public async Task TypingInAWorklogNoteRedrawsOnlyTheEditor()
     {
         await using BunitContext ctx = NewContext();
-        int[] ids = Notes(30);
+        int[] ids = Notes(3);   // three entries are as many menus as it takes to see one built again; each note is three writes
         IRenderedComponent<Worklog> log = ctx.Render<Worklog>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Root, repo.Root));
-        OpenEditor(log, ids[3]);
+        OpenEditor(log, ids[1]);
         await log.InvokeAsync(() => { });
         int menus = RenderCounts.Of<Menu>(), logs = RenderCounts.Of<Worklog>();
 
-        log.Find(".wk-edit input.wk-title-in").Input("A new title");
-        log.Find(".wk-edit textarea").Input("a");
-        log.Find(".wk-edit textarea").Input("ab");
-        log.Find(".wk-edit textarea").Input("abc");
+        log.InputWhenReady(".wk-edit input.wk-title-in", "A new title");
+        log.InputWhenReady(".wk-edit textarea", "abc");   // one keystroke is as much as two: a draw per event would show here
         await log.InvokeAsync(() => { });
 
         Assert.Equal(0, RenderCounts.Of<Menu>() - menus);      // not one entry's menu was built again
@@ -102,9 +117,11 @@ public sealed class PagesRenderBudgetTests : IDisposable
         ctx.Services.GetRequiredService<Workspace>().Changed += () => written.TrySetResult();
         log.Find(".wk-edit textarea").FocusOut();
         log.WaitForAssertion(() => Assert.Empty(log.FindAll(".wk-edit")));
-        await written.Task.WaitAsync(TimeSpan.FromSeconds(30));   // written on the pool, after the editor closed
-        Assert.Equal("abc", NotesApi.Get(ids[3])!.Body.Trim());
-        Assert.Equal("A new title", NotesApi.Get(ids[3])!.Title);
+        Assert.True(await ctx.Services.GetRequiredService<Workspace>().DrainAsync(TimeSpan.FromSeconds(30)));   // written on the pool, after the editor closed
+        time.Advance(TimeSpan.FromMilliseconds(300));   // the writes' quiet time (#wi213), then the pages are told
+        await written.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal("abc", NotesApi.Get(ids[1])!.Body.Trim());
+        Assert.Equal("A new title", NotesApi.Get(ids[1])!.Title);
     }
 
     [Fact(DisplayName = "Folding a day in the worklog builds no entry menu again", Skip = "not done: entry menus are already behind RenderBoundary and day menus per day, but a fold still draws 3 Menus (budget 2); the third source is not found")]
@@ -116,10 +133,10 @@ public sealed class PagesRenderBudgetTests : IDisposable
         string today = DateTime.Today.ToString("yyyy-MM-dd");
         int menus = RenderCounts.Of<Menu>();
 
-        log.Find($".wk-day[data-day='{today}'] .wk-date").Click();   // fold today
+        log.ClickWhenReady($".wk-day[data-day='{today}'] .wk-date");   // fold today
         log.WaitForAssertion(() => Assert.Single(log.FindAll(".wk-note")));   // the fixture's own note is of an older day
         int folded = RenderCounts.Of<Menu>();
-        log.Find($".wk-day[data-day='{today}'] .wk-date").Click();   // and open it again: the entries come back (new ones, as they were gone)
+        log.ClickWhenReady($".wk-day[data-day='{today}'] .wk-date");   // and open it again: the entries come back (new ones, as they were gone)
         log.WaitForAssertion(() => Assert.Equal(31, log.FindAll(".wk-note").Count));
 
         Assert.True(folded - menus <= 2, $"folding drew {folded - menus} menus");   // the day's own menu, not the 30 entries'
@@ -132,17 +149,17 @@ public sealed class PagesRenderBudgetTests : IDisposable
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         page.InvokeAsync(() => page.Find(".item-views input[value='linked']").ChangeAsync("linked")).GetAwaiter().GetResult();
         page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".tile[data-tile='subtasks']")));
-        page.FindAll(".tile[data-tile='subtasks'] .sub .s-t").Single(t => t.TextContent.Trim() == "Hide internals from anonymous callers").Click();
+        page.FireWhenReady(".tile[data-tile='subtasks'] .sub .s-t", e => e.Click(), all => all.Single(t => t.TextContent.Trim() == "Hide internals from anonymous callers"));
         IElement box = page.Find(".sub input.sub-edit");
         await page.InvokeAsync(() => { });
         int pages = RenderCounts.Of<WorkItemPage>();
 
-        box.KeyDown("x");          // a keystroke is a keydown and an input
-        box.Input("Hide internals from anonymous callers x");
+        Act(page, () => box, e => e.KeyDown("x"));          // a keystroke is a keydown and an input
+        Act(page, () => box, e => e.Input("Hide internals from anonymous callers x"));
 
         Assert.True(RenderCounts.Of<WorkItemPage>() - pages <= 1, $"a keystroke drew the page {RenderCounts.Of<WorkItemPage>() - pages} times");   // was twice
 
-        box.KeyDown("Enter");      // saving still shows the saved text
+        Act(page, () => box, e => e.KeyDown("Enter"));      // saving still shows the saved text
         Assert.Contains("- [ ] 2.1 Hide internals from anonymous callers x", repo.Read("openspec/changes/add-health-check/tasks.md"));
         page.WaitForAssertion(() => Assert.Empty(page.FindAll(".sub input.sub-edit")));
     }
@@ -159,7 +176,7 @@ public sealed class PagesRenderBudgetTests : IDisposable
 
         page.InvokeAsync(() => page.Find(".item-views input[value='linked']").ChangeAsync("linked")).GetAwaiter().GetResult();
         page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll(".tile[data-tile='subtasks']")));
-        page.Find("#sub-2-1").Change(true);                       // saved (on the thread pool, after the page drew), the page and the feed read again
+        page.ChangeWhenReady("#sub-2-1", true);                       // saved (on the thread pool, after the page drew), the page and the feed read again
         page.WaitForAssertion(() => Assert.Contains("- [x] 2.1", repo.Read("openspec/changes/add-health-check/tasks.md")));
         page.InvokeAsync(() => page.Find(".item-views input[value='worklog']").ChangeAsync("worklog")).GetAwaiter().GetResult();
         page.WaitForAssertion(() => Assert.Equal(7, page.FindAll(".wk-note").Count));
@@ -223,7 +240,7 @@ public sealed class PagesRenderBudgetTests : IDisposable
         int loads = page.Instance.Loads, drawn = RenderCounts.Of<WorkItemPage>();
         using IDisposable held = HoldItemFolder(repo.Root);
 
-        page.Find(".status-field .dd").Click();
+        page.ClickWhenReady(".status-field .dd");
         Task pick = page.InvokeAsync(() => page.FindAll(".status-field .rz-dropdown-item").First(i => i.TextContent.Trim() == "In Review").ClickAsync(new MouseEventArgs()));
         await page.InvokeAsync(() => { });
 
@@ -247,8 +264,8 @@ public sealed class PagesRenderBudgetTests : IDisposable
         int[] ids = Notes(3);
         IRenderedComponent<Worklog> log = ctx.Render<Worklog>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Root, repo.Root));
         OpenEditor(log, ids[1]);
-        log.Find(".wk-edit input.wk-title-in").Input("A brand new title");
-        log.Find(".wk-edit textarea").Input("Brand new words");
+        log.InputWhenReady(".wk-edit input.wk-title-in", "A brand new title");
+        log.InputWhenReady(".wk-edit textarea", "Brand new words");
         await log.InvokeAsync(() => { });
         int loads = log.Instance.Loads, drawn = RenderCounts.Of<Worklog>();
         string file = $"openspec/changes/add-health-check/notes/n{ids[1]}.md";
@@ -270,7 +287,9 @@ public sealed class PagesRenderBudgetTests : IDisposable
 
         held.Dispose();
         await save;
-        await written.Task.WaitAsync(TimeSpan.FromSeconds(30));   // written on the pool, after the entry drew
+        Assert.True(await workspace.DrainAsync(TimeSpan.FromSeconds(30)));   // written on the pool, after the entry drew
+        time.Advance(TimeSpan.FromMilliseconds(300));   // the writes' quiet time (#wi213), then the pages are told
+        await written.Task.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.Contains("Brand new words", repo.Read(file));
         Assert.Contains("A brand new title", repo.Read(file));
         await workspace.Resolved;
@@ -286,9 +305,9 @@ public sealed class PagesRenderBudgetTests : IDisposable
         WorkItemsApi.SetStarted(123, today);
         WorkItemsApi.SetDue(123, today.AddDays(1));
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        nav!.Find("button[aria-label=Layout]").Click();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Calendar").Click();
-        nav.Find("button.nav-toggle").Click();
+        nav!.ClickWhenReady("button[aria-label=Layout]");
+        nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Calendar"));
+        nav.ClickWhenReady("button.nav-toggle");
         board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".rm-bar[data-id='123']")));
         await board.InvokeAsync(() => { });
         return board;
@@ -302,7 +321,7 @@ public sealed class PagesRenderBudgetTests : IDisposable
         IRenderedComponent<BoardPage> board = await Calendar(ctx);
         int pages = RenderCounts.Of<BoardPage>(), roadmaps = RenderCounts.Of<Roadmap>();
 
-        await board.InvokeAsync(() => board.Find(".rm-bar[data-id='123']").Click());   // examines it
+        board.ClickWhenReady(".rm-bar[data-id='123']");   // examines it
         await board.InvokeAsync(() => { });
         Assert.Equal((repo.Root, 123), ui.Examined);
         Assert.Equal(1, RenderCounts.Of<BoardPage>() - pages);   // was twice
@@ -310,9 +329,9 @@ public sealed class PagesRenderBudgetTests : IDisposable
 
         // the controls of the calendar are not the background: the examined item stays, and the board is not drawn for them
         pages = RenderCounts.Of<BoardPage>();
-        await board.InvokeAsync(() => board.Find(".rm-zoom [data-zoom=quarter]").Click());
-        await board.InvokeAsync(() => board.Find(".rm-next").Click());
-        await board.InvokeAsync(() => board.FindAll(".rm-chev").First().Click());
+        board.ClickWhenReady(".rm-zoom [data-zoom=quarter]");
+        board.ClickWhenReady(".rm-next");
+        board.FireWhenReady(".rm-chev", e => e.Click(), all => all.First());
         await board.InvokeAsync(() => { });
         Assert.Equal((repo.Root, 123), ui.Examined);
         Assert.Equal(0, RenderCounts.Of<BoardPage>() - pages);
@@ -320,7 +339,7 @@ public sealed class PagesRenderBudgetTests : IDisposable
         Assert.NotEmpty(board.FindAll(".rm-chev.shut"));
 
         // the empty background does let go
-        await board.InvokeAsync(() => board.Find(".rm-head").Click());
+        board.ClickWhenReady(".rm-head");
         await board.InvokeAsync(() => { });
         Assert.Null(ui.Examined);
     }
@@ -351,5 +370,10 @@ public sealed class PagesRenderBudgetTests : IDisposable
             .Add(c => c.Charts, AnalyticsModel.Charts(new BoardOptions())));
         await analytics.InvokeAsync(() => { });
         Assert.True(analytics.Instance.Builds > built);
+    }
+    private static void Act<T>(Bunit.IRenderedComponent<T> cut, Func<AngleSharp.Dom.IElement?> find, Action<AngleSharp.Dom.IElement> fire) where T : Microsoft.AspNetCore.Components.IComponent
+    {
+        cut.Eventually(() => Xunit.Assert.NotNull(find()));   // rendered and present, or the test fails
+        cut.InvokeAsync(() => fire(find()!)).GetAwaiter().GetResult();
     }
 }

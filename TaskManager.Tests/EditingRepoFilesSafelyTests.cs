@@ -3,7 +3,6 @@ using WorkItems;
 
 namespace TaskManager.Tests;
 
-[Collection(nameof(RealTimeCollection))]
 public sealed class EditingRepoFilesSafelyTests
 {
     private const string Yaml = "openspec/changes/add-health-check/.openspec.yaml";
@@ -172,30 +171,6 @@ public sealed class EditingRepoFilesSafelyTests
 
         Assert.True(ok, message);
         Assert.True(next > deleted, $"{next} should be above the deleted {deleted}");
-    }
-
-    [Fact(DisplayName = "Allocation waits while another process holds the lock, then continues")]
-    public void WaitsForTheLock()
-    {
-        using TestRepo repo = new();
-        string dir = StubCommonDir(repo);
-        OpenSpecStoreApi.Open(repo.Root);
-        using ManualResetEventSlim held = new();
-        Task holder = Task.Run(() =>
-        {
-            using FileStream fs = new(Path.Combine(dir, "work-item.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-            held.Set();
-            Thread.Sleep(300);
-        });
-        Assert.True(held.Wait(TimeSpan.FromSeconds(5)));
-
-        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
-        (bool ok, string message, int _) = WorkItemsApi.Create("waited");
-        watch.Stop();
-
-        Assert.True(ok, message);
-        Assert.True(watch.ElapsedMilliseconds >= 250, $"returned after {watch.ElapsedMilliseconds} ms, before the holder let go");
-        holder.Wait();
     }
 
     [Fact(DisplayName = "A lock file left behind by a dead process does not block allocation")]

@@ -35,9 +35,20 @@ public sealed record WorkItem(
     DateOnly? Due = null,                      // x-rtm.due
     DateOnly? Moved = null,                    // x-rtm.moved: the day the item last moved to its status (null = never recorded: read it as Created)
     string? Plan = null,                       // x-rtm.plan: repo-relative path of a plan file
-    string Revision = "",                      // hash of every file in the change folder: agents pass it back on a write (compare-and-swap); "" = unreadable
-    IReadOnlyList<string>? Docs = null)        // x-rtm.docs: repo-relative paths of linked documents
+    IReadOnlyList<string>? Docs = null,        // x-rtm.docs: repo-relative paths of linked documents
+    IReadOnlyList<string>? MergedFolders = null)   // x-rtm.mergedFolders: folder names of the items merged away, never reused
 {
+    /// <summary>Where <see cref="Revision"/> is computed from, when it is asked for (null for an item that was not read from a folder).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    internal RevisionSource? RevisionOf { get; init; }
+
+    /// <summary>
+    /// First 12 hex chars of SHA-256 over path + content of every file in the change folder: agents pass it back on a write (compare-and-swap); "" = unreadable. It is a body: computed
+    /// from the folder as it is when it is asked for (a write check, an agent's read), never when the board is built, since it reads every file of the folder.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Revision => RevisionOf?.Read() ?? "";
+
     /// <summary>An agent stamped this item and the user has not reviewed it since.</summary>
     public bool AgentUnreviewed => AgentBy is not null && (ReviewedAt is null || (AgentAt is DateTime a && ReviewedAt < a));
 }
@@ -51,3 +62,11 @@ public sealed record FeatureLink(string Path, bool Locked);
 /// <summary>One checkbox line of tasks.md.</summary>
 /// <summary><paramref name="Agent"/> = who added it, from a trailing &lt;!-- agent: name --&gt; on the line; null when nobody stamped it.</summary>
 public sealed record Subtask(string Number, string Text, bool Done, string Group, string? Agent = null);
+
+/// <summary>The read of a folder's revision, held by an item without being run; two of them are equal (an item's look does not depend on it).</summary>
+internal sealed class RevisionSource(Func<string> read)
+{
+    public string Read() => read();
+    public override bool Equals(object? obj) => obj is RevisionSource;
+    public override int GetHashCode() => 0;
+}

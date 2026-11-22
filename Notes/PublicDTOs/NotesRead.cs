@@ -5,6 +5,9 @@ public sealed class NotesFolderRead
 {
     internal List<Queries.Raw> Raws { get; init; } = [];
     internal List<Note> Notes { get; set; } = [];
+
+    /// <summary>The notes parsed from the folder, as they stand (not settled against the other folders).</summary>
+    public IReadOnlyList<Note> Parsed => Notes;
 }
 
 /// <summary>The notes of the repository after the collisions are settled, and the highest note number seen anywhere (file names and frontmatter alike); Wrote says whether settling wrote files (the host then takes the content version after those writes as its own).</summary>

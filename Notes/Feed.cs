@@ -13,7 +13,7 @@ internal static class Feed
     {
         IReadOnlyList<WorkItemEvent> events = WorkItemsApi.GetEvents(id);
         List<WorklogEntry> feed = [.. events.Select((e, i) => new WorklogEntry(e.At, e.By, e.Kind, e.Text, null, i, 0))];
-        feed.AddRange(Queries.GetAll().Where(n => n.WorkItemId == id).OrderBy(n => n.Id).Select(n => new WorklogEntry(n.Created, n.By, "note", n.Title, n, -1, 0)));
+        feed.AddRange(NotesApi.GetForWorkItem(id).OrderBy(n => n.Id).Select(n => new WorklogEntry(n.Created, n.By, "note", n.Title, n, -1, 0)));
         return [.. feed.Select((f, i) => f with { Order = i }).OrderByDescending(f => f.At).ThenByDescending(f => f.Order)];
     }
 
@@ -43,11 +43,13 @@ internal static class Feed
         return new(repaired, [.. Queries.RepairDuplicateIds().Select(r => new RenumberedNote(r.OldId, r.NewId, r.Path))]);
     }
 
-    /// <summary>A project with a files folder keeps its plans in &lt;folder&gt;/plans: a plan linked from anywhere else is linked, with a word about where plans go.</summary>
+    /// <summary>A project with a plans folder (<c>x-rtm.plansDir</c>, or &lt;old files folder&gt;/plans) keeps its plans there: a plan linked from anywhere else is linked, with a word about where plans go.</summary>
     internal static string? PlanFolderWarning(string plan)
     {
-        if (OpenSpecStoreApi.RepoRoot is not string root || AttachmentsFolder.ProjectFilesDir(root) is not string files) return null;
-        string folder = files + "/plans/";
+        if (OpenSpecStoreApi.RepoRoot is not string root) return null;
+        string? configured = AttachmentsFolder.ProjectPlansDir(root) ?? (AttachmentsFolder.ProjectFilesDir(root) is string files ? files + "/plans" : null);
+        if (configured is null) return null;
+        string folder = configured + "/";
         return plan.Trim().Replace('\\', '/').StartsWith(folder, StringComparison.OrdinalIgnoreCase)
             ? null
             : $"This project keeps its plans in {folder} (see openspec/REPO-TASKS.md): the plan was linked where you wrote it; write new plans there.";

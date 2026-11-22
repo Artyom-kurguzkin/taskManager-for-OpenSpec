@@ -37,7 +37,7 @@ public sealed class SideMenuRenderBudgetTests : IDisposable
         Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(repo.Root).Success);
         ctx.Render<Overlays>();
         nav = ctx.Render<SideNav>();
-        nav.Find("button.nav-toggle").Click();
+        nav.ClickWhenReady("button.nav-toggle");
         nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll(".nav-view")));
         return ctx;
     }
@@ -56,13 +56,13 @@ public sealed class SideMenuRenderBudgetTests : IDisposable
         await nav.InvokeAsync(() => { });
         int menu = Menu(), options = Options(), dropdowns = Dropdowns();
 
-        nav.Find("nav.side").Click();   // a click on the menu itself, where nothing is: it lets go of an examined item, and there is none
+        nav.ClickWhenReady("nav.side");   // a click on the menu itself, where nothing is: it lets go of an examined item, and there is none
         await nav.InvokeAsync(() => { });
         Assert.Equal(0, Menu() - menu);
         Assert.Equal(0, Options() - options);
         Assert.Equal(0, Dropdowns() - dropdowns);
 
-        nav.Find("button.nav-pill[data-opt=compact]").Click();   // a switch of the board: saved, and the menu shows it
+        nav.ClickWhenReady("button.nav-pill[data-opt=compact]");   // a switch of the board: saved, and the menu shows it
         nav.WaitForAssertion(() => Assert.Equal("true", nav.Find("button.nav-pill[data-opt=compact]").GetAttribute("aria-pressed")));
         await nav.InvokeAsync(() => { });
         Assert.InRange(Menu() - menu, 0, 1);
@@ -122,7 +122,7 @@ public sealed class SideMenuRenderBudgetTests : IDisposable
         int dropdowns = Dropdowns();
         Assert.Equal(0, dropdowns);
 
-        nav.Find("button.nav-sec-h[data-sec=filters]").Click();
+        nav.ClickWhenReady("button.nav-sec-h[data-sec=filters]");
         nav.WaitForAssertion(() => Assert.Equal(3, nav.FindAll("#sec-filters-body .rz-dropdown").Count));   // contributor, period, commit
         await nav.InvokeAsync(() => { });
 

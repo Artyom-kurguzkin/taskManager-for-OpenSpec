@@ -13,7 +13,7 @@ internal static class Queries
         bool free = gate.Wait(0);
         try
         {
-            string? text = ReadShared(full);
+            string? text = OpenSpecStoreModule.WrittenText(full) ?? ReadShared(full);   // a file the app wrote and that still has the stamp it left is not opened again
             if (free) OpenSpecStoreModule.LastSeen[full] = text;
             return text ?? "";
         }
@@ -35,9 +35,33 @@ internal static class Queries
     internal static string? ReadShared(string full)
     {
         if (!File.Exists(full)) return null;
+        Log(full);
         using FileStream stream = new(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using StreamReader reader = new(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
         return reader.ReadToEnd();
+    }
+
+    /// <summary>Notes the open for a test that counts them (<see cref="StoreState.ReadLog"/>); nothing in the app.</summary>
+    internal static void Log(string full)
+    {
+        List<string>? log = OpenSpecStoreModule.State.ReadLog;
+        if (log is not null) lock (log) log.Add(full);
+    }
+
+    /// <summary>The file's text without remembering it for the stale-write check: for what only looks (a worklog's newest time, a hash), never backs an edit. Null when the file is missing.</summary>
+    internal static string? ReadUnrecorded(string path) { string full = Path.GetFullPath(path); return OpenSpecStoreModule.WrittenText(full) ?? ReadShared(full); }
+
+    /// <summary>The first <paramref name="lines"/> lines of the file (null when it is missing), without remembering it: a note's frontmatter, for its created time.</summary>
+    internal static string? ReadHead(string path, int lines)
+    {
+        string full = Path.GetFullPath(path);
+        if (!File.Exists(full)) return null;
+        Log(full);
+        using FileStream stream = new(full, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using StreamReader reader = new(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        List<string> head = [];
+        for (string? line; head.Count < lines && (line = reader.ReadLine()) is not null;) head.Add(line);
+        return string.Join('\n', head);
     }
 
     internal static string? ReadRtmBlock(string yamlPath) => RtmBlock.Extract(ReadText(yamlPath));

@@ -80,7 +80,7 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
     {
         public readonly TestRepo Repo = new();
         public readonly string Data;
-        public readonly UiService Ui = new();
+        public readonly UiService Ui = new() { ToastLifetime = Timeout.InfiniteTimeSpan };
         public readonly BoardStorageSettings Settings;
         public readonly BoardSyncService Sync;
         public readonly List<SyncOptions> Seen = [];
@@ -474,18 +474,18 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
         Box a = NewBox("a", [S3Over(new FakeS3()), StorageProviders.Folder]);
         Assert.True(a.Settings.Connect(a.Root, "s3").Success);
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
-        AngleSharp.Dom.IElement Section() => page.Find("section[data-storage]");
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
+        AngleSharp.Dom.IElement Section() => page.Find("[data-storage]");
 
-        await page.InvokeAsync(() => Section().QuerySelector("input[data-field='secretKey']")!.Change(Secret));
+        page.ChangeWhenReady("[data-storage] input[data-field='secretKey']", Secret);
 
-        page.WaitForAssertion(() => Assert.True(a.Settings.IsSet(a.Root, "secretKey")));
+        page.Eventually(() => Assert.True(a.Settings.IsSet(a.Root, "secretKey")));
         AngleSharp.Dom.IElement input = Section().QuerySelector("input[data-field='secretKey']")!;
-        Assert.Equal("password", input.GetAttribute("type"));
-        Assert.True(string.IsNullOrEmpty(input.GetAttribute("value")), "the secret input has a value attribute");
-        Assert.DoesNotContain(Secret, page.Markup);
-        Assert.DoesNotContain(a.Toasts, t => t.Contains(Secret));
-        Assert.DoesNotContain(Secret, a.Sync.Status(a.Root).Line);
+        page.Eventually(() => Assert.Equal("password", input.GetAttribute("type")));
+        page.Eventually(() => Assert.True(string.IsNullOrEmpty(input.GetAttribute("value")), "the secret input has a value attribute"));
+        page.Eventually(() => Assert.DoesNotContain(Secret, page.Markup));
+        page.Eventually(() => Assert.DoesNotContain(a.Toasts, t => t.Contains(Secret)));
+        page.Eventually(() => Assert.DoesNotContain(Secret, a.Sync.Status(a.Root).Line));
     }
 
     private async Task<(Box Box, List<string> Messages)> FailingStorage()
@@ -810,7 +810,7 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
 
     // ═══ the fixes: approval, bound keys, address rules, safe links, back-off ═══
 
-    private static AngleSharp.Dom.IElement StorageSection(IRenderedComponent<SettingsPage> page) => page.Find("section[data-storage]");
+    private static AngleSharp.Dom.IElement StorageSection(IRenderedComponent<SettingsPage> page) => page.Find("[data-storage]");
 
     [Fact(DisplayName = "A storage that only the repository names is shown with its full address and an Allow button, and nothing syncs")]
     public async Task ProposalIsShownAndNothingSyncs()
@@ -819,7 +819,7 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
         string path = Path.Combine(temp, "proposed-share");
         a.RepoSays("provider: folder", "path: " + Q(path));
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
         Assert.Equal($"This project asks to keep its board in step through: Folder  {path}. Allow it on this computer?", StorageSection(page).QuerySelector(".bs-state")!.TextContent.Trim());
         Assert.NotNull(StorageSection(page).QuerySelector("button.bs-approve"));
@@ -838,20 +838,20 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
         string path = Path.Combine(temp, "proposed-share");
         a.RepoSays("provider: folder", "path: " + Q(path));
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
-        await page.InvokeAsync(() => StorageSection(page).QuerySelector("button.bs-later")!.Click());
-        page.WaitForAssertion(() => Assert.Null(StorageSection(page).QuerySelector("button.bs-later")));
-        Assert.NotNull(StorageSection(page).QuerySelector("button.bs-approve"));
+        page.ClickWhenReady("[data-storage] button.bs-later");
+        page.Eventually(() => Assert.Null(StorageSection(page).QuerySelector("button.bs-later")));
+        page.Eventually(() => Assert.NotNull(StorageSection(page).QuerySelector("button.bs-approve")));
         await a.Pass();
-        Assert.False(File.Exists(Path.Combine(path, "manifest.json")));
+        page.Eventually(() => Assert.False(File.Exists(Path.Combine(path, "manifest.json"))));
 
-        await page.InvokeAsync(() => StorageSection(page).QuerySelector("button.bs-approve")!.Click());
-        page.WaitForAssertion(() => Assert.Null(StorageSection(page).QuerySelector("button.bs-approve")));   // the page redrew: the approval was taken and its sync was started
+        page.ClickWhenReady("[data-storage] button.bs-approve");
+        page.Eventually(() => Assert.Null(StorageSection(page).QuerySelector("button.bs-approve")));   // the page redrew: the approval was taken and its sync was started
         await a.Pass();
 
-        Assert.True(File.Exists(Path.Combine(path, "manifest.json")));
-        Assert.Contains("data-field", page.Markup);
+        page.Eventually(() => Assert.True(File.Exists(Path.Combine(path, "manifest.json"))));
+        page.Eventually(() => Assert.Contains("data-field", page.Markup));
     }
 
     [Fact(DisplayName = "A UNC path or an S3 address is described plainly, with its host, bucket and prefix")]
@@ -1017,7 +1017,7 @@ public sealed class SecurityOfConnectedStorageTests : IDisposable
         Box a = NewBox("a");
         a.RepoSays("provider:");
         await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>();
+        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
 
         Assert.Contains("could not be read", StorageSection(page).QuerySelector(".bs-state")!.TextContent);
         Assert.Contains("config.yaml", StorageSection(page).QuerySelector(".bs-state")!.TextContent);

@@ -16,7 +16,7 @@ public static class AgentGuide
 {
     public const string FileName = "REPO-TASKS.md";
     private const string Marker = "<!-- repo-tasks-guide v";
-    private const int Version = 18;
+    private const int Version = 19;
 
     /// <summary>
     /// The .mcp.json entry for the stdio shim (<c>TaskManager.exe --mcp</c>) with the path of the running app, in forward slashes
@@ -113,7 +113,7 @@ public static class AgentGuide
         - chunk finished: the `Passed!` line;
         - integration done.
 
-        A subagent in a worktree passes `repo` = the main repository's path, so its entries land there and not in its copy, and its own name as `agent`. A one-line event (`ran the suite: 525 passed`) goes in `board_log` (no note file, at most 300 characters), and `board_update`'s `note` writes the hand-off note in the same call as the status, tests and commits. `title` is optional (the first line of the body is used); link documents with `board_update`'s `docs` (repo-relative paths).
+        A subagent in a worktree passes `repo` = the main repository's path, so its entries land there and not in its copy, and its own name as `agent`. An event (`ran the suite: 525 passed`) goes in `board_log`: multi-line text up to 4,000 characters and an optional `kind` from the event standard (started, found, decision, tests-red, tests-green, verified, blocked, done; the worklog labels it), no note file and no revision, one-line answer; longer text becomes a note by the same call. `board_update`'s `note` writes the hand-off note in the same call as the status, tests and commits. `title` is optional (the first line of the body is used); link documents with `board_update`'s `docs` (repo-relative paths).
 
         **Decisions.** Record each decision as its own decision note: `board_note` with `kind: "decision"` (by hand: `kind: decision` in the note's frontmatter). Keep it clear and brief: line one what was decided, line two why, at most a third line with what it rules out. The app emphasises decision notes in the worklog. For example:
 

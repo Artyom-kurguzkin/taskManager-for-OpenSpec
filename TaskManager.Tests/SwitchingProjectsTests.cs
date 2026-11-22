@@ -79,17 +79,18 @@ public sealed class SwitchingProjectsTests : IDisposable
             foreach (string s in new[] { "DevResources/plans", "x-rtm.plan", "worktree", "cheaper", "Research", "uncommitted", "local/task-tracking" }) Assert.Contains(s, text);
             workspace.TakeGuideNotice();
 
-            IRenderedComponent<TaskManager.Components.Pages.SettingsPage> page = ctx.Render<TaskManager.Components.Pages.SettingsPage>();
-            page.Find("input[aria-label='Files folder']").Change("local/files");   // plans live in <files folder>/plans
+            IRenderedComponent<TaskManager.Components.Pages.SettingsPage> page = ctx.Render<TaskManager.Components.Pages.SettingsPage>().OnProject();
+            void PointPlans(string path) { page.ChangeWhenReady("[data-folder='plans'] input", path); page.ClickWhenReady("[data-folder='plans'] .folder-point"); }
+            PointPlans("local/files/plans");
 
             page.WaitForAssertion(() => Assert.Contains("local/files/plans", File.ReadAllText(guide)));
             Assert.DoesNotContain("DevResources/plans", File.ReadAllText(guide));
             Assert.Equal("local/files/plans", ctx.Services.GetRequiredService<SettingsStore>().PlansDir(repo1.Root));
             Assert.Contains("Updated", overlays!.Find(".toast").TextContent);   // the rewrite is announced like a version refresh
 
-            page.Find("input[aria-label='Files folder']").Change("");   // empty is the default folder, and the guide follows again
-            page.WaitForAssertion(() => Assert.Contains("attachments/plans", File.ReadAllText(guide)));
-            page.Find("input[aria-label='Files folder']").Change("other/files");
+            PointPlans("");   // empty is the default folder, and the guide follows again
+            page.WaitForAssertion(() => Assert.Contains("DevResources/plans", File.ReadAllText(guide)));
+            PointPlans("other/files/plans");
             page.WaitForAssertion(() => Assert.Contains("other/files/plans", File.ReadAllText(guide)));
         }
     }
@@ -105,17 +106,17 @@ public sealed class SwitchingProjectsTests : IDisposable
             SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
             string name2 = Path.GetFileName(repo2.Root);
 
-            nav.Find("button.tabs-btn").Click();   // open the switcher
+            nav.ClickWhenReady("button.tabs-btn");   // open the switcher
             nav.WaitForAssertion(() => Assert.NotNull(nav.Find($"[aria-label='Hide project {name2}']")));
-            nav.Find($"[aria-label='Hide project {name2}']").Click();
+            nav.ClickWhenReady($"[aria-label='Hide project {name2}']");
             Assert.True(settings.ProjectHidden(repo2.Root));
             Assert.Equal(Path.GetFullPath(repo1.Root).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(workspace.Root!).TrimEnd(Path.DirectorySeparatorChar), ignoreCase: true);   // no switch
             nav.WaitForAssertion(() => Assert.NotNull(nav.Find($"[aria-label='Show project {name2}']")));
 
-            nav.Find($".menu-pop [aria-label='Show project {name2}']").Click();
+            nav.ClickWhenReady($".menu-pop [aria-label='Show project {name2}']");
             Assert.False(settings.ProjectHidden(repo2.Root));
 
-            nav.Find("button.nav-toggle").Click();
+            nav.ClickWhenReady("button.nav-toggle");
             Assert.Empty(nav.FindAll(".nav-projects"));
         }
     }
@@ -137,9 +138,9 @@ public sealed class SwitchingProjectsTests : IDisposable
             board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id]")));
             Assert.Empty(board.FindAll("tr[data-group^='proj:']"));
 
-            nav.Find("button.tabs-btn").Click();
+            nav.ClickWhenReady("button.tabs-btn");
             nav.WaitForAssertion(() => Assert.NotNull(nav.Find($".menu-pop [aria-label='Show project {name2}']")));
-            nav.Find($".menu-pop [aria-label='Show project {name2}']").Click();
+            nav.ClickWhenReady($".menu-pop [aria-label='Show project {name2}']");
 
             nav.WaitForAssertion(() => Assert.NotNull(nav.Find($".menu-pop [aria-label='Hide project {name2}']")));
             board.WaitForAssertion(() => Assert.Equal(2, board.FindAll("tr[data-group^='proj:']").Count));
@@ -216,9 +217,9 @@ public sealed class SwitchingProjectsTests : IDisposable
         await using (ctx)
         {
             workspace.OpenTab(repo2.Root);
-            nav.Find("button.tabs-btn").Click();
+            nav.ClickWhenReady("button.tabs-btn");
 
-            nav.FindAll(".menu-item").First(i => i.TextContent.Contains(Path.GetFileName(repo1.Root))).Click();
+            nav.FireWhenReady(".menu-item", e => e.Click(), all => all.First(i => i.TextContent.Contains(Path.GetFileName(repo1.Root))));
 
             Assert.Equal(repo1.Root, workspace.Root);
         }
@@ -231,18 +232,18 @@ public sealed class SwitchingProjectsTests : IDisposable
         await using (ctx)
         {
             workspace.OpenTab(repo2.Root);
-            nav.Find("button.tabs-btn").Click();
+            nav.ClickWhenReady("button.tabs-btn");
             Assert.Equal("Remove a project…", nav.FindAll(".menu-item").Last().TextContent.Trim());
             Assert.Empty(nav.FindAll(".menu-pop .chip.x"));   // no per-project close button
 
-            nav.FindAll(".menu-item").Last().Click();
+            nav.FireWhenReady(".menu-item", e => e.Click(), all => all.Last());
             overlays!.WaitForAssertion(() => Assert.Equal(2, overlays.FindAll(".dialog .choice").Count));
-            overlays.FindAll(".dialog .choice").Single(b => b.TextContent.Contains(Path.GetFileName(repo1.Root))).Click();
+            overlays.FireWhenReady(".dialog .choice", e => e.Click(), all => all.Single(b => b.TextContent.Contains(Path.GetFileName(repo1.Root))));
 
             nav.WaitForAssertion(() => Assert.Equal([repo2.Root], workspace.OpenRepos));
             Assert.Equal(repo2.Root, workspace.Root);
             Assert.True(Directory.Exists(repo1.OpenSpec));
-            nav.Find("button.tabs-btn").Click();
+            nav.ClickWhenReady("button.tabs-btn");
             Assert.DoesNotContain(nav.FindAll(".menu-item"), i => i.TextContent.Contains("Remove a project"));   // the last one can't be removed
         }
     }
@@ -256,9 +257,9 @@ public sealed class SwitchingProjectsTests : IDisposable
             workspace.OpenTab(repo2.Root);   // repo2 active
             int before = workspace.In(repo1.Root, () => WorkItems.WorkItemsApi.GetAll(includeHidden: true).Count);
 
-            nav.Find("button[aria-label='New work item']").Click();
+            nav.ClickWhenReady("button[aria-label='New work item']");
             overlays!.WaitForAssertion(() => Assert.Equal(2, overlays.FindAll(".dialog .choice").Count));
-            overlays.FindAll(".dialog .choice").Single(b => b.TextContent.Contains(Path.GetFileName(repo1.Root))).Click();
+            overlays.FireWhenReady(".dialog .choice", e => e.Click(), all => all.Single(b => b.TextContent.Contains(Path.GetFileName(repo1.Root))));
 
             nav.WaitForAssertion(() => Assert.Equal(repo1.Root, workspace.Root));
             Assert.Equal(before + 1, WorkItems.WorkItemsApi.GetAll(includeHidden: true).Count);
@@ -322,7 +323,7 @@ public sealed class SwitchingProjectsTests : IDisposable
         await using (ctx)
         {
             int before = WorkItems.WorkItemsApi.GetAll(includeHidden: true).Count;
-            nav.Find("button[aria-label='New work item']").Click();
+            nav.ClickWhenReady("button[aria-label='New work item']");
             nav.WaitForAssertion(() => Assert.Equal(before + 1, WorkItems.WorkItemsApi.GetAll(includeHidden: true).Count));
             Assert.Empty(overlays!.FindAll(".dialog"));
         }
@@ -369,43 +370,55 @@ public sealed class SwitchingProjectsTests : IDisposable
         {
             Assert.True(workspace.OpenTab(repo2.Root).Success);
             SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
-            IRenderedComponent<TaskManager.Components.Pages.SettingsPage> page = ctx.Render<TaskManager.Components.Pages.SettingsPage>();
+            IRenderedComponent<TaskManager.Components.Pages.SettingsPage> page = ctx.Render<TaskManager.Components.Pages.SettingsPage>().OnProject();
 
-            IReadOnlyList<AngleSharp.Dom.IElement> rows = page.FindAll("section[data-project]");
-            Assert.Equal([Path.GetFileName(repo1.Root), Path.GetFileName(repo2.Root)], rows.Select(r => r.GetAttribute("data-project")));
-            foreach (AngleSharp.Dom.IElement row in rows)
+            async Task Point(int project, string kind, string path)
             {
-                Assert.Equal("attachments", row.QuerySelector("input[aria-label='Files folder']")!.GetAttribute("placeholder"));
-                Assert.Equal("Images: local/task-tracking · Plans: DevResources/plans", row.QuerySelector(".files-now")!.TextContent.Trim());
+                page.OnProject(project);
+                page.ChangeWhenReady($"[data-project] [data-folder='{kind}'] input", path);
+                page.WaitForAssertion(() => Assert.NotEmpty(page.FindAll($"[data-project] [data-folder='{kind}'] .folder-point")));   // typing re-renders the row: the button is drawn once the change has been handled
+                page.ClickWhenReady($"[data-project] [data-folder='{kind}'] .folder-point");   // found and clicked in one dispatcher step
+            }
+            string Shown(int project, string kind) => page.OnProject(project).Find($"[data-project] [data-folder='{kind}'] input").GetAttribute("value")!;
+
+            Assert.Equal([Path.GetFileName(repo1.Root), Path.GetFileName(repo2.Root)], page.Labels().Skip(1));   // one tab per project, after General
+            for (int project = 0; project < 2; project++)
+            {
+                page.OnProject(project);
+                Assert.Equal(Path.GetFileName(project == 0 ? repo1.Root : repo2.Root), page.Find("[data-project]").GetAttribute("data-project"));   // only this project's rows are drawn
+                Assert.Equal("DevResources/plans", page.Find("[data-folder='plans'] input").GetAttribute("placeholder"));
+                Assert.Equal("local/task-tracking", page.Find("[data-folder='images'] input").GetAttribute("placeholder"));
+                Assert.Equal(["Plans", "Images"], page.FindAll("[data-project] [data-folder] th").Select(l => l.TextContent.Trim()));   // one line each, no merged option
             }
 
-            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Files folder']")!.Change("files/att");
+            await Point(1, "plans", "files/att/plans");
+            await Point(1, "images", "files/att/images");
             Assert.Equal(("files/att/images", "local/task-tracking"), (settings.AttachmentsDir(repo2.Root), settings.AttachmentsDir(repo1.Root)));   // the other project keeps its own, old, folders
             Assert.Equal(("files/att/plans", "DevResources/plans"), (settings.PlansDir(repo2.Root), settings.PlansDir(repo1.Root)));
-            page.FindAll("section[data-project]")[0].QuerySelector("input[aria-label='Files folder']")!.Change("notes/files");
+            await Point(0, "plans", "notes/plans");
+            await Point(0, "images", "notes/images");
 
-            Assert.Equal(("files/att/images", "notes/files/images"), (settings.AttachmentsDir(repo2.Root), settings.AttachmentsDir(repo1.Root)));
-            Assert.Equal(("notes/files/plans", "files/att/plans"), (settings.PlansDir(repo1.Root), settings.PlansDir(repo2.Root)));
-            Assert.Equal("files/att", page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Files folder']")!.GetAttribute("value"));
+            Assert.Equal(("files/att/images", "notes/images"), (settings.AttachmentsDir(repo2.Root), settings.AttachmentsDir(repo1.Root)));
+            Assert.Equal(("notes/plans", "files/att/plans"), (settings.PlansDir(repo1.Root), settings.PlansDir(repo2.Root)));
+            Assert.Equal(("files/att/plans", "files/att/images"), (Shown(1, "plans"), Shown(1, "images")));
 
             // the guide of each project names its own folders; the other project's guide is not rewritten for it
             Assert.Contains("attachments=files/att/images", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
             Assert.Contains("`files/att/images/wi<item>/n<note>/`", repo2.Read("openspec/REPO-TASKS.md"));
-            Assert.Contains("attachments=notes/files/images", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
-            Assert.Contains("plans=notes/files/plans", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
+            Assert.Contains("attachments=notes/images", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
+            Assert.Contains("plans=notes/plans", File.ReadLines(repo1.PathOf("openspec/REPO-TASKS.md")).First());
 
             // a note's attachment goes to the folder of the project the note is in
             byte[] png = [1, 2, 3];
             Assert.True(workspace.In(repo2.Root, () => Notes.NotesApi.AttachBytes(123, "x.png", png)).Success);
             Assert.True(workspace.In(repo1.Root, () => Notes.NotesApi.AttachBytes(123, "x.png", png)).Success);
             Assert.True(File.Exists(repo2.PathOf("files/att/images/wi123/n123/x.png")));
-            Assert.True(File.Exists(repo1.PathOf("notes/files/images/wi123/n123/x.png")));
+            Assert.True(File.Exists(repo1.PathOf("notes/images/wi123/n123/x.png")));
             Assert.False(File.Exists(repo1.PathOf("files/att/images/wi123/n123/x.png")));
 
-            page.FindAll("section[data-project]")[1].QuerySelector("input[aria-label='Files folder']")!.Change("");   // empty = the default folder; the images folder holds the file attached above, so the page asks first
-            page.Find(".att-keep").Click();
-            page.WaitForAssertion(() => Assert.Equal("attachments/images", settings.AttachmentsDir(repo2.Root)));
-            Assert.Contains("attachments=attachments/images", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
+            await Point(1, "images", "");   // empty = the default folder; Point here leaves the file attached above where it is
+            page.WaitForAssertion(() => Assert.Equal("local/task-tracking", settings.AttachmentsDir(repo2.Root)));
+            Assert.Contains("attachments=local/task-tracking", File.ReadLines(repo2.PathOf("openspec/REPO-TASKS.md")).First());
         }
     }
 
@@ -427,26 +440,195 @@ public sealed class SwitchingProjectsTests : IDisposable
             Assert.Contains("Open another repository", page.Markup);
             Assert.DoesNotContain("Folders of", page.Markup);
 
-            // every open project: its name, its full location (selectable text, title = the path), a Show in folder button
-            IReadOnlyList<AngleSharp.Dom.IElement> rows = page.FindAll("section[data-project]");
-            Assert.Equal([repo1.Root, repo2.Root], rows.Select(r => r.QuerySelector(".set-path")!.TextContent.Trim()));
-            foreach (AngleSharp.Dom.IElement row in rows)
+            // every open project: its tab, its full location (selectable text, title = the path), a Show in folder button
+            string[] roots = [repo1.Root, repo2.Root];
+            for (int project = 0; project < 2; project++)
             {
+                page.OnProject(project);
+                AngleSharp.Dom.IElement row = page.Find("[data-project]");
+                Assert.Equal(roots[project], row.QuerySelector(".set-path")!.TextContent.Trim());
                 Assert.Equal(row.GetAttribute("data-project"), row.QuerySelector("h3")!.TextContent.Trim());
                 Assert.Equal(row.QuerySelector(".set-path")!.TextContent.Trim(), row.QuerySelector(".set-path")!.GetAttribute("title"));
                 Assert.Equal("Show in folder", row.QuerySelector("button.show-folder")!.TextContent.Trim());
-                Assert.NotNull(row.QuerySelector("input[aria-label='Files folder']"));
+                Assert.NotNull(row.QuerySelector("input[aria-label='Plans folder']"));
+                Assert.NotNull(row.QuerySelector("input[aria-label='Images folder']"));
             }
 
-            page.FindAll("section[data-project]")[1].QuerySelector("button.show-folder")!.Click();
-            page.FindAll("section[data-project]")[0].QuerySelector("button.show-folder")!.Click();
+            page.OnProject(1).ClickWhenReady("[data-project] button.show-folder");
+            page.OnProject(0).ClickWhenReady("[data-project] button.show-folder");
             Assert.Equal([repo2.Root, repo1.Root], shown);
 
+            page.OnTab("general");
             // the top row adds the typed repository as a project and switches to it
-            page.Find("input#f-repo").Change(repo3.Root);
-            page.Find("button.open-repo").Click();
+            page.ChangeWhenReady("input#f-repo", repo3.Root);
+            page.ClickWhenReady("button.open-repo");
             page.WaitForAssertion(() => Assert.Equal([repo1.Root, repo2.Root, repo3.Root], workspace.OpenRepos));
             Assert.Equal(repo3.Root, workspace.Root);
+        }
+    }
+
+    // ── statuses are per project (#wi200) ──
+
+    /// <summary>Two projects on the board, grouped by status: repo1 has a Research status, repo2 does not. Returns the names of both.</summary>
+    private async Task<(BunitContext Ctx, Workspace Workspace, IRenderedComponent<BoardPage> Board, string With, string Without, int Card)> TwoProjectsOneWithResearch()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        workspace.OpenTab(repo2.Root);
+        workspace.Open(repo1.Root);
+        Assert.True(workspace.In(repo1.Root, () => WorkItems.WorkItemsApi.AddStatus("Research", beforeCompleted: true)).Success);
+        int card = workspace.In(repo2.Root, () => WorkItems.WorkItemsApi.GetAll().First(i => i.Status == "Backlog").Id);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        await Task.CompletedTask;
+        return (ctx, workspace, board, Path.GetFileName(repo1.Root), Path.GetFileName(repo2.Root), card);
+    }
+
+    private static AngleSharp.Dom.IElement Cell(IRenderedComponent<BoardPage> board, string project, string status) =>
+        board.Find($".proj[data-proj='{project}'] section.col[data-key='{status}']");
+
+    [Fact(DisplayName = "With two projects open a status only one has shows once in the header row, and the project without it has an unavailable cell there instead of a working column")]
+    public async Task AStatusOfOneProjectIsUnavailableInTheOther()
+    {
+        (BunitContext ctx, _, IRenderedComponent<BoardPage> board, string with, string without, _) = await TwoProjectsOneWithResearch();
+        await using (ctx)
+        {
+            Assert.Single(board.FindAll(".head-row section.col.head-only[data-key='Research']"));
+            Assert.DoesNotContain("absent", Cell(board, with, "Research").ClassList);
+            Assert.Contains("absent", Cell(board, without, "Research").ClassList);
+            Assert.Empty(Cell(board, without, "Research").QuerySelectorAll("article.card"));
+            Assert.DoesNotContain("absent", Cell(board, without, "Backlog").ClassList);
+        }
+    }
+
+    [Fact(DisplayName = "Dropping a card onto a status its project lacks asks to add the status to that project; yes adds it to the project's config and moves the card")]
+    public async Task DroppingOnAMissingStatusAsksAndAddsIt()
+    {
+        (BunitContext ctx, _, IRenderedComponent<BoardPage> board, _, string without, int card) = await TwoProjectsOneWithResearch();
+        await using (ctx)
+        {
+            board.Find($".proj[data-proj='{without}'] article.card[data-id='{card}']").DragStart();
+            Cell(board, without, "Research").Drop();
+
+            overlays!.WaitForAssertion(() => Assert.Contains($"Add Research to {without}?", overlays.Find(".dialog").TextContent));
+            Assert.DoesNotContain("Research", repo2.Read("openspec/config.yaml"));
+            overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(b => b.TextContent.Trim() == "Add"));
+
+            board.WaitForAssertion(() => Assert.Contains("Research", repo2.Read("openspec/config.yaml")));
+            board.WaitForAssertion(() => Assert.Equal("Research", ctx.Services.GetRequiredService<Workspace>().In(repo2.Root, () => WorkItems.WorkItemsApi.Get(card)!.Status)));
+            board.WaitForAssertion(() => Assert.DoesNotContain("absent", Cell(board, without, "Research").ClassList));
+        }
+    }
+
+    [Fact(DisplayName = "Answering no to adding the missing status changes nothing: the config and the card stay as they were")]
+    public async Task DecliningToAddTheStatusChangesNothing()
+    {
+        (BunitContext ctx, Workspace workspace, IRenderedComponent<BoardPage> board, _, string without, int card) = await TwoProjectsOneWithResearch();
+        await using (ctx)
+        {
+            string before = repo2.Read("openspec/config.yaml");
+            board.Find($".proj[data-proj='{without}'] article.card[data-id='{card}']").DragStart();
+            Cell(board, without, "Research").Drop();
+
+            overlays!.WaitForAssertion(() => Assert.Contains($"Add Research to {without}?", overlays.Find(".dialog").TextContent));
+            overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(b => b.TextContent.Trim() == "Cancel"));
+
+            overlays.WaitForAssertion(() => Assert.Empty(overlays.FindAll(".dialog")));
+            Assert.Equal(before, repo2.Read("openspec/config.yaml"));
+            Assert.Equal("Backlog", workspace.In(repo2.Root, () => WorkItems.WorkItemsApi.Get(card)!.Status));
+            Assert.Contains("absent", Cell(board, without, "Research").ClassList);
+        }
+    }
+
+    // ── the user's column order wins over the projects' lists (#wi207) ──
+
+    private static List<string> HeadOrder(IRenderedComponent<BoardPage> board) => [.. board.FindAll(".head-row section.col.head-only").Select(c => c.GetAttribute("data-key")!)];
+    private static List<string> CellOrder(IRenderedComponent<BoardPage> board, string project) => [.. board.FindAll($".proj[data-proj='{project}'] section.col").Select(c => c.GetAttribute("data-key")!)];
+    private static List<string> SavedOrder(BunitContext ctx, Workspace workspace) =>
+        [.. ctx.Services.GetRequiredService<SettingsStore>().Board(workspace.ViewRoot!).Order!.Where(k => k.StartsWith("status:")).Select(k => k["status:".Length..])];
+
+    private static readonly string[] ResearchBeforeBlocked = ["Backlog", "Planned", "Confirmed", "In Progress", "Research", "Blocked", "In Review", "Completed"];
+
+    [Fact(DisplayName = "With two projects open, dragging a status only one has in front of another column puts it there in the shared header, in the other project's unavailable cell and in the saved order, and it stays after a fresh render")]
+    public async Task DraggingAStatusOfOneProjectInTheSharedHeader()
+    {
+        (BunitContext ctx, Workspace workspace, IRenderedComponent<BoardPage> board, string with, string without, _) = await TwoProjectsOneWithResearch();
+        await using (ctx)
+        {
+            Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Research", "Completed"], HeadOrder(board));
+
+            board.Find(".head-row section.col.head-only[data-key='Research'] header.col-h").DragStart();
+            board.Find(".head-row section.col.head-only[data-key='Blocked']").Drop();
+
+            board.WaitForAssertion(() => Assert.Equal(ResearchBeforeBlocked, HeadOrder(board)));
+            Assert.Equal(ResearchBeforeBlocked, CellOrder(board, with));
+            Assert.Equal(ResearchBeforeBlocked, CellOrder(board, without));   // the other project's unavailable cell keeps the header's place
+            Assert.Contains("absent", Cell(board, without, "Research").ClassList);
+            Assert.Equal(ResearchBeforeBlocked, SavedOrder(ctx, workspace));
+
+            IRenderedComponent<BoardPage> fresh = ctx.Render<BoardPage>();   // the order is read back from the saved settings, not kept by the first page
+            Assert.Equal(ResearchBeforeBlocked, HeadOrder(fresh));
+            Assert.Equal(ResearchBeforeBlocked, CellOrder(fresh, without));
+        }
+    }
+
+    [Fact(DisplayName = "With two projects open, Left and Right on a Shift-clicked status column of the shared header move it one place per press and save the order")]
+    public async Task ArrowKeysMoveAColumnOfTheSharedHeader()
+    {
+        (BunitContext ctx, Workspace workspace, IRenderedComponent<BoardPage> board, _, string without, _) = await TwoProjectsOneWithResearch();
+        await using (ctx)
+        {
+            board.FireWhenReady(".head-row section.col.head-only[data-key='Research']", e => e.Click(new MouseEventArgs { ShiftKey = true }));
+            board.KeyDownWhenReady(".board-wrap", "ArrowLeft");
+            board.WaitForAssertion(() => Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "Research", "In Review", "Completed"], HeadOrder(board)));
+
+            board.KeyDownWhenReady(".board-wrap", "ArrowLeft");
+            board.WaitForAssertion(() => Assert.Equal(ResearchBeforeBlocked, HeadOrder(board)));
+            Assert.Equal(ResearchBeforeBlocked, CellOrder(board, without));
+            Assert.Equal(ResearchBeforeBlocked, SavedOrder(ctx, workspace));
+
+            board.KeyDownWhenReady(".board-wrap", "ArrowRight");
+            board.WaitForAssertion(() => Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "Research", "In Review", "Completed"], HeadOrder(board)));
+        }
+    }
+
+    [Fact(DisplayName = "With one project open, Left on a Shift-clicked status column moves it one place and Right moves it back, and a drop in front of another column puts it there")]
+    public async Task ArrowKeysAndDragMoveAColumnOfOneProject()
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        await using (ctx)
+        {
+            Assert.True(workspace.In(repo1.Root, () => WorkItems.WorkItemsApi.AddStatus("Research", beforeCompleted: true)).Success);
+            IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+            List<string> Keys() => [.. board.FindAll("section.col").Select(c => c.GetAttribute("data-key")!)];
+
+            board.FireWhenReady("section.col[data-key='Research'] header.col-h", e => e.Click(new MouseEventArgs { ShiftKey = true }));
+            board.KeyDownWhenReady(".board-wrap", "ArrowLeft");
+            board.WaitForAssertion(() => Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "Research", "In Review", "Completed"], Keys()));
+            board.KeyDownWhenReady(".board-wrap", "ArrowRight");
+            board.WaitForAssertion(() => Assert.Equal(["Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Research", "Completed"], Keys()));
+
+            board.Find("section.col[data-key='Research'] header.col-h").DragStart();
+            board.Find("section.col[data-key='Blocked']").Drop();
+            board.WaitForAssertion(() => Assert.Equal(ResearchBeforeBlocked, Keys()));
+            Assert.Equal(ResearchBeforeBlocked, SavedOrder(ctx, workspace));
+        }
+    }
+
+    [Fact(DisplayName = "The list shows a Research group for the project that has the status and none for the project that has not")]
+    public async Task TheListHasNoGroupForAMissingStatus()
+    {
+        (BunitContext ctx, Workspace workspace, _, string with, string without, _) = await TwoProjectsOneWithResearch();
+        await using (ctx)
+        {
+            SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
+            settings.SaveBoard(workspace.ViewRoot!, settings.Board(workspace.ViewRoot!) with { View = "list", ListGroupBy = "status" });
+            IRenderedComponent<BoardPage> list = ctx.Render<BoardPage>();
+
+            list.WaitForAssertion(() => Assert.NotEmpty(list.FindAll("tr[data-id]")));
+            List<string> researchRows = list.FindAll("tr[data-group]").Where(r => r.TextContent.Contains("Research")).Select(r => r.TextContent).ToList();
+            Assert.Single(researchRows);   // one project's group, not both
+            Assert.Equal(2, list.FindAll("tr[data-group^='proj:']").Count);
+            Assert.NotEmpty(list.FindAll("tr[data-group^='proj:']").Where(r => r.TextContent.Contains(with)));
+            Assert.NotEmpty(list.FindAll("tr[data-group^='proj:']").Where(r => r.TextContent.Contains(without)));
         }
     }
 
@@ -493,20 +675,20 @@ public sealed class SwitchingProjectsTests : IDisposable
             Assert.Equal("menu", names[1].GetAttribute("aria-haspopup"));
 
             IEnumerable<string> Items() => board.FindAll(".menu-pop .menu-item").Select(i => i.TextContent.Trim());
-            names[1].Click();
+            board.FireWhenReady(".proj-h h2 button", e => e.Click(), all => all[1]);
             Assert.Equal(["Collapse", "Make it the active project", "Hide project"], Items());
-            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Collapse").Click();
+            board.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Collapse"));
             board.WaitForAssertion(() => Assert.Empty(board.FindAll(".proj")[1].QuerySelectorAll("section.col")));
             Assert.NotEmpty(board.FindAll(".proj")[0].QuerySelectorAll("section.col"));
 
-            board.FindAll(".proj-h h2 button")[1].Click();
+            board.FireWhenReady(".proj-h h2 button", e => e.Click(), all => all[1]);
             Assert.Equal(["Expand", "Make it the active project", "Hide project"], Items());
-            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Expand").Click();
+            board.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Expand"));
             board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll(".proj")[1].QuerySelectorAll("section.col")));
 
-            board.FindAll(".proj-h h2 button")[0].Click();
+            board.FireWhenReady(".proj-h h2 button", e => e.Click(), all => all[0]);
             Assert.Equal(["Collapse", "Hide project"], Items());   // the active project has nothing to switch to
-            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Hide project").Click();
+            board.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Hide project"));
             board.WaitForAssertion(() => Assert.Single(board.FindAll(".proj")));
         }
     }
@@ -526,17 +708,18 @@ public sealed class SwitchingProjectsTests : IDisposable
             int open = board.FindAll("tr[data-id]").Count;
             Assert.True(open > 0);
 
-            board.FindAll("tr[data-group^='proj:'] button.proj-name-btn")[1].Click(new MouseEventArgs { ShiftKey = true });
+            board.FireWhenReady("tr[data-group^='proj:'] button.proj-name-btn", e => e.Click(new MouseEventArgs { ShiftKey = true }), all => all[1]);
             board.WaitForAssertion(() => Assert.Single(board.FindAll("tr[data-group^='proj:']").Where(g => RowMarkProbe.GroupSelected(board, g))));
             Assert.Empty(board.FindAll(".menu-pop"));
 
-            board.FindAll("tr[data-group^='proj:'] button.proj-name-btn")[1].Click();
-            Assert.Equal(["Collapse", "Make it the active project", "Hide project"], board.FindAll(".menu-pop .menu-item").Select(i => i.TextContent.Trim()));
-            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Collapse").Click();
+            board.FireWhenReady("tr[data-group^='proj:'] button.proj-name-btn", e => e.Click(), all => all[1]);
+            board.WaitForAssertion(() => Assert.Equal(["Collapse", "Make it the active project", "Hide project"], board.FindAll(".menu-pop .menu-item").Select(i => i.TextContent.Trim())));   // Click returns before the handler under load
+            board.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Collapse"));
             board.WaitForAssertion(() => Assert.True(board.FindAll("tr[data-id]").Count < open));
 
-            board.FindAll("tr[data-group^='proj:'] button.proj-name-btn")[1].Click();
-            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Expand").Click();
+            board.FireWhenReady("tr[data-group^='proj:'] button.proj-name-btn", e => e.Click(), all => all[1]);
+            board.WaitForAssertion(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Trim() == "Expand"));
+            board.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Expand"));
             board.WaitForAssertion(() => Assert.Equal(open, board.FindAll("tr[data-id]").Count));
         }
     }
@@ -552,16 +735,16 @@ public sealed class SwitchingProjectsTests : IDisposable
             IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
             board.WaitForAssertion(() => Assert.Equal(2, board.FindAll(".proj-h").Count));
 
-            board.FindAll(".proj-h h2 button")[1].Click(new MouseEventArgs { ShiftKey = true });   // on the name itself
+            board.FireWhenReady(".proj-h h2 button", e => e.Click(new MouseEventArgs { ShiftKey = true }), all => all[1]);   // on the name itself
             board.WaitForAssertion(() => Assert.Contains("selected", board.FindAll(".proj-h")[1].ClassName));
             Assert.Empty(board.FindAll(".menu-pop"));
 
-            board.FindAll(".proj-h h2 button")[1].Click();   // a plain click opens the menu and leaves the selection as it was
-            Assert.Single(board.FindAll(".menu-pop"));
+            board.FireWhenReady(".proj-h h2 button", e => e.Click(), all => all[1]);   // a plain click opens the menu and leaves the selection as it was
+            board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));
             Assert.Contains("selected", board.FindAll(".proj-h")[1].ClassName);
             Assert.Equal(repo1.Root, workspace.Root);
 
-            board.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "Make it the active project").Click();
+            board.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Make it the active project"));
             board.WaitForAssertion(() => Assert.Equal(repo2.Root, workspace.Root));
         }
     }
@@ -657,6 +840,69 @@ public sealed class SwitchingProjectsTests : IDisposable
 
             Assert.Equal(1, Occurrences(repo2.Read(".gitignore"), "!openspec/**/events.log"));
             Assert.Contains("still ignored", workspace.TakeGuideNotice());
+        }
+    }
+
+    // ── #wi19: opening another project keeps the arrangement ──
+
+    /// <summary>Project one alone on the board with a Research status the user has dragged in front of Backlog; returns the context.</summary>
+    private (BunitContext Ctx, Workspace Workspace) ResearchFirstInProjectOne(string status = "Research")
+    {
+        (BunitContext ctx, Workspace workspace, _) = NewContext();
+        Assert.True(workspace.In(repo1.Root, () => WorkItems.WorkItemsApi.AddStatus(status, beforeCompleted: true)).Success);
+        IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+        board.Find($"section.col[data-key='{status}'] header.col-h").DragStart();
+        board.Find("section.col[data-key='Backlog']").Drop();
+        board.WaitForAssertion(() => Assert.Equal(status, board.FindAll("section.col").First().GetAttribute("data-key")));
+        return (ctx, workspace);
+    }
+
+    [Fact(DisplayName = "Opening a second project keeps the first project's column arrangement: Research stays first")]
+    public async Task OpeningASecondProjectKeepsTheArrangement()
+    {
+        (BunitContext ctx, Workspace workspace) = ResearchFirstInProjectOne();
+        await using (ctx)
+        {
+            Assert.True(workspace.OpenTab(repo2.Root).Success);   // the import of another project
+
+            Assert.Equal(repo1.Root, workspace.ViewRoot);
+            IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+            board.WaitForAssertion(() => Assert.Equal("Research", HeadOrder(board).First()));
+            Assert.Equal(["Research", "Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review", "Completed"], HeadOrder(board));
+        }
+    }
+
+    [Fact(DisplayName = "A status only the second project has appears where its own list puts it, without moving the user's arrangement")]
+    public async Task AStatusOnlyTheSecondProjectHasKeepsTheArrangement()
+    {
+        (BunitContext ctx, Workspace workspace) = ResearchFirstInProjectOne("Review2");
+        await using (ctx)
+        {
+            Assert.True(workspace.OpenTab(repo2.Root).Success);
+            Assert.True(workspace.In(repo2.Root, () => WorkItems.WorkItemsApi.AddStatus("Research", beforeCompleted: true)).Success);
+
+            IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+            board.WaitForAssertion(() => Assert.Equal(repo1.Root, workspace.ViewRoot));
+            List<string> head = HeadOrder(board);
+            Assert.Equal(["Review2", "Backlog", "Planned", "Confirmed", "In Progress", "Blocked", "In Review"], head.Take(7));   // the arrangement is untouched
+            Assert.Equal(["Research", "Completed"], head.Skip(7));   // the new status sits before Completed, where project two's list puts it
+        }
+    }
+
+    [Fact(DisplayName = "Choosing the second project's tab still switches the view to its own options")]
+    public async Task ChoosingATabSwitchesTheView()
+    {
+        (BunitContext ctx, Workspace workspace) = ResearchFirstInProjectOne();
+        await using (ctx)
+        {
+            Assert.True(workspace.OpenTab(repo2.Root).Success);
+            Assert.Equal(repo1.Root, workspace.ViewRoot);
+            Assert.True(workspace.OpenTab(repo1.Root).Success);
+            Assert.True(workspace.OpenTab(repo2.Root).Success);   // the tab of an open project: choosing it
+
+            Assert.Equal(repo2.Root, workspace.ViewRoot);
+            IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
+            board.WaitForAssertion(() => Assert.Equal("Backlog", HeadOrder(board).First()));   // project two has no arrangement of its own: not project one's
         }
     }
 }

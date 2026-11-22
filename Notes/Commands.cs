@@ -205,7 +205,7 @@ internal static class Commands
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
     }
 
-    private static (bool Success, string Message) Store(int id, string name, Action<string> write)
+    internal static (bool Success, string Message) Store(int id, string name, Action<string> write)
     {
         if (NotesApi.Get(id) is not Note note) return (false, NotFound);
         if (RootOf(note) is not string root) return (false, "No repository is open");

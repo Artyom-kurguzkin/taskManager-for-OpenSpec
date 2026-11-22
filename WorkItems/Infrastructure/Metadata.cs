@@ -36,6 +36,8 @@ internal sealed class Rtm
     public List<int>? DependsOn { get; set; }
     /// <summary>Numbers of the work items this one was merged from: git commits mentioning them still belong here.</summary>
     public List<int>? MergedFrom { get; set; }
+    /// <summary>Folder names the merged-away sources had: no new change takes them, as git still knows those folders.</summary>
+    public List<string>? MergedFolders { get; set; }
     /// <summary>Features from the change's specs/ folder that the user removed from this item (the specs stay).</summary>
     public List<string>? UnlinkedFeatures { get; set; }
     /// <summary>Written by an agent that created or changed this change: its name and the time (yyyy-MM-ddTHH:mm:ss).</summary>
@@ -72,9 +74,15 @@ internal static class Metadata
     /// </summary>
     internal static T Read<T>(string yamlPath, out string? mended) where T : class, new()
     {
+        return ReadFrom<T>(yamlPath, OpenSpecStoreApi.ReadText(yamlPath), out mended);
+    }
+
+    /// <summary>Like <see cref="Read{T}(string, out string?)"/>, from the file's text already read (one read of the file, not three).</summary>
+    internal static T ReadFrom<T>(string yamlPath, string fileText, out string? mended) where T : class, new()
+    {
         mended = null;
-        if (OpenSpecStoreApi.ReadRtmBlock(yamlPath) is not string block || block.Trim().Length == 0) return new T();
-        return Parse<T>(yamlPath, block, BlockOffset(yamlPath), out mended) ?? new T();
+        if (OpenSpecStoreApi.ExtractRtmBlock(fileText) is not string block || block.Trim().Length == 0) return new T();
+        return Parse<T>(yamlPath, block, BlockOffset(fileText), out mended) ?? new T();
     }
 
     /// <summary>Like <see cref="Read{T}"/>, but a file that does not parse gives an empty value and its message, for steps that only look.</summary>
@@ -129,14 +137,10 @@ internal static class Metadata
     private static string Lower(string s) => s.Length > 1 && char.IsUpper(s[0]) && char.IsLower(s[1]) ? char.ToLowerInvariant(s[0]) + s[1..] : s;
 
     /// <summary>How many lines of the file precede the x-rtm block's first line (its key's line, when the value is inline).</summary>
-    private static int BlockOffset(string yamlPath)
+    private static int BlockOffset(string fileText)
     {
-        try
-        {
-            string[] lines = File.ReadAllText(yamlPath).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-            int key = Array.FindIndex(lines, l => l.StartsWith("x-rtm:", StringComparison.Ordinal));
-            return key < 0 ? 0 : lines[key]["x-rtm:".Length..].Trim().Length > 0 ? key : key + 1;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return 0; }
+        string[] lines = fileText.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        int key = Array.FindIndex(lines, l => l.StartsWith("x-rtm:", StringComparison.Ordinal));
+        return key < 0 ? 0 : lines[key]["x-rtm:".Length..].Trim().Length > 0 ? key : key + 1;
     }
 }

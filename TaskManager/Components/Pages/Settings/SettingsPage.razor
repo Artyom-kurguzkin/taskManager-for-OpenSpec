@@ -3,112 +3,171 @@
 @using Notes
 @using TaskManager.Api
 
+<ScrollMemory View="settings" />
+
+@{
+    string? tabRepo = TabRepo();   // the open project whose tab is chosen, or null: General
+}
 <div class="sheet settings" data-sk="soft">
     <h2>Settings</h2>
+    <div class="settings-tabs"><Seg Name="settings-tab" Options="Tabs" Value="@(tabRepo ?? "general")" ValueChanged="ChooseTab" /></div>
 
-    <section class="set-row">
-        <div><h3>Theme</h3><p class="muted">System follows your OS setting.</p></div>
-        <Seg Name="theme" Options="Themes" Value="@Settings.Current.Theme" ValueChanged="v => Settings.Update(s => s with { Theme = v })" />
-    </section>
-
-    <section class="set-row" data-setting="user-settings">
-        <div>
-            <h3>User settings</h3>
-            <p class="muted">What you arrange for each project (the view, grouping, sort, hidden columns, rows and projects, the list's column order and widths) and the settings on this page are kept in one file on this computer, never in a repository and never synced. Move it to a folder of your choice; it keeps its name, settings.json.</p>
-        </div>
-        <div class="set-val">
-            <div class="set-loc">
-                <span class="set-path" title="@Settings.FilePath">@System.IO.Path.GetDirectoryName(Settings.FilePath)</span>
-            </div>
-            <input class="box text-in" data-sk value="@settingsFolder" placeholder="Folder to move the settings to…" @onchange="e => settingsFolder = (string?)e.Value ?? string.Empty" aria-label="User settings folder" />
-            @if (Picker is not null) { <button class="btn pick-settings-folder" data-sk @onclick="BrowseSettings">Browse…</button> }
-            <button class="btn primary move-settings" data-sk disabled="@(settingsFolder.Trim().Length == 0)" @onclick="MoveSettings">Move</button>
-            @if (Settings.Notice is { } notice) { <p class="warning settings-notice">@notice</p> }
-            @if (settingsMoved is { } moved) { <p class="@(movedOk ? "muted settings-moved" : "warning settings-moved")">@moved</p> }
-        </div>
-    </section>
-
-    <section class="set-row">
-        <div><h3>Open another repository</h3><p class="muted">Folder with the openspec/ directory this app reads and writes. A folder without one is set up for OpenSpec when opened. It joins the projects below.</p></div>
-        <div class="set-val">
-            <input id="f-repo" class="box text-in" data-sk value="@repoPath" placeholder="Path to a repository…" @onchange="e => repoPath = (string?)e.Value ?? string.Empty" aria-label="Repository folder" />
-            @if (Picker is not null) { <button class="btn" data-sk @onclick="Browse">Browse…</button> }
-            <button class="btn primary open-repo" data-sk @onclick="Open">Open</button>
-        </div>
-    </section>
-    @if (error is not null) { <p class="warning">@error</p> }
-
-    <section class="set-row">
-        <div><h3>Your name</h3><p class="muted">Used for new work items and notes. Empty = git user.name.</p></div>
-        <div class="set-val"><input class="box text-in" data-sk value="@Settings.Current.Name" placeholder="@Workspace.Me"
-                                    @onchange="e => Settings.Update(s => s with { Name = string.IsNullOrWhiteSpace((string?)e.Value) ? null : ((string)e.Value!).Trim() })" aria-label="Your name" /></div>
-    </section>
-
-    <section class="set-row">
-        <div><h3>Keyboard hints</h3><p class="muted">Press F to show a letter on every clickable element, then type it. Shift + the letter selects. Off by default.</p></div>
-        <label class="check"><input type="checkbox" id="f-hints" checked="@Settings.Current.Hints" @onchange="e => Settings.Update(s => s with { Hints = (bool)e.Value! })" /> on</label>
-    </section>
-
-    @foreach (string repo in Workspace.OpenRepos)
+    @if (tabRepo is null)
     {
-        string project = System.IO.Path.GetFileName(repo.TrimEnd('\\', '/'));
-        <section class="set-row" data-project="@project">
-            <div><h3>@project</h3><p class="muted">One folder for this project's files, relative to the repository and saved with the project. Images are kept out of git and synced with the board storage; plans stay in git.</p></div>
-            <div class="set-val set-folders">
-                <span class="muted">Location</span>
-                <div class="set-loc">
-                    <span class="set-path" title="@repo">@repo</span>
-                    <button class="btn show-folder" data-sk @onclick="() => ShowInFolder(repo)">Show in folder</button>
-                </div>
-                <span class="muted">Files</span>
-                <input class="box text-in" data-sk @key="filesKey" value="@(filesAsk is { } pending && pending.Repo == repo ? pending.New : Settings.FilesDir(repo) ?? "")" placeholder="@SettingsStore.DefaultFilesDir"
-                       @onchange="e => FilesChanged(repo, (string?)e.Value)" aria-label="Files folder" />
-                <p class="att-row muted files-now">Images: @Settings.AttachmentsDir(repo) · Plans: @Settings.PlansDir(repo)</p>
-                @if (Settings.FilesDir(repo) is null && !(filesAsk is { } waiting && waiting.Repo == repo))
-                {
-                    <p class="att-row muted files-legacy">Plans are in <code>@Settings.PlansDir(repo)</code> and images in <code>@Settings.AttachmentsDir(repo)</code>. <button class="files-put-both" data-sk @onclick="() => FilesChanged(repo, SettingsStore.DefaultFilesDir)">Put both in one folder</button></p>
-                }
-                @if (filesAsk is { } ask && ask.Repo == repo)
-                {
-                    <div class="att-row att-ask">
-                        <p>Move @ask.What? Notes, descriptions and plan links will point to the new places.</p>
-                        <div class="att-actions">
-                            <button class="btn primary att-move" data-sk @onclick="FilesMove">Move</button>
-                            <button class="btn att-keep" data-sk @onclick="FilesKeep">Keep them where they are</button>
-                            <button class="btn att-cancel" data-sk @onclick="FilesCancel">Cancel</button>
-                        </div>
-                    </div>
-                }
-                @if (filesNote is { } note && note.Repo == repo) { <p class="att-row @(note.Warn ? "att-warn" : "att-done muted")">@note.Text</p> }
-            </div>
-        </section>
-        <BoardStorageSection Root="@repo" />
-        <StatusesSection Root="@repo" />
+        <div class="settings-panel" data-setting="general">
+            <h3>General</h3>
+            <p class="muted set-help">What applies to this computer and to every project. Each project has a tab of its own.</p>
+            <table class="set-table">
+                <tbody>
+                    <tr>
+                        <th scope="row">Your name</th>
+                        <td>
+                            <input class="box text-in" data-sk value="@Settings.Current.Name" placeholder="@Workspace.Me"
+                                   @onchange="e => Settings.Update(s => s with { Name = string.IsNullOrWhiteSpace((string?)e.Value) ? null : ((string)e.Value!).Trim() })" aria-label="Your name" />
+                            <p class="muted set-note">Used for new work items and notes. Empty = git user.name.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Theme</th>
+                        <td>
+                            <Seg Name="theme" Options="Themes" Value="@Settings.Current.Theme" ValueChanged="v => Settings.Update(s => s with { Theme = v })" />
+                            <p class="muted set-note">System follows your OS setting.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Keyboard hints</th>
+                        <td>
+                            <label class="check"><input type="checkbox" id="f-hints" checked="@Settings.Current.Hints" @onchange="e => Settings.Update(s => s with { Hints = (bool)e.Value! })" /> on</label>
+                            <p class="muted set-note">Press F to show a letter on every clickable element, then type it. Shift + the letter selects.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">External editor</th>
+                        <td>
+                            <input class="box text-in" data-sk value="@Settings.Current.Editor" placeholder="e.g. code"
+                                   @onchange="e => Settings.Update(s => s with { Editor = string.IsNullOrWhiteSpace((string?)e.Value) ? null : ((string)e.Value!).Trim() })" aria-label="External editor" />
+                            <p class="muted set-note">The command "Edit in …" launches on a note, e.g. code, notepad++, subl. Empty = ask next time.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Open another repository</th>
+                        <td>
+                            <div class="set-loc">
+                                <input id="f-repo" class="box text-in" data-sk value="@repoPath" placeholder="Path to a repository…" @onchange="e => repoPath = (string?)e.Value ?? string.Empty" aria-label="Repository folder" />
+                                @if (Picker is not null) { <button class="btn" data-sk @onclick="Browse">Browse…</button> }
+                                <button class="btn primary open-repo" data-sk @onclick="Open">Open</button>
+                            </div>
+                            <p class="muted set-note">A folder with the openspec/ directory this app reads and writes; one without it is set up for OpenSpec. It joins the projects.</p>
+                            @if (error is not null) { <p class="warning">@error</p> }
+                        </td>
+                    </tr>
+                    <tr data-setting="user-settings">
+                        <th scope="row">User settings</th>
+                        <td>
+                            <div class="set-loc"><span class="set-path" title="@Settings.FilePath">@System.IO.Path.GetDirectoryName(Settings.FilePath)</span></div>
+                            <div class="set-loc">
+                                <input class="box text-in" data-sk value="@settingsFolder" placeholder="Folder to move the settings to…" @onchange="e => settingsFolder = (string?)e.Value ?? string.Empty" aria-label="User settings folder" />
+                                @if (Picker is not null) { <button class="btn pick-settings-folder" data-sk @onclick="BrowseSettings">Browse…</button> }
+                                <button class="btn primary move-settings" data-sk disabled="@(settingsFolder.Trim().Length == 0)" @onclick="MoveSettings">Move</button>
+                            </div>
+                            <p class="muted set-note">Your arrangements for each project and these settings, in settings.json on this computer: never in a repository, never synced.</p>
+                            @if (Settings.Notice is { } notice) { <p class="warning settings-notice">@notice</p> }
+                            @if (settingsMoved is { } moved) { <p class="@(movedOk ? "muted settings-moved" : "warning settings-moved")">@moved</p> }
+                        </td>
+                    </tr>
+                    <tr data-setting="logs-folder">
+                        <th scope="row">Logs folder</th>
+                        <td>
+                            <div class="set-loc">
+                                <input class="box text-in" data-sk value="@Settings.Current.LogsDir" placeholder="@AppLog.DefaultFolder" @onchange="e => ApplyLogsFolder((string?)e.Value)" aria-label="Logs folder" />
+                                @if (Picker is not null) { <button class="btn pick-logs-folder" data-sk @onclick="ChooseLogsFolder">Choose folder</button> }
+                            </div>
+                            <div class="att-row att-actions">
+                                <button class="btn open-logs-folder" data-sk @onclick="OpenLogsFolder">Open folder</button>
+                                <button class="btn use-default-logs" data-sk disabled="@(Settings.Current.LogsDir is null)" @onclick="() => ApplyLogsFolder(null)">Use default</button>
+                                <button class="btn move-logs" data-sk @onclick="MoveLogs">Move existing logs here</button>
+                            </div>
+                            <p class="muted set-note">Where the run logs, crash notes and freeze dumps are written. Empty = the app's own folder. A new folder takes effect at once and a new run log starts there; the logs already written stay where they are until you move them.</p>
+                            @if (logsNote is { } logsSaid) { <p class="@(logsOk ? "muted set-note logs-note" : "warning logs-note")">@logsSaid</p> }
+                        </td>
+                    </tr>
+                    <tr data-setting="rebuild-index">
+                        <th scope="row">Rebuild index</th>
+                        <td>
+                            @foreach (string project in Workspace.Projects)
+                            {
+                                <div class="set-loc">
+                                    <span class="set-path" title="@project">@ProjectName(project)</span>
+                                    <button class="btn rebuild-index" data-sk data-index-of="@ProjectName(project)" @onclick="() => RebuildIndex(project)">Rebuild index</button>
+                                </div>
+                            }
+                            <p class="muted set-note">The app keeps what it read of each project on this computer, so the next start shows the board at once and only reads what changed since. If the board ever looks out of date after a start, rebuild: every file is read again.</p>
+                        </td>
+                    </tr>
+                    <tr class="mcp">
+                        <th scope="row">Agents over MCP</th>
+                        <td>
+                            @if (agents is { } served)
+                            {
+                                <p class="mcp-status">
+                                    <span class="chip @(served.Running ? "on" : null)">@(served.Running ? $"Serving agents · port {served.Port}" : served.ServedByAnotherWindow ? "Another Repo Tasks window serves agents" : "Not serving agents")</span>
+                                </p>
+                                @if (served.Problem is { } why) { <p class="muted">@why</p> }
+                            }
+                            <p class="muted set-note">Add this to <code>.mcp.json</code> in a repository so agents use tools instead of editing the board's files. The path is this app's exe on this machine.</p>
+                            <pre class="box mcp-snippet" data-sk>@AgentGuide.McpSnippet()</pre>
+                            <p class="muted set-note">One line instead: <code>@AgentGuide.McpAddCommand()</code></p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     }
-
-    <section class="set-row mcp">
-        <div>
-            <h3>Agents over MCP</h3>
-            <p class="muted">Add this to <code>.mcp.json</code> in a repository so agents can read and write its board with tools instead of editing files. The path is this app's exe on this machine.</p>
-            @if (agents is { } served)
-            {
-                <p class="mcp-status">
-                    <span class="chip @(served.Running ? "on" : null)">@(served.Running ? $"Serving agents · port {served.Port}" : served.ServedByAnotherWindow ? "Another Repo Tasks window serves agents" : "Not serving agents")</span>
-                </p>
-                @if (served.Problem is { } why) { <p class="muted">@why</p> }
-            }
+    else
+    {
+        string repo = tabRepo;
+        string project = ProjectName(repo);
+        <div class="settings-panel" data-project="@project">
+            <h3>@project</h3>
+            <p class="muted set-help">Folders are written relative to the repository and saved with the project. Images stay out of git and sync with the board storage; plans stay in git.</p>
+            <table class="set-table">
+                <tbody>
+                    <tr>
+                        <th scope="row">Location</th>
+                        <td>
+                            <div class="set-loc">
+                                <span class="set-path" title="@repo">@repo</span>
+                                <button class="btn show-folder" data-sk @onclick="() => ShowInFolder(repo)">Show in folder</button>
+                            </div>
+                        </td>
+                    </tr>
+                    @foreach (string kind in Kinds)
+                    {
+                        <tr data-folder="@kind">
+                            <th scope="row">@(kind == PlansKind ? "Plans" : "Images")</th>
+                            <td>
+                                <div class="set-loc">
+                                    <input class="box text-in" data-sk value="@Shown(repo, kind)" placeholder="@DefaultOf(kind)"
+                                           @onchange="e => FolderTyped(repo, kind, (string?)e.Value)" aria-label="@(kind == PlansKind ? "Plans" : "Images") folder" />
+                                    @if (Picker is not null) { <button class="btn pick-folder" data-sk @onclick="() => Choose(repo, kind)">Choose folder</button> }
+                                </div>
+                                @if (Pending(repo, kind))
+                                {
+                                    <div class="att-row att-actions">
+                                        <button class="btn primary folder-move" data-sk @onclick="() => Point(repo, kind, true)">Move files here</button>
+                                        <button class="btn folder-point" data-sk @onclick="() => Point(repo, kind, false)">Point here</button>
+                                    </div>
+                                }
+                                @if (folderNote is { } note && note.Repo == repo && note.Kind == kind) { <p class="att-row @(note.Warn ? "att-warn" : "att-done muted")">@note.Text</p> }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+                <BoardStorageSection Root="@repo" />
+                <StatusesSection Root="@repo" />
+            </table>
         </div>
-        <div class="set-val">
-            <pre class="box mcp-snippet" data-sk>@AgentGuide.McpSnippet()</pre>
-            <p class="muted">One line instead: <code>@AgentGuide.McpAddCommand()</code></p>
-        </div>
-    </section>
-
-    <section class="set-row">
-        <div><h3>External editor</h3><p class="muted">Command "Edit in …" launches on a note, e.g. code, notepad++, subl. Empty = ask next time.</p></div>
-        <div class="set-val"><input class="box text-in" data-sk value="@Settings.Current.Editor" placeholder="e.g. code"
-                                    @onchange="e => Settings.Update(s => s with { Editor = string.IsNullOrWhiteSpace((string?)e.Value) ? null : ((string)e.Value!).Trim() })" aria-label="External editor" /></div>
-    </section>
+    }
 </div>
 
 @code {
@@ -128,79 +187,80 @@
 
     private static readonly IReadOnlyList<(string, string)> Themes = [("light", "Light"), ("dark", "Dark"), ("system", "System")];
 
-    // ── the files folder: changing it asks what to do with the images and plans already in the old places ──
+    // ── the tabs: General, then one per open project; the chosen one is the window's own state (UiService), kept when the user comes back ──
 
-    private sealed record FilesAsk(string Repo, string New, string OldImages, string OldPlans, int Images, int Plans, int PlanFiles)
+    private static string ProjectName(string repo) => System.IO.Path.GetFileName(repo.TrimEnd('\\', '/'));
+
+    private IReadOnlyList<(string Value, string Label)> Tabs => [("general", "General"), .. Workspace.OpenRepos.Select(r => (r, ProjectName(r)))];
+
+    /// <summary>The open project whose tab is chosen; null for General, also when the chosen project is no longer open.</summary>
+    private string? TabRepo() => Popups.SettingsTab == "general" ? null : Workspace.OpenRepos.FirstOrDefault(r => SettingsStore.Key(r) == SettingsStore.Key(Popups.SettingsTab));
+
+    private void ChooseTab(string tab) => Popups.SettingsTab = tab;
+
+    // ── the plans and images folders: each is typed or chosen, then moved to (the files go along) or pointed at (only the setting changes) ──
+
+    private const string PlansKind = "plans", ImagesKind = "images";
+    private static readonly string[] Kinds = [PlansKind, ImagesKind];
+    private sealed record FolderNote(string Repo, string Kind, string Text, bool Warn);
+    private readonly Dictionary<string, string> typed = [];   // what was typed or chosen and not yet moved to or pointed at, by repo and kind
+    private FolderNote? folderNote;
+
+    private static string TypedKey(string repo, string kind) => repo + "|" + kind;
+    private static string DefaultOf(string kind) => kind == PlansKind ? SettingsStore.DefaultPlansDir : SettingsStore.DefaultAttachmentsDir;
+    private string CurrentOf(string repo, string kind) => kind == PlansKind ? Settings.PlansDir(repo) : Settings.AttachmentsDir(repo);
+    private string Shown(string repo, string kind) => typed.GetValueOrDefault(TypedKey(repo, kind)) ?? CurrentOf(repo, kind);
+    private bool Pending(string repo, string kind) => typed.ContainsKey(TypedKey(repo, kind));
+
+    /// <summary>A path inside the repository, written relative to it: what the folder dialog returns is absolute, and so may be what was typed. Anything else is left for the check to refuse.</summary>
+    private static string Relative(string repo, string text)
     {
-        public string NewImages => New + "/" + SettingsStore.ImagesName;
-        public string NewPlans => New + "/" + SettingsStore.PlansName;
-        public string What => string.Join(" and ", new[]
+        text = text.Trim();
+        if (!System.IO.Path.IsPathRooted(text)) return text;
+        string relative = System.IO.Path.GetRelativePath(repo, text);
+        return relative.StartsWith("..") || System.IO.Path.IsPathRooted(relative) ? text : relative;
+    }
+
+    private (bool Ok, string Dir, string Why) Target(string repo, string kind) =>
+        typed[TypedKey(repo, kind)] is { } text && text.Trim().Length > 0 ? NotesApi.CheckAttachmentsDir(Relative(repo, text)) : (true, DefaultOf(kind), "");   // empty = the default
+
+    private void FolderTyped(string repo, string kind, string? text)
+    {
+        folderNote = null;
+        typed[TypedKey(repo, kind)] = text ?? "";
+        if (Target(repo, kind) is { Ok: true } same && same.Dir == CurrentOf(repo, kind)) typed.Remove(TypedKey(repo, kind));   // back to where it is: nothing to do
+    }
+
+    private void Choose(string repo, string kind)
+    {
+        if (Picker?.Invoke($"Choose the {kind} folder") is string chosen) FolderTyped(repo, kind, Relative(repo, chosen));
+    }
+
+    private void Point(string repo, string kind, bool move)
+    {
+        if (!Pending(repo, kind)) return;
+        (bool ok, string dir, string why) = Target(repo, kind);
+        if (!ok) { folderNote = new(repo, kind, why, true); return; }
+        string old = CurrentOf(repo, kind), said = "";
+        bool imagesMoved = false;
+        if (move)
         {
-            Images > 0 ? $"{Images} image{(Images == 1 ? "" : "s")} from {OldImages} to {NewImages}" : null,
-            PlanFiles > 0 ? $"{(Plans > 0 ? $"{Plans} plan{(Plans == 1 ? "" : "s")}" : $"{PlanFiles} file{(PlanFiles == 1 ? "" : "s")}")} from {OldPlans} to {NewPlans}" : null,
-        }.OfType<string>());
-    }
-
-    private sealed record FilesNote(string Repo, string Text, bool Warn);
-    private FilesAsk? filesAsk;
-    private FilesNote? filesNote;
-    private int filesKey;   // a new key makes the browser drop what was typed in the field (a refused or cancelled edit shows the saved folder again)
-
-    private void FilesChanged(string repo, string? typed)
-    {
-        (filesAsk, filesNote) = (null, null);
-        string? current = Settings.FilesDir(repo);
-        if (current is null && string.IsNullOrWhiteSpace(typed)) { filesKey++; return; }   // nothing chosen: the old layout stays
-        (bool ok, string dir, string why) = NotesApi.CheckFilesDir(typed);
-        if (!ok) { filesNote = new(repo, why, true); filesKey++; return; }
-        if (dir == current) { filesKey++; return; }
-        string oldImages = Settings.AttachmentsDir(repo), oldPlans = Settings.PlansDir(repo);
-        string newImages = dir + "/" + SettingsStore.ImagesName, newPlans = dir + "/" + SettingsStore.PlansName;
-        int images = oldImages == newImages ? 0 : Workspace.In(repo, () => NotesApi.CountAttachmentFiles(repo, oldImages));
-        (int plans, int planFiles) = oldPlans == newPlans ? (0, 0) : Workspace.In(repo, () => NotesApi.CountPlanFiles(repo, oldPlans));
-        if (images + planFiles > 0) { filesAsk = new(repo, dir, oldImages, oldPlans, images, plans, planFiles); return; }   // saved once the user has answered
-        SaveFilesDir(repo, dir);
-    }
-
-    private bool SaveFilesDir(string repo, string dir, bool imagesMoved = false)
-    {
-        Workspace.AttachmentsFolderChangingHere(repo, dir + "/" + SettingsStore.ImagesName, imagesMoved);   // before the write: the sync service must not take this change for a pull's and move the files a second time
-        (bool ok, string message) = Settings.SetFilesDir(repo, dir);
-        if (!ok) { filesNote = new(repo, message, true); filesKey++; Workspace.AttachmentsFolderChangingHere(repo, Settings.AttachmentsDir(repo), false); }
-        return ok;
-    }
-
-    private void FilesMove()
-    {
-        if (filesAsk is not { } ask) return;
-        filesAsk = null;
-        List<string> said = [];
-        bool imagesMoved = false, plansFailed = false;
-        if (ask.Images > 0)
-        {
-            Notes.PublicDTOs.AttachmentsMoveResult images = Workspace.In(ask.Repo, () => NotesApi.MoveAttachments(ask.Repo, ask.OldImages, ask.NewImages));
-            if (!images.Success) { filesNote = new(ask.Repo, images.Message, true); filesKey++; return; }   // nothing was moved: the old places stay in use
-            imagesMoved = images.Moved + images.Duplicates > 0;
-            said.Add(images.Message);
+            Notes.PublicDTOs.AttachmentsMoveResult result = Workspace.In(repo, () => kind == PlansKind ? NotesApi.MovePlans(repo, old, dir) : NotesApi.MoveAttachments(repo, old, dir));
+            if (!result.Success) { folderNote = new(repo, kind, result.Message, true); return; }   // nothing was moved: the old place stays in use
+            (said, imagesMoved) = (result.Message, result.Moved + result.Duplicates > 0);
         }
-        if (ask.PlanFiles > 0)
+        if (kind == ImagesKind) Workspace.AttachmentsFolderChangingHere(repo, dir, imagesMoved);   // before the write: the sync service must not take this change for a pull's and move the files a second time
+        (bool saved, string message) = kind == PlansKind ? Settings.SetPlansDir(repo, dir) : Settings.SetAttachmentsDir(repo, dir);
+        if (!saved)
         {
-            Notes.PublicDTOs.AttachmentsMoveResult plans = Workspace.In(ask.Repo, () => NotesApi.MovePlans(ask.Repo, ask.OldPlans, ask.NewPlans));
-            plansFailed = !plans.Success;
-            said.Add(plans.Success ? plans.Message : $"The plans were not moved: {plans.Message}");
+            folderNote = new(repo, kind, message, true);
+            if (kind == ImagesKind) Workspace.AttachmentsFolderChangingHere(repo, Settings.AttachmentsDir(repo), false);
+            return;
         }
-        if (SaveFilesDir(ask.Repo, ask.New, imagesMoved)) filesNote = new(ask.Repo, string.Join(" ", said), plansFailed);
-        Workspace.Notify();   // notes, descriptions and plan links were rewritten: every open page reads them again
+        typed.Remove(TypedKey(repo, kind));
+        folderNote = new(repo, kind, said.Length > 0 ? said : $"Pointing at {dir}.", false);
+        Workspace.Notify();   // notes, descriptions and plan links may have been rewritten: every open page reads them again
     }
-
-    private void FilesKeep()
-    {
-        if (filesAsk is not { } ask) return;
-        filesAsk = null;
-        SaveFilesDir(ask.Repo, ask.New);   // new files go to the new folder; the old ones and their links stay
-    }
-
-    private void FilesCancel() { filesAsk = null; filesKey++; }
 
     private string repoPath = "";
     private string? error;
@@ -218,6 +278,39 @@
     {
         (movedOk, settingsMoved) = Settings.MoveTo(settingsFolder);
         if (movedOk) settingsFolder = "";
+    }
+
+    // ── the logs folder: typed or chosen, it applies at once (the run log moves, the setting is saved); the logs already written move only when asked ──
+
+    private string? logsNote;
+    private bool logsOk;
+
+    private void ApplyLogsFolder(string? text)
+    {
+        string? wanted = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        (string folder, string? warning) = Paths.LogsFor(wanted);
+        if (warning is not null) { (logsOk, logsNote) = (false, warning); return; }   // a folder that is not there or cannot be written changes nothing
+        (bool ok, string message) = AppLog.SwitchFolder(wanted is null ? null : folder);
+        (logsOk, logsNote) = (ok, message);
+        if (ok) Settings.SetLogsDir(wanted is null ? null : folder);
+    }
+
+    private void ChooseLogsFolder()
+    {
+        if (Picker?.Invoke("Choose the folder for the logs") is string chosen) ApplyLogsFolder(chosen);
+    }
+
+    private void OpenLogsFolder()
+    {
+        if (FolderOpener?.Invoke(AppLog.Folder) is { Success: false, Message: string message }) Popups.Toast(message, ToastKind.Warning);
+    }
+
+    private void MoveLogs() => (logsOk, logsNote, _) = AppLog.MoveExistingLogs();
+
+    private void RebuildIndex(string repo)
+    {
+        Workspace.RebuildIndex(repo);
+        Popups.Toast($"Rebuilt the index of {ProjectName(repo)}.");
     }
 
     private FolderOpener? FolderOpener => Services.GetService(typeof(FolderOpener)) as FolderOpener;

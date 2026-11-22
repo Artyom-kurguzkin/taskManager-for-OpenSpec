@@ -1,0 +1,20 @@
+2026-11-21T05:06:11 | Claude | created | Cheap feed events for agents: board_log takes the event standard
+2026-11-21T05:06:11 | Claude | status | Planned -> In Progress
+2026-11-21T05:06:11 | Claude | description-edited | proposal.md
+2026-11-21T05:06:11 | Claude | priority | low -> high
+2026-11-21T05:06:11 | Claude | label | none -> enhancement
+2026-11-21T05:06:11 | Claude | plan-linked | DevResources/plans/cheap-feed-events-2026-11-21.md
+2026-11-21T05:06:11 | Claude | subtask-added | 1.1 board_log: multi-line, kind from the event standard, no revision, short answer; worklog shows the kind
+2026-11-21T05:06:12 | Claude | subtask-added | 1.2 Tool descriptions halved; shared guidance once in the server instructions
+2026-11-21T05:06:12 | Claude | subtask-added | 2.1 merge run green; briefs updated to board_log with kinds
+2026-11-21T05:23:16 | Claude merge | log | Merge run started: guide bump v18 -> v19 (board_log rule), build, full suite once.
+2026-11-21T05:27:52 | Claude merge | test-linked | UsingTheBoardOverMcpTests / board_log takes a multi-line text and a kind from the event standard and answers with one short line
+2026-11-21T05:27:52 | Claude merge | test-linked | UsingTheBoardOverMcpTests / board_log with a kind outside the standard is refused and the answer lists the standard
+2026-11-21T05:27:52 | Claude merge | test-linked | UsingTheBoardOverMcpTests / board_log text over 4,000 characters becomes a note by the same call
+2026-11-21T05:27:52 | Claude merge | test-linked | UsingTheBoardOverMcpTests / board_log takes the agent name from RTM_AGENT and accepts parentheses in it
+2026-11-21T05:27:52 | Claude merge | test-linked | UsingTheBoardOverMcpTests / The board tools' definitions and the server instructions fit the budget
+2026-11-21T05:27:52 | Claude merge | test-linked | UsingTheWorklogTests / A started, tests green and done event each show their kind as a label in the worklog, and a decision event is emphasised
+2026-11-21T05:27:52 | Claude merge | subtask-done | 1.1 board_log: multi-line, kind from the event standard, no revision, short answer; worklog shows the kind
+2026-11-21T05:27:52 | Claude merge | subtask-done | 1.2 Tool descriptions halved; shared guidance once in the server instructions
+2026-11-21T05:31:08 | Claude | status | In Progress -> In Review
+2026-11-21T05:31:08 | Claude | subtask-done | 2.1 merge run green; briefs updated to board_log with kinds

@@ -1,0 +1,3 @@
+2026-11-20T09:10:41 | Artyom-kurguzkin | subtask-done | 1.2 separate a subtask (individual OR multiple) into a separate work item
+2026-11-20T09:10:42 | Artyom-kurguzkin | subtask-done | 1.1 Build the list table with header sorting, collapsible groups, expandable rows, inline status/priority and "+ Add item"; verify the "Sort by header" and "Expand one row" scenarios
+2026-11-20T09:10:53 | Artyom-kurguzkin | status | Planned -> Completed

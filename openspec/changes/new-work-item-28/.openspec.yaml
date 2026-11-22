@@ -3,14 +3,14 @@ created: 2026-11-11
 x-rtm:
   id: 154
   title: save custom task arrangements
-  status: Research
+  status: Planned
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [organise-work-items]
   label: enhancement
   started: 2026-11-09
   due: 2026-11-16
-  moved: 2026-11-18
+  moved: 2026-11-20
   plan: DevResources/plans/user-settings-per-machine-2026-11-13.md
   tests: [{suite: KeepingMyArrangementsTests, test: 'Hidden columns stay hidden after adding a work item and visiting the list, the calendar and a work item page'}, {suite: KeepingMyArrangementsTests, test: A hidden list column stays hidden after adding a work item and coming back to the list}, {suite: KeepingMyArrangementsTests, test: "Opening or adding a work item in another project leaves the board's arrangement as it is, instead of showing that project's (empty) hidden list"}, {suite: KeepingMyArrangementsTests, test: "Switching to a project's tab shows the arrangement saved for that project, and switching back restores the first one's"}, {suite: KeepingMyArrangementsTests, test: Making a project the active one from its name's menu shows that project's arrangement and leaves the tabs in their order}, {suite: KeepingMyArrangementsTests, test: Column order and widths are kept per project}, {suite: ChoosingWhereUserSettingsLiveTests, test: The settings file can be moved to a chosen folder and is read from there after a restart}, {suite: ChoosingWhereUserSettingsLiveTests, test: 'Moving the settings back to the default folder removes the pointer, and a folder that cannot take them leaves everything where it was'}, {suite: ChoosingWhereUserSettingsLiveTests, test: A missing or unreadable location pointer falls back to the default file and the Settings page says so}, {suite: ChoosingWhereUserSettingsLiveTests, test: 'The Settings page shows where the user settings are, and Browse then Move puts them in the chosen folder'}]
   docs: [DevResources/plans/user-settings-per-machine.excalidraw.svg]

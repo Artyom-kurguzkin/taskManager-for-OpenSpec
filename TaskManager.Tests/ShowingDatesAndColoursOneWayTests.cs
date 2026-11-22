@@ -47,8 +47,8 @@ public sealed class ShowingDatesAndColoursOneWayTests : IDisposable
 
     private void ShowList()
     {
-        nav!.Find("button[aria-label=Layout]").Click();
-        nav.FindAll(".menu-item").Single(i => i.TextContent.Trim() == "List").Click();
+        nav!.ClickWhenReady("button[aria-label=Layout]");
+        nav!.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "List"));
     }
 
     [Fact(DisplayName = "A date is written by one table of formats: the card, the list, the item page and the examine panel each show it as Ui says, in the user's culture")]
@@ -64,7 +64,7 @@ public sealed class ShowingDatesAndColoursOneWayTests : IDisposable
 
         Assert.Equal(Ui.Period(started, due), board.FindAll("article.card").First(c => c.GetAttribute("data-id") == "123").QuerySelector(".tag.dates")!.TextContent.Trim());
         ShowList();
-        board.WaitForAssertion(() => Assert.NotEmpty(board.FindAll("tr[data-id='123']")));
+        board.Eventually(() => Assert.NotEmpty(board.FindAll("tr[data-id='123']")));
         string row = board.Find("tr[data-id='123']").TextContent;
         Assert.Contains(Ui.Day(started), row);
         Assert.Contains(Ui.Day(due), row);
@@ -75,7 +75,7 @@ public sealed class ShowingDatesAndColoursOneWayTests : IDisposable
 
         IRenderedComponent<ExaminePanel> panel = ctx.Render<ExaminePanel>();
         ctx.Services.GetRequiredService<UiService>().Examine((repo.Root, 123));
-        panel.WaitForAssertion(() => Assert.Equal(Ui.DayWithYear(started), panel.Find("[data-line='started'] b").TextContent.Trim()));
+        panel.Eventually(() => Assert.Equal(Ui.DayWithYear(started), panel.Find("[data-line='started'] b").TextContent.Trim()));
         Assert.Equal(Ui.DayWithYear(due), panel.Find("[data-line='due'] b").TextContent.Trim());
         Assert.Equal(Ui.DayWithYear(DateOnly.FromDateTime(item.Modified)), panel.Find("[data-line='updated'] b").TextContent.Trim());
     }
@@ -111,11 +111,11 @@ public sealed class ShowingDatesAndColoursOneWayTests : IDisposable
         CultureInfo.CurrentCulture = new CultureInfo("de-DE");
         await using BunitContext ctx = NewContext();
         IRenderedComponent<DateRange> range = ctx.Render<DateRange>();
-        range.Find("button.dates-btn").Click();
+        range.ClickWhenReady("button.dates-btn");
 
-        Assert.Equal(Ui.WeekdayHeads, range.FindAll(".rdow").Select(d => d.TextContent.Trim()));
-        Assert.Equal("Mo", Ui.WeekdayHeads[0]);   // Monday first, as the weeks are
-        Assert.Equal(7, Ui.WeekdayHeads.Count);
+        range.Eventually(() => Assert.Equal(Ui.WeekdayHeads, range.FindAll(".rdow").Select(d => d.TextContent.Trim())));
+        range.Eventually(() => Assert.Equal("Mo", Ui.WeekdayHeads[0]));   // Monday first, as the weeks are
+        range.Eventually(() => Assert.Equal(7, Ui.WeekdayHeads.Count));
     }
 
     [Fact(DisplayName = "Pages count 'today' from the app's clock: the roadmap, the period picker, the worklog, the due columns and the analytics weeks")]
@@ -128,22 +128,22 @@ public sealed class ShowingDatesAndColoursOneWayTests : IDisposable
         Assert.Contains("Mar 2031", roadmap.Find(".rm-range").TextContent);
 
         IRenderedComponent<DateRange> range = ctx.Render<DateRange>();
-        range.Find("button.dates-btn").Click();
-        Assert.Equal(Ui.MonthLong(new DateOnly(2031, 3, 1)), range.Find(".range-h b").TextContent.Trim());
-        Assert.Contains("today", range.Find(".rd[data-day='2031-03-05']").ClassList);
+        range.ClickWhenReady("button.dates-btn");
+        range.Eventually(() => Assert.Equal(Ui.MonthLong(new DateOnly(2031, 3, 1)), range.Find(".range-h b").TextContent.Trim()));
+        range.Eventually(() => Assert.Contains("today", range.Find(".rd[data-day='2031-03-05']").ClassList));
 
         IRenderedComponent<Worklog> log = ctx.Render<Worklog>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Root, repo.Root));
-        Assert.Equal("2031-03-05", log.Find(".wk-day.today").GetAttribute("data-day"));
+        log.Eventually(() => Assert.Equal("2031-03-05", log.Find(".wk-day.today").GetAttribute("data-day")));
 
         IRenderedComponent<Analytics> analytics = ctx.Render<Analytics>(p => p
             .Add(c => c.Items, WorkItemsApi.GetAll()).Add(c => c.Features, []).Add(c => c.Events, _ => []).Add(c => c.Charts, AnalyticsModel.Charts(new BoardOptions())));
-        Assert.Contains(Ui.Day(new DateOnly(2031, 3, 3)), analytics.Markup);   // the last week of the over-time chart starts on that Monday
+        range.Eventually(() => Assert.Contains(Ui.Day(new DateOnly(2031, 3, 3)), analytics.Markup));   // the last week of the over-time chart starts on that Monday
 
         WorkItemsApi.SetDue(123, new DateOnly(2031, 3, 5));
         SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { GroupBy = "due" });
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        board.WaitForAssertion(() =>
+        board.Eventually(() =>
         {
             AngleSharp.Dom.IElement col = board.FindAll(".col").Single(c => c.QuerySelector(".col-h, header")?.TextContent.Contains("Today") == true);
             Assert.Contains("Health-check endpoint", col.TextContent);

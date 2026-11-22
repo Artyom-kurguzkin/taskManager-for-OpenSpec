@@ -1,0 +1,8 @@
+2026-11-21T11:28:33 | Claude | created | Why the app crashes so often: investigation
+2026-11-21T11:28:33 | Claude | status | Planned -> In Progress
+2026-11-21T11:28:33 | Claude | description-edited | proposal.md
+2026-11-21T11:28:33 | Claude | priority | low -> high
+2026-11-21T11:28:33 | Claude | label | none -> bug
+2026-11-21T11:28:54 | Claude chunk crashes | started | Read the logs, the event log, crash dumps and WER. 5 unclean exits in crash-*.log (20-21 Nov); 5 WER AppCrash reports for TaskManager-small (31 Oct to 11 Nov) plus 2 AppHang (20 Nov). Now matching each one to a cause.
+2026-11-21T11:36:29 | Claude chunk crashes | found | None of the 5 unclean exits on 20-21 Nov is a crash in the dist app. 22564: killed at 12:02:19 by a merge agent's `dotnet publish -p:PublishProfile=dist-small -o tests/out/pub-small` (the old StopWhatRunsFromDist ran on every publish). 44828: Debug build, killed by an agent's Stop-Process at 06:27:35. 30868: OS restart at 09:53. 9604 (dist) and 23852 (Debug): froze after waking from Modern Standby (WER AppHang), then the user or Windows closed them.\nReal crashes were all 31 Oct to 11 Nov: monlie.dll AV (31 Oct), unhandled YAML/DirectoryNotFound in the watcher timer (7 and 10 Nov, x3), coreclr AV in the message loop (11 Nov).
+2026-11-21T12:36:26 | Artyom-kurguzkin | status | In Progress -> Completed

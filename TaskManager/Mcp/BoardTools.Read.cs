@@ -23,17 +23,17 @@ public sealed partial class BoardTools
     // ── Reads ──
 
     [McpServerTool(Name = "board_list", ReadOnly = true, UseStructuredContent = true)]
-    [Description("List work items, filtered, ordered by id. Concise rows: id, title, status, feature, label, revision. Page with `after` (the last id of the previous page); `nextAfter` in the result says there is more.")]
+    [Description("List work items ordered by id; page with `after`.")]
     public Task<ListResult> BoardList(
-        [Description("Only these statuses (by default Backlog, Planned, Confirmed, In Progress, Blocked, In Review, Completed; a project can have its own list).")] string[]? status = null,
-        [Description("Only items in this feature (capability path, like functional/banking).")] string? feature = null,
-        [Description("Only this label: bug, feature or enhancement.")] string? label = null,
-        [Description("Only items this person or agent contributes to.")] string? contributor = null,
-        [Description("Only items whose title contains this text.")] string? text = null,
-        [Description("true: only items that can be started now (not In Progress, not waiting on an unresolved dependency).")] bool ready = false,
-        [Description("Include archived (Completed) items. Asking for status Completed includes them too.")] bool includeArchived = false,
-        [Description("The id of the last item of the previous page.")] int? after = null,
-        [Description("Page size, default 50, at most 200.")] int limit = 50,
+        [Description("Only these statuses.")] string[]? status = null,
+        [Description("Only this feature path.")] string? feature = null,
+        [Description("Only this label.")] string? label = null,
+        [Description("Only this contributor.")] string? contributor = null,
+        [Description("Only titles containing this.")] string? text = null,
+        [Description("Only items that can be started now.")] bool ready = false,
+        [Description("Include archived (Completed) items.")] bool includeArchived = false,
+        [Description("Id of the last item of the previous page.")] int? after = null,
+        [Description("Page size (default 50, at most 200).")] int limit = 50,
         [Description(FormatHelp)] string? format = null,
         [Description(RepoHelp)] string? repo = null) =>
         Run(repo, _ =>
@@ -57,13 +57,13 @@ public sealed partial class BoardTools
         });
 
     [McpServerTool(Name = "board_get", ReadOnly = true, UseStructuredContent = true)]
-    [Description("One work item: header fields (always), description (proposal body; concise cuts it to 600 characters, `descriptionLength` and `descriptionCut` say so), subtasks with numbers and done flags (`subtasksDone` of `subtasksTotal`), notes, the `worklog` (its history: notes and events together, newest first; concise gives the newest 20 of `worklogTotal`), delta specs, linked tests with their outcome in the latest results (✓ passed, ✗ failed, ? not in the results), linked commits plus commits mentioning #wiN, linked `docs`, dependencies and what it blocks, and `revision` (pass it to board_update or board_note). Detailed adds note bodies, the whole worklog and delta spec text. Read only what you need: `sections` picks parts, `since` and `limit` cut the worklog and notes. Example: sections [\"specs\"] returns the delta spec markdown to edit; sections [\"worklog\",\"notes\"] with since \"2026-11-09T14:00\" returns what is new.")]
+    [Description("One work item: header, description, subtasks, notes, worklog, delta specs, linked tests with outcomes, commits, docs, dependencies and the `revision`.")]
     public Task<GetResult> BoardGet(
-        [Description("The work item number (the N of #wiN).")] int id,
+        [Description("The work item number.")] int id,
         [Description(FormatHelp)] string? format = null,
-        [Description("Only these parts, besides the header fields and revision, which always come back: header, description, subtasks, notes, worklog, specs (delta specs with their markdown, in any format), tests, links (commits, docs, dependsOn, blocking). Leave out for everything. The parts not asked for come back null or empty.")] string[]? sections = null,
-        [Description("An ISO date or date-time (2026-11-09 or 2026-11-09T14:30): the worklog and notes only from that moment on. `worklogTotal` still counts every entry.")] string? since = null,
-        [Description("At most this many worklog entries and notes, the newest first. Without it concise gives 20 worklog entries and detailed all.")] int? limit = null,
+        [Description("Only these parts: header, description, subtasks, notes, worklog, specs, tests, links.")] string[]? sections = null,
+        [Description("ISO date or date-time: only the worklog and notes from then on.")] string? since = null,
+        [Description("At most this many worklog entries and notes, newest first.")] int? limit = null,
         [Description(RepoHelp)] string? repo = null) =>
         Run(repo, _ =>
         {
@@ -103,11 +103,11 @@ public sealed partial class BoardTools
         });
 
     [McpServerTool(Name = "board_features", ReadOnly = true, UseStructuredContent = true)]
-    [Description("The features (capabilities under openspec/specs, plus the ones added from the board) with the open work items on each. Use a feature path as `feature` when creating an item; invent a new kebab-case name only for a capability that is really new. To write a MODIFIED requirement you must repeat the existing one: format detailed with `feature` returns that capability's `requirements` (names) from its main spec, and `requirement` adds that requirement's full text with its scenarios in `requirementText`. Example: format \"detailed\", feature \"functional/banking\", requirement \"Banking exists\".")]
+    [Description("The features (capabilities) with their open items; with `feature` and detailed, one capability's requirement names or one requirement's text.")]
     public Task<FeaturesResult> BoardFeatures(
-        [Description(FormatHelp + " Detailed adds name, group and whether it was added from the board; it is also needed to read a capability's spec.")] string? format = null,
-        [Description("With format detailed: the capability path (like functional/banking) whose main spec to read; the result lists its requirement names.")] string? feature = null,
-        [Description("With `feature`: the name of one requirement (case does not matter); the result carries its full text with its scenarios.")] string? requirement = null,
+        [Description("concise (default) or detailed.")] string? format = null,
+        [Description("With detailed: the capability path whose spec to read.")] string? feature = null,
+        [Description("With `feature`: one requirement's name, for its full text.")] string? requirement = null,
         [Description(RepoHelp)] string? repo = null) =>
         Run(repo, _ =>
         {

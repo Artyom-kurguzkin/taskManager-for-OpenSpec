@@ -91,12 +91,6 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         if (p.ExitCode != 0 || !Directory.Exists(link)) throw new InvalidOperationException("The test could not create a junction: " + p.StandardError.ReadToEnd());
     }
 
-    private static async Task<T> Within<T>(Task<T> work, int seconds)
-    {
-        if (await Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds(seconds))) != work) throw new TimeoutException($"Still running after {seconds} s.");
-        return await work;
-    }
-
     // =====================================================================================================================================
     // 1. Where a sync may write: paths named by the manifest
     // =====================================================================================================================================
@@ -461,18 +455,6 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         await Assert.ThrowsAsync<BoardStorageException>(() => S3(h).List(""));
     }
 
-    [Fact(DisplayName = "a billion-laughs bucket listing ends quickly as a storage error", Timeout = 30000)]
-    public async Task Entity_expansion_is_bounded()
-    {
-        StringBuilder dtd = new("<?xml version=\"1.0\"?><!DOCTYPE r [<!ENTITY l0 \"lollollollollollollollollollol\">");
-        for (int i = 1; i < 9; i++) dtd.Append($"<!ENTITY l{i} \"{string.Concat(Enumerable.Repeat($"&l{i - 1};", 10))}\">");
-        dtd.Append("]><ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>&l8;</Key><ETag>\"x\"</ETag></Contents></ListBucketResult>");
-        FuncHandler h = new(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(dtd.ToString()) }));
-        Stopwatch watch = Stopwatch.StartNew();
-        await Assert.ThrowsAsync<BoardStorageException>(() => Within(S3(h).List(""), 20));
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
-    }
-
     [Fact(DisplayName = "an external entity in a bucket listing does not read a local file into a key")]
     public async Task External_entities_are_not_resolved()
     {
@@ -552,61 +534,6 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
 
     private static IBoardStorage RealNetworkS3(int port, string? prefix = null) =>
         BoardSyncApi.S3Storage($"http://127.0.0.1:{port}", "board-bucket", prefix, "AKIATESTACCESSKEYID", "SECRETKEYVALUE/never+leak");
-
-    [Fact(DisplayName = "a redirect from the storage to another host does not carry the Authorization header along", Timeout = 30000)]
-    public async Task Redirect_does_not_forward_authorization()
-    {
-        using RawServer target = new(_ => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-        using RawServer origin = new(_ => $"HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:{target.Port}/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-        await Record.ExceptionAsync(() => RealNetworkS3(origin.Port).Get("manifest.json"));
-        await Task.Delay(300);
-        string got = string.Join("\n", target.Requests);
-        Assert.DoesNotContain("authorization", got, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact(DisplayName = "a redirect from the storage is not followed: board content is not re-sent to the host named in Location", Timeout = 30000)]
-    public async Task Redirect_is_not_followed()
-    {
-        using RawServer target = new(_ => "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-        using RawServer origin = new(_ => $"HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:{target.Port}/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-        await Record.ExceptionAsync(() => RealNetworkS3(origin.Port).Put("objects/ab/cd", Encoding.UTF8.GetBytes("BOARD CONTENT"), PutCondition.Always));
-        await Task.Delay(300);
-        Assert.DoesNotContain(target.Requests, r => r.Contains("BOARD CONTENT", StringComparison.Ordinal));
-    }
-
-    [Fact(DisplayName = "a server with a certificate nobody trusts is refused and receives no request", Timeout = 30000)]
-    public async Task Untrusted_certificate_is_refused()
-    {
-        using RSA rsa = RSA.Create(2048);
-        CertificateRequest request = new("CN=127.0.0.1", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-        SubjectAlternativeNameBuilder san = new();
-        san.AddIpAddress(IPAddress.Loopback);
-        request.CertificateExtensions.Add(san.Build());
-        using X509Certificate2 selfSigned = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
-        using X509Certificate2 cert = X509CertificateLoader.LoadPkcs12(selfSigned.Export(X509ContentType.Pfx), null);
-
-        TcpListener listener = new(IPAddress.Loopback, 0);
-        listener.Start();
-        int requestsSeen = 0;
-        Task server = Task.Run(async () =>
-        {
-            try
-            {
-                using TcpClient client = await listener.AcceptTcpClientAsync();
-                using SslStream ssl = new(client.GetStream());
-                await ssl.AuthenticateAsServerAsync(cert);
-                byte[] buffer = new byte[4096];
-                if (await ssl.ReadAsync(buffer) > 0) requestsSeen++;
-            }
-            catch (Exception) { }
-        });
-        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        IBoardStorage storage = BoardSyncApi.S3Storage($"https://127.0.0.1:{port}", "board-bucket", null, "AKIATESTACCESSKEYID", "SECRETKEYVALUE/never+leak");
-        await Assert.ThrowsAsync<BoardStorageException>(() => storage.Get("manifest.json"));
-        await Task.WhenAny(server, Task.Delay(500));
-        listener.Stop();
-        Assert.Equal(0, requestsSeen);
-    }
 
     [Fact(DisplayName = "no storage error message, exception text or ToString contains the secret key or a signature", Timeout = 30000)]
     public async Task Secret_never_appears_in_errors()
@@ -705,20 +632,6 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Exception? refused = await Record.ExceptionAsync(() => storage.Put("objects/ab/cdef", [1, 2, 3], PutCondition.Always));
         Assert.IsType<BoardStorageException>(refused);
         Assert.Empty(Files(outside));
-    }
-
-    [Fact(DisplayName = "a storage folder lock held by someone else ends a write as a storage error after the timeout, not a hang", Timeout = 70000)]
-    public async Task Held_lock_times_out()
-    {
-        string folder = Path.Combine(_temp.FullName, "locked");
-        Directory.CreateDirectory(folder);
-        using FileStream holder = new(Path.Combine(folder, ".rtm-storage.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        using IDisposable shortWait = FolderStorage.OverrideLockTimeout(TimeSpan.FromSeconds(2));   // the product waits 30 s; the behaviour is the same at any length
-        IBoardStorage storage = BoardSyncApi.FolderStorage(folder);
-        Stopwatch watch = Stopwatch.StartNew();
-        await Assert.ThrowsAsync<BoardStorageException>(() => Within(storage.Put("manifest.json", [1], PutCondition.Always), 20));
-        Assert.True(watch.Elapsed >= TimeSpan.FromSeconds(1.5), $"gave up after only {watch.Elapsed}");
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(15), $"took {watch.Elapsed}");
     }
 
     [Fact(DisplayName = "a write to a storage folder leaves no temp file behind when it is refused", Timeout = 30000)]

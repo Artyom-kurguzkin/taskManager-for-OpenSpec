@@ -117,14 +117,14 @@ public sealed class ChoosingWhereUserSettingsLiveTests : IDisposable
         Assert.Contains(Path.GetDirectoryName(DefaultFile)!, page.Find("[data-setting='user-settings'] .set-path").TextContent);
         Assert.Empty(page.FindAll(".settings-notice"));
 
-        page.Find("[data-setting='user-settings'] button.pick-settings-folder").Click();   // Browse…
-        Assert.Equal(Chosen, page.Find("input[aria-label='User settings folder']").GetAttribute("value"));
-        page.Find("[data-setting='user-settings'] button.move-settings").Click();
+        page.ClickWhenReady("[data-setting='user-settings'] button.pick-settings-folder");   // Browse…
+        page.Eventually(() => Assert.Equal(Chosen, page.Find("input[aria-label='User settings folder']").GetAttribute("value")));
+        page.ClickWhenReady("[data-setting='user-settings'] button.move-settings");
 
-        Assert.Equal(Path.Combine(Chosen, "settings.json"), store.FilePath);
-        Assert.Contains(Chosen, page.Find("[data-setting='user-settings'] .set-path").TextContent);
-        Assert.Contains("Moved", page.Find(".settings-moved").TextContent);
-        Assert.Equal("dark", SettingsStore.Open(DefaultFile, Pointer).Current.Theme);
+        page.Eventually(() => Assert.Equal(Path.Combine(Chosen, "settings.json"), store.FilePath));
+        page.Eventually(() => Assert.Contains(Chosen, page.Find("[data-setting='user-settings'] .set-path").TextContent));
+        page.Eventually(() => Assert.Contains("Moved", page.Find(".settings-moved").TextContent));
+        page.Eventually(() => Assert.Equal("dark", SettingsStore.Open(DefaultFile, Pointer).Current.Theme));
     }
 
     private BunitContext NewContext(SettingsStore store, FolderPicker? picker)

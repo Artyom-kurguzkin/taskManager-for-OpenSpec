@@ -1,13 +1,16 @@
 schema: spec-driven
-skip_specs: true
 created: 2026-11-18
 x-rtm:
   id: 205
   title: merge work items
-  status: In Progress
+  status: In Review
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [organise-work-items]
   label: bug
   started: 2026-11-18
   moved: 2026-11-18
+  plan: DevResources/plans/in-progress-items-2026-11-18b.md
+  tests: [{suite: EditingWorkItemsTests, test: A new item never takes the folder name of an item that was merged away}, {suite: UsingThePagesTests, test: 'When only one source of a merge had subtasks, Linked tasks still heads them with where and when they were merged in'}, {suite: UsingThePagesTests, test: "A merged item's Linked tasks lists the subtasks of every source under their own group, and its worklog's Bugs filter finds the bug notes of every source"}, {suite: EditingWorkItemsTests, test: "Merging two items created in the app keeps the second one's subtasks, bug note with its attachment, linked test and every event"}, {suite: EditingWorkItemsTests, test: "A merge writes each source's number on the events it carries over, a second merge keeps the earlier sources, and the main item's own events stay unmarked"}, {suite: UsingThePagesTests, test: "A merged item's feed says which source every note, bug and event came from, also with the Notes filter off, and Related lists the files under their source"}, {suite: UsingThePagesTests, test: Related stays one flat list when nothing in the item was merged in}]
+  agentBy: Claude
+  agentAt: 2026-11-18T13:26:27

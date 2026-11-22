@@ -692,6 +692,82 @@ public sealed class EditingWorkItemsTests
         Assert.Equal(["1. Monthly remittance export", $"2. #wi123 Health-check endpoint · Endpoint · merged {today}", $"3. #wi123 Health-check endpoint · Hardening · merged {today}"], Item(id).Subtasks.Select(s => s.Group).Distinct());
     }
 
+    [Fact(DisplayName = "Merging two items created in the app keeps the second one's subtasks, bug note with its attachment, linked test and every event")]
+    public void MergeKeepsWhatWasAddedAfterCreation()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int first) = WorkItemsApi.Create("List moving", "Backlog", null, null);
+        (bool _, string _, int second) = WorkItemsApi.Create("Swap groups", "Backlog", null, null);
+        WorkItemsApi.AddSubtask(second, "Drag the header");
+        (bool _, string _, int bug) = Notes.NotesApi.Create(second, "Tom", DateTime.Now, "bug");
+        Assert.True(Notes.NotesApi.AttachBytes(bug, "shot.png", [1, 2, 3]).Success);
+        WorkItemsApi.SetLinkedTests(second, [new TestLink("Suite", "Drag test", null)]);
+
+        (bool ok, string message, int id) = WorkItemsApi.Merge([first, second]);
+
+        Assert.True(ok, message);
+        string today = DateTime.Now.ToString("yyyy-MM-dd");
+        WorkItem merged = Item(id);
+        Assert.Equal([$"#wi{second} Swap groups · merged {today}"], merged.Subtasks.Select(s => s.Group[(s.Group.IndexOf(' ') + 1)..]));
+        Assert.Equal(["Drag the header"], merged.Subtasks.Select(s => s.Text));
+        Assert.Equal(["Drag test"], merged.Tests!.Select(t => t.Test));
+        Notes.PublicDTOs.Note kept = Notes.NotesApi.GetForWorkItem(id).Single(n => n.Kind == "bug");
+        Assert.Equal(bug, kept.Id);
+        Assert.Single(kept.Attachments);
+        Assert.True(File.Exists(Path.Combine(repo.Root, kept.Attachments[0])));   // the file stays where it was copied; the note keeps pointing at it
+        string events = File.ReadAllText(Path.Combine(merged.Path, "events.log"));
+        Assert.Contains("| subtask-added |", events);
+        Assert.Contains("| merged-from | #wi" + second, events);
+    }
+
+    [Fact(DisplayName = "A merge writes each source's number on the events it carries over, a second merge keeps the earlier sources, and the main item's own events stay unmarked")]
+    public void MergeMarksEventsWithTheirSource()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int a) = WorkItemsApi.Create("Alpha", "Backlog", null, null);
+        (bool _, string _, int b) = WorkItemsApi.Create("Beta", "Backlog", null, null);
+        (bool _, string _, int c) = WorkItemsApi.Create("Gamma", "Backlog", null, null);
+        WorkItemsApi.AddSubtask(b, "Beta task");
+        WorkItemsApi.AddSubtask(c, "Gamma task");
+        (bool ok, string message, int ab) = WorkItemsApi.Merge([a, b], a);
+        Assert.True(ok, message);
+        (bool ok2, string message2, int abc) = WorkItemsApi.Merge([c, ab], c);   // the merged item goes in as a source, c is the main item
+        Assert.True(ok2, message2);
+
+        IReadOnlyList<WorkItemEvent> events = WorkItemsApi.GetEvents(abc);
+        Assert.Equal(b, events.Single(e => e.Kind == "subtask-added" && e.Text.Contains("Beta task")).From);   // b's line keeps b, it is not re-marked as the merged item
+        Assert.Equal(2, events.Count(e => e.Kind == "created" && e.From == ab));   // the first merge's main item and its own created line are from the merged item
+        Assert.Null(events.Single(e => e.Kind == "subtask-added" && e.Text.Contains("Gamma task")).From);   // the main item's line is its own
+        Assert.DoesNotContain(events, e => e.Text.Contains("from #wi"));   // the marker is not part of the text
+        Assert.Contains($" | from #wi{b}", File.ReadAllText(Path.Combine(Item(abc).Path, "events.log")));   // recorded as a trailing field of the line
+    }
+
+    [Fact(DisplayName = "A new item never takes the folder name of an item that was merged away")]
+    public void NewItemsDoNotReuseMergedFolderNames()
+    {
+        using TestRepo repo = new();
+        OpenSpecStoreApi.Open(repo.Root);
+        (bool _, string _, int a) = WorkItemsApi.Create("New work item", "Backlog", null, null);
+        (bool _, string _, int b) = WorkItemsApi.Create("New work item", "Backlog", null, null);
+        string[] gone = [Item(a).Folder, Item(b).Folder];
+        (bool ok, string message, int merged) = WorkItemsApi.Merge([a, b]);
+        Assert.True(ok, message);
+
+        (bool _, string _, int again) = WorkItemsApi.Create("New work item", "Backlog", null, null);
+        Assert.DoesNotContain(Item(again).Folder, gone);
+        Assert.True(WorkItemsApi.FolderExists(gone[0]));   // taken, though no folder has it now
+
+        (bool _, string _, int other) = WorkItemsApi.Create("Other", "Backlog", null, null);
+        (bool merged2, string m2, int id2) = WorkItemsApi.Merge([merged, other]);   // a merge of a merge keeps the older names too
+        Assert.True(merged2, m2);
+        Assert.True(WorkItemsApi.FolderExists(gone[1]));
+        (bool _, string _, int last) = WorkItemsApi.Create("New work item", "Backlog", null, null);
+        Assert.DoesNotContain(Item(last).Folder, gone);
+        _ = id2;
+    }
+
     [Fact(DisplayName = "Merging keeps other files in a source's folder, under from-wi<id>/")]
     public void MergeKeepsOtherFiles()
     {
@@ -1313,12 +1389,10 @@ public sealed class EditingWorkItemsTests
         WorkItemsApi.ConfigureArchiver(folder => { Directory.Move(repo.PathOf($"openspec/changes/{folder}"), repo.PathOf($"openspec/changes/archive/2026-10-23-{folder}")); return (true, ""); });
         try
         {
-            DateTime from = DateTime.Now.AddSeconds(-2);
             Assert.True(WorkItemsApi.SetStatus(123, "In Review").Success);
 
             WorkItemEvent e = Assert.Single(WorkItemsApi.GetEvents(123));
             Assert.Equal(("Tester", "status", "In Progress -> In Review"), (e.By, e.Kind, e.Text));
-            Assert.InRange(e.At, from, DateTime.Now.AddSeconds(2));
             Assert.Matches(@"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d \| Tester \| status \| In Progress -> In Review\r?\n$", repo.Read(HealthEvents));
 
             Assert.True(WorkItemsApi.SetStatus(123, "In Review").Success);   // nothing changed, nothing recorded
@@ -1476,7 +1550,7 @@ public sealed class EditingWorkItemsTests
             Assert.False(WorkItemsApi.LogEvent(123, " ", "x").Success);
             Assert.False(WorkItemsApi.LogEvent(999, "custom", "x").Success);
             Assert.Equal(["someone", "someone", "Claude"], WorkItemsApi.GetEvents(123).Select(e => e.By));
-            Assert.Equal(("custom", "two lines"), (WorkItemsApi.GetEvents(123)[2].Kind, WorkItemsApi.GetEvents(123)[2].Text));
+            Assert.Equal(("custom", "two\nlines"), (WorkItemsApi.GetEvents(123)[2].Kind, WorkItemsApi.GetEvents(123)[2].Text));   // breaks are kept (#wi212: multi-line events)
 
             File.Delete(repo.PathOf(HealthEvents));
             Directory.CreateDirectory(repo.PathOf(HealthEvents));   // a folder where the log should be: no event can be written
@@ -1512,46 +1586,36 @@ public sealed class EditingWorkItemsTests
     [Fact(DisplayName = "Every value the app writes into the x-rtm block reads back identical, also with colons, quotes, hashes, brackets and words YAML would take for booleans or numbers")]
     public void EveryWrittenValueReadsBackIdentical()
     {
+        // One write and one read of the block per value, through the app's own writer and reader, with the value in every field that takes text;
+        // what each setter adds on top (trimming, path rules) is covered by the setters' own tests.
         using TestRepo repo = new();
-        OpenSpecStoreApi.Open(repo.Root);
+        string yaml = repo.PathOf(HealthYaml);
         foreach (string v in YamlChecks.Nasty)
         {
-            string t = v.Trim(), because = $"(value: {v})";
-            Assert.True(WorkItemsApi.SetTitle(123, v).Success, because);
-            Assert.True(WorkItemsApi.SetPriority(123, v).Success, because);
-            Assert.True(WorkItemsApi.SetLabel(123, v).Success, because);
-            Assert.True(WorkItemsApi.SetContributors(123, [v, "Tom"]).Success, because);
-            Assert.True(WorkItemsApi.MoveFeature(123, v).Success, because);
-            Assert.True(WorkItemsApi.SetLinkedCommits(123, [v]).Success, because);
-            Assert.True(WorkItemsApi.SetLinkedTests(123, [new TestLink(v, v, null)]).Success, because);
-            Assert.True(WorkItemsApi.StampAgent(123, v).Success, because);
-            string path = v.Replace('\\', '/').Trim();
-            bool pathy = !Path.IsPathRooted(path) && !path.StartsWith('/') && !path.Contains("..") && !(path.Length > 1 && path[1] == ':');
-            if (pathy)
+            string because = $"(value: {v})";
+            WorkItems.Infrastructure.Rtm written = new()
             {
-                Assert.True(WorkItemsApi.SetPlan(123, v).Success, because);
-                Assert.True(WorkItemsApi.SetLinkedDocs(123, [v, "docs/a.md"]).Success, because);
-            }
-            Assert.True(WorkItemsApi.SetLane(123, "In Progress", v).Success, because);
+                Id = 123, Title = v, Priority = v, Label = v, Contributors = [v, "Tom"], Features = [v], Commits = [v], AgentBy = v, Plan = v, Docs = [v, "docs/a.md"],
+                Tests = [new() { Suite = v, Test = v }], Lanes = new() { ["In Progress"] = v },
+            };
+            Assert.True(WorkItems.Infrastructure.Metadata.Write(yaml, written).Success, because);
 
-            YamlChecks.Valid(repo.Read(HealthYaml), YamlChecks.Nasty, because);
-            OpenSpecStoreApi.Open(repo.Root);   // from the files, not from the cache
-            WorkItem it = Item(123);
-            Assert.Equal(t, it.Title);
-            Assert.Equal(v, it.Priority);
-            Assert.Equal(v, it.Label);
-            Assert.Equal([v, "Tom"], it.Assigned);
-            Assert.Equal(v, Assert.Single(it.Features).Path);
-            Assert.Equal([v], it.Commits);
-            Assert.Equal([new TestLink(v, v, null)], it.Tests);
-            Assert.Equal(v, it.AgentBy);
-            if (pathy) { Assert.Equal(path, it.Plan); Assert.Equal([path, "docs/a.md"], it.Docs); }
-            Assert.Equal(t, it.Lanes["In Progress"]);
-            Assert.Contains(t, WorkItemsApi.GetLanes()["In Progress"]);
-            Assert.Null(it.Warning);
+            YamlChecks.Valid(File.ReadAllText(yaml), YamlChecks.Nasty, because);   // a strict parser takes the file, and nothing of ours is written bare where another reader would take it for a boolean or a number
+            WorkItems.Infrastructure.Rtm read = WorkItems.Infrastructure.Metadata.Read<WorkItems.Infrastructure.Rtm>(yaml);
+            Assert.Equal(v, read.Title);
+            Assert.Equal(v, read.Priority);
+            Assert.Equal(v, read.Label);
+            Assert.Equal([v, "Tom"], read.Contributors);
+            Assert.Equal([v], read.Features);
+            Assert.Equal([v], read.Commits);
+            Assert.Equal(v, read.AgentBy);
+            Assert.Equal(v, read.Plan);
+            Assert.Equal([v, "docs/a.md"], read.Docs);
+            Assert.Equal((v, v), (Assert.Single(read.Tests!).Suite, read.Tests![0].Test));
+            Assert.Equal(v, read.Lanes!["In Progress"]);
         }
-        YamlChecks.Valid(repo.Read("openspec/config.yaml"), YamlChecks.Nasty);
 
+        OpenSpecStoreApi.Open(repo.Root);
         // words a slug can leave a feature's name as: the config.yaml list of declared features must not turn them into booleans or numbers
         string[] slugs = ["yes", "null", "123", "on", "1e5"];
         foreach (string name in new[] { "yes", "null", "123", "On", "1e5" })

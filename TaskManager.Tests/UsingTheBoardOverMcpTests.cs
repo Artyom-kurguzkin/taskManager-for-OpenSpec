@@ -409,9 +409,12 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
     public async Task FreshReads()
     {
         const string yaml = "openspec/changes/add-health-check/.openspec.yaml";
+        Microsoft.Extensions.Time.Testing.FakeTimeProvider time = new();
+        OpenSpecStoreModule.State.Time = time;   // a call verifies the files when the last verification is 2 seconds old (SeeingOutsideEditsLiveTests covers the rule); the clock moves by hand
         Assert.Equal("In Progress", (await Ok("board_get", new() { ["id"] = 123 })).GetProperty("status").GetString());   // the server has the item cached now
 
         repo.Write(yaml, repo.Read(yaml).Replace("status: In Progress", "status: Blocked"));   // the app, in another process
+        time.Advance(TimeSpan.FromSeconds(2));
 
         Assert.Equal("Blocked", (await Ok("board_get", new() { ["id"] = 123 })).GetProperty("status").GetString());
     }
@@ -419,51 +422,48 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
     [Fact(DisplayName = "board_create and board_update with titles, features, plans, docs and test names full of YAML-significant characters write files that validate and read back identical")]
     public async Task YamlSignificantInputs()
     {
+        // Every value at once in the lists one call writes in one go (contributors, tests, commits, docs), a few of them in the lists a note adds entry by entry (links, attachments), then a few scalars one by one: the scalar and the list writers
+        // are the same code for every value (EveryWrittenValueReadsBackIdentical covers each value in each field), so this proves the tools hand the text over untouched.
         OpenSpecStoreApi.Open(repo.Root);
-        string[] agents = ["yes", "null", "123", "On", "1e5"];
-        int n = 0;
-        foreach (string v in YamlChecks.Nasty)
+        string[] all = YamlChecks.Nasty, scalars = [all[0], "yes", "123", "two\nlines", all[8]], agents = ["yes", "null", "123", "On", "1e5"];
+        string agent = agents[4];   // "1e5": a number to YAML, and not among the values the lists carry (a repeated contributor is listed once)
+        string Path_(string v) => v.Replace('\\', '/').Trim();
+        string[] pathy = [.. all.Where(v => { string p = Path_(v); return !Path.IsPathRooted(p) && !p.StartsWith('/') && !p.Contains("..") && !(p.Length > 1 && p[1] == ':'); })];
+
+        JsonElement made = await Ok("board_create", new() { ["title"] = scalars[0], ["why"] = Why, ["whatChanges"] = "- One thing.", ["feature"] = scalars[1], ["agent"] = agent });
+        int id = made.GetProperty("id").GetInt32();
+        await Ok("board_update", new()
         {
-            string because = $"(value: {v})", agent = agents[n++ % agents.Length];
-            string path = v.Replace('\\', '/').Trim();
-            bool pathy = !Path.IsPathRooted(path) && !path.StartsWith('/') && !path.Contains("..") && !(path.Length > 1 && path[1] == ':');
+            ["id"] = id, ["agent"] = agent, ["contributors"] = all.Append(agent).ToArray(),
+            ["tests"] = all.Select(v => new { suite = v, test = v }).ToArray(), ["commits"] = all,
+            ["plan"] = pathy[0], ["docs"] = pathy.Append("docs/a.md").ToArray(),
+        });
+        foreach (string v in scalars) await Ok("board_update", new() { ["id"] = id, ["agent"] = agent, ["title"] = v });
+        string[] attachments = [.. scalars.Select(v => "https://example.com/" + v.Replace('\n', ' ')).Where(u => Uri.TryCreate(u.Trim(), UriKind.Absolute, out _))];
+        JsonElement note = await Ok("board_note", new() { ["id"] = id, ["body"] = "What happened.", ["title"] = scalars[1], ["links"] = scalars, ["commits"] = scalars, ["attachments"] = attachments, ["agent"] = agent });
 
-            JsonElement made = await Ok("board_create", new() { ["title"] = v, ["why"] = Why, ["whatChanges"] = "- One thing.", ["feature"] = v, ["agent"] = agent });
-            int id = made.GetProperty("id").GetInt32();
-            Dictionary<string, object?> update = new()
-            {
-                ["id"] = id, ["agent"] = agent, ["title"] = v, ["contributors"] = new[] { v, agent },
-                ["tests"] = new[] { new { suite = v, test = v } }, ["commits"] = new[] { v },
-            };
-            if (pathy) { update["plan"] = v; update["docs"] = new[] { v, "docs/a.md" }; }
-            await Ok("board_update", update);
-            string url = "https://example.com/" + v.Replace('\n', ' ');
-            string[] attachments = Uri.TryCreate(url.Trim(), UriKind.Absolute, out _) ? [url] : [];
-            JsonElement note = await Ok("board_note", new() { ["id"] = id, ["body"] = "What happened.", ["title"] = v, ["links"] = new[] { v }, ["commits"] = new[] { v }, ["attachments"] = attachments, ["agent"] = agent });
+        WorkItem it = WorkItemsApi.Get(id)!;
+        YamlChecks.Valid(repo.Read(Path.GetRelativePath(repo.Root, Path.Combine(it.Path, ".openspec.yaml")).Replace('\\', '/')), all.Concat(agents));
+        (string front, string _) = Notes.BusinessRules.NoteFile.Split(repo.Read(note.GetProperty("path").GetString()!));
+        YamlChecks.Valid(front[4..^5], all.Concat(agents));
 
-            WorkItem it = WorkItemsApi.Get(id)!;
-            YamlChecks.Valid(repo.Read(Path.GetRelativePath(repo.Root, Path.Combine(it.Path, ".openspec.yaml")).Replace('\\', '/')), YamlChecks.Nasty.Concat(agents), because);
-            string noteFile = note.GetProperty("path").GetString()!;
-            (string front, string _) = Notes.BusinessRules.NoteFile.Split(repo.Read(noteFile));
-            YamlChecks.Valid(front[4..^5], YamlChecks.Nasty.Concat(agents), because);
-
-            OpenSpecStoreApi.Open(repo.Root);   // from the files, not from the cache
-            it = WorkItemsApi.Get(id)!;
-            Assert.Equal(v.Trim(), it.Title);
-            Assert.Equal(v, Assert.Single(it.Features).Path);
-            Assert.Equal([v, agent], it.Assigned);
-            Assert.Equal([new TestLink(v, v, null)], it.Tests);
-            Assert.Equal([v], it.Commits);
-            Assert.Equal(agent, it.AgentBy);
-            if (pathy) { Assert.Equal(path, it.Plan); Assert.Equal([path, "docs/a.md"], it.Docs); }
-            Assert.Null(it.Warning);
-            Notes.PublicDTOs.Note written = Notes.NotesApi.Get(note.GetProperty("noteId").GetInt32())!;
-            Assert.Equal(string.Join(' ', v.Trim().Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)), written.Title);
-            Assert.Equal(agent, written.By);
-            Assert.Equal([v], written.Commits);
-            Assert.Equal(v.Trim(), written.ManualLinks[0]);
-            Assert.Equal(attachments.Select(a => a.Trim()), written.Attachments);
-        }
+        OpenSpecStoreApi.Open(repo.Root);   // from the files, not from the cache
+        it = WorkItemsApi.Get(id)!;
+        Assert.Equal(scalars[^1].Trim(), it.Title);
+        Assert.Equal(scalars[1], Assert.Single(it.Features).Path);
+        Assert.Equal(all.Append(agent), it.Assigned);
+        Assert.Equal(all.Select(v => new TestLink(v, v, null)), it.Tests);
+        Assert.Equal(all, it.Commits);
+        Assert.Equal(agent, it.AgentBy);
+        Assert.Equal(Path_(pathy[0]), it.Plan);
+        Assert.Equal(pathy.Select(Path_).Append("docs/a.md"), it.Docs);
+        Assert.Null(it.Warning);
+        Notes.PublicDTOs.Note written = Notes.NotesApi.Get(note.GetProperty("noteId").GetInt32())!;
+        Assert.Equal(scalars[1], written.Title);
+        Assert.Equal(agent, written.By);
+        Assert.Equal(scalars, written.Commits);
+        Assert.Equal(scalars.Select(v => v.Trim()), written.ManualLinks);
+        Assert.Equal(attachments.Select(u => u.Trim()), written.Attachments);
     }
 
     // ── v15: tools only, log as you go, decisions ──
@@ -517,9 +517,8 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
     public void InstructionsSayToolsOnlyLogAndDecisions()
     {
         string text = BoardMcp.Instructions;
-        foreach (string s in new[] { "only way to touch the board", "never edit openspec/ by hand", "Log as you go", "supervisor and every subagent", "one short `board_note` per event",
-                     "not one summary at the end", "`repo`", "`kind: \"decision\"`", "clear and brief", "what was decided", "rules out", "-> board_note (log as you go, kind decision) ->",
-                     "board_get each in detailed format", "read its worklog", "added since you last looked", "say what is new before acting" })
+        foreach (string s in new[] { "only way to touch the board", "never edit openspec/ by hand", "Log as you go", "supervisor and every subagent", "post one short event per step", "board_log id=N kind=<kind> text=...", "`repo`",
+                     "decision (line one what was decided, line two why)", "board_note (kind decision for a decision)", "board_get it in detailed format", "read its worklog", "added since you last looked", "say what is new before acting" })
             Assert.Contains(s, text);
         Assert.True(text.Length < 4000);
     }
@@ -574,7 +573,6 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
         await Check("board_note", new() { ["id"] = 107, ["body"] = "An ordinary entry.", ["agent"] = "Codex" });
         await Check("board_update", new() { ["id"] = 107, ["priority"] = "low" });
         await Check("board_update", new() { ["id"] = 107, ["testsAdd"] = new[] { new { suite = "UptimeTests", test = "Ping test" } }, ["note"] = new { body = "Done in one call.", kind = "decision" }, ["agent"] = "Codex" });
-        await Check("board_log", new() { ["id"] = 107, ["text"] = "ran the suite: 525 passed", ["agent"] = "Codex" });
         await Check("board_update", new() { ["id"] = 123, ["resolution"] = "cancelled", ["agent"] = "Codex" });
         await Check("board_create", new() { ["title"] = "Rate-limit the API", ["why"] = Why, ["whatChanges"] = "- Each key gets 100 requests a minute.", ["agent"] = "Codex" });
 
@@ -932,35 +930,22 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
         Assert.Equal("make-the-weekly-digest-email-a", WorkItemsApi.Get(id)!.Folder);   // every creator, the app included, gets the short slug
     }
 
-    [Fact(DisplayName = "board_log appends one log event without a note file and returns the revision; a long or multi-line text is refused")]
+    [Fact(DisplayName = "board_log appends one log event without a note file and answers with one short line; an empty text is refused")]
     public async Task Log()
     {
         int notes = Notes.NotesApi.GetForWorkItem(107).Count;
-        string before = (await Ok("board_get", new() { ["id"] = 107 })).GetProperty("revision").GetString()!;
+        int events = WorkItemsApi.GetEvents(107).Count;
 
-        JsonElement r = await Ok("board_log", new() { ["id"] = 107, ["text"] = "ran the suite: 525 passed", ["agent"] = "Codex" });
+        (bool isError, JsonElement _, string answer) = await Call("board_log", new() { ["id"] = 107, ["text"] = "ran the suite: 525 passed", ["agent"] = "Codex" });
 
-        Assert.Equal(107, r.GetProperty("id").GetInt32());
-        JsonElement e = r.GetProperty("event");
-        Assert.Equal(("log", "Codex", "ran the suite: 525 passed"), (e.GetProperty("kind").GetString(), e.GetProperty("by").GetString(), e.GetProperty("text").GetString()));
-        Assert.Matches(@"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$", e.GetProperty("at").GetString());
+        Assert.False(isError, answer);
+        Assert.Equal($"#wi107 e{events + 1} log", answer);
         WorkItemEvent last = WorkItemsApi.GetEvents(107)[^1];
         Assert.Equal(("log", "ran the suite: 525 passed", "Codex"), (last.Kind, last.Text, last.By));
         Assert.Equal(notes, Notes.NotesApi.GetForWorkItem(107).Count);
-        JsonElement got = await Ok("board_get", new() { ["id"] = 107 });
-        Assert.NotEqual(before, got.GetProperty("revision").GetString());
-        Assert.Equal(got.GetProperty("revision").GetString(), r.GetProperty("revision").GetString());
-        JsonElement newest = got.GetProperty("worklog")[0];
-        Assert.Equal(("log", "ran the suite: 525 passed"), (newest.GetProperty("kind").GetString(), newest.GetProperty("text").GetString()));
 
-        (bool longError, JsonElement _, string longText) = await Call("board_log", new() { ["id"] = 107, ["text"] = new string('x', 301) });
-        Assert.True(longError);
-        Assert.Contains("board_note", longText);
-        (bool multiError, JsonElement _, string multiText) = await Call("board_log", new() { ["id"] = 107, ["text"] = "one\ntwo" });
-        Assert.True(multiError);
-        Assert.Contains("board_note", multiText);
         Assert.True((await Call("board_log", new() { ["id"] = 107, ["text"] = " " })).IsError);
-        Assert.Equal(last.Text, WorkItemsApi.GetEvents(107)[^1].Text);
+        Assert.Equal(events + 1, WorkItemsApi.GetEvents(107).Count);
     }
 
     // ── remove a subtask ──
@@ -1035,5 +1020,89 @@ public sealed class UsingTheBoardOverMcpTests : IAsyncLifetime
         });
         Assert.True(notCreatable);
         Assert.Contains("use Backlog, Planned, In Progress, Review ready", createText);
+    }
+
+    // ── #wi212: cheap feed events ──
+
+    [Fact(DisplayName = "board_log takes a multi-line text and a kind from the event standard and answers with one short line")]
+    public async Task LogTakesMultiLineTextAndAKind()
+    {
+        int events = WorkItemsApi.GetEvents(107).Count;
+        string file = Path.Combine(WorkItemsApi.Get(107)!.Path, "events.log");
+        int fileLines = File.Exists(file) ? File.ReadAllLines(file).Length : 0;
+
+        (bool isError, JsonElement data, string answer) = await Call("board_log", new() { ["id"] = 107, ["text"] = "Found it.\nThe cache is stale after a rename.", ["kind"] = "found", ["agent"] = "Codex" });
+
+        Assert.False(isError, answer);
+        Assert.Equal(JsonValueKind.Undefined, data.ValueKind);   // a plain string, not a structured object
+        Assert.Equal($"#wi107 e{events + 1} found", answer);
+        WorkItemEvent last = WorkItemsApi.GetEvents(107)[^1];
+        Assert.Equal(("found", "Found it.\nThe cache is stale after a rename.", "Codex"), (last.Kind, last.Text, last.By));
+        Assert.Equal(fileLines + 1, File.ReadAllLines(file).Length);   // the log stays line-based: one event, one line
+
+        foreach (string kind in new[] { "started", "decision", "tests-red", "tests-green", "verified", "blocked", "done" })
+            Assert.False((await Call("board_log", new() { ["id"] = 107, ["text"] = "x", ["kind"] = kind })).IsError, kind);
+    }
+
+    [Fact(DisplayName = "board_log with a kind outside the standard is refused and the answer lists the standard")]
+    public async Task LogRefusesAKindOutsideTheStandard()
+    {
+        int events = WorkItemsApi.GetEvents(107).Count;
+
+        (bool isError, JsonElement _, string text) = await Call("board_log", new() { ["id"] = 107, ["text"] = "x", ["kind"] = "progress" });
+
+        Assert.True(isError);
+        Assert.Contains("started | found | decision | tests-red | tests-green | verified | blocked | done", text);
+        Assert.Equal(events, WorkItemsApi.GetEvents(107).Count);
+    }
+
+    [Fact(DisplayName = "board_log text over 4,000 characters becomes a note by the same call")]
+    public async Task LogTextOver4000BecomesANote()
+    {
+        int notes = Notes.NotesApi.GetForWorkItem(107).Count;
+        int events = WorkItemsApi.GetEvents(107).Count;
+        string text = "The full report follows.\n" + new string('x', 4001);
+
+        (bool isError, JsonElement _, string answer) = await Call("board_log", new() { ["id"] = 107, ["text"] = text, ["agent"] = "Codex" });
+
+        Assert.False(isError, answer);
+        Assert.Matches(@"^#wi107 n\d+ note", answer);
+        Assert.Contains("4,000", answer);
+        Assert.Equal(notes + 1, Notes.NotesApi.GetForWorkItem(107).Count);
+        Assert.Equal("The full report follows.", Notes.NotesApi.GetForWorkItem(107).Single(n => n.By == "Codex" && n.Title.StartsWith("The full report")).Title);
+        Assert.DoesNotContain(WorkItemsApi.GetEvents(107).Skip(events), e => e.Text.Length > 4000);   // no event holds the long text
+    }
+
+    [Fact(DisplayName = "board_log takes the agent name from RTM_AGENT and accepts parentheses in it")]
+    public async Task LogTakesTheAgentFromTheEnvironmentWithParentheses()
+    {
+        string? before = Environment.GetEnvironmentVariable("RTM_AGENT");
+        try
+        {
+            Environment.SetEnvironmentVariable("RTM_AGENT", "Claude (chunk feed-events)");
+            Assert.False((await Call("board_log", new() { ["id"] = 107, ["text"] = "from the environment" })).IsError);
+            Assert.Equal("Claude (chunk feed-events)", WorkItemsApi.GetEvents(107)[^1].By);
+        }
+        finally { Environment.SetEnvironmentVariable("RTM_AGENT", before); }
+
+        Assert.False((await Call("board_log", new() { ["id"] = 107, ["text"] = "from the argument", ["agent"] = "Codex (reviewer) | x" })).IsError);
+        WorkItemEvent last = WorkItemsApi.GetEvents(107)[^1];
+        Assert.Equal(("from the argument", "Codex (reviewer) x"), (last.Text, last.By));   // what the line format cannot hold is dropped
+    }
+
+    [Fact(DisplayName = "The board tools' definitions and the server instructions fit the budget")]
+    public void DefinitionsFitTheBudget()
+    {
+        int total = BoardMcp.Instructions.Length;
+        foreach (System.Reflection.MethodInfo m in typeof(BoardTools).GetMethods().Where(m => m.GetCustomAttributes(typeof(McpServerToolAttribute), false).Length > 0))
+        {
+            total += m.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false).Cast<System.ComponentModel.DescriptionAttribute>().Sum(d => d.Description.Length);
+            total += m.GetParameters().Sum(p => p.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false).Cast<System.ComponentModel.DescriptionAttribute>().Sum(d => d.Description.Length));
+        }
+
+        total += typeof(BoardTools).Assembly.GetTypes().Where(t => t.Namespace == "TaskManager.Mcp")
+            .SelectMany(t => t.GetProperties()).Sum(p => p.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false).Cast<System.ComponentModel.DescriptionAttribute>().Sum(d => d.Description.Length));   // the shapes of nested inputs (subtasks, tests, note)
+
+        Assert.True(total <= 8300, $"{total} characters of descriptions, parameter help and instructions; the budget is 8,300");
     }
 }

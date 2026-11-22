@@ -55,7 +55,7 @@ public sealed class BoardRenderBudgetTests : IDisposable
             Assert.True(ws.Switch(repo.Root).Success);
         }
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
-        nav!.Find("button.nav-toggle").Click();
+        nav!.ClickWhenReady("button.nav-toggle");
         board.WaitForAssertion(() => Assert.True(board.FindAll("article.card").Count >= extra));
         await board.InvokeAsync(() => { });
         await board.InvokeAsync(() => { });
@@ -81,14 +81,14 @@ public sealed class BoardRenderBudgetTests : IDisposable
         Assert.True(board.FindAll("article.card").Count >= 30);
 
         Counts before = Counts.Now();
-        await board.InvokeAsync(() => Card(board, A).Click());
+        Act(board, () => Card(board, A), e => e.Click());
         board.WaitForAssertion(() => Assert.Contains("ex-on", Card(board, A).ClassName));
         await board.InvokeAsync(() => { });
         Counts first = Counts.Now();
         Assert.Equal(1, first.Page - before.Page);
         Assert.Equal(1, first.Cards - before.Cards);   // the one examined
 
-        await board.InvokeAsync(() => Card(board, B).Click());
+        Act(board, () => Card(board, B), e => e.Click());
         board.WaitForAssertion(() => Assert.Contains("ex-on", Card(board, B).ClassName));
         await board.InvokeAsync(() => { });
         Counts second = Counts.Now();
@@ -96,7 +96,7 @@ public sealed class BoardRenderBudgetTests : IDisposable
         Assert.Equal(2, second.Cards - first.Cards);   // the new one, and the one it left
         Assert.DoesNotContain("ex-on", Card(board, A).ClassName);
 
-        await board.InvokeAsync(() => board.Find(".board-wrap").Click());   // let go: the examined card alone
+        board.ClickWhenReady(".board-wrap");   // let go: the examined card alone
         board.WaitForAssertion(() => Assert.DoesNotContain("ex-on", Card(board, B).ClassName));
         await board.InvokeAsync(() => { });
         Assert.Equal(1, Counts.Now().Cards - second.Cards);
@@ -109,16 +109,16 @@ public sealed class BoardRenderBudgetTests : IDisposable
         IRenderedComponent<BoardPage> board = await BoardWithItems(ctx, 30);
 
         Counts before = Counts.Now();
-        await board.InvokeAsync(() => Card(board, A).Click(new MouseEventArgs { ShiftKey = true }));
+        Act(board, () => Card(board, A), e => e.Click(new MouseEventArgs { ShiftKey = true }));
         board.WaitForAssertion(() => Assert.Contains("selected", Card(board, A).ClassName));
         await board.InvokeAsync(() => { });
         Counts after = Counts.Now();
         Assert.Equal(1, after.Page - before.Page);
         Assert.Equal(1, after.Cards - before.Cards);
 
-        await board.InvokeAsync(() => Card(board, B).Click(new MouseEventArgs { ShiftKey = true }));   // a second one, and then letting go of the first
+        Act(board, () => Card(board, B), e => e.Click(new MouseEventArgs { ShiftKey = true }));   // a second one, and then letting go of the first
         board.WaitForAssertion(() => Assert.Contains("selected", Card(board, B).ClassName));
-        await board.InvokeAsync(() => Card(board, A).Click(new MouseEventArgs { ShiftKey = true }));
+        Act(board, () => Card(board, A), e => e.Click(new MouseEventArgs { ShiftKey = true }));
         board.WaitForAssertion(() => Assert.DoesNotContain("selected", Card(board, A).ClassName));
         await board.InvokeAsync(() => { });
         Assert.Equal(2, Counts.Now().Cards - after.Cards);   // one per click
@@ -132,14 +132,14 @@ public sealed class BoardRenderBudgetTests : IDisposable
         Assert.NotEmpty(board.FindAll(".head-row .col-h"));   // two projects with the same columns: one shared header row
 
         Counts before = Counts.Now();
-        await board.InvokeAsync(() => board.FindAll(".head-row .menu-activator")[1].Click());
+        board.FireWhenReady(".head-row .menu-activator", e => e.Click(), all => all[1]);
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));
         await board.InvokeAsync(() => { });
 
         Assert.Equal(0, RenderCounts.Of<WorkItemCard>() - before.Cards);
         Assert.Equal(0, RenderCounts.Of<BoardPage>() - before.Page);
 
-        await board.InvokeAsync(() => board.Find(".menu-backdrop").Click());   // closing it costs the same
+        board.ClickWhenReady(".menu-backdrop");   // closing it costs the same
         board.WaitForAssertion(() => Assert.Empty(board.FindAll(".menu-pop")));
         await board.InvokeAsync(() => { });
         Assert.Equal(0, RenderCounts.Of<WorkItemCard>() - before.Cards);
@@ -153,11 +153,11 @@ public sealed class BoardRenderBudgetTests : IDisposable
         IRenderedComponent<BoardPage> board = await BoardWithItems(ctx, 30, twoProjects: true);
 
         Counts before = Counts.Now();
-        await board.InvokeAsync(() => board.FindAll(".proj-h .proj-name-btn")[0].Click());
+        board.FireWhenReady(".proj-h .proj-name-btn", e => e.Click(), all => all[0]);
         board.WaitForAssertion(() => Assert.Single(board.FindAll(".menu-pop")));
-        await board.InvokeAsync(() => board.Find(".menu-backdrop").Click());
+        board.ClickWhenReady(".menu-backdrop");
         board.WaitForAssertion(() => Assert.Empty(board.FindAll(".menu-pop")));
-        await board.InvokeAsync(() => board.FindAll(".proj-h")[1].Click());   // and the heading's own space
+        board.FireWhenReady(".proj-h", e => e.Click(), all => all[1]);   // and the heading's own space
         await board.InvokeAsync(() => { });
 
         Assert.Equal(0, RenderCounts.Of<WorkItemCard>() - before.Cards);
@@ -173,13 +173,13 @@ public sealed class BoardRenderBudgetTests : IDisposable
         Assert.NotEmpty(board.FindAll(".swim-h"));
 
         Counts before = Counts.Now();
-        await board.InvokeAsync(() => board.FindAll(".swim-h")[0].Click());
+        board.FireWhenReady(".swim-h", e => e.Click(), all => all[0]);
         await board.InvokeAsync(() => { });
 
         Assert.Equal(0, RenderCounts.Of<WorkItemCard>() - before.Cards);
         Assert.Equal(0, RenderCounts.Of<BoardPage>() - before.Page);
 
-        await board.InvokeAsync(() => board.FindAll(".swim-h")[0].Click(new MouseEventArgs { ShiftKey = true }));   // a Shift-click does select it
+        Act(board, () => board.FindAll(".swim-h")[0], e => e.Click(new MouseEventArgs { ShiftKey = true }));   // a Shift-click does select it
         board.WaitForAssertion(() => Assert.Contains("selected", board.FindAll(".swim-h")[0].ClassName));
     }
 
@@ -301,5 +301,10 @@ public sealed class BoardRenderBudgetTests : IDisposable
         repo.Dispose();
         repo2.Dispose();
         File.Delete(settingsFile);
+    }
+    private static void Act<T>(Bunit.IRenderedComponent<T> cut, Func<AngleSharp.Dom.IElement?> find, Action<AngleSharp.Dom.IElement> fire) where T : Microsoft.AspNetCore.Components.IComponent
+    {
+        cut.Eventually(() => Xunit.Assert.NotNull(find()));   // rendered and present, or the test fails
+        cut.InvokeAsync(() => fire(find()!)).GetAwaiter().GetResult();
     }
 }

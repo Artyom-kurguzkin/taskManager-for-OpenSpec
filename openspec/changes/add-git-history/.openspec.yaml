@@ -1,9 +1,0 @@
-schema: spec-driven
-created: 2026-10-18
-x-rtm:
-  id: 5
-  status: Backlog
-  priority: low
-  contributors: [Artyom-kurguzkin]
-  label: feature
-  hidden: true

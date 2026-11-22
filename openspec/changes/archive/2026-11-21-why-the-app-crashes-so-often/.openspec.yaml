@@ -1,0 +1,15 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-21
+x-rtm:
+  id: 216
+  title: 'Why the app crashes so often: investigation'
+  status: In Progress
+  priority: high
+  contributors: [Claude]
+  features: [maintainability]
+  label: bug
+  started: 2026-11-21
+  moved: 2026-11-21
+  agentBy: Claude chunk crashes
+  agentAt: 2026-11-21T11:36:52

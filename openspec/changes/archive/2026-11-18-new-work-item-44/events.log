@@ -1,0 +1,15 @@
+2026-11-18T08:47:45 | Artyom-kurguzkin | created | New work item
+2026-11-18T08:48:07 | Artyom-kurguzkin | title | New work item -> store previous browsing page state
+2026-11-18T08:50:06 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-18T08:50:09 | Artyom-kurguzkin | status | Backlog -> Planned
+2026-11-18T08:50:10 | Artyom-kurguzkin | priority | low -> high
+2026-11-18T08:50:12 | Artyom-kurguzkin | label | none -> bug
+2026-11-18T08:50:14 | Artyom-kurguzkin | dates | none -> 18 Nov – 18 Nov
+2026-11-18T08:50:19 | Artyom-kurguzkin | feature | none -> general-ux
+2026-11-18T09:34:00 | Artyom-kurguzkin | status | Planned -> In Progress
+2026-11-18T09:44:00 | Claude | plan-linked | DevResources/plans/in-progress-items-2026-11-18b.md
+2026-11-18T10:14:16 | Claude chunk scroll | test-linked | UsingThePagesTests / The board comes back at the scroll spot the user left it at, and the same for the settings page
+2026-11-18T10:14:16 | Claude chunk scroll | test-linked | UsingThePagesTests / Each repository keeps its own scroll spot: switching to one restores where that one was left
+2026-11-18T10:14:16 | Claude chunk scroll | test-linked | PagesRenderBudgetTests / Restoring the scroll spot of a view adds no draw: the board draws as often with a saved spot as without one (#wi202)
+2026-11-18T10:39:50 | Claude | status | In Progress -> In Review
+2026-11-18T11:10:05 | Artyom-kurguzkin | status | In Review -> Completed
