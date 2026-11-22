@@ -191,6 +191,19 @@ internal static class Commands
         return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
     }
 
+    /// <summary>Marks a bug resolved (<c>resolvedAt:</c> now) or open again (the key removed): the frontmatter only.</summary>
+    internal static (bool Success, string Message) SetResolved(int id, bool resolved)
+    {
+        if (NotesApi.Get(id) is not Note note) return (false, NotFound);
+        if (!note.IsBug) return (false, "Only a bug can be resolved");
+        (string front, string body) = NoteFile.Split(OpenSpecStoreApi.ReadText(note.Path));
+        NoteMeta meta = NoteFile.Meta(front);
+        if (meta.Problem is not null) return (false, $"This note's {meta.Problem}; fix the file and try again");
+        meta.Id = id;
+        meta.ResolvedAt = resolved ? DateTime.Now.ToString("s", CultureInfo.InvariantCulture) : null;
+        return OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+    }
+
     /// <summary>Titles the note: writes the frontmatter <c>title:</c> only, the body (and any heading in it) is left alone.</summary>
     internal static (bool Success, string Message) SetTitle(int id, string title)
     {

@@ -51,7 +51,7 @@ internal static partial class Queries
 
     private static List<Note> BuildNotes(List<Raw> raws) =>
         [.. raws.Select(r => new Note(r.Id, r.WorkItemId, r.File, WithProblem(NoteFile.Title(r.Meta.Title, r.Body, r.Id), r.Meta.Problem), r.Meta.By ?? "", r.Created, r.Modified, r.Body, r.Meta.Links ?? [], r.Meta.Commits ?? [], r.Meta.Attachments ?? [],
-            r.Meta.AgentBy, Time(r.Meta.AgentAt), Time(r.Meta.ReviewedAt), r.Meta.MergedFrom, Time(r.Meta.MergedAt), r.Meta.Kind))];
+            r.Meta.AgentBy, Time(r.Meta.AgentAt), Time(r.Meta.ReviewedAt), r.Meta.MergedFrom, Time(r.Meta.MergedAt), r.Meta.Kind, Time(r.Meta.ResolvedAt)))];
 
     /// <summary>One change's notes/ folder read from disk now: every n*.md in it, and the notes parsed from them.</summary>
     internal static NotesFolderRead ReadFolder(string dir, int workItemId)

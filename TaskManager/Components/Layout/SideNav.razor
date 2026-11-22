@@ -70,6 +70,7 @@
             <button class="nav-btn hidden-btn" aria-label="Show all hidden" title="Show all hidden"
                     disabled="@(!OnBoard)" @onclick="Workspace.ShowAllHidden">@Ui.Icon("eye")</button>
         }
+        @if (!expanded && Popups.WorklogOpen is { } openLog) { @AddEntryMenu(openLog, true) }
         <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="ToggleMenu">@Ui.Icon("sliders")</button>
         @if (expanded && Popups.WorklogOpen is { } worklog)
         {
@@ -84,26 +85,22 @@
                 </div>
                 <div class="field"><label>who</label><Dropdown Label="who" Class="@SideNavOptions.Look(wf.Who, "all")" Options="WorklogPeople" Value="@wf.Who" ValueChanged="v => Popups.FilterWorklog(wf with { Who = v })" /></div>
                 @* one button instead of a list of actions: a menu of what the entry is *@
-                <Menu Label="Add entry" Class="nav-add-menu">
-                    <Activator><button type="button" class="nav-btn nav-new nav-add" aria-haspopup="menu">@Ui.Icon("plus") Add entry</button></Activator>
-                    <Items>
-                        <MenuItem OnClick="worklog.AddNote">Note</MenuItem>
-                        <MenuItem OnClick="worklog.AddDecision">Decision</MenuItem>
-                        @if (worklog.AddBug is { } addBug) { <MenuItem OnClick="addBug">Bug</MenuItem> }
-                        <MenuItem OnClick="worklog.AddSubtask">Subtask</MenuItem>
-                        <MenuItem OnClick="worklog.LinkDocument">Link document</MenuItem>
-                        @if (worklog.CanLinkTest?.Invoke() ?? true) { <MenuItem OnClick="worklog.LinkTest">Link test</MenuItem> }
-                        else { <button type="button" role="menuitem" class="menu-item" disabled title="No test results file configured">Link test</button> }
-                        @if (worklog.CanLinkCommit?.Invoke() ?? true) { <MenuItem OnClick="worklog.LinkCommit">Link commit</MenuItem> }
-                        else { <button type="button" role="menuitem" class="menu-item" disabled title="Not a git repository">Link commit</button> }
-                    </Items>
-                </Menu>
+                @AddEntryMenu(worklog, false)
                 @if (Popups.WorklogDays.Count > 0)
                 {
                     <div class="nav-h">Days</div>
                     <div class="nav-acts">
                         @foreach (WorklogDay day in Popups.WorklogDays)
                         {
+                            if (day.Special is not null)
+                            {
+                                @* Description jumps to the item's first post; Bugs shows only the bug notes (the Bugs pill's click), and again to leave them *@
+                                bool bugsOnly = day.Special == WorklogDay.BugsEntry && wf.Bugs && !wf.AllKinds;
+                                <button type="button" class="nav-day nav-day-@day.Special @(bugsOnly ? "is-sel" : "")" aria-pressed="@(bugsOnly ? "true" : "false")"
+                                        title="@(day.Special == WorklogDay.BugsEntry ? "Show the unresolved bugs" : "Jump to the description")"
+                                        @onclick="() => SpecialClick(day, worklog)">@day.Label@if (day.Count > 0) { <span class="count">@day.Count</span> }</button>
+                                continue;
+                            }
                             bool picked = Popups.WorklogSelectedDays.Contains(day.Date);
                             @* a plain click jumps to the day; Shift-click picks it: the feed then shows only the picked days *@
                             <button type="button" class="nav-day @(picked ? "is-sel" : "")" aria-pressed="@(picked ? "true" : "false")" title="Click to jump · Shift-click to show only the picked days"
@@ -149,11 +146,38 @@
         @<button class="@(inRow ? "ic nav-toggle" : "nav-btn nav-toggle")" aria-label="Menu" aria-expanded="@(expanded ? "true" : "false")" title="@(expanded ? "Collapse menu" : "Expand menu")"
                  @onclick="ToggleMenu">@Ui.Icon("menu")</button>;
 
+    /// <summary>The menu of what an entry can be: a labelled button in the expanded Worklog block, a plus icon on the collapsed rail; one list of items for both.</summary>
+    private RenderFragment AddEntryMenu(WorklogActions worklog, bool icon) =>
+        @<Menu Label="Add entry" Class="nav-add-menu">
+            <Activator>
+                @if (icon) { <button type="button" class="nav-btn nav-new nav-add-icon" aria-label="Add entry" title="Add entry" aria-haspopup="menu">@Ui.Icon("plus")</button> }
+                else { <button type="button" class="nav-btn nav-new nav-add" aria-haspopup="menu">@Ui.Icon("plus") Add entry</button> }
+            </Activator>
+            <Items>
+                <MenuItem OnClick="worklog.AddNote">Note</MenuItem>
+                <MenuItem OnClick="worklog.AddDecision">Decision</MenuItem>
+                @if (worklog.AddBug is { } addBug) { <MenuItem OnClick="addBug">Bug</MenuItem> }
+                <MenuItem OnClick="worklog.AddSubtask">Subtask</MenuItem>
+                <MenuItem OnClick="worklog.LinkDocument">Link document</MenuItem>
+                @if (worklog.CanLinkTest?.Invoke() ?? true) { <MenuItem OnClick="worklog.LinkTest">Link test</MenuItem> }
+                else { <button type="button" role="menuitem" class="menu-item" disabled title="No test results file configured">Link test</button> }
+                @if (worklog.CanLinkCommit?.Invoke() ?? true) { <MenuItem OnClick="worklog.LinkCommit">Link commit</MenuItem> }
+                else { <button type="button" role="menuitem" class="menu-item" disabled title="Not a git repository">Link commit</button> }
+            </Items>
+        </Menu>;
+
     /// <summary>Shift-click picks the day for the feed's day filter; a plain click jumps the feed to it.</summary>
     private void DayClick(MouseEventArgs e, DateTime day, WorklogActions worklog)
     {
         if (e.ShiftKey) Popups.ToggleWorklogDay(day);
         else worklog.JumpTo?.Invoke(day);
+    }
+
+    /// <summary>The Bugs entry filters the feed to the bug notes; the Description entry scrolls to the description.</summary>
+    private void SpecialClick(WorklogDay entry, WorklogActions worklog)
+    {
+        if (entry.Special == WorklogDay.BugsEntry) Popups.ClickWorklogKind("Bugs");
+        else worklog.JumpToDescription?.Invoke();
     }
 
     private string Path => Nav.ToBaseRelativePath(Nav.Uri);
@@ -203,7 +227,7 @@
     /// </summary>
     private sealed record WorklogKey(WorklogActions Actions, WorklogFilters Filter, string People, string Days, string Picked, bool CanLinkTest, bool CanLinkCommit);
     private sealed record NavKey(bool Expanded, bool OnBoard, bool Split, bool Fills, bool OnSettings, string? Root, string Repos, string HiddenRepos, string View,
-        bool Compact, bool Subtasks, bool Examining, WorklogKey? Worklog);
+        bool Compact, bool Subtasks, bool Examining, WorklogKey? Worklog, (WorklogActions Actions, bool CanLinkTest, bool CanLinkCommit)? RailLog);
 
     private NavKey MakeKey()
     {
@@ -214,8 +238,10 @@
             ? new WorklogKey(w, Popups.WorklogFilter, string.Join('|', Popups.WorklogPeople), string.Join('|', Popups.WorklogDays), string.Join('|', Popups.WorklogSelectedDays.Order()),
                 w.CanLinkTest?.Invoke() ?? true, w.CanLinkCommit?.Invoke() ?? true)
             : null;
+        // collapsed, the rail's Add entry icon needs the open worklog's actions, not its filters
+        (WorklogActions, bool, bool)? railLog = !open && Popups.WorklogOpen is { } r ? (r, r.CanLinkTest?.Invoke() ?? true, r.CanLinkCommit?.Invoke() ?? true) : null;
         return new NavKey(open, OnBoard, SplitItem, ItemFillsWindow, OnSettings, Workspace.Root, string.Join('|', repos), string.Concat(repos.Select(r => Settings.ProjectHidden(r) ? '1' : '0')),
-            options.View, !open && options.Compact, !open && options.ShowSubtasks, examining, worklog);
+            options.View, !open && options.Compact, !open && options.ShowSubtasks, examining, worklog, railLog);
     }
 
     private NavKey? requested;

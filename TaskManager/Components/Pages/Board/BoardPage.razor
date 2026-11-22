@@ -151,7 +151,7 @@ else if (View == "list")
                     <Template Context="row">@if (row.Item is WorkItem it) { <ListPill Kind="priority" Value="@it.Priority" Pressed="PillPressed" ValueChanged="v => SetPriority(ProjectOf(row.Root), it, v)" /> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Progress" Title="Progress" Visible="@Shown("Progress")" HeaderTemplate="@Head("Progress")" Width="96px" Filterable="false">
-                    <Template Context="row">@if (row.Item is WorkItem it) { <span class="pcell"><span class="prog"><i style="width:@(row.Progress)%"></i></span> <span class="muted num">@it.Subtasks.Count(s => s.Done)/@it.Subtasks.Count</span></span> }</Template>
+                    <Template Context="row">@if (row.Item is WorkItem it) { <span class="pcell"><span class="prog"><i style="width:@(row.Progress)%"></i></span> <span class="muted num">@(SubtaskTally.Of(it, row.OpenBugs).Done)/@(SubtaskTally.Of(it, row.OpenBugs).Total)</span></span> }</Template>
                 </RadzenDataGridColumn>
                 <RadzenDataGridColumn TItem="GridRow" Property="Modified" Title="Updated" Visible="@Shown("Updated")" HeaderTemplate="@Head("Updated")" Width="132px" CssClass="num muted" Filterable="false">
                     <Template Context="row"><span class="clip" title="@Stamp(row.Modified)">@Stamp(row.Modified)</span></Template>
@@ -414,7 +414,7 @@ else if (View != "analytics" && (View == "list" || O.Unit == "tasks"))
                 CardHandlers h = HandlersOf(p, col, it, swim);
                 @* a card draws when what it shows changed (its RenderKey): the page drawing is not that; its callbacks are cached per load *@
                 <WorkItemCard Item="it" Options="O" Names="p.Names" Colours="p.Colours" Uncommitted="p.Dirty.Contains(it.Id)" Selected="selected.Contains((p.Root, it.Id))" Examine="@ExamineClass(p, it.Id)"
-                              Version="loadVersion" TestsFailing="p.Failing.Contains(it.Id)" Today="today"
+                              Version="loadVersion" TestsFailing="p.Failing.Contains(it.Id)" Today="today" OpenBugs="p.Bugs.GetValueOrDefault(it.Id)"
                               OnClick="h.Click" OnDragStart="h.DragStart" OnDrop="h.Drop" OnReview="h.Review" />
             }
         }

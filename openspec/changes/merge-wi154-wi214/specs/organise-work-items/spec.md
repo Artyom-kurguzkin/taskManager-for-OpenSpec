@@ -25,3 +25,18 @@ The app SHALL keep the user's settings in one file on this computer, never in a 
 #### Scenario: A folder that cannot take the file
 - **WHEN** the chosen folder does not exist or already holds a settings.json
 - **THEN** nothing is moved or overwritten and the page says why
+
+### Requirement: Named arrangements can be saved and opened
+The side menu SHALL let the user save the project's current arrangement under a name, list the saved names, open one (replacing the current arrangement) and delete one; saving under an existing name, ignoring case, SHALL update it, and an empty name SHALL save nothing. Saved arrangements are per project in the user's settings file.
+
+#### Scenario: Opening a saved arrangement
+- **WHEN** the user hides a column, saves the arrangement as Focus, shows all hidden and then opens Focus
+- **THEN** the column is hidden again with Focus's grouping and view
+
+#### Scenario: Deleting a saved arrangement
+- **WHEN** the user deletes an arrangement and restarts the app
+- **THEN** it is no longer listed
+
+#### Scenario: An older settings file
+- **WHEN** the settings file has no saved arrangements
+- **THEN** it loads and the list is empty

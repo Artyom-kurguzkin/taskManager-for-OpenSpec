@@ -55,6 +55,8 @@ public static class NotesApi
     public static (bool Success, string Message, int Id) Create(int workItemId, string by, DateTime created, string? kind) => Commands.Create(workItemId, by, created, kind);
     /// <summary>Makes the note a decision (<see cref="NoteKinds.Decision"/>) or an ordinary note again (null); only the frontmatter <c>kind</c> changes.</summary>
     public static (bool Success, string Message) SetKind(int id, string? kind) => Commands.SetKind(id, kind);
+    /// <summary>Marks a bug resolved (frontmatter <c>resolvedAt</c> = now) or open again; only that key changes.</summary>
+    public static (bool Success, string Message) SetResolved(int id, bool resolved) => Commands.SetResolved(id, resolved);
     public static (bool Success, string Message) SaveBody(int id, string body) => Commands.SaveBody(id, body);
 
     /// <summary>Deletes the note's file, and the attachment files copied for it unless another note lists them too.</summary>

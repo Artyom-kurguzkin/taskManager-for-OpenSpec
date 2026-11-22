@@ -302,6 +302,7 @@
     .nav-sep { display: none; }   /* the header bar's options run in one wrapping row */
     .nav-view { flex: 1 1 100%; order: 10; flex-flow: row wrap; align-items: center; margin: 0; border-bottom: 0; }
     .nav-hidden { flex: 1 1 100%; order: 11; max-width: 420px; border-bottom: 0; }
+    .nav-arr { flex: 1 1 100%; order: 10; max-width: 420px; }
   }
 }
 
@@ -329,7 +330,7 @@
   .board-wrap .head-row { padding-bottom: 4px; }
   .cat { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
   .cat > .menu-wrap { align-self: flex-start; }
-  .cat-cols > .add-col { align-self: flex-start; flex: none; padding: 6px 12px; white-space: nowrap; }   /* "+ feature": a new column at the end of the row */
+  .cat-cols > .add-col { align-self: flex-start; flex: none; padding: 6px 12px; margin-right: 150px; white-space: nowrap; }   /* "+ feature" / "+ status": a new column at the end of the row; the margin is the width of the window's minimise / maximise / close buttons, so scrolled to the end the button is clear of them */
   .cat-h { display: flex; align-items: baseline; gap: 12px; padding: 1px 8px; font-size: var(--t-md); font-weight: 700; }
   .cat-cols { display: flex; gap: var(--s2); align-items: stretch; }
   /* columns fill the board's height, so the whole column is a drop target, not just the area around its cards */
@@ -1036,6 +1037,8 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   .wk-bug { --bug: color-mix(in srgb, var(--rose) 60%, var(--ink)); }
   .wk-bug .wk-tag { font-size: var(--t-xs); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--bug); }
   .wk-bug .wk-title { color: var(--bug); }
+  .sub.bug { --bug: color-mix(in srgb, var(--rose) 60%, var(--ink)); }   /* an unresolved bug listed with the subtasks: the same mark as in the feed */
+  .sub .bug-mark { font-size: var(--t-xs); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--bug); margin-top: 2px; }
   .wk-e.wk-bug .wk-mark { top: 14px; width: 14px; height: 14px; margin-left: -1px; border-radius: 3px; background: var(--bug); box-shadow: 0 0 0 1.5px var(--bug); }
   .wk-bug .wk-body { font-size: var(--t-md); }
 }
@@ -1134,6 +1137,16 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   .nav-hidden > .nav-sec-h { padding-left: 0; }
   .nav-hidden .nav-sec-body { gap: 1px; }
   .nav-hidden .nav-sec-body > .nav-pill { align-self: flex-start; margin-left: -2px; }
+  /* saved arrangements: a name to open and an eye-less delete per row, then a name box and "save as" */
+  .nav-arr { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 8px; border-bottom: 2px dashed var(--line-soft); }
+  .nav-arr > .nav-sec-h { padding-left: 0; }
+  .nav-arr .nav-sec-body { gap: 1px; }
+  .arr-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 2px; padding: 1px 2px; border-radius: 8px; align-self: stretch; }
+  .arr-row:hover { background: color-mix(in srgb, var(--stone) 45%, transparent); }
+  .arr-open { padding: 0 0 0 6px; border: 0; background: none; color: var(--ink); font: 500 14px var(--f-body); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .arr-open:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .arr-new { display: flex; align-items: center; gap: 4px; align-self: stretch; padding-top: 4px; }
+  .arr-new .arr-name { flex: 1 1 0; width: auto; min-width: 0; min-height: 28px; padding: 3px 8px; font-size: 14px; }
   .nav-filters { display: flex; flex-direction: column; align-items: flex-start; align-self: stretch; gap: 8px; }
   .nav-filters .nav-h { padding: 0; }
   /* the feed's day filter: Shift-clicked days are yellow pills; "Show all days" clears them */
@@ -1205,8 +1218,8 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
     nav.side .nav-btn, nav.side .nav-sec-h, nav.side .nav-add { min-height: 32px; padding-inline: 4px; border: 2px solid transparent; border-radius: 10px; gap: 10px; }
     nav.side:not(.expanded) .nav-btn { padding-inline: 8px; }   /* the rail: the icon centred in its 44px */
     nav.side .nav-sec-h, nav.side .nav-add-menu { margin-inline: -6px; width: calc(100% + 12px); align-self: stretch; }
-    .nav-hidden { padding-inline: 6px; }
-    nav.side .nav-hidden > .nav-sec-h { margin-inline: -6px; width: calc(100% + 12px); padding-inline: 4px; }
+    .nav-hidden, .nav-arr { padding-inline: 6px; }
+    nav.side .nav-hidden > .nav-sec-h, nav.side .nav-arr > .nav-sec-h { margin-inline: -6px; width: calc(100% + 12px); padding-inline: 4px; }
     .nav-hidden .nav-sec-body > .nav-pill { margin-left: -6px; }
     nav.side .nav-sec-h:hover { background: var(--stone); color: var(--on-fill); }
     .nav-sec-chev { width: 16px; height: 16px; justify-content: center; align-items: center; }

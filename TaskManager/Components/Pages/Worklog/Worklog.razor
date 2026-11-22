@@ -187,7 +187,8 @@
             () => Later(() => { OpenSubtaskInput(Today); return Task.CompletedTask; }),
             () => run.File is not null, () => IsRepository,
             day => Later(() => JumpTo(day)),
-            AddBug: () => Later(() => AddNote(Today, NoteKinds.Bug)));
+            AddBug: () => Later(() => AddNote(Today, NoteKinds.Bug)),
+            JumpToDescription: () => Later(JumpToDescription));
         Popups.OpenWorklog(actions);
         Popups.WorklogChanged += OnFilters;
     }
@@ -243,12 +244,21 @@
         List<WorklogDay> shown = [.. days.Where(d => d.Date == Today || d.Rows.Any(VisibleKind)).Select(d => new WorklogDay(d.Date, DayLabel(d.Date), d.Rows.Count(VisibleKind)))];
         int linked = earlier.Count(VisibleKind);
         if (linked > 0) shown.Add(new WorklogDay(DateTime.MinValue, "Linked earlier", linked));
+        if (notes.Count(n => n.IsOpenBug) is > 0 and int bugs) shown.Insert(0, new WorklogDay(DateTime.MinValue, "Bugs", bugs, WorklogDay.BugsEntry));   // the unresolved ones, whatever the filters leave
+        shown.Add(new WorklogDay(DateTime.MinValue, "Description", 0, WorklogDay.DescriptionEntry));   // the item's first post ends the feed
         publishing = true;   // the event this raises is the feed's own: it draws nothing new
         try { Popups.SetWorklogDays(shown); }
         finally { publishing = false; }
     }
 
     private bool publishing;
+
+    /// <summary>"Description" in the side menu was clicked: the feed scrolls to the item's description, its last post.</summary>
+    private async Task JumpToDescription()
+    {
+        try { await Js.InvokeVoidAsync("rtm.scrollToDay", ".wk-first"); }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException) { }
+    }
 
     /// <summary>A day in the side menu was clicked: it unfolds if folded, and the feed scrolls to it.</summary>
     private async Task JumpTo(DateTime day)
@@ -422,7 +432,7 @@
             {
                 <div class="wk-line">
                     @if (n.IsDecision) { <span class="wk-tag">Decision</span> }
-                    else if (n.IsBug) { <span class="wk-tag">Bug</span> }
+                    else if (n.IsBug) { <span class="wk-tag">Bug</span>@if (n.ResolvedAt is not null) { <span class="muted wk-from">resolved</span> } }
                     @if (!(n.IsDecision && n.Title == "Decision") && !(n.IsBug && n.Title == "Bug")) { <b class="wk-title">@n.Title</b> }   @* the tag already says it: a decision or a bug keeps its default title unseen *@
                     @if (n.AgentUnreviewed) { <AgentChip By="@n.AgentBy" At="n.AgentAt" OnReview="() => Review(n)" /> }
                     @if (n.MergedFrom is int from) { <span class="muted wk-from">from #wi@(from)</span> }
@@ -763,7 +773,7 @@
 
     // ── Menus and links ──
 
-    private const string EditChoice = "Edit", UnlinkChoice = "Unlink", ToDecision = "Make it a decision", ToNote = "Make it a note", ToBug = "Make it a bug", ToSubtask = "Make it a subtask", ReportChoice = "Report a bug from this";
+    private const string EditChoice = "Edit", UnlinkChoice = "Unlink", ToDecision = "Make it a decision", ToNote = "Make it a note", ToBug = "Make it a bug", ToSubtask = "Make it a subtask", ReportChoice = "Report a bug from this", ResolveChoice = "Mark it resolved", ReopenChoice = "Reopen the bug";
 
     private static string? NoteClass(Note n) => n.IsDecision ? "wk-decision" : n.IsBug ? "wk-bug" : null;
     private static string NoteName(Note n) => n.IsDecision ? "decision" : n.IsBug ? "bug" : "note";
@@ -781,6 +791,7 @@
             if (n.IsDecision || n.IsBug) choices.Add(ToNote);
             if (!n.IsDecision) choices.Add(ToDecision);
             if (!n.IsBug) choices.Add(ToBug);
+            if (n.IsBug) choices.Add(n.ResolvedAt is null ? ResolveChoice : ReopenChoice);
             if (!promoted.Contains(n.Id)) choices.Add(ToSubtask);
             return choices;
         }
@@ -803,6 +814,7 @@
         if (r.Note is Note n)
         {
             if (choice == EditChoice) StartEdit(n);
+            else if (choice is ResolveChoice or ReopenChoice) await Linked(NotesApi.SetResolved(n.Id, choice == ResolveChoice));
             else if (choice == ToSubtask) { (bool ok, string why, _) = NotesApi.ConvertToSubtask(n.Id); await Linked((ok, why), what: "NotesApi.ConvertToSubtask("); }
             else await Linked(NotesApi.ConvertKind(n.Id, KindOfChoice(choice)));
             return;

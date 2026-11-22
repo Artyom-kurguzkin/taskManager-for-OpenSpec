@@ -101,7 +101,7 @@
             IReadOnlyDictionary<string, string> names = Workspace.FeatureNames;
             IReadOnlyList<Notes.PublicDTOs.Note> notes = NotesCache.ForWorkItem(id);
             return new View(item, string.Join(", ", item.Features.Select(f => names.GetValueOrDefault(f.Path, f.Path))), notes.Count, notes.Count(n => n.IsBug),
-                item.Subtasks.Count(s => !s.Done), WorkItemsApi.GetBlocking(id).Count(w => !w.Archived), item.DependsOn?.Count ?? 0,
+                item.Subtasks.Count(s => !s.Done) + notes.Count(n => n.IsOpenBug), WorkItemsApi.GetBlocking(id).Count(w => !w.Archived), item.DependsOn?.Count ?? 0,
                 CommitLine(item));
         });
         if (view is null) Popups.Examine(null);   // the item is gone (archived, merged, hidden away): nothing left to look at

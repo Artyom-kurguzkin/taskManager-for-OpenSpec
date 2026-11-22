@@ -6,6 +6,9 @@ x-rtm:
   title: distinguish btw bugs and rfc's/features
   status: In Review
   contributors: [Artyom-kurguzkin]
+  features: [work-item-details]
+  label: enhancement
+  moved: 2026-11-23
   plan: DevResources/plans/in-progress-sweep-2026-11-05.md
   tests: [{suite: UsingTheBoardTests, test: 'A card shows its title on a band coloured by status, its feature, its date and people, its subtask count, its coloured label tag, and no priority tag'}]
   agentBy: Claude chunk card-dates

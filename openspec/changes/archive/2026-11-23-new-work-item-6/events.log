@@ -1,2 +1,5 @@
 2026-11-16T11:05:43 | Claude chunk card-dates | test-unlinked | UsingTheBoardTests / A card shows its title on a band coloured by status, its feature, its date and people, its subtask count, its coloured label tag and its #wi tag, and no priority tag
 2026-11-16T11:05:43 | Claude chunk card-dates | test-linked | UsingTheBoardTests / A card shows its title on a band coloured by status, its feature, its date and people, its subtask count, its coloured label tag, and no priority tag
+2026-11-23T09:03:01 | Artyom-kurguzkin | status | In Review -> Completed
+2026-11-23T09:03:17 | Artyom-kurguzkin | feature | none -> work-item-details
+2026-11-23T09:03:22 | Artyom-kurguzkin | label | none -> enhancement

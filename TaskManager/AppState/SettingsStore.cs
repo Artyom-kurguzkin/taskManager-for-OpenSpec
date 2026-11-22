@@ -19,7 +19,8 @@ public sealed record AppSettings(
     Dictionary<string, string>? AttachmentsDirs = null,   // only what this computer had saved before the folder became a project setting (openspec/config.yaml); read until the project has one, cleared when it is saved there
     bool Split = true,                 // an open work item sits beside the list (half-screen) when the window is wide enough
     List<string>? OpenMenuSections = null,
-    string? LogsDir = null);                 // where the run logs, crash notes and freeze dumps go: an absolute folder; null = the app's own (Paths.Logs). Read before the settings are opened (PeekLogsDir)   // the side menu's Organise / Filters / Hidden sections the user opened (all folded until then); per user, not per project
+    string? LogsDir = null,   // where the run logs, crash notes and freeze dumps go: an absolute folder; null = the app's own (Paths.Logs). Read before the settings are opened (PeekLogsDir)
+    Dictionary<string, Dictionary<string, BoardOptions>>? Arrangements = null);   // per project (Key): the arrangements saved under a name, each a snapshot of the project's BoardOptions; null = none (also every file written before they existed)
 
 /// <summary>
 /// Per-user, per-computer settings in one JSON file (AppData/RepoTaskManager/settings.json by default): the theme, the name, and everything the user arranged for each project
@@ -202,6 +203,44 @@ public sealed class SettingsStore
         bool wasList = saved is { View: "list" };
         return o with { ListGroupBy = o.ListGroupBy ?? (wasList ? o.GroupBy : BoardModel.NoSwimlane), ListSwimlane = o.ListSwimlane ?? (wasList ? o.Swimlane : BoardModel.NoSwimlane) };
     }
+
+    /// <summary>The names of the arrangements saved for the project, alphabetical.</summary>
+    public IReadOnlyList<string> ArrangementNames(string repo) => [.. (Current.Arrangements?.GetValueOrDefault(Key(repo))?.Keys.AsEnumerable() ?? []).Order(StringComparer.CurrentCultureIgnoreCase)];
+
+    /// <summary>Saves the project's arrangement as it is now under <paramref name="name"/> (spaces trimmed; a name already there, in any case, is the one updated). An empty name saves nothing.</summary>
+    public void SaveArrangement(string repo, string name)
+    {
+        name = name.Trim();
+        if (name.Length == 0) return;
+        BoardOptions now = Board(repo);
+        Update(s =>
+        {
+            Dictionary<string, Dictionary<string, BoardOptions>> all = new(s.Arrangements ?? []);
+            Dictionary<string, BoardOptions> mine = new(all.GetValueOrDefault(Key(repo)) ?? []);
+            string existing = mine.Keys.FirstOrDefault(k => string.Equals(k, name, StringComparison.CurrentCultureIgnoreCase)) ?? name;
+            mine[existing] = now;
+            all[Key(repo)] = mine;
+            return s with { Arrangements = all };
+        });
+    }
+
+    /// <summary>Makes the saved arrangement the project's arrangement on screen (replacing it whole); false when the project has none by that name.</summary>
+    public bool OpenArrangement(string repo, string name)
+    {
+        if (Current.Arrangements?.GetValueOrDefault(Key(repo))?.GetValueOrDefault(name) is not BoardOptions saved) return false;
+        SaveBoard(repo, saved);
+        return true;
+    }
+
+    public void DeleteArrangement(string repo, string name) => Update(s =>
+    {
+        if (s.Arrangements?.GetValueOrDefault(Key(repo)) is not { } mine || !mine.ContainsKey(name)) return s;
+        Dictionary<string, Dictionary<string, BoardOptions>> all = new(s.Arrangements);
+        Dictionary<string, BoardOptions> left = new(mine);
+        left.Remove(name);
+        if (left.Count == 0) all.Remove(Key(repo)); else all[Key(repo)] = left;
+        return s with { Arrangements = all.Count == 0 ? null : all };
+    });
 
     public void SaveBoard(string repo, BoardOptions options) =>
         Update(s => s with { Boards = new Dictionary<string, BoardOptions>(s.Boards ?? []) { [Key(repo)] = options } });

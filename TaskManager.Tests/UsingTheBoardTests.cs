@@ -3240,7 +3240,7 @@ public sealed class UsingTheBoardTests : IDisposable
 
         string[] feed = [.. log.FindAll(".wk-day[data-day]").Select(d => d.GetAttribute("data-day")!)];
         Assert.True(feed.Length >= 2);
-        IElement[] rows() => [.. nav.FindAll(".nav-worklog button.nav-day")];
+        IElement[] rows() => [.. nav.FindAll(".nav-worklog button.nav-day:not(.nav-day-bugs):not(.nav-day-description)")];   // the days; Bugs and Description are entries of their own
         string[] days() => [.. log.FindAll(".wk-day[data-day]").Select(d => d.GetAttribute("data-day")!)];
         string[] counts = [.. rows().Select(b => b.QuerySelector(".count")!.TextContent.Trim())];
         Assert.Empty(nav.FindAll(".nav-worklog .nav-days-all"));
@@ -3479,7 +3479,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Contains("24 Dec", panel);   // due
         Assert.Equal((notesBefore + 2).ToString(), Line("notes"));
         Assert.Equal((bugsBefore + 1).ToString(), Line("bugs"));
-        Assert.Equal("2", Line("subtasks"));   // the fixture has two of four subtasks open
+        Assert.Equal("3", Line("subtasks"));   // the fixture has two of four subtasks open, and the unresolved bug made above is a third
         Assert.Equal("1", Line("waiting"));    // the item that waits on it
         Assert.Equal("1", Line("needs"));      // the item it waits on
         Assert.NotNull(CardOf(board, 123).GetAttribute("data-examined"));

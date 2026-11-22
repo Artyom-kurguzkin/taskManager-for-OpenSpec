@@ -1,14 +1,17 @@
 schema: spec-driven
-skip_specs: true
 created: 2026-11-21
 x-rtm:
   id: 215
   title: work item details collapsed manu add new entry icon is missing
-  status: Planned
+  status: In Review
   priority: high
   contributors: [Artyom-kurguzkin]
   features: [general-ux]
   label: bug
   started: 2026-11-21
   due: 2026-11-21
-  moved: 2026-11-21
+  moved: 2026-11-23
+  plan: DevResources/plans/in-progress-wi215-wi219-2026-11-23.md
+  tests: [{suite: AddingEntriesFromTheCollapsedMenuTests, test: "With the menu collapsed, a work item's rail shows an Add entry icon"}, {suite: AddingEntriesFromTheCollapsedMenuTests, test: The collapsed Add entry icon opens the same entries as the expanded menu}]
+  agentBy: Claude
+  agentAt: 2026-11-23T09:48:02

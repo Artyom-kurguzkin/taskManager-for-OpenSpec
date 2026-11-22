@@ -75,6 +75,24 @@
     @if (ListView == "list") { @Pill("show subtasks", o.ShowSubtasks, v => Set(Saved with { ShowSubtasks = v }), opt: "subtasks") }
     else if (!analytics) { @Pill("compact cards", o.Compact, v => Set(Saved with { Compact = v }), opt: "compact") }
 </div>
+@* the arrangements the user saved under a name for this project: open one (it replaces the live options), save the live ones under a name (an existing name is updated), delete one *@
+<div class="nav-arr" role="group" aria-label="Saved arrangements">
+    @SectionHead("arrangements", "Saved arrangements", arrangementsSummary)
+    <div class="nav-sec-body" id="sec-arrangements-body" hidden="@(!openArrangements)">
+    @if (openArrangements)
+    {
+        foreach (string name in arrangements)
+        {
+            <div class="arr-row"><button type="button" class="arr-open nm" aria-label="Open arrangement @name" title="Open @name" @onclick="() => OpenArrangement(name)">@name</button>
+                <button class="ic" aria-label="Delete arrangement @name" title="Delete" @onclick="() => DeleteArrangement(name)">@Ui.Icon("trash")</button></div>
+        }
+        <div class="arr-new">
+            <input @key="saves" class="box text-in arr-name" data-sk placeholder="Name…" maxlength="40" aria-label="Arrangement name" @oninput="e => arrName = e.Value?.ToString() ?? string.Empty" @onkeydown="SaveOnEnter" />
+            <button type="button" class="nav-pill arr-save" title="Save the arrangement on screen under this name; a name already there is updated" @onclick="SaveArrangement">save as</button>
+        </div>
+    }
+    </div>
+</div>
 @* hide from a column header (or a project header) on the board; hidden ones are listed here, to bring back, under the switch that shows them all.
    The block is always there, so the switch can be reached before anything is hidden. *@
 <div class="nav-hidden">
@@ -127,13 +145,17 @@
     /// Everything the blocks read. The settings part is read off the saved options (cheap, value-compared); the board's content (items, features, commits,
     /// who changed what) is one counter, moved by every Workspace.Changed. A theme or any other setting moves nothing here.
     /// </summary>
-    private sealed record Key(string ListView, BoardOptions O, long Changes, DateOnly Today, string? Root, string Open, string HiddenProjects, bool Folded, string HiddenItems);
+    private sealed record Key(string ListView, BoardOptions O, long Changes, DateOnly Today, string? Root, string Open, string HiddenProjects, bool Folded, string HiddenItems, string Arrangements);
 
     private Key built = default!;
     private long changes;
 
     private BoardOptions o = new(), ov = new();
-    private bool analytics, openOrganise, openFilters, openHidden;
+    private bool analytics, openOrganise, openFilters, openHidden, openArrangements;
+    private IReadOnlyList<string> arrangements = [];
+    private string? arrangementsSummary;
+    private string arrName = "";
+    private int saves;   // the name box is a new element after each save, so it comes back empty
     private IReadOnlyList<(string, string)> people = [], commits = [];
     private bool gitPending;   // the project's git is still being read (the start): the contributor and commit filters say "loading" and ask git nothing
     private IReadOnlyList<(string Label, string Colour)> legend = [];
@@ -166,8 +188,8 @@
         List<string> hidden = Workspace.Projects.Where(Settings.ProjectHidden).ToList();
         // the Hidden counts add up no items while this project is folded to its heading among several (shown or not), as the column headers leave it out
         bool folded = root is not null && Settings.ProjectCollapsed(root) && Workspace.Projects.Count(p => !Settings.ProjectHidden(p)) > 1;
-        string open = string.Concat(new[] { "organise", "filters", "hidden" }.Select(s => Settings.MenuSectionOpen(s) ? '1' : '0'));
-        return new Key(ListView, options, Interlocked.Read(ref changes), Today, root, open, string.Join('|', hidden), folded, string.Join('|', Settings.Current.HiddenItems ?? []));
+        string open = string.Concat(new[] { "organise", "filters", "hidden", "arrangements" }.Select(s => Settings.MenuSectionOpen(s) ? '1' : '0'));
+        return new Key(ListView, options, Interlocked.Read(ref changes), Today, root, open, string.Join('|', hidden), folded, string.Join('|', Settings.Current.HiddenItems ?? []), root is null ? "" : string.Join('|', Settings.ArrangementNames(root)));
     }
 
     private bool Refresh()
@@ -186,7 +208,9 @@
         bool list = key.ListView == "list";
         ov = list ? o.ForList() : o;
         analytics = key.ListView == "analytics";
-        (openOrganise, openFilters, openHidden) = (key.Open[0] == '1', key.Open[1] == '1', key.Open[2] == '1');
+        (openOrganise, openFilters, openHidden, openArrangements) = (key.Open[0] == '1', key.Open[1] == '1', key.Open[2] == '1', key.Open[3] == '1');
+        arrangements = key.Arrangements.Length == 0 ? [] : [.. key.Arrangements.Split('|')];
+        arrangementsSummary = arrangements.Count == 0 ? null : $"{arrangements.Count} saved";
         DateOnly today = key.Today;
 
         // what the board's content gives (items, features, the people and the commits to pick from) is read again only when the content moved or the
@@ -273,7 +297,7 @@
     /// <summary>A section's header: a click target with a chevron that folds the block under it. Folded, it carries a short summary of what is set inside, so an active filter shows without opening it.</summary>
     private RenderFragment SectionHead(string sec, string title, string? summary)
     {
-        bool open = sec switch { "organise" => openOrganise, "filters" => openFilters, _ => openHidden };
+        bool open = sec switch { "organise" => openOrganise, "filters" => openFilters, "arrangements" => openArrangements, _ => openHidden };
         return @<button type="button" class="nav-h nav-sec-h @(open ? "is-open" : "")" data-sec="@sec" aria-expanded="@(open ? "true" : "false")" aria-controls="@($"sec-{sec}-body")"
                         title="@(summary is null ? null : $"{title} · {summary}")" @onclick="() => Settings.ToggleMenuSection(sec)">
                    <span class="nav-sec-chev" aria-hidden="true">@Ui.Icon("caret")</span><span class="nav-sec-t">@title</span>@if (!open && summary is not null) { <span class="nav-sec-sum">@(" · " + summary)</span> }
@@ -289,6 +313,30 @@
 
     /// <summary>The options as saved right now: a handler builds on these, not on the last draw (a pick made a moment ago may not have drawn yet).</summary>
     private BoardOptions Saved => Workspace.ViewRoot is string root ? Settings.Board(root) : new();
+
+    private void OpenArrangement(string name)
+    {
+        if (Workspace.ViewRoot is string root) Settings.OpenArrangement(root, name);
+    }
+
+    private void DeleteArrangement(string name)
+    {
+        if (Workspace.ViewRoot is string root) Settings.DeleteArrangement(root, name);
+    }
+
+    private void SaveArrangement()
+    {
+        if (Workspace.ViewRoot is not string root || arrName.Trim().Length == 0) return;
+        Settings.SaveArrangement(root, arrName);
+        arrName = "";
+        saves++;
+        StateHasChanged();
+    }
+
+    private void SaveOnEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") SaveArrangement();
+    }
 
     private void Set(BoardOptions options)
     {

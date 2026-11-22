@@ -38,10 +38,16 @@ public sealed record WorklogFilters(bool Notes = true, bool Decisions = true, bo
 }
 
 /// <summary>What the side menu can do for the open worklog: the entries of its day menu, for today.</summary>
-public sealed record WorklogActions(Action AddNote, Action AddDecision, Action LinkDocument, Action LinkTest, Action LinkCommit, Action AddSubtask, Func<bool>? CanLinkTest = null, Func<bool>? CanLinkCommit = null, Action<DateTime>? JumpTo = null, Action? AddBug = null);
+public sealed record WorklogActions(Action AddNote, Action AddDecision, Action LinkDocument, Action LinkTest, Action LinkCommit, Action AddSubtask, Func<bool>? CanLinkTest = null, Func<bool>? CanLinkCommit = null, Action<DateTime>? JumpTo = null, Action? AddBug = null, Action? JumpToDescription = null);
 
-/// <summary>A day of the worklog feed as the side menu lists it: Date is DateTime.MinValue for the "Linked earlier" group; Count is the entries shown.</summary>
-public sealed record WorklogDay(DateTime Date, string Label, int Count);
+/// <summary>
+/// A day of the worklog feed as the side menu lists it: Date is DateTime.MinValue for the "Linked earlier" group; Count is the entries shown.
+/// <paramref name="Special"/> marks the two entries that are not days: <see cref="DescriptionEntry"/> (the item's description, the feed's last post; Count 0) and <see cref="BugsEntry"/> (the unresolved bugs).
+/// </summary>
+public sealed record WorklogDay(DateTime Date, string Label, int Count, string? Special = null)
+{
+    public const string DescriptionEntry = "description", BugsEntry = "bugs";
+}
 
 public sealed record Toast(int Id, string Text, ToastKind Kind);
 

@@ -9,7 +9,7 @@ x-rtm:
   features: [general-ux]
   label: feature
   started: 2026-11-20
-  moved: 2026-11-20
+  moved: 2026-11-23
   plan: DevResources/plans/in-progress-items-2026-11-20.md
   tests: [{suite: UsingThePagesTests, test: The note editor is a plain textarea with no table helper attached}, {suite: UsingThePagesTests, test: index.html loads no markdown table scripts}]
   agentBy: Claude

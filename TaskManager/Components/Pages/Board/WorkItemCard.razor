@@ -22,7 +22,7 @@
             <span class="stamp-line" title="Last changed @Ui.Time(Item.Modified), @Ui.DayWithYear(DateOnly.FromDateTime(Item.Modified))"><span class="cap">updated</span> <span class="stamp">@Ui.Stamp(Item.Modified)</span></span>
             @* the column already names the contributor when grouped by contributor, and the label when grouped by label *@
             @if (Options.GroupBy != "contributor" && Item.Contributors.Count > 0) { <span class="who-list">@string.Join(", ", Item.Contributors)</span> }
-            @if (Item.Subtasks.Count > 0) { @if (Options.GroupBy != "contributor" && Item.Contributors.Count > 0) { <text> · </text> }<span class="subs" title="@Item.Subtasks.Count(s => s.Done) of @Item.Subtasks.Count subtasks done">@Item.Subtasks.Count(s => s.Done)/@Item.Subtasks.Count <span class="cap">subtasks</span></span> }
+            @if (SubtaskTally.Of(Item, OpenBugs) is (var done, > 0 and var total)) { @if (Options.GroupBy != "contributor" && Item.Contributors.Count > 0) { <text> · </text> }<span class="subs" title="@done of @total subtasks done">@done/@total <span class="cap">subtasks</span></span> }
         </span>
         <span class="tags">
             @if (Item.Label is not null && Options.GroupBy != "label") { <span class="tag lbl" style="--fill:var(@Ui.LabelColor(Item.Label))">@Item.Label</span> }
@@ -54,6 +54,8 @@
     [Parameter, EditorRequired] public WorkItem Item { get; set; } = default!;
     [Parameter, EditorRequired] public BoardOptions Options { get; set; } = default!;
     [Parameter] public bool Selected { get; set; }
+    /// <summary>The item's unresolved bugs: open subtasks too (<see cref="SubtaskTally"/>).</summary>
+    [Parameter] public int OpenBugs { get; set; }
     /// <summary>The item has files that are not committed yet: a small muted dot before the title.</summary>
     [Parameter] public bool Uncommitted { get; set; }
     /// <summary>While an item is examined: ex-on (this one), ex-waits (it waits on the examined one), ex-needs (the examined one waits on it); the shadows are in app.css.</summary>
@@ -78,13 +80,13 @@
     protected override bool Strict => true;
 
     /// <summary>Everything the card shows, and the load its handlers are of. A parameter set that leaves it equal draws nothing; the board's fresh lambdas do not count, the cached ones do not change.</summary>
-    protected override object? RenderKey => Environment.GetEnvironmentVariable("RTM_NOKEY") is not null ? null : new Shown(Version, Item, Options, Names, Colours, Selected, Uncommitted, Examine, TestsFailing, Today);
+    protected override object? RenderKey => Environment.GetEnvironmentVariable("RTM_NOKEY") is not null ? null : new Shown(Version, Item, Options, Names, Colours, Selected, Uncommitted, Examine, TestsFailing, Today, OpenBugs);
 
-    private readonly record struct Shown(long Version, object Item, object Options, object? Names, object? Colours, bool Selected, bool Uncommitted, string? Examine, bool? TestsFailing, DateOnly? Today)
+    private readonly record struct Shown(long Version, object Item, object Options, object? Names, object? Colours, bool Selected, bool Uncommitted, string? Examine, bool? TestsFailing, DateOnly? Today, int OpenBugs)
     {
         // the objects by identity: a reload makes new ones, and a record's value equality would walk them
         public bool Equals(Shown o) => Version == o.Version && ReferenceEquals(Item, o.Item) && ReferenceEquals(Options, o.Options) && ReferenceEquals(Names, o.Names) && ReferenceEquals(Colours, o.Colours)
-            && Selected == o.Selected && Uncommitted == o.Uncommitted && Examine == o.Examine && TestsFailing == o.TestsFailing && Today == o.Today;
+            && Selected == o.Selected && Uncommitted == o.Uncommitted && Examine == o.Examine && TestsFailing == o.TestsFailing && Today == o.Today && OpenBugs == o.OpenBugs;
         public override int GetHashCode() => HashCode.Combine(Version, Selected, Uncommitted, Examine);
     }
 

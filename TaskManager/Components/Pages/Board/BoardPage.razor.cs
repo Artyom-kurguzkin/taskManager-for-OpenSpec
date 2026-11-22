@@ -23,7 +23,8 @@ public partial class BoardPage
     private sealed record Project(string Root, string Name, IReadOnlyList<WorkItem> Items, IReadOnlyList<Feature> Features,
         IReadOnlyDictionary<string, string> Names, IReadOnlyList<BoardSection> Sections, IReadOnlyDictionary<string, string> Colours, IReadOnlyList<string> Statuses,
         IReadOnlySet<int> Dirty,   // the items with uncommitted changes (the card's marker; empty while a commit is chosen)
-        IReadOnlySet<int> Failing)   // the items a linked test of which failed in the newest results (the card's marker)
+        IReadOnlySet<int> Failing,   // the items a linked test of which failed in the newest results (the card's marker)
+        IReadOnlyDictionary<int, int> Bugs)   // each item's unresolved bugs: open subtasks too (SubtaskTally)
     {
         public IEnumerable<(string? Category, BoardColumn Column)> Flat => Sections.SelectMany(s => s.Columns.Select(c => (s.Category, c)));
     }
@@ -229,7 +230,7 @@ public partial class BoardPage
 
     /// <summary>What one project's read of the repository gave: the page projects from it again, with no read, when only the options change.</summary>
     private sealed record Read(string Root, IReadOnlyList<WorkItem> Items, IReadOnlyList<Feature> Features, IReadOnlyDictionary<string, string> Names,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> Lanes, IReadOnlyList<string> Statuses, IReadOnlySet<int> Dirty, IReadOnlySet<int> Failing);
+        IReadOnlyDictionary<string, IReadOnlyList<string>> Lanes, IReadOnlyList<string> Statuses, IReadOnlySet<int> Dirty, IReadOnlySet<int> Failing, IReadOnlyDictionary<int, int> Bugs);
 
     private List<Read> reads = [];
     private string readFor = "";   // the commit filter the reads were made for: it changes what is read
@@ -258,7 +259,7 @@ public partial class BoardPage
             IReadOnlyList<WorkItem> items = AppVisible(r, ItemsCache.All());
             return new Read(r, items, FeaturesCache.Get(), Workspace.FeatureNames, WorkItemsApi.GetLanes(), WorkItemsApi.GetStatuses(),
                 O.Commit == "any" && Workspace.IsGitReady(r) ? BoardModel.Uncommitted(items) : new HashSet<int>(),   // the uncommitted marker reads the project's own git history and files (the commit filter); not before git is ready (the pool reads it at the start)
-                FailingTests(items));
+                FailingTests(items), SubtaskTally.OpenBugs());
         }))];
         warnings = Workspace.Root is string active && Workspace.IsLoading(active) ? [] : WorkItemsApi.GetWarnings();   // read here, not in the markup: a render reads no file
         string gitNow = string.Join('|', roots.Where(Workspace.IsGitReady));
@@ -285,7 +286,7 @@ public partial class BoardPage
             && t.First.Names.Count == t.Second.Names.Count && !t.First.Names.Except(t.Second.Names).Any()
             && t.First.Lanes.Count == t.Second.Lanes.Count && t.First.Lanes.All(l => t.Second.Lanes.TryGetValue(l.Key, out IReadOnlyList<string>? o) && l.Value.SequenceEqual(o))
             && t.First.Statuses.SequenceEqual(t.Second.Statuses)
-            && t.First.Dirty.SetEquals(t.Second.Dirty) && t.First.Failing.SetEquals(t.Second.Failing));
+            && t.First.Dirty.SetEquals(t.Second.Dirty) && t.First.Failing.SetEquals(t.Second.Failing) && SubtaskTally.Same(t.First.Bugs, t.Second.Bugs));
 
     /// <summary>Whether the persisted item holds the fields a projection changed as it was shown (the stamps the write made are not compared).</summary>
     private static bool Agrees(WorkItem shown, WorkItem written) =>
@@ -299,7 +300,7 @@ public partial class BoardPage
         IReadOnlyList<FieldValue> statusColumns = BoardModel.StatusColumns(reads.Select(x => x.Statuses), reads.Count > 1 ? O.Merges : null);
         // Build reads the project's own git history and files (the commit filter, which waits for git at the start), so it runs inside it
         projects = reads.Select(x => new Project(x.Root, Path.GetFileName(x.Root), x.Items, x.Features, x.Names,
-            Workspace.In(x.Root, () => BoardModel.Build(x.Items, x.Features, x.Lanes, Workspace.IsGitReady(x.Root) ? Opt : Opt with { Commit = "any" }, Today, statusColumns)), BoardModel.ColourMap(O.ColorBy, x.Items, x.Features), x.Statuses, x.Dirty, x.Failing)).ToList();
+            Workspace.In(x.Root, () => BoardModel.Build(x.Items, x.Features, x.Lanes, Workspace.IsGitReady(x.Root) ? Opt : Opt with { Commit = "any" }, Today, statusColumns)), BoardModel.ColourMap(O.ColorBy, x.Items, x.Features), x.Statuses, x.Dirty, x.Failing, x.Bugs)).ToList();
         // statuses are per project: a column its project lacks stays (empty, unavailable) only under a shared header row, else it is left out
         bool aligned = Aligned;
         projects = [.. projects.Select(p => p with { Sections = BoardModel.MarkAbsent(p.Sections, Opt, p.Statuses, aligned) })];
@@ -315,7 +316,7 @@ public partial class BoardPage
         // a row that is what it was (same item, place and column content) keeps its instance, so the grid has nothing new to build for it
         Dictionary<string, GridRow> was = [];
         foreach (GridRow r in rows) was.TryAdd(r.Key, r);
-        rows = [.. projects.SelectMany((p, n) => BoardModel.Rows(p.Sections, p.Names, p.Root, p.Name, n * 1000))
+        rows = [.. projects.SelectMany((p, n) => BoardModel.Rows(p.Sections, p.Names, p.Root, p.Name, n * 1000, p.Bugs))
             .Select(r => was.TryGetValue(r.Key, out GridRow? old) && old with { Column = r.Column } == r && old.Column.Key == r.Column.Key && old.Column.Label == r.Column.Label
                 && old.Column.Items.SequenceEqual(r.Column.Items) ? old : r)];
         groups = rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => (g.First().Column, g.First().Category, g.First().Root));
@@ -1117,9 +1118,35 @@ public partial class BoardPage
 
     private Task<string?> Ask(string title, string placeholder, string action) => Popups.Prompt(title, placeholder, action);
 
+    /// <summary>The value of the "type a new name" choice beside the suggestions: a "*" cannot be in a name that is a folder path, and the status "*" is nonsense too.</summary>
+    private const string NewName = "*new name*";
+
+    /// <summary>
+    /// The name of a new property (status, feature) for <paramref name="p"/>: asked for straight away, or, when other open projects have <paramref name="suggestions"/>
+    /// this one lacks, picked from them, with "New …" as the way to type one. Null when the user backs out.
+    /// </summary>
+    private async Task<string?> AskName(Project p, string kind, IReadOnlyList<string> suggestions, string example, string action)
+    {
+        if (suggestions.Count > 0)
+        {
+            if (await Popups.Choose($"Add a {kind} to {p.Name}", $"Other open projects have these; pick one, or type a new {kind}.", [.. suggestions.Select(s => (s, s)), (NewName, $"New {kind}…")]) is not string pick) return null;
+            if (pick != NewName) return pick;
+        }
+        return await Ask($"New {kind}", example, action);
+    }
+
+    /// <summary>The statuses other open projects have that <paramref name="p"/> lacks, in the order they are met.</summary>
+    private IReadOnlyList<string> StatusSuggestions(Project p) =>
+        [.. projects.Where(x => x.Root != p.Root).SelectMany(x => x.Statuses).Where(s => !p.Statuses.Contains(s)).Distinct()];
+
+    /// <summary>The features other open projects have that <paramref name="p"/> lacks (by name, spelling aside), once each.</summary>
+    private IReadOnlyList<string> FeatureSuggestions(Project p) =>
+        [.. projects.Where(x => x.Root != p.Root).SelectMany(x => x.Features).Select(f => f.Name)
+            .Where(n => !p.Features.Any(f => string.Equals(f.Name, n, StringComparison.OrdinalIgnoreCase))).Distinct(StringComparer.OrdinalIgnoreCase)];
+
     private async Task AddFeature(Project p)
     {
-        if (await Ask("New feature", "e.g. Exports", "Create") is not string name) return;
+        if (await AskName(p, "feature", FeatureSuggestions(p), "e.g. Exports", "Create") is not string name) return;
         (bool ok, string message, Feature? _) = Workspace.In(p.Root, () => FeaturesApi.CreateFeature(FeaturesApi.Ungrouped, name));
         Run((ok, message));
     }
@@ -1138,7 +1165,10 @@ public partial class BoardPage
             if (await Popups.Choose("Add a status to…", "The columns of the projects are shown together; pick the project whose list gets the new status.", choices) is not string pick) return;
             targets = pick == all ? [.. projects] : [.. projects.Where(x => x.Root == pick)];
         }
-        if (await Ask("New status", "e.g. Review ready", "Add") is not string name) return;
+        string? name = targets.Count == 1
+            ? await AskName(targets[0], "status", StatusSuggestions(targets[0]), "e.g. Review ready", "Add")
+            : await Ask("New status", "e.g. Review ready", "Add");
+        if (name is null) return;
         List<string> refused = [];
         int added = 0;
         foreach (Project t in targets)

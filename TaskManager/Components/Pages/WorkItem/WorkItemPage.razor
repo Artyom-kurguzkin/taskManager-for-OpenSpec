@@ -6,6 +6,7 @@
 @using OpenSpecStore
 @using Notes.PublicDTOs
 @using WorkItems
+@using TaskManager.Helpers
 @using WorkItems.PublicDTOs
 @inherits RepoPage
 @inject TaskManager.AppState.SettingsStore Settings
@@ -113,9 +114,12 @@
             <section class="tile ln-main" data-tile="subtasks">
                 <div class="tile-h">
                     <h3>Subtasks</h3>
-                    @if (item.Subtasks.Count > 0) { <span class="count">@item.Subtasks.Count(s => s.Done) of @item.Subtasks.Count done</span> }
-                    <div class="ln-bar" aria-hidden="true"><div style="width:@(item.Subtasks.Count == 0 ? 0 : (int)Math.Round(100.0 * item.Subtasks.Count(s => s.Done) / item.Subtasks.Count))%"></div></div>
+                    @{ (int tallyDone, int tallyTotal) = SubtaskTally.Of(item, OpenBugs.Count); }
+                    @if (tallyTotal > 0) { <span class="count">@tallyDone of @tallyTotal done</span> }
+                    <div class="ln-bar" aria-hidden="true"><div style="width:@(tallyTotal == 0 ? 0 : (int)Math.Round(100.0 * tallyDone / tallyTotal))%"></div></div>
                 </div>
+                @* an unresolved bug is an open subtask, marked as a bug; ticking it resolves it, and it leaves the list *@
+                @foreach (Note b in OpenBugs) { @BugRow(b) }
                 @* task groups: the ones with open subtasks first, the fully done ones after them, each in file order; a group's done subtasks are folded into "N done" *@
                 @foreach (IGrouping<string, Subtask> g in OrderedSubGroups)
                 {
@@ -135,7 +139,7 @@
                         }
                     </div>
                 }
-                @if (item.Subtasks.Count == 0) { <p class="muted">No subtasks yet.</p> }
+                @if (item.Subtasks.Count == 0 && OpenBugs.Count == 0) { <p class="muted">No subtasks yet.</p> }
                 @* a #wi12 here makes the item wait on that one instead of adding a subtask *@
                 <form class="add-line" @onsubmit="AddSubtask" @onsubmit:preventDefault="true">
                     <span class="plus" aria-hidden="true">+</span>
@@ -319,7 +323,7 @@
 
     protected override void Load()
     {
-        (featureChoices, subGroups, waitingOn, blocking) = (null, null, null, null);
+        (featureChoices, subGroups, waitingOn, blocking, openBugs) = (null, null, null, null, null);
         if (Workspace.Root is string active && Workspace.IsLoading(active)) { item = null; return; }   // the pool is reading the headers: the page says Loading… and reads nothing; the load's Changed brings it back here
         item = ItemsCache.Get(Id);
         if (item is null) return;
@@ -422,6 +426,22 @@
 
     private static string SubGroupName(string group) => System.Text.RegularExpressions.Regex.Replace(group, @"^\d+\.\s*", "").Trim() is { Length: > 0 } n ? n : "Subtasks";
     private void ToggleFold(string group) { if (!subUnfolded.Remove(group)) subUnfolded.Add(group); }
+
+    /// <summary>The notes that are bugs nobody resolved, oldest first (the order the feed has them in, reversed).</summary>
+    private IReadOnlyList<Note> OpenBugs => openBugs ??= notes.Where(n => n.IsOpenBug).OrderBy(n => n.Created).ThenBy(n => n.Id).ToList();
+    private IReadOnlyList<Note>? openBugs;   // worked out once per Load
+
+    /// <summary>The line that says what is wrong: the note's own title, or its text's first line while the title is still the default "Bug".</summary>
+    private static string BugText(Note n) => n.Title != "Bug" ? n.Title
+        : n.Body.Split((char)10).Select(l => l.Trim().TrimStart('#').Trim()).FirstOrDefault(l => l.Length > 0) ?? n.Title;
+
+    /// <summary>An unresolved bug as a subtask row: marked Bug, its box resolves it, its text opens the note in the worklog.</summary>
+    private RenderFragment BugRow(Note b) => @<div @key="@("bug" + b.Id)" class="sub bug" data-sk data-bug="@b.Id">
+        <input type="checkbox" checked="@false" @onchange="() => Run(NotesApi.SetResolved(b.Id, true))" aria-label="Resolved" title="Tick when the bug is fixed" />
+        <span class="bug-mark">Bug</span>
+        <span class="s-t" title="Open the note in the worklog" @onclick="() => OpenNote(b.Id)">@BugText(b)</span>
+        <span class="mono">#n@(b.Id)</span>
+    </div>;
 
     /// <summary>One subtask row: its box, its text (click edits it, Shift-click selects it) and its number at the end of the line.</summary>
     private RenderFragment SubRow(Subtask s) => @<div @key="s.Number" class="sub @(s.Done ? "done" : "") @(subSel.Contains(s.Number) ? "selected" : "") @(flashSub == s.Number ? "flash" : "")" data-sk data-sub="@s.Number">

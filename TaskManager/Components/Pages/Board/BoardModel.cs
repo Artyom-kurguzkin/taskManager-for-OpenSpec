@@ -77,7 +77,7 @@ public sealed record ArrowMove(BoardCell Target, int? Before);
 /// An empty column gets one row with no item, so the column still shows as a group. The flat properties feed the grid's
 /// sorting and filtering.
 /// </summary>
-public sealed record GridRow(int Group, BoardColumn Column, string? Category, WorkItem? Item, int Position, string Feature, string Root = "", string Project = "", string Swim = "", string SwimLabel = "", int SwimIndex = 0)
+public sealed record GridRow(int Group, BoardColumn Column, string? Category, WorkItem? Item, int Position, string Feature, string Root = "", string Project = "", string Swim = "", string SwimLabel = "", int SwimIndex = 0, int OpenBugs = 0)
 {
     public string Key => $"{Group}:{Swim}:{Item?.Id ?? 0}";   // an item in two row values of one column (features, people) is two rows
     public int Id => Item?.Id ?? 0;
@@ -86,7 +86,7 @@ public sealed record GridRow(int Group, BoardColumn Column, string? Category, Wo
     public string Label => Item?.Label ?? "";
     public string Contributors => Item is null ? "" : string.Join(", ", Item.Contributors);
     public string Priority => Item?.Priority ?? "";
-    public int Progress => Item is { Subtasks.Count: > 0 } i ? i.Subtasks.Count(s => s.Done) * 100 / i.Subtasks.Count : 0;
+    public int Progress => Item is null ? 0 : SubtaskTally.Percent(Item, OpenBugs);
     public DateTime? Modified => Item?.Modified;
     public DateTime? Started => Item?.Started?.ToDateTime(TimeOnly.MinValue);
     public DateTime? Due => Item?.Due?.ToDateTime(TimeOnly.MinValue);
@@ -307,7 +307,7 @@ public static class BoardModel
     /// (<see cref="GridRow.Group"/>) and carries the whole column; an empty column keeps one row with no item, so it still shows.
     /// </summary>
     public static IReadOnlyList<GridRow> Rows(IReadOnlyList<BoardSection> sections, IReadOnlyDictionary<string, string> featureNames,
-        string root = "", string project = "", int firstGroup = 0)
+        string root = "", string project = "", int firstGroup = 0, IReadOnlyDictionary<int, int>? openBugs = null)
     {
         List<GridRow> rows = [];
         int group = firstGroup, position = 0;
@@ -322,7 +322,7 @@ public static class BoardModel
             foreach (SwimRow swim in Swimlanes(s))
             {
                 foreach (WorkItem it in swim.Columns[ci].Items)
-                    rows.Add(new(group, c, s.Category, it, position++, FeatureOf(it), root, project, swim.Key, swim.Label, lane));
+                    rows.Add(new(group, c, s.Category, it, position++, FeatureOf(it), root, project, swim.Key, swim.Label, lane, openBugs?.GetValueOrDefault(it.Id) ?? 0));
                 lane++;
             }
             if (rows.Count == first) rows.Add(new(group, c, s.Category, null, position++, "", root, project));

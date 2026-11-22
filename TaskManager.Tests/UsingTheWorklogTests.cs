@@ -701,6 +701,9 @@ public sealed class UsingTheWorklogTests : IDisposable
 
     // ── days published ──
 
+    /// <summary>The days of the published list: Bugs and Description are entries of their own (see the feed navigation tests).</summary>
+    private static IReadOnlyList<WorklogDay> Days(UiService ui) => [.. ui.WorklogDays.Where(d => d.Special is null)];
+
     [Fact(DisplayName = "The worklog publishes its days to the side menu and updates them when the filters change")]
     public async Task PublishesItsDays()
     {
@@ -711,19 +714,19 @@ public sealed class UsingTheWorklogTests : IDisposable
         IRenderedComponent<Worklog> log = Log(ctx);
 
         // newest first, today always, labelled as the feed labels them, with the entries each shows
-        Assert.Equal([today, oct2], ui.WorklogDays.Select(d => d.Date));
-        Assert.Equal($"Today · {today.ToString("d MMM", CultureInfo.InvariantCulture)}", ui.WorklogDays[0].Label);
-        Assert.Equal("2 Oct 2026", ui.WorklogDays[1].Label);
-        Assert.Equal(DayOf(log, today).QuerySelectorAll(".wk-e").Length, ui.WorklogDays[0].Count);
-        Assert.Equal(DayOf(log, oct2).QuerySelectorAll(".wk-e").Length, ui.WorklogDays[1].Count);
+        Assert.Equal([today, oct2], Days(ui).Select(d => d.Date));
+        Assert.Equal($"Today · {today.ToString("d MMM", CultureInfo.InvariantCulture)}", Days(ui)[0].Label);
+        Assert.Equal("2 Oct 2026", Days(ui)[1].Label);
+        Assert.Equal(DayOf(log, today).QuerySelectorAll(".wk-e").Length, Days(ui)[0].Count);
+        Assert.Equal(DayOf(log, oct2).QuerySelectorAll(".wk-e").Length, Days(ui)[1].Count);
 
         // a filter that leaves a day nothing to show takes it off the list (today stays), and counts follow
         ui.FilterWorklog(new WorklogFilters(Who: "Zed"));
-        log.WaitForAssertion(() => Assert.Equal([today], ui.WorklogDays.Select(d => d.Date)));
-        Assert.Equal(1, ui.WorklogDays[0].Count);
+        log.WaitForAssertion(() => Assert.Equal([today], Days(ui).Select(d => d.Date)));
+        Assert.Equal(1, Days(ui)[0].Count);
 
         ui.FilterWorklog(new WorklogFilters());
-        log.WaitForAssertion(() => Assert.Equal([today, oct2], ui.WorklogDays.Select(d => d.Date)));
+        log.WaitForAssertion(() => Assert.Equal([today, oct2], Days(ui).Select(d => d.Date)));
 
         // the jump action unfolds a folded day
         Header(log, oct2).Click();
@@ -1216,7 +1219,7 @@ public sealed class UsingTheWorklogTests : IDisposable
         IElement entry(string text) => DayOf(log, today).QuerySelectorAll(".wk-e").Single(e => Text(e).Contains(text));
 
         OpenMenu(log, entry("Broken one"));
-        Assert.Equal(["Edit", "Make it a note", "Make it a decision", "Make it a subtask"], MenuItems(log));
+        Assert.Equal(["Edit", "Make it a note", "Make it a decision", "Mark it resolved", "Make it a subtask"], MenuItems(log));
         Pick(log, "Make it a decision");
         log.WaitForAssertion(() => Assert.True(NotesApi.Get(bug)!.IsDecision));
 
