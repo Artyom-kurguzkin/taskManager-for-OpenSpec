@@ -2144,7 +2144,9 @@ public sealed class UsingTheBoardTests : IDisposable
         AngleSharp.Dom.IElement Band(int id) => board.FindAll("article.card").First(c => c.GetAttribute("data-id") == id.ToString()).QuerySelector(".band")!;
         Assert.Contains("var(--peach)", Band(123).GetAttribute("style"));   // bug
         Assert.Contains("var(--stone)", Band(107).GetAttribute("style"));   // no label
-        Assert.Contains("bug", nav.Find(".legend").TextContent);            // the legend explains the colours shown
+        Assert.Empty(nav.FindAll(".legend"));                               // hidden until the icon by the colour dropdown is clicked
+        nav.ClickWhenReady("button[aria-label='Colour legend']");
+        nav.Eventually(() => Assert.Contains("bug", nav.Find(".legend").TextContent));            // the legend explains the colours shown
         Assert.Contains("var(--peach)", nav.FindAll(".legend .lg").First(l => l.TextContent.Contains("bug")).QuerySelector("i")!.GetAttribute("style"));
         Assert.Equal("label", ctx.Services.GetRequiredService<SettingsStore>().Board(repo.Root).ColorBy);   // remembered
     }
@@ -2188,7 +2190,8 @@ public sealed class UsingTheBoardTests : IDisposable
         nav.Eventually(() => Assert.Contains(TaskManager.Helpers.Ui.Period(first, last), nav.Find("button[aria-label='changed']").TextContent));
         Assert.Equal("changed " + TaskManager.Helpers.Ui.Period(first, last), nav.Find(".legend .lg.head").TextContent.Trim());   // the legend's first line names it
         nav.Eventually(() => Assert.Equal($"1 of {shown} shown", nav.Find(".legend .lg.count").TextContent.Trim()));   // the second line counts what is shown of what the other filters leave
-        Assert.Equal(["In Progress"], nav.FindAll(".legend .lg:not(.head)").Select(l => l.TextContent.Trim()));   // and keeps only the colours of the shown items
+        nav.ClickWhenReady("button[aria-label='Colour legend']");   // the colours are behind the icon; the period's lines above stay
+        nav.Eventually(() => Assert.Equal(["In Progress"], nav.FindAll(".legend .lg:not(.head)").Select(l => l.TextContent.Trim())));   // and keeps only the colours of the shown items
 
         // the board: 123 alone is left, with its colour
         board.Eventually(() => Assert.Single(board.FindAll("article.card")));
@@ -4244,81 +4247,45 @@ public sealed class UsingTheBoardTests : IDisposable
         board.Eventually(() => Assert.False(RowMarkProbe.Examined(board, board.FindAll("tr[data-id]").First(r => r.GetAttribute("data-id") == "123"))));
     }
 
-    // ── auto-hiding side menu ──
+    // ── side menu stays in the layout ──
 
     private static string AppCss() => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
 
-    /// <summary>The rule of the css that brings the hidden menu back: from the edge zone's hover selector to the end of its block.</summary>
-    private static string RevealRule()
-    {
-        string css = AppCss();
-        int start = css.IndexOf(".side-edge:hover + nav.side", StringComparison.Ordinal);
-        Assert.True(start > 0, "a rule that brings the hidden menu back");
-        return css[start..css.IndexOf('}', start)];
-    }
-
-    [Fact(DisplayName = "Collapsed, the side menu is hidden and an edge zone is there to bring it back")]
-    public async Task CollapsedSideMenuHasAnEdgeZone()
+    [Fact(DisplayName = "Collapsed, the side menu stays in the layout beside the page and has no edge zone")]
+    public async Task CollapsedSideMenuStaysInTheLayout()
     {
         await using BunitContext ctx = NewContext();
 
         Assert.DoesNotContain("expanded", nav!.Find("nav.side").ClassName);
-        IElement edge = Assert.Single(nav.FindAll(".side-edge"));
-        Assert.Equal("true", edge.GetAttribute("aria-hidden"));   // no one reaches it by keyboard or screen reader: the rail's own buttons are the way in
-        Assert.True(edge.NextElementSibling?.ClassList.Contains("side"), "the zone sits right before the menu, so the css can show the menu while the zone is hovered");
+        Assert.Empty(nav.FindAll(".side-edge"));   // nothing brings it back: it never leaves
 
         string css = AppCss();
-        Assert.Contains("nav.side:not(.expanded) { position: fixed;", css);   // out of the page's width: the page takes all of it
-        Assert.Contains("translateX(-100%)", css[css.IndexOf("nav.side:not(.expanded) { position: fixed;", StringComparison.Ordinal)..][..400]);
-        Assert.Matches(@"\.side-edge \{[^}]*position: fixed;[^}]*width: 8px;", css);
-        Assert.Contains("#app:has(> nav.side:not(.expanded))", css);
+        Assert.DoesNotContain("side-edge", css);
+        Assert.DoesNotMatch(@"nav\.side:not\(\.expanded\)[^{}]*\{[^}]*(position: fixed|transform)", css);   // no rule sets the collapsed rail apart from the expanded one by position or transform
+        Assert.DoesNotContain("translateX(-100%)", css);
+        Assert.DoesNotContain("#app:has(> nav.side", css);   // the page keeps its column beside the rail: the grid is not rewritten
+        Assert.Contains("#app { display: grid; grid-template-columns: auto minmax(0, 1fr);", css);
     }
 
     [Fact(DisplayName = "Expanded, the side menu has no edge zone and is not hidden")]
     public async Task ExpandedSideMenuHasNoEdgeZone()
     {
         await using BunitContext ctx = NewContext();
-        nav.ClickWhenReady("button.nav-toggle");
+        nav!.ClickWhenReady("button.nav-toggle");
 
         Assert.Contains("expanded", nav.Find("nav.side").ClassName);
         Assert.Empty(nav.FindAll(".side-edge"));
 
         string css = AppCss();
-        Assert.DoesNotContain("nav.side.expanded { position: fixed", css);   // only the collapsed menu leaves the page's layout
+        Assert.DoesNotContain("nav.side.expanded { position: fixed", css);
         Assert.DoesNotMatch(@"nav\.side\.expanded[^{}]*\{[^}]*translateX", css);
     }
 
-    [Fact(DisplayName = "The side menu stays shown while one of its popups is open")]
-    public async Task SideMenuStaysShownWhileAPopupIsOpen()
+    [Fact(DisplayName = "The hint letters no longer need a hidden side menu brought on screen")]
+    public void HintLettersDoNotTouchTheSideMenu()
     {
-        await using BunitContext ctx = NewContext();
-        Assert.Empty(nav!.FindAll("nav.side .menu-backdrop"));
-
-        nav.ClickWhenReady("nav.side .menu-activator");   // the repositories menu
-        Assert.Single(nav.FindAll("nav.side .menu-backdrop"));   // an open popup is inside the menu's markup: the css keeps the menu while it holds one
-
-        string rule = RevealRule();
-        Assert.Contains("nav.side:not(.expanded):has(.menu-backdrop)", rule);
-        Assert.Contains("nav.side:not(.expanded):has(:focus-visible)", rule);   // keyboard focus inside (a mouse click on a button must not pin it)
-    }
-
-    [Fact(DisplayName = "The hidden side menu slides in over the page and hides again after a short delay")]
-    public void HiddenSideMenuSlidesInAndHidesAfterADelay()
-    {
-        string css = AppCss();
-        string hidden = css[css.IndexOf("nav.side:not(.expanded) { position: fixed;", StringComparison.Ordinal)..];
-        hidden = hidden[..hidden.IndexOf('}')];
-        Assert.Contains("transform: translateX(-100%)", hidden);
-        Assert.Matches(@"transition: transform 150ms [a-z-]+ 400ms", hidden);   // slides over 150 ms, and waits 400 ms before hiding
-
-        string reveal = RevealRule();
-        Assert.Contains(".side-edge:hover + nav.side:not(.expanded)", reveal);
-        Assert.Contains("nav.side:not(.expanded):hover", reveal);
-        Assert.Contains("*:not(nav.side:not(.expanded)) { transition: none !important; }", css);   // reduced motion drops the slide, not the wait: the global switch leaves this menu out
-        Assert.Contains("transform: none", reveal);
-        Assert.Contains("transition-delay: 0s", reveal);   // shown at once
-        Assert.Contains("body.hints-on nav.side:not(.expanded)", reveal);   // the hint letters of the rail's buttons need it on screen
-
-        Assert.Contains("hints-on", File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js")));
+        Assert.DoesNotContain("hints-on", File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "js", "app.js")));
+        Assert.DoesNotContain("hints-on", AppCss());
+        Assert.Contains("@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }", AppCss());   // the global switch again leaves nothing out
     }
 }

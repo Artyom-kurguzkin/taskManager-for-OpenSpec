@@ -50,8 +50,12 @@ internal static class Program
         // The main window creates the app-wide services (one set per process); a separate window is handed the same instances, and has its own dialogs, address and pickers.
         ItemWindows? separate = null;
         AgentEndpoint? agents = null;   // started below, once the first window and its workspace exist
-        PhotinoBlazorApp main = CreateWindow(args, new AppMode(), new UiService(), null, builder =>
+        UiService mainUi = new();
+        // The update check (Settings shows its state, the popup is the main window's): it asks GitHub for the latest release once the window is up, never before.
+        AppUpdates updates = new(new HttpClient(), mainUi, UpdateSetup.ForThisRun());
+        PhotinoBlazorApp main = CreateWindow(args, new AppMode(), mainUi, null, builder =>
         {
+            builder.Services.AddSingleton(updates);
             builder.Services.AddSingleton(settings);
             builder.Services.AddSingleton(new BoardStorageSettings(Paths.Home, StorageProviders.Builtin));   // connected storage, per project (Settings → Board storage)
             builder.Services.AddSingleton(SyncSetup.Default with { Focused = () => AnyWindowFocused });   // the idle check asks less often while no window has focus
@@ -64,6 +68,7 @@ internal static class Program
         });
         main.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(true).SetMaximized(true);   // icons: WindowFrame
         mainWindow = main;
+        updates.RestartRequested += () => main.MainWindow.Invoke(() => main.MainWindow.Close());   // "Restart now": the helper is waiting for this process to end
         log.LogInformation("The window's dispatcher is {Watched}", failures.WatchDispatcher(main.Services.GetService<Microsoft.AspNetCore.Components.Dispatcher>()) ? "watched" : "not watchable (Photino exposes no event)");
 
         // A window that stops answering is noticed 30 s later (log and dump); a Windows shutdown or sign-out is named, so the next start does not call it a kill.
@@ -74,6 +79,7 @@ internal static class Program
             ILogger watch = AppLog.Logger("Watchdog");
             watchdog = new UiWatchdog(TimeProvider.System, UiWatchdog.PingThrough(ack => main.MainWindow.Invoke(ack)), text => watch.LogError("{Text}", text), () => UiWatchdog.WriteDump(AppLog.Folder, TimeProvider.System), text => watch.LogInformation("{Text}", text));
             watchdog.Start();
+            _ = Task.Run(() => updates.CheckAsync());   // after the window shows; never throws, never waited for
 #if DEBUG
             // RTM_DEBUG_FREEZE=1: 10 s after the window is up the UI thread sleeps for 40 s, to see the watchdog's record and dump. Debug builds only.
             if (Environment.GetEnvironmentVariable("RTM_DEBUG_FREEZE") == "1")
@@ -132,6 +138,8 @@ internal static class Program
         main.Run();
         watchdog?.Dispose();   // the window is gone: a ping that cannot be answered is no freeze
         log.LogInformation("The window closed; saving and stopping");
+        try { updates.ApplyOnExit(); }   // a downloaded release that "Later" left is installed by the helper once this process has ended
+        catch (Exception e) { LogCrash("Starting the update on exit failed; the app closes anyway. " + e); }
         try { starting.Wait(TimeSpan.FromSeconds(3)); }   // a load or an endpoint start still running at exit is given a moment, then left: the process ends it
         catch (Exception) { }
         // What the window asked a moment before closing is written first: an arrangement still in its 250 ms pause, a status or tick still in the write queue.
@@ -174,7 +182,7 @@ internal static class Program
         builder.Services.AddSingleton(new WindowFrame(() => self?.MainWindow.WindowHandle ?? IntPtr.Zero));
         if (first is null) appWide(builder);
         else
-            foreach (Type shared in new[] { typeof(SettingsStore), typeof(BoardStorageSettings), typeof(SyncSetup), typeof(BoardSyncService), typeof(Workspace), typeof(EditorLauncher), typeof(FolderOpener), typeof(WindowLauncher), typeof(AgentStatus) })
+            foreach (Type shared in new[] { typeof(SettingsStore), typeof(BoardStorageSettings), typeof(SyncSetup), typeof(BoardSyncService), typeof(Workspace), typeof(EditorLauncher), typeof(FolderOpener), typeof(WindowLauncher), typeof(AgentStatus), typeof(AppUpdates) })
                 builder.Services.AddSingleton(shared, first.Services.GetRequiredService(shared));
         builder.RootComponents.Add<App>("#app");
         self = builder.Build();

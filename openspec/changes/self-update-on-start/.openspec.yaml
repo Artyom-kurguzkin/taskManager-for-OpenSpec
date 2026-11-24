@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-24
+x-rtm:
+  id: 222
+  title: Check for updates on start and update itself
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [general-ux]
+  label: feature
+  started: 2026-11-24
+  moved: 2026-11-24
+  plan: DevResources/plans/releases-and-self-update-2026-11-24.md
+  tests: [{suite: UpdatingTheAppTests, test: A newer release on main is reported as available}, {suite: UpdatingTheAppTests, test: The same or an older release reports the app as up to date}, {suite: UpdatingTheAppTests, test: No network or a bad answer says the check could not be made and does not stop the app}, {suite: UpdatingTheAppTests, test: A development build shows its version and never updates itself}, {suite: UpdatingTheAppTests, test: The Settings page shows the current version and the update state}, {suite: UpdatingTheAppTests, test: 'Out of date, the app downloads the release, checks it holds TaskManager.exe and offers to restart'}, {suite: UpdatingTheAppTests, test: 'Choosing Later installs the downloaded release when the app exits, without starting it again'}, {suite: UpdatingTheAppTests, test: A download that does not match its published checksum or lacks TaskManager.exe is refused}, {suite: UpdatingTheAppTests, test: 'The update helper waits for the app to exit, swaps the files and keeps a backup'}, {suite: UpdatingTheAppTests, test: A swap that cannot finish puts the old files back}]
+  agentBy: Claude
+  agentAt: 2026-11-24T12:30:00

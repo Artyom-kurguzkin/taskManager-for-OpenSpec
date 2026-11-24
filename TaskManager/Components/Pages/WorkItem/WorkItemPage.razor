@@ -435,12 +435,12 @@
     private static string BugText(Note n) => n.Title != "Bug" ? n.Title
         : n.Body.Split((char)10).Select(l => l.Trim().TrimStart('#').Trim()).FirstOrDefault(l => l.Length > 0) ?? n.Title;
 
-    /// <summary>An unresolved bug as a subtask row: marked Bug, its box resolves it, its text opens the note in the worklog.</summary>
+    /// <summary>An unresolved bug as a subtask row: marked Bug, its box resolves it, its text and its #nN link open the note in the worklog.</summary>
     private RenderFragment BugRow(Note b) => @<div @key="@("bug" + b.Id)" class="sub bug" data-sk data-bug="@b.Id">
         <input type="checkbox" checked="@false" @onchange="() => Run(NotesApi.SetResolved(b.Id, true))" aria-label="Resolved" title="Tick when the bug is fixed" />
         <span class="bug-mark">Bug</span>
         <span class="s-t" title="Open the note in the worklog" @onclick="() => OpenNote(b.Id)">@BugText(b)</span>
-        <span class="mono">#n@(b.Id)</span>
+        <button type="button" class="sub-from mono" title="Open the note in the worklog" @onclick="() => OpenNote(b.Id)">#n@(b.Id)</button>
     </div>;
 
     /// <summary>One subtask row: its box, its text (click edits it, Shift-click selects it) and its number at the end of the line.</summary>

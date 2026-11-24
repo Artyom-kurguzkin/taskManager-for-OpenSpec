@@ -129,7 +129,7 @@ public sealed class SavingNamedArrangementsTests : IDisposable
         IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
         settings.SaveBoard(repo.Root, settings.Board(repo.Root) with { Hidden = Focus, GroupBy = "priority" });
         if (nav.FindAll(".nav-view").Count == 0) nav.ClickWhenReady("button.nav-toggle");   // the menu is folded to its rail until opened
-        nav.ClickWhenReady("button.nav-sec-h[data-sec=arrangements]");
+        nav.ClickWhenReady("button[aria-label='Saved arrangements']");   // the icon on the Organise header
         await nav.InvokeAsync(() => { });
         nav.WaitForAssertion(() => Assert.NotEmpty(nav.FindAll("input.arr-name")));
         Assert.Empty(nav.FindAll(".arr-row"));
@@ -145,6 +145,8 @@ public sealed class SavingNamedArrangementsTests : IDisposable
         nav.ClickWhenReady("button[aria-label='Open arrangement Focus']");
         await nav.InvokeAsync(() => { });
         nav.WaitForAssertion(() => Assert.Equal((Focus, "priority"), (settings.Board(repo.Root).Hidden, settings.Board(repo.Root).GroupBy)));
+        nav.WaitForAssertion(() => Assert.Empty(nav.FindAll(".arr-row")));   // opening one closes the list
+        nav.ClickWhenReady("button[aria-label='Saved arrangements']");
 
         nav.ClickWhenReady("button[aria-label='Delete arrangement Focus']");
         await nav.InvokeAsync(() => { });

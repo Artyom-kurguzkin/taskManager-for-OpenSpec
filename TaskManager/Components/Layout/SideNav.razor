@@ -5,11 +5,6 @@
 @implements IDisposable
 @* Left icon rail; ☰ expands it to labels, the board's view options and the list of hidden columns.
    On narrow windows the same markup lays out as a top header bar (see app.css "side menu"), where the view icon opens the options. *@
-@if (!expanded)
-{
-    @* Collapsed, the rail is hidden off the left edge (app.css "auto-hiding"); this thin zone before it brings it back while the pointer is on it. *@
-    <div class="side-edge" aria-hidden="true"></div>
-}
 <nav class="side @(expanded ? "expanded" : "")" @onclick="LetGo">
     @* The collapse icon is the rail's first row; expanded, it shares the first visible row instead (the projects row, or the Worklog header). *@
     @if (!ToggleInRow) { @Toggle(false) }
@@ -92,15 +87,13 @@
                     <div class="nav-acts">
                         @foreach (WorklogDay day in Popups.WorklogDays)
                         {
-                            if (day.Special is not null)
+                            if (day.Special == WorklogDay.DescriptionEntry)
                             {
-                                @* Description jumps to the item's first post; Bugs shows only the bug notes (the Bugs pill's click), and again to leave them *@
-                                bool bugsOnly = day.Special == WorklogDay.BugsEntry && wf.Bugs && !wf.AllKinds;
-                                <button type="button" class="nav-day nav-day-@day.Special @(bugsOnly ? "is-sel" : "")" aria-pressed="@(bugsOnly ? "true" : "false")"
-                                        title="@(day.Special == WorklogDay.BugsEntry ? "Show the unresolved bugs" : "Jump to the description")"
-                                        @onclick="() => SpecialClick(day, worklog)">@day.Label@if (day.Count > 0) { <span class="count">@day.Count</span> }</button>
+                                @* Description jumps to the item's first post. The unresolved bugs have no row here: the Bugs pill above is their way in. *@
+                                <button type="button" class="nav-day nav-day-@day.Special" title="Jump to the description" @onclick="() => worklog.JumpToDescription?.Invoke()">@day.Label</button>
                                 continue;
                             }
+                            if (day.Special is not null) continue;
                             bool picked = Popups.WorklogSelectedDays.Contains(day.Date);
                             @* a plain click jumps to the day; Shift-click picks it: the feed then shows only the picked days *@
                             <button type="button" class="nav-day @(picked ? "is-sel" : "")" aria-pressed="@(picked ? "true" : "false")" title="Click to jump · Shift-click to show only the picked days"
@@ -122,10 +115,6 @@
         }
     }
     <span class="spacer"></span>
-    @if (expanded)
-    {
-        <button class="nav-btn nav-log" aria-label="Open current log" title="Open this run's log file in the default editor" @onclick="OpenLog">@Ui.Icon("doc")<span class="nav-l">Open current log</span></button>
-    }
     <button class="nav-btn @(OnSettings ? "is-sel" : "")" aria-label="Settings" title="Settings" @onclick='() => Nav.NavigateTo("settings")'>@Ui.Icon("gear")<span class="nav-l">Settings</span></button>
 </nav>
 
@@ -171,13 +160,6 @@
     {
         if (e.ShiftKey) Popups.ToggleWorklogDay(day);
         else worklog.JumpTo?.Invoke(day);
-    }
-
-    /// <summary>The Bugs entry filters the feed to the bug notes; the Description entry scrolls to the description.</summary>
-    private void SpecialClick(WorklogDay entry, WorklogActions worklog)
-    {
-        if (entry.Special == WorklogDay.BugsEntry) Popups.ClickWorklogKind("Bugs");
-        else worklog.JumpToDescription?.Invoke();
     }
 
     private string Path => Nav.ToBaseRelativePath(Nav.Uri);
@@ -275,13 +257,6 @@
     {
         expanded = !expanded;
         Redraw();
-    }
-
-    /// <summary>Opens this run's log file with the OS default handler, through the same seam that shows a folder (the file manager is the default handler of a folder, the editor of a .log).</summary>
-    private void OpenLog()
-    {
-        if (AppLog.CurrentFile is not string file) { Popups.Toast("This run has no log file.", ToastKind.Warning); return; }
-        if (Services.GetService(typeof(FolderOpener)) is FolderOpener open && open(file) is { Success: false, Message: string message }) Popups.Toast(message, ToastKind.Warning);
     }
 
     private void Set(BoardOptions options)

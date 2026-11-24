@@ -97,6 +97,12 @@ dotnet publish TaskManager -p:PublishProfile=dist-small
 
 This adds `dist\TaskManager-small.exe`, which shares the same `dist\wwwroot\`.
 
+## Releases
+
+Every push to `main` builds a release on GitHub (workflow `.github/workflows/release.yml`): it publishes the `dist` profile (no tests run there; run them locally before pushing) and attaches `RepoTaskManager-win-x64.zip` (`TaskManager.exe` plus `wwwroot\`) to a release named `v<version>`. Releases appear under the repository's **Releases** page.
+
+Versions are semantic and come from [Nerdbank.GitVersioning](https://github.com/dotnet/Nerdbank.GitVersioning): `version.json` holds the major.minor (`0.1`), and the patch is the number of commits since that file last changed, so each push to `main` gets the next patch. Change `version` in `version.json` to start a new minor or major. Builds on other branches carry a `-g<commit>` suffix and are never released. The app reads its version from the assembly's informational version; `nbgv get-version` prints it locally.
+
 ## Agents over MCP
 
 The app can serve the board to coding agents (Claude Code and other [MCP](https://modelcontextprotocol.io/) clients) as eight tools: `board_list`, `board_get`, `board_features`, `board_create`, `board_update`, `board_note`, `board_log` and `board_validate`. They sit on the same code the app uses, so ids are allocated under a lock, what an agent writes is signed with its name, and test names and OpenSpec validity are checked, instead of an agent following the conventions in `openspec/REPO-TASKS.md` by hand (that file stays as the fallback and is rewritten with the instructions for the tools). With the tools loaded they are the only way to touch the board, and the supervisor and every subagent log as they go: one short `board_note` per event while the work is in progress (chunk started, tests red, a blocker, a command and its result, chunk finished), and each decision as a decision note (`kind: "decision"`: what was decided, why, what it rules out), which the worklog emphasises.

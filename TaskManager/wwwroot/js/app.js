@@ -97,7 +97,6 @@ const _hints = {
     if (this.active) return;
     this.active = true;
     this.typed = "";
-    document.body.classList.add("hints-on");   // a collapsed (hidden) side menu is brought on screen, without sliding, so its buttons get letters
     this.overlay = document.createElement("div");
     this.overlay.className = "hint-overlay";
     document.body.appendChild(this.overlay);
@@ -147,7 +146,6 @@ const _hints = {
   hide() {
     this.active = false;
     this.typed = "";
-    document.body.classList.remove("hints-on");
     this.overlay?.remove();
     this.overlay = null;
     this.map.clear();

@@ -8,4 +8,8 @@
     <!-- release builds (dist/) ship without debug symbols -->
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
   </PropertyGroup>
+  <!-- semantic version from version.json + git height (Nerdbank.GitVersioning); the app reads AssemblyInformationalVersion -->
+  <ItemGroup>
+    <PackageReference Include="Nerdbank.GitVersioning" Version="3.9.50" PrivateAssets="all" />
+  </ItemGroup>
 </Project>

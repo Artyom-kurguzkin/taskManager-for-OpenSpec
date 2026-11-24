@@ -250,13 +250,26 @@ public sealed class UsingThePagesTests : IDisposable
     [Fact(DisplayName = "Subtasks are ticked, edited, added and selected in the linked tasks view as they were in the subtasks tile")]
     public async Task SubtasksInTheLinkedView()
     {
-        await using BunitContext ctx = NewContext();
+        FakeTimeProvider time = new();   // the workspace's quiet time (a tick tells the pages 300 ms after its write) and the page's reload window run on it: they end when the test says
+        await using BunitContext ctx = NewContext(time: time);
+        Workspace workspace = ctx.Services.GetRequiredService<Workspace>();
         IRenderedComponent<WorkItemPage> page = ctx.Render<WorkItemPage>(p => p.Add(c => c.Id, 123));
         View(page, "linked");
+
+        // Every write tells the page (the tick's after its quiet time) and the page draws again, which gives the add line's input a new handler: a draw that landed between a Find and its event
+        // was the old "no event handler with ID" failure. A step is settled when the write has landed, the news is told and the draw is done; the next Find sees the final tree.
+        async Task Settled()
+        {
+            Assert.True(await workspace.DrainAsync(TimeSpan.FromSeconds(30)));   // the write has landed and its news is armed
+            time.Advance(TimeSpan.FromSeconds(1));   // the quiet time ends: the pages are told, and the reload window that follows ends
+            await workspace.Resolved;   // the scan the news started
+            await page.InvokeAsync(() => { });   // the draw the news asked for has run
+        }
 
         await page.InvokeAsync(() => page.Find("#sub-1-3").ChangeAsync(true));   // tick; find and trigger in one dispatcher step
         page.WaitForAssertion(() => Assert.Contains("- [x] 1.3", repo.Read("openspec/changes/add-health-check/tasks.md")));
         page.WaitForAssertion(() => Assert.Empty(page.FindAll("#sub-1-3")));   // done: folded away
+        await Settled();
 
         await page.InvokeAsync(() => SubText(page, "Hide internals from anonymous callers").ClickAsync());   // edit in place
         page.WaitForAssertion(() => Assert.Equal("Hide internals from anonymous callers", page.Find(".sub input.sub-edit").GetAttribute("value")));
@@ -264,10 +277,12 @@ public sealed class UsingThePagesTests : IDisposable
         await page.InvokeAsync(() => page.Find(".sub input.sub-edit").KeyDownAsync(Bunit.Key.Enter));
         page.WaitForAssertion(() => Assert.Contains("2.1 Hide internals from everyone", repo.Read("openspec/changes/add-health-check/tasks.md")));
         Assert.Empty(page.FindAll(".sub input.sub-edit"));
+        await Settled();
 
         await page.InvokeAsync(() => page.Find("input[aria-label='New subtask']").ChangeAsync("A fresh step"));   // add
         await page.InvokeAsync(() => page.Find("form.add-line").SubmitAsync());
         page.WaitForAssertion(() => Assert.Contains(WorkItemsApi.Get(123)!.Subtasks, s => s.Text == "A fresh step"));
+        await Settled();
         page.WaitForAssertion(() => Assert.Equal(2, page.FindAll(".tile[data-tile='subtasks'] .sub:not(.done)").Count));   // the open ones: 2.1 and the new one
 
         Assert.Empty(page.FindAll(".actionbar"));   // select: Shift-click

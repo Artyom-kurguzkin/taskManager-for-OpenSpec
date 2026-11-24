@@ -19,3 +19,17 @@
 2026-11-23T09:47:54 | Claude | test-linked | AddingEntriesFromTheCollapsedMenuTests / With the menu collapsed, a work item's rail shows an Add entry icon
 2026-11-23T09:47:54 | Claude | test-linked | AddingEntriesFromTheCollapsedMenuTests / The collapsed Add entry icon opens the same entries as the expanded menu
 2026-11-23T09:47:54 | Claude | subtask-done | 1.1 Collapsed rail shows an Add entry icon with the same entries as the expanded menu
+2026-11-23T10:11:11 | Artyom-kurguzkin | attachment-added | n899: pasted-20261123-101111.png
+2026-11-23T10:11:44 | Artyom-kurguzkin | status | In Review -> In Progress
+2026-11-23T10:24:40 | Claude | commit-linked | 9d9c208
+2026-11-23T10:45:14 | Claude chunk E | verified | Collapsed rail Add entry icon: cause was the menu wrap taking the expanded rows' -6px margins and align-self:flex-start (36px wide, centre 22). Now nav.side.expanded only plus align-self:stretch on the rail. CDP in hidden app: every rail icon x=4 w=34 cx=21 (Menu, Compact, Show all hidden, Add entry, Settings). Shots in worktree tests/out/shots: rail-item-light.png, rail-item-dark.png. Commits 4f7c482, ca59160 on agent/side-menu.
+2026-11-23T10:46:14 | Claude | subtask-added | 1.2 Collapsed + centred and sized like the other rail icons (#n899)
+2026-11-23T10:50:23 | Claude | test-linked | TidyingTheSideMenuTests / The collapsed Add entry icon has the same size as the other rail icons
+2026-11-23T10:50:23 | Claude | subtask-done | 1.2 Collapsed + centred and sized like the other rail icons (#n899)
+2026-11-23T11:18:36 | Claude | status | In Progress -> In Review
+2026-11-24T12:23:35 | Claude chunk S | done | Auto-hide of the collapsed side menu removed (commit 3913a1c on agent/no-autohide).\nRemoved: the app.css auto-hiding block, the .side-edge div in SideNav.razor, the hints-on class in app.js. The reduced-motion rule is back to `*`.\nTests: Passed! - Failed: 0, Passed: 178, Total: 178 (UsingTheBoardTests, AddingEntriesFromTheCollapsedMenuTests, TidyingTheSideMenuTests, SideMenuRenderBudgetTests).\nVerified over CDP on a hidden desktop, light and dark, 1280 and 1920: collapsed nav.side x=0 width=44, main starts at x=44 on the board and on /item/209; expanded width 240, main at 240.
+2026-11-24T12:28:57 | Claude merge | tests-green | Regression on the staged index (main tree, OutDir tests/out/reg, nothing committed, no process killed).\nBuild: dotnet build TaskManager.Tests succeeded, 0 errors, 216 warnings (analyzer warnings only). Restore and the Nerdbank.GitVersioning stamp worked: TaskManager.dll ProductVersion 0.1.0+9d9c208b8a, FileVersion 0.1.0.40348.\nFast suite, one run, no abort:\nPassed!  - Failed:     0, Passed:  1444, Skipped:     1, Total:  1445, Duration: 2 m 48 s - TaskManager.Tests.dll (net10.0)\nSkipped: "Folding a day in the worklog builds no entry menu again".\nNew classes in the trx: ReleasingFromMainTests 4, UpdatingTheAppTests 10.\nResults file refreshed: TaskManager.Tests\\TestResults\\latest.trx.
+2026-11-24T12:30:03 | Claude | test-linked | UsingTheBoardTests / Collapsed, the side menu stays in the layout beside the page and has no edge zone
+2026-11-24T12:30:03 | Claude | test-linked | UsingTheBoardTests / The hint letters no longer need a hidden side menu brought on screen
+2026-11-24T12:30:03 | Claude | subtask-added | 1.3 Collapsed rail stays in the layout: auto-hide removed
+2026-11-24T12:30:03 | Claude | subtask-done | 1.3 Collapsed rail stays in the layout: auto-hide removed

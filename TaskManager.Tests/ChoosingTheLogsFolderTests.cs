@@ -60,7 +60,7 @@ public sealed class ChoosingTheLogsFolderTests : IDisposable
         return ctx;
     }
 
-    [Fact(DisplayName = "The General tab has a Logs folder row with a path, Choose folder, Open folder, Use default and Move existing logs here")]
+    [Fact(DisplayName = "The General tab has a Logs folder row with a path, Choose folder, Open folder, Open current log, Use default and Move existing logs here")]
     public async Task TheRowIsOnTheGeneralTab()
     {
         StartLog();
@@ -71,7 +71,7 @@ public sealed class ChoosingTheLogsFolderTests : IDisposable
         Assert.Equal("Logs folder", row.QuerySelector("th")!.TextContent.Trim());
         AngleSharp.Dom.IElement path = row.QuerySelector("input[aria-label='Logs folder']")!;
         Assert.Equal(AppFolder, path.GetAttribute("placeholder"));   // empty = the app's own folder, shown where the path goes
-        Assert.Equal(["Choose folder", "Open folder", "Use default", "Move existing logs here"], row.QuerySelectorAll("button").Select(b => b.TextContent.Trim()).ToArray());
+        Assert.Equal(["Choose folder", "Open folder", "Open current log", "Use default", "Move existing logs here"], row.QuerySelectorAll("button").Select(b => b.TextContent.Trim()).ToArray());
         Assert.True(row.QuerySelector("button.use-default-logs")!.HasAttribute("disabled"));   // nothing chosen: already the default
     }
 

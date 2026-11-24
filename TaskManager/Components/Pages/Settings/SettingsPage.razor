@@ -1,4 +1,5 @@
 @namespace TaskManager.Components.Pages
+@implements IDisposable
 @page "/settings"
 @using Notes
 @using TaskManager.Api
@@ -84,6 +85,7 @@
                             </div>
                             <div class="att-row att-actions">
                                 <button class="btn open-logs-folder" data-sk @onclick="OpenLogsFolder">Open folder</button>
+                                <button class="btn open-current-log" data-sk title="Open this run's log file in the default editor" @onclick="OpenCurrentLog">Open current log</button>
                                 <button class="btn use-default-logs" data-sk disabled="@(Settings.Current.LogsDir is null)" @onclick="() => ApplyLogsFolder(null)">Use default</button>
                                 <button class="btn move-logs" data-sk @onclick="MoveLogs">Move existing logs here</button>
                             </div>
@@ -119,6 +121,21 @@
                             <p class="muted set-note">One line instead: <code>@AgentGuide.McpAddCommand()</code></p>
                         </td>
                     </tr>
+                    @if (Updates is { } updates)
+                    {
+                        <tr data-setting="version">
+                            <th scope="row">Version</th>
+                            <td>
+                                <div class="set-loc">
+                                    <span class="version-current">@updates.VersionLabel</span>
+                                    <button class="btn check-now" data-sk disabled="@(updates.State is UpdateState.Checking or UpdateState.Downloading)" @onclick="() => _ = updates.CheckAsync()">Check now</button>
+                                </div>
+                                <p class="@(updates.State == UpdateState.Failed ? "warning" : "muted set-note") version-state">@updates.Summary</p>
+                                @if (updates.WhyNot is { } why) { <p class="muted set-note version-why">This copy never updates itself: @why.</p> }
+                                else { <p class="muted set-note">On start the app checks the latest release on GitHub and, when it is newer, downloads it and asks to restart.</p> }
+                            </td>
+                        </tr>
+                    }
                 </tbody>
             </table>
         </div>
@@ -183,7 +200,21 @@
     private AgentStatus? Status => Services.GetService(typeof(AgentStatus)) as AgentStatus;
     private AgentEndpointStatus? agents;
 
-    protected override void OnInitialized() => agents = Status?.Invoke();
+    /// <summary>The update check (registered by the desktop host; absent in tests that do not need it).</summary>
+    private AppUpdates? Updates => Services.GetService(typeof(AppUpdates)) as AppUpdates;
+
+    protected override void OnInitialized()
+    {
+        agents = Status?.Invoke();
+        if (Updates is { } updates) updates.Changed += UpdatesChanged;
+    }
+
+    private void UpdatesChanged() => _ = InvokeAsync(StateHasChanged);   // the check runs on the pool
+
+    public void Dispose()
+    {
+        if (Updates is { } updates) updates.Changed -= UpdatesChanged;
+    }
 
     private static readonly IReadOnlyList<(string, string)> Themes = [("light", "Light"), ("dark", "Dark"), ("system", "System")];
 
@@ -303,6 +334,13 @@
     private void OpenLogsFolder()
     {
         if (FolderOpener?.Invoke(AppLog.Folder) is { Success: false, Message: string message }) Popups.Toast(message, ToastKind.Warning);
+    }
+
+    /// <summary>Opens this run's log file with the OS default handler, through the same seam that shows a folder (the file manager is the default handler of a folder, the editor of a .log).</summary>
+    private void OpenCurrentLog()
+    {
+        if (AppLog.CurrentFile is not string file) { Popups.Toast("This run has no log file.", ToastKind.Warning); return; }
+        if (FolderOpener?.Invoke(file) is { Success: false, Message: string message }) Popups.Toast(message, ToastKind.Warning);
     }
 
     private void MoveLogs() => (logsOk, logsNote, _) = AppLog.MoveExistingLogs();

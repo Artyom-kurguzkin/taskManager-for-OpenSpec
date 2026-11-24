@@ -244,7 +244,6 @@
         List<WorklogDay> shown = [.. days.Where(d => d.Date == Today || d.Rows.Any(VisibleKind)).Select(d => new WorklogDay(d.Date, DayLabel(d.Date), d.Rows.Count(VisibleKind)))];
         int linked = earlier.Count(VisibleKind);
         if (linked > 0) shown.Add(new WorklogDay(DateTime.MinValue, "Linked earlier", linked));
-        if (notes.Count(n => n.IsOpenBug) is > 0 and int bugs) shown.Insert(0, new WorklogDay(DateTime.MinValue, "Bugs", bugs, WorklogDay.BugsEntry));   // the unresolved ones, whatever the filters leave
         shown.Add(new WorklogDay(DateTime.MinValue, "Description", 0, WorklogDay.DescriptionEntry));   // the item's first post ends the feed
         publishing = true;   // the event this raises is the feed's own: it draws nothing new
         try { Popups.SetWorklogDays(shown); }
@@ -540,8 +539,14 @@
         return heading == n.Title ? (eol < 0 ? "" : body[eol..].Trim()) : body;
     }
 
-    private RenderFragment Attachments(Note n) => @<text>
-        @foreach (string a in n.Attachments)
+    private RenderFragment Attachments(Note n) => Attachments(n.Attachments);
+
+    /// <summary>The pictures of the repository a markdown text embeds (a web address is left out): what the description editor previews, as the note editor previews its attachments.</summary>
+    private static IReadOnlyList<string> ImagesIn(string markdown) =>
+        [.. RenderedCache.Links(markdown).Where(l => l.IsImage && l.Url.Length > 0 && !IsUrl(l.Url)).Select(l => Uri.UnescapeDataString(l.Url)).Distinct()];
+
+    private RenderFragment Attachments(IEnumerable<string> entries) => @<text>
+        @foreach (string a in entries)
         {
             if (IsUrl(a)) { <a class="att-link" href="@a" target="_blank" rel="noopener">@a</a> }
             else if (IsImage(a) && ImageSrc(a) is string src) { <img class="att-img" src="@src" alt="@System.IO.Path.GetFileName(a)" /> }
@@ -590,6 +595,7 @@
         <div class="wk-main">
             <div class="wk-line"><span class="wk-label">Description</span></div>
             <textarea @ref="editorBox" class="desc-in" data-paste-img value="@editBody" @oninput="BodyTyped" aria-label="Description" placeholder="Write in markdown. Paste an image to attach it."></textarea>
+            @if (ImagesIn(editBody) is { Count: > 0 } pictures) { <div class="wk-atts">@Attachments(pictures)</div> }
         </div>
     </div>;
 

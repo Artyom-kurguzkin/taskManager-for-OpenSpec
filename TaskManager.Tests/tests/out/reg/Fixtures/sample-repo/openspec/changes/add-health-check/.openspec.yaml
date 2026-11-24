@@ -1,0 +1,12 @@
+schema: spec-driven
+created: 2026-09-12
+# keep this comment
+x-rtm:
+  id: 123
+  title: Health-check endpoint
+  status: In Progress
+  priority: high
+  contributors: [Artyom, Tom]
+  features: [non-functional/security]
+  lanes:
+    In Progress: High priority

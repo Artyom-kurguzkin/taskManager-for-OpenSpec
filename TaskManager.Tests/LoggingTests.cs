@@ -216,7 +216,7 @@ public sealed class LoggingTests : IDisposable
 
     // ---- open the current log (decision 7) ----
 
-    [Fact(DisplayName = "Open current log in the side menu opens this run's log file, in Notepad when .log has no default program")]
+    [Fact(DisplayName = "Open current log on the Settings page opens this run's log file, in Notepad when .log has no default program")]
     public async Task OpenCurrentLogAsksForTheRunLog()
     {
         AppLog.Use(AppLog.Create(logs, console: false, LogLevel.Information, time, pid: 55));
@@ -236,14 +236,15 @@ public sealed class LoggingTests : IDisposable
         OpenSpecStoreModule.State.RealWatcher = false;
         Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(repo.Root).Success);
         ctx.Render<Overlays>();
-        IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
-        Assert.Empty(nav.FindAll("button.nav-log"));   // the collapsed rail has no such item
-        nav.ClickWhenReady("button.nav-toggle");
+        IRenderedComponent<SideNav> menu = ctx.Render<SideNav>();
+        menu.ClickWhenReady("button.nav-toggle");
+        Assert.Empty(menu.FindAll("button.nav-log"));   // no longer in the side menu, collapsed or expanded
+        IRenderedComponent<TaskManager.Components.Pages.SettingsPage> nav = ctx.Render<TaskManager.Components.Pages.SettingsPage>();
 
-        nav.ClickWhenReady("button.nav-log");
+        nav.ClickWhenReady("button.open-current-log");
 
         nav.WaitForAssertion(() => Assert.Equal([expected], opened));
-        Assert.Equal("Open current log", nav.Find("button.nav-log").GetAttribute("aria-label"));
+        Assert.Equal("Open current log", nav.Find("button.open-current-log").TextContent.Trim());
         ProcessStartInfo notepad = Assert.Single(started);
         Assert.Equal("notepad.exe", notepad.FileName);
         Assert.Equal($"\"{expected}\"", notepad.Arguments);
@@ -251,7 +252,7 @@ public sealed class LoggingTests : IDisposable
 
         // with a default program (or off Windows) the shell opens it, as before
         hasDefault = true;
-        nav.ClickWhenReady("button.nav-log");
+        nav.ClickWhenReady("button.open-current-log");
         nav.WaitForAssertion(() => Assert.Equal(2, started.Count));
         Assert.True(started[1].UseShellExecute);
         Assert.Equal(expected, started[1].FileName);

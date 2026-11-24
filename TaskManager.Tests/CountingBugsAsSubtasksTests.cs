@@ -16,7 +16,7 @@ namespace TaskManager.Tests;
 
 /// <summary>
 /// An unresolved bug is an open subtask of its work item, marked as a bug (the subtasks file is not written: the notes are the one place), and a resolved one is not.
-/// The feed navigation in the side menu ends with the item's description, and has a Bugs entry counting the unresolved bugs.
+/// The feed navigation in the side menu ends with the item's description; the unresolved bugs are reached through the Bugs pill, not a row of their own.
 /// </summary>
 public sealed class CountingBugsAsSubtasksTests : IDisposable
 {
@@ -146,8 +146,8 @@ public sealed class CountingBugsAsSubtasksTests : IDisposable
         nav.Eventually(() => Assert.Equal(".wk-first", ctx.JSInterop.Invocations["rtm.scrollToDay"].Last().Arguments[0]));
     }
 
-    [Fact(DisplayName = "The feed navigation has a Bugs entry counting the unresolved bugs, which shows the bug notes")]
-    public async Task FeedNavigationHasBugsEntry()
+    [Fact(DisplayName = "The feed navigation has no Bugs row; the Bugs pill shows the bug notes")]
+    public async Task FeedNavigationHasNoBugsRow()
     {
         await using BunitContext ctx = NewContext();
         Bug("Health route answers 500 after a restart");
@@ -157,10 +157,10 @@ public sealed class CountingBugsAsSubtasksTests : IDisposable
         IRenderedComponent<Worklog> log = ctx.Render<Worklog>(p => p.Add(c => c.Item, WorkItemsApi.Get(123)!).Add(c => c.Root, repo.Root));
         nav.Eventually(() => Assert.NotEmpty(nav.FindAll(".nav-worklog button.nav-day")));
 
-        IElement entry() => nav.FindAll(".nav-worklog button.nav-day").Single(r => r.FirstChild!.TextContent.Trim() == "Bugs");
-        Assert.Equal("2", entry().QuerySelector(".count")!.TextContent.Trim());
+        // the yellow pill is the way to the bugs, so the days list does not repeat it
+        Assert.DoesNotContain(nav.FindAll(".nav-worklog button.nav-day"), r => r.FirstChild!.TextContent.Trim() == "Bugs");
 
-        nav.InvokeAsync(() => entry().Click()).GetAwaiter().GetResult();
+        nav.InvokeAsync(() => nav.FindAll(".nav-worklog .nav-pills button").Single(b => b.TextContent.Trim().StartsWith("Bugs")).Click()).GetAwaiter().GetResult();
         log.Eventually(() =>
         {
             string[] kinds = [.. log.FindAll(".wk-day .wk-e").Select(e => e.GetAttribute("data-kind")!).Distinct()];

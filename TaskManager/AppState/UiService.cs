@@ -42,11 +42,11 @@ public sealed record WorklogActions(Action AddNote, Action AddDecision, Action L
 
 /// <summary>
 /// A day of the worklog feed as the side menu lists it: Date is DateTime.MinValue for the "Linked earlier" group; Count is the entries shown.
-/// <paramref name="Special"/> marks the two entries that are not days: <see cref="DescriptionEntry"/> (the item's description, the feed's last post; Count 0) and <see cref="BugsEntry"/> (the unresolved bugs).
+/// <paramref name="Special"/> marks the one entry that is not a day: <see cref="DescriptionEntry"/> (the item's description, the feed's last post; Count 0).
 /// </summary>
 public sealed record WorklogDay(DateTime Date, string Label, int Count, string? Special = null)
 {
-    public const string DescriptionEntry = "description", BugsEntry = "bugs";
+    public const string DescriptionEntry = "description";
 }
 
 public sealed record Toast(int Id, string Text, ToastKind Kind);

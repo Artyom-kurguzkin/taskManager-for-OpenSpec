@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-24
+x-rtm:
+  id: 221
+  title: Release on every push to main, semantically versioned
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [general-ux]
+  label: feature
+  started: 2026-11-24
+  moved: 2026-11-24
+  plan: DevResources/plans/releases-and-self-update-2026-11-24.md
+  tests: [{suite: ReleasingFromMainTests, test: TaskManager.Tests.ReleasingFromMainTests.Public_releases_are_cut_from_main_only}, {suite: ReleasingFromMainTests, test: TaskManager.Tests.ReleasingFromMainTests.Every_project_gets_its_version_from_Nerdbank_GitVersioning}, {suite: ReleasingFromMainTests, test: TaskManager.Tests.ReleasingFromMainTests.The_workflow_runs_on_every_push_to_main}, {suite: ReleasingFromMainTests, test: TaskManager.Tests.ReleasingFromMainTests.The_workflow_publishes_the_asset_the_updater_downloads}]
+  agentBy: Claude
+  agentAt: 2026-11-24T12:29:57

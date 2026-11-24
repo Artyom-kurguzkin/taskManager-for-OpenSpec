@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-23
+x-rtm:
+  id: 220
+  title: browser menu cr
+  status: In Review
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-23
+  moved: 2026-11-23
+  plan: DevResources/plans/in-progress-wi215-wi219-2026-11-23.md
+  tests: [{suite: TidyingTheSideMenuTests, test: 'Open current log is on the Settings page, not in the side menu'}, {suite: TidyingTheSideMenuTests, test: Saved arrangements open from an icon on the Organise header}, {suite: TidyingTheSideMenuTests, test: The colour legend is hidden until its icon next to the colour dropdown is clicked}, {suite: LoggingTests, test: "Open current log on the Settings page opens this run's log file, in Notepad when .log has no default program"}, {suite: PreviewingImagesInTheDescriptionTests, test: 'Editing the description shows a preview of each image it references, like editing a note'}, {suite: PreviewingImagesInTheDescriptionTests, test: An image pasted while editing the description shows its preview at once}, {suite: PreviewingImagesInTheDescriptionTests, test: Editing a description without images shows no preview area}, {suite: PreviewingImagesInTheDescriptionTests, test: 'The preview of the description editor goes away with the editor, and the saved description still shows its images'}]
+  agentBy: Claude
+  agentAt: 2026-11-23T11:18:37

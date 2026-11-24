@@ -95,7 +95,7 @@
   /* the page, the side menu, the board and the list show none: the edge fades on those scroll areas show that there is more */
   html, main, nav.side, .board-wrap, .tbl-wrap { scrollbar-width: none; }
   html::-webkit-scrollbar, main::-webkit-scrollbar, nav.side::-webkit-scrollbar, .board-wrap::-webkit-scrollbar, .tbl-wrap::-webkit-scrollbar { display: none; }
-  @media (prefers-reduced-motion: reduce) { *:not(nav.side:not(.expanded)) { transition: none !important; } }   /* the hidden side menu keeps its 400 ms wait (below), without the slide */
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 }
 
 /* ───────────────────────────────────────────── primitives ───────────────────────────────────────────── */
@@ -272,23 +272,6 @@
   .grp-row:hover { background: color-mix(in srgb, var(--stone) 45%, transparent); }
   .grp-row .nm { padding-left: 6px; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .grp-row .count { margin-left: 0; padding-inline: 6px; text-align: right; }
-  /* auto-hiding: collapsed, the rail leaves the page's layout (the page takes the whole width) and waits off the left edge. The pointer on the thin
-     zone before it, or on the rail itself, slides it in over the page; it leaves again 400 ms after the pointer does (the delay is on the hiding).
-     It stays while it is in use: keyboard focus inside, an open popup (a menu keeps its backdrop in the rail), the hint letters. A shown rail has no
-     transform at all, so the popups fixed inside it still place against the window. The narrow window's header bar is not hidden. */
-  @media (min-width: 901px) {
-    #app:has(> nav.side:not(.expanded)) { grid-template-columns: minmax(0, 1fr); }
-    nav.side:not(.expanded) { position: fixed; left: 0; transform: translateX(-100%); transition: transform 150ms ease 400ms; }
-    .side-edge { position: fixed; top: 0; bottom: 0; left: 0; z-index: 20; width: 8px; }
-    .side-edge:hover + nav.side:not(.expanded),
-    nav.side:not(.expanded):hover,
-    nav.side:not(.expanded):has(:focus-visible),
-    nav.side:not(.expanded):has(.menu-backdrop),
-    nav.side:not(.expanded):has(.rz-dropdown-panel),
-    body.hints-on nav.side:not(.expanded) { transform: none; transition-delay: 0s; box-shadow: 4px 0 0 var(--shadow); }
-    body.hints-on nav.side:not(.expanded) { transition: none; }
-    @media (prefers-reduced-motion: reduce) { nav.side:not(.expanded) { transition-duration: 1ms; } }   /* no slide: it jumps, after the same wait */
-  }
   @media (min-width: 901px) { .nav-view-btn { display: none; } }   /* desktop: ☰ shows the options; the view icon is for the header bar */
   @media (max-width: 900px) {
     /* a header bar on top; main takes the rest of the window so the list / board / page scroll inside it */
@@ -302,7 +285,6 @@
     .nav-sep { display: none; }   /* the header bar's options run in one wrapping row */
     .nav-view { flex: 1 1 100%; order: 10; flex-flow: row wrap; align-items: center; margin: 0; border-bottom: 0; }
     .nav-hidden { flex: 1 1 100%; order: 11; max-width: 420px; border-bottom: 0; }
-    .nav-arr { flex: 1 1 100%; order: 10; max-width: 420px; }
   }
 }
 
@@ -628,6 +610,7 @@
   .sub input.sub-edit { flex: 1; min-width: 0; margin: -2px 0; padding: 1px 4px; font: inherit; color: var(--ink); background: var(--card); border: 0; border-bottom: 2px solid var(--accent); border-radius: 4px; outline: none; }   /* edited in place */
   .sub .sub-from, .wk-jump { font: inherit; font-size: var(--t-xs); color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }   /* a link between a subtask and the note it was made from */
   .sub .sub-from { margin-top: 2px; white-space: nowrap; }
+  .sub .sub-from.mono { font-family: var(--f-mono); font-size: var(--t-xs); }   /* a bug's note number, the row's last cell, is the link to the note */
   .sub .sub-from:hover, .wk-jump:hover, .sub .sub-from:focus-visible, .wk-jump:focus-visible { color: var(--ink); }
   .wk-jump { font-size: inherit; }
   .sub.flash, .wk-e.flash { animation: rtm-flash 2.4s ease-out; }   /* the target of a link, marked for a moment: a fade, no timer */
@@ -1137,10 +1120,13 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   .nav-hidden > .nav-sec-h { padding-left: 0; }
   .nav-hidden .nav-sec-body { gap: 1px; }
   .nav-hidden .nav-sec-body > .nav-pill { align-self: flex-start; margin-left: -2px; }
-  /* saved arrangements: a name to open and an eye-less delete per row, then a name box and "save as" */
-  .nav-arr { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 8px; border-bottom: 2px dashed var(--line-soft); }
-  .nav-arr > .nav-sec-h { padding-left: 0; }
-  .nav-arr .nav-sec-body { gap: 1px; }
+  /* saved arrangements, in the popup of the Organise header's icon: a name to open and a delete per row, then a name box and "save as" */
+  .nav-arr { display: flex; flex-direction: column; gap: 1px; min-width: 210px; padding: 2px; }
+  .nav-arr-btn.menu-open, .nav-arr-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  /* the colour dropdown and the icon that shows its legend share the field's value column; the icon takes the menu's right padding so the pill keeps its width */
+  .field-ctl { display: flex; align-items: center; gap: 2px; min-width: 0; margin-right: -6px; }
+  .field-ctl > .dd { flex: 0 1 auto; min-width: 0; }
+  .nav-legend-btn.is-sel { background: var(--sun); color: var(--on-fill); }
   .arr-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 2px; padding: 1px 2px; border-radius: 8px; align-self: stretch; }
   .arr-row:hover { background: color-mix(in srgb, var(--stone) 45%, transparent); }
   .arr-open { padding: 0 0 0 6px; border: 0; background: none; color: var(--ink); font: 500 14px var(--f-body); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
@@ -1217,9 +1203,14 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   @media (min-width: 901px) {
     nav.side .nav-btn, nav.side .nav-sec-h, nav.side .nav-add { min-height: 32px; padding-inline: 4px; border: 2px solid transparent; border-radius: 10px; gap: 10px; }
     nav.side:not(.expanded) .nav-btn { padding-inline: 8px; }   /* the rail: the icon centred in its 44px */
-    nav.side .nav-sec-h, nav.side .nav-add-menu { margin-inline: -6px; width: calc(100% + 12px); align-self: stretch; }
-    .nav-hidden, .nav-arr { padding-inline: 6px; }
-    nav.side .nav-hidden > .nav-sec-h, nav.side .nav-arr > .nav-sec-h { margin-inline: -6px; width: calc(100% + 12px); padding-inline: 4px; }
+    nav.side .nav-sec-h, nav.side.expanded .nav-add-menu { margin-inline: -6px; width: calc(100% + 12px); align-self: stretch; }   /* only the expanded rows run past the menu's padding: on the 44px rail the Add entry icon is centred like the others */
+    nav.side:not(.expanded) .nav-add-menu { align-self: stretch; }   /* the rail's width, like every other icon: not shrunk to the button's own 36px */
+    nav.side .nav-sec-row { display: flex; align-items: center; gap: 2px; margin-inline: -6px; width: calc(100% + 12px); align-self: stretch; }   /* the Organise header: the fold button and the saved-arrangements icon */
+    nav.side .nav-sec-row > .nav-sec-h { flex: 1 1 0; width: auto; margin-inline: 0; }
+    nav.side .nav-sec-row > .menu-wrap { flex: none; width: auto; }
+    nav.side .nav-sec-row .nav-arr-btn { margin-right: 2px; }
+    .nav-hidden { padding-inline: 6px; }
+    nav.side .nav-hidden > .nav-sec-h { margin-inline: -6px; width: calc(100% + 12px); padding-inline: 4px; }
     .nav-hidden .nav-sec-body > .nav-pill { margin-left: -6px; }
     nav.side .nav-sec-h:hover { background: var(--stone); color: var(--on-fill); }
     .nav-sec-chev { width: 16px; height: 16px; justify-content: center; align-items: center; }

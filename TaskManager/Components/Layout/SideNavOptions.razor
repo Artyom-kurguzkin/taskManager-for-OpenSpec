@@ -14,7 +14,26 @@
     @if (!analytics)
     {
     <div class="organise" role="group" aria-label="Organise">
-        @SectionHead("organise", "Organise", organiseSummary)
+        @* the saved arrangements are an icon at the end of the header: open one (it replaces the live options), delete one, or save the live ones under a name (an existing name is updated) *@
+        <div class="nav-sec-row">
+            @SectionHead("organise", "Organise", organiseSummary)
+            <Menu @ref="arrMenu" Label="Saved arrangements" Class="nav-arr-menu">
+                <Activator><button type="button" class="ic nav-arr-btn" aria-label="Saved arrangements" title="@(arrangements.Count == 0 ? "Saved arrangements" : $"Saved arrangements · {arrangements.Count} saved")" aria-haspopup="menu">@Ui.Icon("bookmark")</button></Activator>
+                <Items>
+                    <div class="nav-arr">
+                    @foreach (string name in arrangements)
+                    {
+                        <div class="arr-row"><button type="button" class="arr-open nm" aria-label="Open arrangement @name" title="Open @name" @onclick="() => OpenArrangement(name)">@name</button>
+                            <button class="ic" aria-label="Delete arrangement @name" title="Delete" @onclick="() => DeleteArrangement(name)">@Ui.Icon("trash")</button></div>
+                    }
+                    <div class="arr-new">
+                        <input @key="saves" class="box text-in arr-name" data-sk placeholder="Name…" maxlength="40" aria-label="Arrangement name" @oninput="e => arrName = e.Value?.ToString() ?? string.Empty" @onkeydown="SaveOnEnter" />
+                        <button type="button" class="nav-pill arr-save" title="Save the arrangement on screen under this name; a name already there is updated" @onclick="SaveArrangement">save as</button>
+                    </div>
+                    </div>
+                </Items>
+            </Menu>
+        </div>
         <div class="nav-sec-body" id="sec-organise-body" hidden="@(!openOrganise)">
         @if (openOrganise)
         {
@@ -30,17 +49,25 @@
             <div class="field"><label>columns</label><Dropdown Label="columns" Class="@("is-group " + Look(o.GroupBy, "none"))" Options="BoardPage.GroupBys" Value="@o.GroupBy" ValueChanged="v => Set(Saved with { GroupBy = v })" /></div>
             <div class="field"><label>rows</label><Dropdown Label="rows" Class="@Look(o.Swimlane, "none")" Options="BoardPage.Swimlanes" Value="@o.Swimlane" ValueChanged="v => Set(Saved with { Swimlane = v })" /></div>
         }
-        <div class="field"><label>colour</label><Dropdown Label="colour" Class="@Look(o.ColorBy, "none")" Options="BoardPage.ColorBys" Value="@o.ColorBy" ValueChanged="v => Set(Saved with { ColorBy = v })" /></div>
-        @if (o.ChangedOn || legend.Count > 0)
+        <div class="field colour"><label>colour</label>
+            <div class="field-ctl"><Dropdown Label="colour" Class="@Look(o.ColorBy, "none")" Options="BoardPage.ColorBys" Value="@o.ColorBy" ValueChanged="v => Set(Saved with { ColorBy = v })" />
+                @* the legend is hidden until asked for: this icon shows and hides it *@
+                @if (HasLegend) { <button type="button" class="ic nav-legend-btn @(showLegend ? "is-sel" : "")" aria-label="Colour legend" title="@(showLegend ? "Hide the colour legend" : "Show the colour legend")" aria-pressed="@(showLegend ? "true" : "false")" @onclick="ToggleLegend">@Ui.Icon("swatch")</button> }
+            </div>
+        </div>
+        @if (o.ChangedOn || (HasLegend && showLegend))
         {
             <div class="legend" aria-label="Colour legend">
                 @if (o.ChangedOn) { <span class="lg head">@BoardModel.ChangedLabel(o)</span> }
                 @if (shownCount is var (inPeriod, others)) { <span class="lg head count">@inPeriod of @others shown</span> }
-                @foreach ((string label, string colour) in legend.Take(BoardModel.Palette.Count))
+                @if (showLegend)
                 {
-                    <span class="lg"><i style="--sw:var(@colour)"></i>@label</span>
+                    @foreach ((string label, string colour) in legend.Take(BoardModel.Palette.Count))
+                    {
+                        <span class="lg"><i style="--sw:var(@colour)"></i>@label</span>
+                    }
+                    @if (legend.Count > BoardModel.Palette.Count) { <span class="lg more">+@(legend.Count - BoardModel.Palette.Count) more</span> }
                 }
-                @if (legend.Count > BoardModel.Palette.Count) { <span class="lg more">+@(legend.Count - BoardModel.Palette.Count) more</span> }
             </div>
         }
         }
@@ -74,24 +101,6 @@
     @if (!analytics) { <div class="nav-sep" role="separator"></div> }
     @if (ListView == "list") { @Pill("show subtasks", o.ShowSubtasks, v => Set(Saved with { ShowSubtasks = v }), opt: "subtasks") }
     else if (!analytics) { @Pill("compact cards", o.Compact, v => Set(Saved with { Compact = v }), opt: "compact") }
-</div>
-@* the arrangements the user saved under a name for this project: open one (it replaces the live options), save the live ones under a name (an existing name is updated), delete one *@
-<div class="nav-arr" role="group" aria-label="Saved arrangements">
-    @SectionHead("arrangements", "Saved arrangements", arrangementsSummary)
-    <div class="nav-sec-body" id="sec-arrangements-body" hidden="@(!openArrangements)">
-    @if (openArrangements)
-    {
-        foreach (string name in arrangements)
-        {
-            <div class="arr-row"><button type="button" class="arr-open nm" aria-label="Open arrangement @name" title="Open @name" @onclick="() => OpenArrangement(name)">@name</button>
-                <button class="ic" aria-label="Delete arrangement @name" title="Delete" @onclick="() => DeleteArrangement(name)">@Ui.Icon("trash")</button></div>
-        }
-        <div class="arr-new">
-            <input @key="saves" class="box text-in arr-name" data-sk placeholder="Name…" maxlength="40" aria-label="Arrangement name" @oninput="e => arrName = e.Value?.ToString() ?? string.Empty" @onkeydown="SaveOnEnter" />
-            <button type="button" class="nav-pill arr-save" title="Save the arrangement on screen under this name; a name already there is updated" @onclick="SaveArrangement">save as</button>
-        </div>
-    }
-    </div>
 </div>
 @* hide from a column header (or a project header) on the board; hidden ones are listed here, to bring back, under the switch that shows them all.
    The block is always there, so the switch can be reached before anything is hidden. *@
@@ -151,9 +160,8 @@
     private long changes;
 
     private BoardOptions o = new(), ov = new();
-    private bool analytics, openOrganise, openFilters, openHidden, openArrangements;
+    private bool analytics, openOrganise, openFilters, openHidden, showLegend;
     private IReadOnlyList<string> arrangements = [];
-    private string? arrangementsSummary;
     private string arrName = "";
     private int saves;   // the name box is a new element after each save, so it comes back empty
     private IReadOnlyList<(string, string)> people = [], commits = [];
@@ -188,7 +196,7 @@
         List<string> hidden = Workspace.Projects.Where(Settings.ProjectHidden).ToList();
         // the Hidden counts add up no items while this project is folded to its heading among several (shown or not), as the column headers leave it out
         bool folded = root is not null && Settings.ProjectCollapsed(root) && Workspace.Projects.Count(p => !Settings.ProjectHidden(p)) > 1;
-        string open = string.Concat(new[] { "organise", "filters", "hidden", "arrangements" }.Select(s => Settings.MenuSectionOpen(s) ? '1' : '0'));
+        string open = string.Concat(new[] { "organise", "filters", "hidden" }.Select(s => Settings.MenuSectionOpen(s) ? '1' : '0'));
         return new Key(ListView, options, Interlocked.Read(ref changes), Today, root, open, string.Join('|', hidden), folded, string.Join('|', Settings.Current.HiddenItems ?? []), root is null ? "" : string.Join('|', Settings.ArrangementNames(root)));
     }
 
@@ -208,9 +216,8 @@
         bool list = key.ListView == "list";
         ov = list ? o.ForList() : o;
         analytics = key.ListView == "analytics";
-        (openOrganise, openFilters, openHidden, openArrangements) = (key.Open[0] == '1', key.Open[1] == '1', key.Open[2] == '1', key.Open[3] == '1');
+        (openOrganise, openFilters, openHidden) = (key.Open[0] == '1', key.Open[1] == '1', key.Open[2] == '1');
         arrangements = key.Arrangements.Length == 0 ? [] : [.. key.Arrangements.Split('|')];
-        arrangementsSummary = arrangements.Count == 0 ? null : $"{arrangements.Count} saved";
         DateOnly today = key.Today;
 
         // what the board's content gives (items, features, the people and the commits to pick from) is read again only when the content moved or the
@@ -297,7 +304,7 @@
     /// <summary>A section's header: a click target with a chevron that folds the block under it. Folded, it carries a short summary of what is set inside, so an active filter shows without opening it.</summary>
     private RenderFragment SectionHead(string sec, string title, string? summary)
     {
-        bool open = sec switch { "organise" => openOrganise, "filters" => openFilters, "arrangements" => openArrangements, _ => openHidden };
+        bool open = sec switch { "organise" => openOrganise, "filters" => openFilters, _ => openHidden };
         return @<button type="button" class="nav-h nav-sec-h @(open ? "is-open" : "")" data-sec="@sec" aria-expanded="@(open ? "true" : "false")" aria-controls="@($"sec-{sec}-body")"
                         title="@(summary is null ? null : $"{title} · {summary}")" @onclick="() => Settings.ToggleMenuSection(sec)">
                    <span class="nav-sec-chev" aria-hidden="true">@Ui.Icon("caret")</span><span class="nav-sec-t">@title</span>@if (!open && summary is not null) { <span class="nav-sec-sum">@(" · " + summary)</span> }
@@ -314,8 +321,20 @@
     /// <summary>The options as saved right now: a handler builds on these, not on the last draw (a pick made a moment ago may not have drawn yet).</summary>
     private BoardOptions Saved => Workspace.ViewRoot is string root ? Settings.Board(root) : new();
 
+    /// <summary>There are colours to explain. The changed period's line and the count of what is shown stay under the dropdown whatever the icon says: they are about the filter, not the colours.</summary>
+    private bool HasLegend => legend.Count > 0;
+
+    private void ToggleLegend()
+    {
+        showLegend = !showLegend;
+        Invalidate();
+    }
+
+    private Menu? arrMenu;
+
     private void OpenArrangement(string name)
     {
+        arrMenu?.Close();   // the options on screen are the arrangement's now: the list gets out of the way
         if (Workspace.ViewRoot is string root) Settings.OpenArrangement(root, name);
     }
 

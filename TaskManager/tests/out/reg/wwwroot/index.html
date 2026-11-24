@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'none'" />
+  <title>Repo tasks</title>
+  <base href="/" />
+  <script src="js/theme.js"></script>
+  <link href="css/app.css" rel="stylesheet" />
+  <link rel="icon" href="icon.svg" />
+</head>
+<body>
+  <!-- The first frame, before Blazor has booted: the side strip and a board of grey columns (the same markup and classes as Components/Shared/BoardSkeleton). No script, no spinner. -->
+  <div id="app"><nav class="side" aria-hidden="true"><i class="sk sk-btn"></i><i class="sk sk-btn"></i><i class="sk sk-btn"></i><i class="sk sk-btn"></i><i class="sk sk-btn"></i></nav><main aria-hidden="true"><div class="skeleton"><div class="sk-col"><i class="sk sk-head"></i><i class="sk sk-card"></i><i class="sk sk-card tall"></i><i class="sk sk-card"></i></div><div class="sk-col"><i class="sk sk-head"></i><i class="sk sk-card"></i><i class="sk sk-card"></i></div><div class="sk-col"><i class="sk sk-head"></i><i class="sk sk-card tall"></i><i class="sk sk-card"></i><i class="sk sk-card"></i></div><div class="sk-col"><i class="sk sk-head"></i><i class="sk sk-card"></i></div><div class="sk-col"><i class="sk sk-head"></i><i class="sk sk-card"></i><i class="sk sk-card tall"></i></div></div></main></div>
+  <!-- Blazor shows this bar when an unhandled error ends the app's circuit (it sets display:block); the error itself is logged by the app. No inline script: the CSP allows 'self' only. -->
+  <div id="blazor-error-ui">An error has occurred. It is in the log. <a href="" class="reload">Reload</a><span class="dismiss" aria-label="Dismiss">&#x2715;</span></div>
+  <script src="_framework/blazor.webview.js"></script>
+  <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
