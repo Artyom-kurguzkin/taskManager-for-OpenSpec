@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-24
+x-rtm:
+  id: 223
+  title: Split panes in a window (Alt+\) and a new full window (Alt+Win+\)
+  status: In Review
+  contributors: [Claude]
+  features: [general-ux]
+  label: feature
+  started: 2026-11-24
+  moved: 2026-11-24
+  plan: DevResources/plans/split-panes-and-new-window-2026-11-24.md
+  tests: [{suite: SplittingPanesTests, test: Alt+backslash splits the active pane into two showing the same page}, {suite: SplittingPanesTests, test: A split never goes past four panes}, {suite: SplittingPanesTests, test: Ctrl+W closes the active pane and its neighbour becomes active}, {suite: SplittingPanesTests, test: Ctrl+W with one pane closes nothing}, {suite: SplittingPanesTests, test: Opening a work item from the list in a split opens it in the neighbouring pane}, {suite: SplittingPanesTests, test: 'An item opened from a pane goes to its right neighbour, or the left one from the last pane'}, {suite: SplittingPanesTests, test: The window has one side menu and it names the tab it acts on}, {suite: SplittingPanesTests, test: The side menu follows the pane that was clicked last}, {suite: SplittingPanesTests, test: Navigating through the window's address lands in the active pane}, {suite: SplittingPanesTests, test: One pane looks the same as before the split existed}, {suite: SplittingPanesTests, test: The work item page no longer offers beside the list or item only}, {suite: SplittingPanesTests, test: Alt+Win+backslash opens a full window on the active pane's page}, {suite: SplittingPanesTests, test: Alt+Win+backslash says so when no window can be opened}, {suite: SplittingPanesTests, test: With the board pane active the side menu shows no worklog of an item in another pane}, {suite: SplittingPanesTests, test: Activating the item's pane brings its worklog block back to the side menu}, {suite: SplittingPanesTests, test: Two item panes each keep their own worklog in the side menu}, {suite: OpeningANewWindowTests, test: A new window opens the full app on the same address with its own dialogs}, {suite: OpeningANewWindowTests, test: A new window on the board opens at the board address}, {suite: OpeningANewWindowTests, test: A new window is not a detached one-item window}, {suite: OpeningANewWindowTests, test: 'A failing window factory comes back as a message, not a crash'}, {suite: OpeningANewWindowTests, test: A notice from the workspace reaches a new window until it is closed}, {suite: OpeningANewWindowTests, test: Opening a new window starts no second agent endpoint}]
+  agentBy: Claude
+  agentAt: 2026-11-24T16:49:27

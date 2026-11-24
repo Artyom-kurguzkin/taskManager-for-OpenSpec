@@ -2369,7 +2369,6 @@ public sealed class UsingTheBoardTests : IDisposable
     public async Task SideMenuShowsTheWorklog()
     {
         await using BunitContext ctx = NewContext();
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");   // an item page, not the board
         UiService ui = ctx.Services.GetRequiredService<UiService>();
         nav.ClickWhenReady("button.nav-toggle");
@@ -2415,43 +2414,21 @@ public sealed class UsingTheBoardTests : IDisposable
         nav.Eventually(() => Assert.Empty(nav.FindAll(".nav-worklog")));
     }
 
-    [Fact(DisplayName = "In split view the Worklog block comes before the list's organise, sort and display blocks")]
-    public async Task SplitViewPutsTheWorklogFirst()
+    [Fact(DisplayName = "On a work item's page the menu holds the Worklog block and none of the list's organise, sort and display blocks")]
+    public async Task ItemPageMenuHasOnlyTheWorklog()
     {
         await using BunitContext ctx = NewContext();
-        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
-        settings.Update(s => s with { Split = true });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         nav.ClickWhenReady("button.nav-toggle");
-
-        // the item is open beside the list, with no worklog: the menu holds the list's options as before
-        nav.Eventually(() => Assert.NotEmpty(nav.FindAll(".organise")));
+        nav.Eventually(() => Assert.Empty(nav.FindAll(".organise")));   // the list's options are the board's, not the item's
         Assert.Empty(nav.FindAll(".nav-worklog"));
 
         IRenderedComponent<Worklog> log = OpenWorklog(ctx);
         nav.Eventually(() => Assert.NotEmpty(nav.FindAll(".nav-worklog")));
-        string html = nav.Find("nav.side").InnerHtml;
-        int worklog = html.IndexOf("nav-worklog", StringComparison.Ordinal), organise = html.IndexOf("class=\"organise\"", StringComparison.Ordinal);
-        int sort = html.IndexOf("sort by", StringComparison.Ordinal), show = html.IndexOf("show subtasks", StringComparison.Ordinal);
-        Assert.InRange(worklog, 0, organise - 1);
-        Assert.InRange(organise, worklog, sort - 1);
-        Assert.True(show > sort, "the display switches follow the sort and filters");
+        Assert.Empty(nav.FindAll(".organise"));
 
-        // the list's blocks stay usable under it
-        Assert.NotEmpty(nav.FindAll(".organise .dd"));
-
-        // a window too narrow for the split view hides the list, so its options leave the menu; the Worklog block stays
-        UiService ui = ctx.Services.GetRequiredService<UiService>();
-        ui.SetNarrowWindow(true);
-        nav.Eventually(() => Assert.Empty(nav.FindAll(".organise")));
-        Assert.NotEmpty(nav.FindAll(".nav-worklog"));
-        ui.SetNarrowWindow(false);
-        nav.Eventually(() => Assert.NotEmpty(nav.FindAll(".organise")));
-
-        // the worklog closes: the menu is the list's alone
         ((IDisposable)log.Instance).Dispose();   // the view goes away; the side menu stays
         nav.Eventually(() => Assert.Empty(nav.FindAll(".nav-worklog")));
-        Assert.NotEmpty(nav.FindAll(".organise"));
     }
 
     // ── worklog days ──
@@ -2460,7 +2437,6 @@ public sealed class UsingTheBoardTests : IDisposable
     public async Task SideMenuListsTheWorklogDays()
     {
         await using BunitContext ctx = NewContext();
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         nav.ClickWhenReady("button.nav-toggle");
         IRenderedComponent<Worklog> log = OpenWorklog(ctx);
@@ -2491,7 +2467,6 @@ public sealed class UsingTheBoardTests : IDisposable
     public async Task SideMenuShowsDecisionsAndEdits()
     {
         await using BunitContext ctx = NewContext();
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         UiService ui = ctx.Services.GetRequiredService<UiService>();
         nav.ClickWhenReady("button.nav-toggle");
@@ -2735,7 +2710,6 @@ public sealed class UsingTheBoardTests : IDisposable
         board.Eventually(() => Assert.NotEmpty(board.FindAll("article.card.collapsed")));
 
         // the worklog's filters are pills too
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         ctx.Services.GetRequiredService<UiService>().OpenWorklog(new WorklogActions(() => { }, () => { }, () => { }, () => { }, () => { }, () => { }));
         nav.Eventually(() => Assert.NotEmpty(nav.FindAll(".nav-worklog button.nav-pill")));
@@ -3025,7 +2999,6 @@ public sealed class UsingTheBoardTests : IDisposable
     public async Task WorklogHasOneAddEntryMenu()
     {
         await using BunitContext ctx = NewContext();
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         UiService ui = ctx.Services.GetRequiredService<UiService>();
         nav.ClickWhenReady("button.nav-toggle");
@@ -3057,29 +3030,19 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.DoesNotContain("Bug", nav.FindAll("button[role=menuitem]").Select(i => i.TextContent.Trim()));
     }
 
-    [Fact(DisplayName = "With a work item filling the window the menu hides the projects, layout and new item rows, and shows them again in split view")]
-    public async Task ItemPageHidesTheFirstSectionUnlessSplit()
+    [Fact(DisplayName = "With a work item filling the window the menu hides the projects, layout and new item rows, and shows them again on the board")]
+    public async Task ItemPageHidesTheFirstSection()
     {
         await using BunitContext ctx = NewContext();
-        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         NavigationManager location = ctx.Services.GetRequiredService<NavigationManager>();
-        UiService ui = ctx.Services.GetRequiredService<UiService>();
         string[] first = ["button[aria-label='Open repositories']", "button[aria-label=Layout]", "button[aria-label='New work item']"];
         nav.ClickWhenReady("button.nav-toggle");
         Assert.All(first, q => Assert.NotEmpty(nav.FindAll(q)));   // the board has them
 
-        settings.Update(s => s with { Split = false });
         location.NavigateTo("item/123");
         nav.Eventually(() => Assert.All(first, q => Assert.Empty(nav.FindAll(q))));
         Assert.NotEmpty(nav.FindAll("button.nav-toggle"));
         Assert.NotEmpty(nav.FindAll("button[aria-label=Settings]"));
-
-        settings.Update(s => s with { Split = true });   // beside the list
-        nav.Eventually(() => Assert.All(first, q => Assert.NotEmpty(nav.FindAll(q))));
-
-        ui.SetNarrowWindow(true);   // too narrow for the split: the item fills the window again
-        nav.Eventually(() => Assert.All(first, q => Assert.Empty(nav.FindAll(q))));
-        ui.SetNarrowWindow(false);
 
         location.NavigateTo("");   // and back on the board
         nav.Eventually(() => Assert.All(first, q => Assert.NotEmpty(nav.FindAll(q))));
@@ -3115,7 +3078,6 @@ public sealed class UsingTheBoardTests : IDisposable
 
         // an item filling the window: no first section, so the Worklog header's row has it
         nav.ClickWhenReady("button.nav-toggle");
-        settings.Update(s => s with { Split = false });
         location.NavigateTo("item/123");
         ctx.Services.GetRequiredService<UiService>().OpenWorklog(new WorklogActions(() => { }, () => { }, () => { }, () => { }, () => { }, () => { }));
         nav.Eventually(() => Assert.NotEmpty(nav.FindAll(".nav-worklog .nav-h button.nav-toggle")));
@@ -3235,7 +3197,6 @@ public sealed class UsingTheBoardTests : IDisposable
     public async Task ShiftClickingDaysFiltersTheFeed()
     {
         await using BunitContext ctx = NewContext();
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         nav.ClickWhenReady("button.nav-toggle");
         IRenderedComponent<Worklog> log = OpenWorklog(ctx);
@@ -3793,7 +3754,6 @@ public sealed class UsingTheBoardTests : IDisposable
     public async Task FeedFilterClickIsSoloThenAdditive()
     {
         await using BunitContext ctx = NewContext();
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         UiService ui = ctx.Services.GetRequiredService<UiService>();
         nav.ClickWhenReady("button.nav-toggle");
@@ -4064,7 +4024,6 @@ public sealed class UsingTheBoardTests : IDisposable
     public async Task AddEntryIsTheRedButton()
     {
         await using BunitContext ctx = NewContext();
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         nav.ClickWhenReady("button.nav-toggle");
         OpenWorklog(ctx);

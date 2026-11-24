@@ -17,7 +17,6 @@ public sealed record AppSettings(
     List<string>? CollapsedProjects = null,   // tabs folded to their heading on the board (by Key)
     Dictionary<string, string>? PlansDirs = null,   // only what this computer had saved before the folder became a project setting (openspec/config.yaml plansDir); read until the project has one, cleared when it is saved there; missing = DevResources/plans
     Dictionary<string, string>? AttachmentsDirs = null,   // only what this computer had saved before the folder became a project setting (openspec/config.yaml); read until the project has one, cleared when it is saved there
-    bool Split = true,                 // an open work item sits beside the list (half-screen) when the window is wide enough
     List<string>? OpenMenuSections = null,
     string? LogsDir = null,   // where the run logs, crash notes and freeze dumps go: an absolute folder; null = the app's own (Paths.Logs). Read before the settings are opened (PeekLogsDir)
     Dictionary<string, Dictionary<string, BoardOptions>>? Arrangements = null);   // per project (Key): the arrangements saved under a name, each a snapshot of the project's BoardOptions; null = none (also every file written before they existed)
@@ -108,7 +107,7 @@ public sealed class SettingsStore
             {
                 object? was = p.GetValue(before), now = p.GetValue(Current);
                 if (JsonSerializer.Serialize(was) == JsonSerializer.Serialize(now)) continue;
-                TaskManager.Helpers.UiLog.Action("Settings", "Update", p.Name is "Theme" or "Hints" or "Split" ? $"{p.Name}={now}" : p.Name);
+                TaskManager.Helpers.UiLog.Action("Settings", "Update", p.Name is "Theme" or "Hints" ? $"{p.Name}={now}" : p.Name);
             }
         Changed?.Invoke();
     }

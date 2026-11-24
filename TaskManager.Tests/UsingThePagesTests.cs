@@ -1362,55 +1362,6 @@ public sealed class UsingThePagesTests : IDisposable
         });
     }
 
-    [Fact(DisplayName = "An open work item sits beside the list: the layout renders the list on the left with the open item's row marked, the item on the right, and the split toggle hides the list and is remembered")]
-    public async Task SplitBesideTheList()
-    {
-        await using BunitContext ctx = NewContext();
-        Microsoft.AspNetCore.Components.NavigationManager nav = ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
-        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
-        Assert.True(settings.Current.Split);   // on unless switched off
-        Assert.Equal("board", settings.Board(repo.Root).View);   // the board is not in list view, the embedded list is one anyway
-
-        nav.NavigateTo("item/123");
-        IRenderedComponent<MainLayout> layout = ctx.Render<MainLayout>(p => p.Add(l => l.Body, (Microsoft.AspNetCore.Components.RenderFragment)(b =>
-        {
-            b.OpenComponent<TaskManager.Components.Pages.WorkItemPage>(0);
-            b.AddComponentParameter(1, "Id", 123);
-            b.CloseComponent();
-        })));
-
-        layout.WaitForAssertion(() => Assert.Equal(4, layout.FindAll("main.split .split-list tr[data-id]").Count));   // the grid groups its rows after the first render
-        string Open() => string.Join(",", layout.FindAll(".split-list tr[data-id]").Where(r => RowMarkProbe.Current(layout, r)).Select(r => r.GetAttribute("data-id")));   // the row RowMarks marks
-        Assert.Equal("123", Open());
-        Assert.Equal("Health-check endpoint", layout.Find(".split-item input.title-in").GetAttribute("value"));
-
-        // the marked row follows the address
-        nav.NavigateTo("item/107");
-        layout.WaitForAssertion(() => Assert.Equal("107", Open()));
-
-        // the split menu's "Item only" hides the list, and the choice outlives the app
-        PickSplit(layout, "Item only");
-        layout.WaitForAssertion(() =>   // the click returns before its handler and the draw it causes when the renderer is busy
-        {
-            Assert.Empty(layout.FindAll(".split-list"));
-            Assert.Empty(layout.FindAll("main.split"));
-            Assert.NotEmpty(layout.FindAll("main input.title-in"));   // the item is still there, alone
-            Assert.False(settings.Current.Split);
-            Assert.False(new SettingsStore(settingsFile).Current.Split);
-        });
-
-        PickSplit(layout, "Beside the list");
-        layout.WaitForAssertion(() =>
-        {
-            Assert.NotEmpty(layout.FindAll(".split-list tr[data-id]"));
-            Assert.True(new SettingsStore(settingsFile).Current.Split);
-        });
-
-        // away from an item (the board itself) there is no split
-        nav.NavigateTo("/");
-        layout.WaitForAssertion(() => Assert.Empty(layout.FindAll(".split-list")));
-    }
-
     [Fact(DisplayName = "The note editor fills its tile and the worklog's description editor sits in the feed, both with no border of their own while editing")]
     public async Task EditorsFillTheirTile()
     {
@@ -1550,62 +1501,25 @@ public sealed class UsingThePagesTests : IDisposable
             b.CloseComponent();
         })));
 
-    private static List<string> SplitChoices(IRenderedComponent<MainLayout> layout) =>
-        layout.FindAll(".menu-pop .menu-item").Select(i => i.TextContent.Trim()).ToList();
-
-    /// <summary>Opens the split menu and picks one entry by its text.</summary>
-    private static void PickSplit(IRenderedComponent<MainLayout> layout, string choice)
-    {
-        layout.InvokeAsync(() => { }).GetAwaiter().GetResult();   // let what is queued on the renderer run first: an event dispatched into a busy renderer returns before it is handled
-        layout.ClickWhenReady("button.split-btn");
-        layout.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == choice));   // the menu is drawn after the click, not with it
-    }
-
-    [Fact(DisplayName = "The split button is a menu with Beside the list, Item only and Separate window; Separate window asks the launcher for a window on this item and the main window goes back to the board")]
-    public async Task SplitMenuWithSeparateWindow()
+    [Fact(DisplayName = "The item page's separate window button asks the launcher for a window on this item and the main window goes back to the board")]
+    public async Task SeparateWindowButton()
     {
         List<(string Root, int Id)> launched = [];
         await using BunitContext ctx = NewContext(windows: (root, id) => { launched.Add((root, id)); return (true, ""); });
         Microsoft.AspNetCore.Components.NavigationManager nav = ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
-        SettingsStore settings = ctx.Services.GetRequiredService<SettingsStore>();
         nav.NavigateTo("item/123");
         IRenderedComponent<MainLayout> layout = RenderItemLayout(ctx, 123);
-        layout.WaitForAssertion(() => Assert.NotEmpty(layout.FindAll("main.split .split-list tr[data-id]")));
-
-        // the three choices; the current one is marked (beside the list is on until switched off)
-        layout.ClickWhenReady("button.split-btn");
-        layout.WaitForAssertion(() =>
-        {
-            Assert.Equal(["Beside the list", "Item only", "Separate window"], SplitChoices(layout));
-            Assert.Equal(["Beside the list"], layout.FindAll(".menu-pop .menu-item.cur").Select(i => i.TextContent.Trim()));
-            Assert.Contains("wide-only", layout.FindAll(".menu-pop .menu-item")[0].ClassList);   // the CSS drops it in a narrow window; the other two stay
-        });
-
-        layout.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all[1]);   // Item only
-        layout.WaitForAssertion(() =>
-        {
-            Assert.False(settings.Current.Split);
-            Assert.Empty(layout.FindAll("main.split"));
-        });
-        layout.ClickWhenReady("button.split-btn");
-        layout.WaitForAssertion(() => Assert.Equal(["Item only"], layout.FindAll(".menu-pop .menu-item.cur").Select(i => i.TextContent.Trim())));
-        layout.FireWhenReady(".menu-pop .menu-item", e => e.Click(), all => all[0]);   // Beside the list
-        layout.WaitForAssertion(() =>
-        {
-            Assert.True(settings.Current.Split);
-            Assert.NotEmpty(layout.FindAll("main.split .split-list tr[data-id]"));
-        });
+        layout.WaitForAssertion(() => Assert.NotEmpty(layout.FindAll("button.split-btn")));
         Assert.Empty(launched);
+        Assert.DoesNotContain("Beside the list", layout.Markup);   // the list beside the item is a split of the window now (Alt+\)
 
-        // Separate window: the launcher gets the repository and the item, the split choice is left alone, the main window goes to the board
-        PickSplit(layout, "Separate window");
+        layout.ClickWhenReady("button.split-btn");
+
         Assert.Equal([(repo.Root, 123)], launched);
-        Assert.True(settings.Current.Split);
         layout.WaitForAssertion(() => Assert.Equal("", nav.ToBaseRelativePath(nav.Uri)));
-        layout.WaitForAssertion(() => Assert.Empty(layout.FindAll("main.split")));
     }
 
-    [Fact(DisplayName = "A separate window shows only the work item page, without the side menu, the split menu or the back button")]
+    [Fact(DisplayName = "A separate window shows only the work item page, without the side menu, the separate window button or the back button")]
     public async Task DetachedWindow()
     {
         AppMode mode = new() { Detached = true };
@@ -1616,8 +1530,7 @@ public sealed class UsingThePagesTests : IDisposable
 
         Assert.Equal("Health-check endpoint", layout.Find("main input.title-in").GetAttribute("value"));
         Assert.Empty(layout.FindAll("nav.side"));
-        Assert.Empty(layout.FindAll("main.split"));
-        Assert.Empty(layout.FindAll(".split-list"));
+        Assert.Empty(layout.FindAll("main.panes"));
         Assert.Empty(layout.FindAll("button.split-btn"));
         Assert.Empty(layout.FindAll(".sheet-close"));
     }
@@ -1721,20 +1634,21 @@ public sealed class UsingThePagesTests : IDisposable
         Assert.Contains("sheet", ctx.Render<NotePage>(p => p.Add(c => c.Id, 123)).Find("div[data-sk=soft]").ClassList);
     }
 
-    [Fact(DisplayName = "In a window too narrow for the split screen the list beside an open item is not rendered, and it comes back when the window widens")]
-    public async Task NarrowWindowSkipsTheList()
+    [Fact(DisplayName = "In a window too narrow for panes side by side only the active pane is rendered, and the others come back when the window widens")]
+    public async Task NarrowWindowShowsOnlyTheActivePane()
     {
         await using BunitContext ctx = NewContext();
         ctx.JSInterop.Setup<bool>("rtm.watchNarrow", _ => true).SetResult(true);   // the window is under the split breakpoint
         ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("item/123");
         IRenderedComponent<MainLayout> layout = RenderItemLayout(ctx, 123);
+        await layout.InvokeAsync(layout.Instance.SplitPane);
 
-        layout.WaitForAssertion(() => Assert.Empty(layout.FindAll(".split-list")));
-        Assert.NotEmpty(layout.FindAll(".split-item .sheet"));   // the item is there; only the list the CSS would hide is not built
+        layout.WaitForAssertion(() => Assert.Single(layout.FindAll("main.panes > .pane")));
+        Assert.NotEmpty(layout.FindAll(".pane.active .sheet"));   // the item is there; only the pane the CSS would hide is not built
 
         await layout.InvokeAsync(() => layout.Instance.NarrowChanged(false));   // the window widens
-        layout.WaitForAssertion(() => Assert.NotEmpty(layout.FindAll("main.split .split-list tr[data-id]")));
-        Assert.NotEmpty(layout.FindAll(".split-item .sheet"));
+        layout.WaitForAssertion(() => Assert.Equal(2, layout.FindAll("main.panes > .pane").Count));
+        Assert.Equal(2, layout.FindAll(".pane .sheet").Count);
     }
 
     // ── Loading once ──

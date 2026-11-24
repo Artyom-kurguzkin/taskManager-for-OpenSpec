@@ -5,7 +5,7 @@
 @using WorkItems.PublicDTOs
 @inherits RepoPage
 
-@if (!Embedded) { <ScrollMemory View="@View" /> }   @* the embedded list beside an open item keeps its own scroll *@
+<ScrollMemory View="@View" />
 
 @if (Workspace.Root is null)
 {

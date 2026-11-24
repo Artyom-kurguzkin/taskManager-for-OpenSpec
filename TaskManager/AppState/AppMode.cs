@@ -32,6 +32,24 @@ public delegate void WindowFactory(WindowRequest request);
 /// </summary>
 public sealed class ItemWindows(Workspace workspace, WindowFactory create, Func<UiService>? newUi = null)
 {
+    /// <summary>One more full window (side menu, any page, its own panes) on <paramref name="path"/>, a base-relative address ("" for the board). Not detached, and not pinned to a project:
+    /// it follows the shared active project like the main window (a per-window project would need every page to read its own).</summary>
+    public (bool Success, string Message) OpenFull(string path)
+    {
+        UiService ui = newUi?.Invoke() ?? new();
+        IDisposable attached = workspace.AttachWindow(ui);
+        try
+        {
+            create(new WindowRequest(new AppMode { StartPath = path }, ui, "Repo tasks", attached.Dispose));
+            return (true, "");
+        }
+        catch (Exception e)
+        {
+            attached.Dispose();
+            return (false, $"Couldn't open a new window: {e.Message}");
+        }
+    }
+
     public (bool Success, string Message) Open(string repoRoot, int itemId)
     {
         if (!workspace.Projects.Any(p => SettingsStore.Key(p) == SettingsStore.Key(repoRoot)))

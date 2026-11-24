@@ -839,15 +839,17 @@
   .note-title:hover { outline: 2px dashed var(--accent); }
 }
 
-/* ───────── split screen: an open work item beside the list (MainLayout) ───────── */
-main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; padding: 0; overflow: hidden; gap: 0; }
-.split-list, .split-item { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; padding: 4px 12px 0; }
-.split-list { border-right: 2px solid var(--line-soft); }
-.split-list .scx { min-height: 360px; }
-/* the row of the open work item (tr.cur) is marked by RowMarks */
+/* ───────── panes: the window split side by side (MainLayout, PaneHost), Alt+\ splits and Ctrl+W closes ───────── */
+main.panes { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; padding: 0; overflow: hidden; gap: 0; }
+.pane { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; padding: 2px 12px 0; border-top: 2px solid transparent; }
+.pane + .pane { border-left: 2px solid var(--line-soft); }
+.pane.active { border-top-color: var(--accent); }   /* the one the side menu acts on: a thin line on top, no frame */
+.pane .scx { min-height: 360px; }
+/* the tab the side menu acts on, while split: plain text; the rail has room for the number only */
+.nav-tab { padding: 2px 8px; font: 600 var(--t-xs) var(--f-body); color: var(--ink-2); white-space: nowrap; }
+nav.side:not(.expanded) .nav-tab { padding-inline: 0; text-align: center; }
 @media (max-width: 1399px) {
-  main.split { grid-template-columns: minmax(0, 1fr); }
-  .split-list, .split-btn { display: none; }
+  main.panes { grid-auto-flow: row; }   /* only the active pane is built */
 }
 
 @layer page {
@@ -859,12 +861,6 @@ main.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)
   .sub-group .g-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .sub-group .g-prog { margin-left: auto; font-size: var(--t-xs); font-weight: 400; color: var(--ink-2); white-space: nowrap; }
 }
-/* the split button is a menu (WorkItemPage); in a narrow window the list is not shown, so only "Item only" and "Separate window" remain */
-@media (max-width: 1399px) {
-  .split-btn { display: inline-grid; }
-  .menu-item.wide-only { display: none; }
-}
-
 /* ── Worklog feed ── */
 /* The worklog view of a work item (Worklog.razor): days newest first, each a header that folds it and a rail of entries.
    Notes and events are plain entries with a small coloured marker on the rail and a soft line between them; the time sits in a column on the right. */

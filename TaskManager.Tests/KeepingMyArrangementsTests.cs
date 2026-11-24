@@ -115,9 +115,10 @@ public sealed class KeepingMyArrangementsTests : IDisposable
         board.FireWhenReady(".menu-item", e => e.Click(), all => all.Single(i => i.TextContent.Trim() == "Hide column"));
         Assert.DoesNotContain("Blocked", Columns(board));
 
-        nav!.ClickWhenReady("button[aria-label='New work item']");   // adds an item and opens its page, where the list sits beside it (a new page of the board)
+        nav!.ClickWhenReady("button[aria-label='New work item']");   // adds an item and opens its page
         board.Dispose();
-        IRenderedComponent<BoardPage> beside = ctx.Render<BoardPage>(p => p.Add(b => b.Embedded, true).Add(b => b.Current, 1));
+        ctx.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("");   // back to the board: the item's page has no layout switch
+        IRenderedComponent<BoardPage> beside = ctx.Render<BoardPage>();
         Show("List");
         beside.Dispose();
         IRenderedComponent<BoardPage> list = ctx.Render<BoardPage>();
@@ -146,7 +147,7 @@ public sealed class KeepingMyArrangementsTests : IDisposable
 
         nav!.ClickWhenReady("button[aria-label='New work item']");
         list.Dispose();
-        IRenderedComponent<BoardPage> beside = ctx.Render<BoardPage>(p => p.Add(b => b.Embedded, true).Add(b => b.Current, 1));
+        IRenderedComponent<BoardPage> beside = ctx.Render<BoardPage>();
         beside.WaitForAssertion(() => Assert.NotEmpty(beside.FindAll("tr[data-id]")));
         Assert.DoesNotContain(beside.FindAll("thead th"), h => h.TextContent.Contains("Progress"));
         beside.Dispose();

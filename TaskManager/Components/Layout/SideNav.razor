@@ -8,6 +8,11 @@
 <nav class="side @(expanded ? "expanded" : "")" @onclick="LetGo">
     @* The collapse icon is the rail's first row; expanded, it shares the first visible row instead (the projects row, or the Worklog header). *@
     @if (!ToggleInRow) { @Toggle(false) }
+    @if (PaneNumber is int tab)
+    {
+        @* split: the one menu acts on the active pane; the rail has room for the number only *@
+        <div class="nav-tab" title="This menu acts on tab @tab" aria-label="Tab @tab">@(expanded ? $"Tab {tab}" : tab.ToString())</div>
+    }
     @if (Workspace.Root is not null)
     {
         @if (!ItemFillsWindow)
@@ -69,7 +74,7 @@
         <button class="nav-btn nav-view-btn @(expanded ? "is-open" : "")" aria-label="View options" title="View options" @onclick="ToggleMenu">@Ui.Icon("sliders")</button>
         @if (expanded && Popups.WorklogOpen is { } worklog)
         {
-            @* An open worklog has its own filters and actions here, first: they come before the list's options when the split view shows both. *@
+            @* An open worklog has its own filters and actions here, first: *@
             WorklogFilters wf = Popups.WorklogFilter;
             <div class="nav-view nav-worklog" role="group" aria-label="Worklog">
                 <div class="nav-h"><span>Worklog</span>@if (ItemFillsWindow) { @Toggle(true) }</div>
@@ -104,7 +109,7 @@
                 }
             </div>
         }
-        @if (expanded && ListBlocks)
+        @if (expanded && OnBoard)
         {
             @* the option blocks stay while an item is examined: hidden, not rebuilt, so letting go costs no draw *@
             <div class="nav-opts" hidden="@(examining)"><SideNavOptions ListView="@ListView" /></div>
@@ -164,11 +169,10 @@
 
     private string Path => Nav.ToBaseRelativePath(Nav.Uri);
     private bool OnBoard => Path.Length == 0;
-    /// <summary>The split view: a work item open beside the list. The list's options are then in the menu on the item's page too, as a list whatever the board's view is.</summary>
-    private bool SplitItem => Settings.Current.Split && !Popups.NarrowWindow && Path.Split('?', '#')[0].Split('/') is ["item", var n] && int.TryParse(n, out _);
-    private bool ListBlocks => OnBoard || SplitItem;
-    /// <summary>A work item fills the window (not beside the list): the projects, layout and new item rows have nothing to do there, and the item has its own Back.</summary>
-    private bool ItemFillsWindow => !SplitItem && Path.Split('?', '#')[0].Split('/') is ["item", var n] && int.TryParse(n, out _);
+    /// <summary>A work item fills its pane: the projects, layout and new item rows have nothing to do there, and the item has its own Back.</summary>
+    private bool ItemFillsWindow => Path.Split('?', '#')[0].Split('/') is ["item", var n] && int.TryParse(n, out _);
+    /// <summary>The active pane's number while the window is split (the menu acts on that tab); null with one pane.</summary>
+    private int? PaneNumber => Popups.Panes.All.Count > 1 ? Popups.Panes.Number(Popups.Panes.Active) : null;
     /// <summary>An on/off option: a pill, filled when on and plain underlined text when off; a real button, so the keyboard reaches it.</summary>
     private RenderFragment Pill(string label, bool on, Action<bool> set, string? id = null, string? opt = null) =>
         @<button type="button" class="nav-pill @(on ? "is-sel" : "")" id="@id" data-opt="@opt" aria-pressed="@(on ? "true" : "false")" @onclick="() => set(!on)">@label</button>;
@@ -208,7 +212,7 @@
     /// work items does not draw the rail. The collapsed rail shows the board's switches, the expanded menu does not.
     /// </summary>
     private sealed record WorklogKey(WorklogActions Actions, WorklogFilters Filter, string People, string Days, string Picked, bool CanLinkTest, bool CanLinkCommit);
-    private sealed record NavKey(bool Expanded, bool OnBoard, bool Split, bool Fills, bool OnSettings, string? Root, string Repos, string HiddenRepos, string View,
+    private sealed record NavKey(bool Expanded, bool OnBoard, int? Tab, bool Fills, bool OnSettings, string? Root, string Repos, string HiddenRepos, string View,
         bool Compact, bool Subtasks, bool Examining, WorklogKey? Worklog, (WorklogActions Actions, bool CanLinkTest, bool CanLinkCommit)? RailLog);
 
     private NavKey MakeKey()
@@ -222,7 +226,7 @@
             : null;
         // collapsed, the rail's Add entry icon needs the open worklog's actions, not its filters
         (WorklogActions, bool, bool)? railLog = !open && Popups.WorklogOpen is { } r ? (r, r.CanLinkTest?.Invoke() ?? true, r.CanLinkCommit?.Invoke() ?? true) : null;
-        return new NavKey(open, OnBoard, SplitItem, ItemFillsWindow, OnSettings, Workspace.Root, string.Join('|', repos), string.Concat(repos.Select(r => Settings.ProjectHidden(r) ? '1' : '0')),
+        return new NavKey(open, OnBoard, PaneNumber, ItemFillsWindow, OnSettings, Workspace.Root, string.Join('|', repos), string.Concat(repos.Select(r => Settings.ProjectHidden(r) ? '1' : '0')),
             options.View, !open && options.Compact, !open && options.ShowSubtasks, examining, worklog, railLog);
     }
 
@@ -236,6 +240,7 @@
         Workspace.Changed += Redraw;
         Popups.WorklogChanged += Redraw;
         Popups.LayoutChanged += Redraw;
+        Popups.Panes.Changed += Redraw;
         Nav.LocationChanged += OnNavigated;
     }
 
@@ -311,6 +316,7 @@
         Workspace.Changed -= Redraw;
         Popups.WorklogChanged -= Redraw;
         Popups.LayoutChanged -= Redraw;
+        Popups.Panes.Changed -= Redraw;
         Nav.LocationChanged -= OnNavigated;
     }
 }

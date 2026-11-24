@@ -1,0 +1,36 @@
+@inherits RtmComponent
+@* One pane's page, chosen by the pane's own address by the same routes as the window's router (BoardPage "/", WorkItemPage "item/{Id}", NotePage "note/{Id}",
+   SettingsPage "settings", DocPage "doc/{*Path}"). The pane is cascaded to the page, so a board knows where an item it opens should go. *@
+<CascadingValue Value="Pane" IsFixed="true">
+    @if (target is { } t)
+    {
+        <DynamicComponent Type="t.Type" Parameters="t.Parameters" />
+    }
+    else
+    {
+        <p>Page not found.</p>
+    }
+</CascadingValue>
+
+@code {
+    [Parameter, EditorRequired] public Pane Pane { get; set; } = default!;
+
+    private record Target(Type Type, Dictionary<string, object?>? Parameters);
+
+    private Target? target => Find(Pane.Path);
+
+    /// <summary>The page an address names, with its route parameters; null for an address no page has.</summary>
+    private static Target? Find(string path)
+    {
+        string[] parts = path.Split('?', '#')[0].Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts switch
+        {
+            [] => new(typeof(BoardPage), null),
+            ["item", var n] when int.TryParse(n, out int id) => new(typeof(WorkItemPage), new() { ["Id"] = id }),
+            ["note", var n] when int.TryParse(n, out int id) => new(typeof(NotePage), new() { ["Id"] = id }),
+            ["settings"] => new(typeof(SettingsPage), null),
+            ["doc", ..] => new(typeof(DocPage), new() { ["Path"] = string.Join('/', parts[1..]) }),
+            _ => null,
+        };
+    }
+}

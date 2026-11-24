@@ -61,7 +61,6 @@ public sealed class TidyingTheSideMenuTests : IDisposable
     public async Task TheCollapsedAddIconIsRailSized()
     {
         await using BunitContext ctx = NewContext();
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
         ctx.Services.GetRequiredService<UiService>().OpenWorklog(new WorklogActions(() => { }, () => { }, () => { }, () => { }, () => { }, () => { }));
@@ -81,7 +80,6 @@ public sealed class TidyingTheSideMenuTests : IDisposable
     public async Task TheDaysListHasNoBugsRow()
     {
         await using BunitContext ctx = NewContext();
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         UiService ui = ctx.Services.GetRequiredService<UiService>();
         (bool ok, _, int id) = NotesApi.Create(123, "Tester", DateTime.Now, NoteKinds.Bug);

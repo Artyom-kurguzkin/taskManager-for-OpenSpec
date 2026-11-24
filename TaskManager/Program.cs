@@ -64,6 +64,7 @@ internal static class Program
             builder.Services.AddSingleton<EditorLauncher>(EditorLaunchers.Default);
             builder.Services.AddSingleton<FolderOpener>(FolderOpeners.Default);
             builder.Services.AddSingleton<WindowLauncher>((root, id) => separate?.Open(root, id) ?? (false, "The app is still starting."));   // a window of this process, not another process
+            builder.Services.AddSingleton<MainWindowLauncher>(path => separate?.OpenFull(path) ?? (false, "The app is still starting."));   // one more full window of this process (the one agent endpoint stays)
             builder.Services.AddSingleton<AgentStatus>(() => agents?.Status ?? new AgentEndpointStatus(false, Paths.Port, false, "Agents cannot connect yet."));   // Settings shows whether the app serves agents
         });
         main.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(true).SetMaximized(true);   // icons: WindowFrame
@@ -109,7 +110,7 @@ internal static class Program
                 try
                 {
                     PhotinoBlazorApp window = CreateWindow([], request.Mode, request.Ui, main, _ => { });
-                    window.MainWindow.SetTitle(request.Title).SetUseOsDefaultSize(false).SetSize(960, 1000);   // a normal window beside the main one
+                    window.MainWindow.SetTitle(request.Title).SetUseOsDefaultSize(false).SetSize(request.Mode.Detached ? 960 : 1280, 1000);   // a normal window beside the main one; a full one is wider (side menu and panes)
                     window.MainWindow.WindowClosing += (_, _) => { request.Closed(); Unfocus(window); return false; };
                     window.Run();
                 }
@@ -182,7 +183,7 @@ internal static class Program
         builder.Services.AddSingleton(new WindowFrame(() => self?.MainWindow.WindowHandle ?? IntPtr.Zero));
         if (first is null) appWide(builder);
         else
-            foreach (Type shared in new[] { typeof(SettingsStore), typeof(BoardStorageSettings), typeof(SyncSetup), typeof(BoardSyncService), typeof(Workspace), typeof(EditorLauncher), typeof(FolderOpener), typeof(WindowLauncher), typeof(AgentStatus), typeof(AppUpdates) })
+            foreach (Type shared in new[] { typeof(SettingsStore), typeof(BoardStorageSettings), typeof(SyncSetup), typeof(BoardSyncService), typeof(Workspace), typeof(EditorLauncher), typeof(FolderOpener), typeof(WindowLauncher), typeof(MainWindowLauncher), typeof(AgentStatus), typeof(AppUpdates) })
                 builder.Services.AddSingleton(shared, first.Services.GetRequiredService(shared));
         builder.RootComponents.Add<App>("#app");
         self = builder.Build();

@@ -41,13 +41,16 @@ window.rtm = {
     return q.matches;
   },
 
-  // Returns whether the window is too narrow for the split screen (same breakpoint as `main.split` in app.css, where the list is hidden),
-  // and tells .NET (MainLayout.NarrowChanged) when that changes: a list the CSS hides is not worth rendering.
+  // Returns whether the window is too narrow for panes side by side (same breakpoint as `main.panes` in app.css, where only the active pane shows),
+  // and tells .NET (MainLayout.NarrowChanged) when that changes: a pane the CSS hides is not worth rendering.
   watchNarrow(dotnet) {
     const q = matchMedia("(max-width: 1399px)");
     q.addEventListener("change", (e) => dotnet.invokeMethodAsync("NarrowChanged", e.matches));
     return q.matches;
   },
+
+  // The layout hands itself over once: the pane keys below call it (MainLayout.SplitPane / ClosePane / OpenWindow).
+  watchPanes(dotnet) { _panes = dotnet; },
 
   // Puts a menu under its activator (flipping above / left when it would leave the window).
   // position: fixed, so scrolling containers such as the board can't clip it.
@@ -64,6 +67,21 @@ window.rtm = {
     (pop.querySelector(".menu-filter") ?? pop.querySelector(".menu-item.cur, .menu-item"))?.focus();   // pickers: type to filter
   },
 };
+
+// ── Panes: Alt+\ splits the active pane, Ctrl+W closes it (the window itself never closes), Alt+Win+\ opens a full window.
+//    They work in text fields too, so they are taken before anything else sees the key. ──
+let _panes = null;
+addEventListener("keydown", (e) => {
+  if (!_panes) return;
+  const backslash = e.key === "\\" || e.code === "Backslash";
+  if (backslash && e.altKey && !e.ctrlKey && !e.shiftKey) {
+    e.preventDefault();
+    _panes.invokeMethodAsync(e.metaKey ? "OpenWindow" : "SplitPane");
+  } else if ((e.key === "w" || e.key === "W" || e.code === "KeyW") && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+    e.preventDefault();   // the web view would close the window
+    _panes.invokeMethodAsync("ClosePane");
+  }
+}, true);
 
 document.addEventListener("keydown", (e) => {
   // Arrow keys move between items of an open menu.

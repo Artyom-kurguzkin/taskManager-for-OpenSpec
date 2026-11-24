@@ -189,11 +189,14 @@
             day => Later(() => JumpTo(day)),
             AddBug: () => Later(() => AddNote(Today, NoteKinds.Bug)),
             JumpToDescription: () => Later(JumpToDescription));
-        Popups.OpenWorklog(actions);
+        Popups.OpenWorklog(actions, Pane);
         Popups.WorklogChanged += OnFilters;
     }
 
     private WorklogActions actions = default!;
+
+    /// <summary>The pane this worklog sits in: the side menu shows its block, filters and days only while that pane is the active one.</summary>
+    [CascadingParameter] public Pane? Pane { get; set; }
 
     private int? handledFocus, flashNote;   // the note FocusNote last opened, and the entry marked with the "flash" class (its fade is CSS: nothing here waits or times)
     private bool scrollToNote;
@@ -230,7 +233,7 @@
         if (editId is int editing && notes.All(n => n.Id != editing)) { editId = null; editExpanded = editCapped = false; }   // the note is gone
         (days, earlier) = Build();
         if (!editDesc) ShowDescription(WorkItemsApi.GetDescription(item.Id));
-        Popups.SetWorklogPeople([.. days.SelectMany(d => d.Rows).Select(r => r.By).Where(b => b.Length > 0).Distinct().Order(StringComparer.OrdinalIgnoreCase)]);
+        Popups.SetWorklogPeople([.. days.SelectMany(d => d.Rows).Select(r => r.By).Where(b => b.Length > 0).Distinct().Order(StringComparer.OrdinalIgnoreCase)], actions);
         PublishDays();
     }
 
@@ -239,14 +242,13 @@
     /// <summary>The days the feed shows now (the markup's own condition), newest first, for the side menu; "Linked earlier" last, as it is in the feed.</summary>
     private void PublishDays()
     {
-        if (!ReferenceEquals(Popups.WorklogOpen, actions)) return;   // only the worklog the side menu shows (the last opened) speaks for it
         // the menu lists every day the kind filters leave, whichever days are picked: picking is done in this list
         List<WorklogDay> shown = [.. days.Where(d => d.Date == Today || d.Rows.Any(VisibleKind)).Select(d => new WorklogDay(d.Date, DayLabel(d.Date), d.Rows.Count(VisibleKind)))];
         int linked = earlier.Count(VisibleKind);
         if (linked > 0) shown.Add(new WorklogDay(DateTime.MinValue, "Linked earlier", linked));
         shown.Add(new WorklogDay(DateTime.MinValue, "Description", 0, WorklogDay.DescriptionEntry));   // the item's first post ends the feed
         publishing = true;   // the event this raises is the feed's own: it draws nothing new
-        try { Popups.SetWorklogDays(shown); }
+        try { Popups.SetWorklogDays(shown, actions); }
         finally { publishing = false; }
     }
 
@@ -276,14 +278,14 @@
         r.Kind == "note" ? (r.Note is { IsDecision: true } ? "decisions" : r.Note is { IsBug: true } ? "bugs" : "notes") : WorkItemsApi.EventGroup(r.Kind);
 
     /// <summary>The feed shows only the days picked in the side menu (none picked = all); today stays while it is picked or nothing is.</summary>
-    private bool ShowsDay(Day d) => Popups.WorklogSelectedDays is { Count: > 0 } picked ? (d.Date == Today && picked.Contains(Today)) || d.Rows.Any(Visible) : d.Date == Today || d.Rows.Any(Visible);
+    private bool ShowsDay(Day d) => Popups.WorklogSelectedDaysOf(actions) is { Count: > 0 } picked ? (d.Date == Today && picked.Contains(Today)) || d.Rows.Any(Visible) : d.Date == Today || d.Rows.Any(Visible);
 
-    private bool Visible(Row r) => VisibleKind(r) && (Popups.WorklogSelectedDays is { Count: 0 } || Popups.WorklogSelectedDays.Contains(r.At?.Date ?? DateTime.MinValue) || (r.Note is not null && r.Note.Id == editId));
+    private bool Visible(Row r) => VisibleKind(r) && (Popups.WorklogSelectedDaysOf(actions) is { Count: 0 } || Popups.WorklogSelectedDaysOf(actions).Contains(r.At?.Date ?? DateTime.MinValue) || (r.Note is not null && r.Note.Id == editId));
 
     private bool VisibleKind(Row r)
     {
         if (r.Note is not null && r.Note.Id == editId) return true;   // a note being written stays, whatever the filters say
-        WorklogFilters f = Popups.WorklogFilter;
+        WorklogFilters f = Popups.WorklogFilterOf(actions);
         bool kind = FilterOf(r) switch { "notes" => f.Notes, "decisions" => f.Decisions, "bugs" => f.Bugs, "events" => f.Events, "links" => f.Links, "subtasks" => f.Subtasks, _ => f.Edits };
         return kind && (f.Who == "all" || r.By == f.Who);
     }

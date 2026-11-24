@@ -77,10 +77,31 @@ public sealed class UiService
     /// <summary>Fired when a worklog opens or closes, or its filters or people change; the side menu and the feed redraw.</summary>
     public event Action? WorklogChanged;
 
-    /// <summary>The actions of the worklog on screen, or null when none is (the side menu then has no Worklog block).</summary>
-    public WorklogActions? WorklogOpen { get; private set; }
+    /// <summary>One open worklog and what the side menu shows for it. It belongs to the pane its page sits in (null: the window is not split, or the page has no pane).</summary>
+    private sealed class WorklogState(WorklogActions actions, Pane? pane)
+    {
+        public WorklogActions Actions { get; } = actions;
+        public Pane? Pane { get; } = pane;
+        public WorklogFilters Filter { get; set; } = new();
+        public IReadOnlyList<string> People { get; set; } = [];
+        public IReadOnlyList<WorklogDay> Days { get; set; } = [];
+        public IReadOnlySet<DateTime> SelectedDays { get; set; } = new HashSet<DateTime>();
+    }
 
-    /// <summary>The window is too narrow for the split view (the list beside an open item is not shown): the side menu then keeps the list's options for the board.</summary>
+    private readonly List<WorklogState> worklogs = [];
+
+    /// <summary>The worklog the side menu speaks for: the one in the active pane (one with no pane counts for whichever is active), or none.</summary>
+    private WorklogState? Current => worklogs.FirstOrDefault(w => w.Pane == Panes.Active) ?? worklogs.FirstOrDefault(w => w.Pane is null);
+
+    private WorklogState? StateOf(WorklogActions? actions) => actions is null ? Current : worklogs.FirstOrDefault(w => ReferenceEquals(w.Actions, actions));
+
+    /// <summary>The actions of the worklog in the active pane, or null when it has none (the side menu then has no Worklog block).</summary>
+    public WorklogActions? WorklogOpen => Current?.Actions;
+
+    /// <summary>The panes of this window (Alt+\ splits, Ctrl+W closes); one when not split.</summary>
+    public Panes Panes { get; } = new();
+
+    /// <summary>The window is too narrow for side-by-side panes: only the active one is shown.</summary>
     public bool NarrowWindow { get; private set; }
 
     public event Action? LayoutChanged;
@@ -118,53 +139,70 @@ public sealed class UiService
         LayoutChanged?.Invoke();
     }
 
-    public WorklogFilters WorklogFilter { get; private set; } = new();
+    /// <summary>The filters of the worklog the side menu shows.</summary>
+    public WorklogFilters WorklogFilter => Current?.Filter ?? new();
+
+    /// <summary>The filters of the worklog opened with <paramref name="actions"/>: each pane's feed reads its own.</summary>
+    public WorklogFilters WorklogFilterOf(WorklogActions actions) => StateOf(actions)?.Filter ?? new();
 
     /// <summary>The people and agents seen in the feed, for the "who" filter.</summary>
-    public IReadOnlyList<string> WorklogPeople { get; private set; } = [];
+    public IReadOnlyList<string> WorklogPeople => Current?.People ?? [];
 
     /// <summary>The days the feed shows, newest first, for the side menu's Days list.</summary>
-    public IReadOnlyList<WorklogDay> WorklogDays { get; private set; } = [];
+    public IReadOnlyList<WorklogDay> WorklogDays => Current?.Days ?? [];
 
     /// <summary>The days picked with Shift-click in the side menu's Days list (DateTime.MinValue is "Linked earlier"); the feed shows only those. Empty = every day. Per open worklog, never saved.</summary>
-    public IReadOnlySet<DateTime> WorklogSelectedDays { get; private set; } = new HashSet<DateTime>();
+    public IReadOnlySet<DateTime> WorklogSelectedDays => Current?.SelectedDays ?? new HashSet<DateTime>();
+
+    /// <summary>The days picked for the worklog opened with <paramref name="actions"/>.</summary>
+    public IReadOnlySet<DateTime> WorklogSelectedDaysOf(WorklogActions actions) => StateOf(actions)?.SelectedDays ?? new HashSet<DateTime>();
 
     public void ToggleWorklogDay(DateTime day)
     {
-        HashSet<DateTime> next = [.. WorklogSelectedDays];
+        if (Current is not { } w) return;
+        HashSet<DateTime> next = [.. w.SelectedDays];
         if (!next.Remove(day)) next.Add(day);
-        WorklogSelectedDays = next;
+        w.SelectedDays = next;
         WorklogChanged?.Invoke();
     }
 
     public void ClearWorklogDays()
     {
-        if (WorklogSelectedDays.Count == 0) return;
-        WorklogSelectedDays = new HashSet<DateTime>();
+        if (Current is not { SelectedDays.Count: > 0 } w) return;
+        w.SelectedDays = new HashSet<DateTime>();
         WorklogChanged?.Invoke();
     }
 
-    public void SetWorklogDays(IReadOnlyList<WorklogDay> days)
+    /// <summary>The worklog opened with <paramref name="from"/> publishes its days (the active pane's when null); a worklog that has gone is ignored.</summary>
+    public void SetWorklogDays(IReadOnlyList<WorklogDay> days, WorklogActions? from = null)
     {
-        if (days.SequenceEqual(WorklogDays)) return;
-        WorklogDays = days;
+        if (StateOf(from) is not { } w || days.SequenceEqual(w.Days)) return;
+        w.Days = days;
         WorklogChanged?.Invoke();
     }
 
-    /// <summary>A worklog came on screen. Filters start over unless another worklog was already open (the split view moving from one item to the next).</summary>
-    public void OpenWorklog(WorklogActions actions)
+    /// <summary>
+    /// A worklog came on screen, in <paramref name="pane"/>. Filters start over unless a worklog of that pane was already open (the pane moving from one
+    /// item to the next); the other panes' worklogs stay as they are.
+    /// </summary>
+    public void OpenWorklog(WorklogActions actions, Pane? pane = null)
     {
-        if (WorklogOpen is null) WorklogFilter = new();
-        WorklogSelectedDays = new HashSet<DateTime>();   // days belong to one item's feed
-        WorklogOpen = actions;
+        WorklogState? before = worklogs.FirstOrDefault(w => w.Pane == pane);
+        WorklogState state = new(actions, pane);   // days belong to one item's feed
+        if (before is not null)
+        {
+            (state.Filter, state.People) = (before.Filter, before.People);
+            worklogs.Remove(before);
+        }
+        worklogs.Add(state);
         WorklogChanged?.Invoke();
     }
 
-    /// <summary>The worklog that opened with <paramref name="actions"/> went away; ignored when another one has taken over since.</summary>
+    /// <summary>The worklog that opened with <paramref name="actions"/> went away; ignored when another one has taken over its place since.</summary>
     public void CloseWorklog(WorklogActions actions)
     {
-        if (!ReferenceEquals(WorklogOpen, actions)) return;
-        (WorklogOpen, WorklogFilter, WorklogPeople, WorklogDays, WorklogSelectedDays) = (null, new(), [], [], new HashSet<DateTime>());
+        if (StateOf(actions) is not { } w) return;
+        worklogs.Remove(w);
         WorklogChanged?.Invoke();
     }
 
@@ -173,16 +211,16 @@ public sealed class UiService
 
     public void FilterWorklog(WorklogFilters filters)
     {
-        if (filters == WorklogFilter) return;
-        WorklogFilter = filters;
+        if (Current is not { } w || filters == w.Filter) return;
+        w.Filter = filters;
         WorklogChanged?.Invoke();
     }
 
-    public void SetWorklogPeople(IReadOnlyList<string> people)
+    public void SetWorklogPeople(IReadOnlyList<string> people, WorklogActions? from = null)
     {
-        if (people.SequenceEqual(WorklogPeople)) return;
-        WorklogPeople = people;
-        if (WorklogFilter.Who != "all" && !people.Contains(WorklogFilter.Who)) WorklogFilter = WorklogFilter with { Who = "all" };   // that person is not in this item's feed
+        if (StateOf(from) is not { } w || people.SequenceEqual(w.People)) return;
+        w.People = people;
+        if (w.Filter.Who != "all" && !people.Contains(w.Filter.Who)) w.Filter = w.Filter with { Who = "all" };   // that person is not in this item's feed
         WorklogChanged?.Invoke();
     }
 

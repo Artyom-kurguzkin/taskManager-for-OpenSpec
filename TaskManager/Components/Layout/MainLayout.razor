@@ -14,22 +14,22 @@
 else
 {
 <SideNav />
-@if (OpenItemId is int open && Settings.Current.Split)
+@if (Panes.All.Count == 1)
 {
-    @* An open work item sits beside the list. The list is the same tree position from one item to the next, so it keeps its scroll,
-       filters and grouping while the right pane changes. In a narrow window the CSS hides it, so it is not rendered at all: a hidden
-       list would still be built (and rebuilt on every change) for nothing. *@
-    <main class="split">
-        @if (!narrowWindow)
-        {
-            <div class="split-list"><BoardPage Embedded="true" Current="open" /></div>
-        }
-        <div class="split-item">@Body</div>
-    </main>
+    <main>@Body</main>
 }
 else
 {
-    <main>@Body</main>
+    @* Split: each pane is its own page by its own address (the window's router only follows the active one, so Body is not used). The window keeps one side menu,
+       which acts on the active pane; a pointer-down or focus in a pane makes it the active one before its click runs. In a narrow window only the active pane is built. *@
+    <main class="panes">
+        @foreach (Pane pane in Shown)
+        {
+            <section @key="pane" class="pane @(pane == Panes.Active ? "active" : "")" data-pane="@Panes.Number(pane)" @onpointerdown="() => Panes.Activate(pane)" @onfocusin="() => Panes.Activate(pane)">
+                <PaneHost Pane="pane" />
+            </section>
+        }
+    </main>
 }
 }
 <Overlays />
@@ -47,27 +47,66 @@ else
     private bool systemDark;
     private DotNetObjectReference<MainLayout>? self;
 
-    private bool split;
-
     private bool Detached => Services.GetService(typeof(AppMode)) is AppMode { Detached: true };
 
-    /// <summary>The number of the work item the address shows (item/&lt;n&gt;), or null on any other page.</summary>
-    private int? OpenItemId =>
-        Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Split('/') is ["item", var n] && int.TryParse(n, out int id) ? id : null;
+    private Panes Panes => Popups.Panes;
+
+    private IReadOnlyList<Pane> Shown => narrowWindow ? new List<Pane> { Panes.Active } : Panes.All;
+
+    /// <summary>The window's address, base-relative ("" for the board, item/&lt;n&gt;, settings ...).</summary>
+    private string CurrentPath => Nav.ToBaseRelativePath(Nav.Uri);
 
     protected override void OnInitialized()
     {
-        split = Settings.Current.Split;
+        Nav.LocationChanged += OnLocation;
+        Panes.Changed += OnPanes;
         if (Services.GetService(typeof(AppMode)) is AppMode { StartPath: string path } mode)
         {
             mode.StartPath = null;   // once
             Nav.NavigateTo(path);    // a detached window opens on its work item
         }
+        Panes.Navigate(Panes.Active, CurrentPath);
         Settings.Changed += OnSettings;
-        Nav.LocationChanged += OnLocation;
     }
 
-    private void OnLocation(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+    /// <summary>The window's address follows the active pane: a navigation through Nav lands in it.</summary>
+    private void OnLocation(object? sender, LocationChangedEventArgs e)
+    {
+        Panes.Navigate(Panes.Active, CurrentPath);
+        InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>A pane was added, closed, activated or moved: the address goes to the active pane's, and the layout draws.</summary>
+    private void OnPanes() => InvokeAsync(() =>
+    {
+        if (Panes.Active.Path != CurrentPath) Nav.NavigateTo(Panes.Active.Path, replace: true);
+        StateHasChanged();
+    });
+
+    /// <summary>Alt+\: another pane to the right of the active one, showing the same page. Four at most.</summary>
+    [JSInvokable]
+    public Task SplitPane() => InvokeAsync(() =>
+    {
+        if (Detached) return;
+        if (Panes.Split() is null) Popups.Toast("Four tabs is the most.", ToastKind.Info);
+    });
+
+    /// <summary>Ctrl+W: closes the active pane. The last one stays: this never closes the window.</summary>
+    [JSInvokable]
+    public Task ClosePane() => InvokeAsync(() =>
+    {
+        if (!Detached) Panes.Close(Panes.Active);
+    });
+
+    /// <summary>Alt+Win+\: one more full window, on the active pane's page.</summary>
+    [JSInvokable]
+    public Task OpenWindow() => InvokeAsync(() =>
+    {
+        if (Detached) return;
+        if (Services.GetService(typeof(MainWindowLauncher)) is not MainWindowLauncher open) { Popups.Toast("This window can't open another one.", ToastKind.Warning); return; }
+        (bool ok, string message) = open(Panes.Active.Path);
+        if (!ok) Popups.Toast(message, ToastKind.Warning);
+    });
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -75,12 +114,13 @@ else
         if (Workspace.TakeGuideNotice() is string notice) Popups.Toast(notice, ToastKind.Info);   // an agent guide written while the app started
         self = DotNetObjectReference.Create(this);
         systemDark = await Js.InvokeAsync<bool>("rtm.watchDark", self);   // current OS setting + notify on change
+        await Js.InvokeVoidAsync("rtm.watchPanes", self);   // Alt+\, Ctrl+W, Alt+Win+\
         bool narrow = await Js.InvokeAsync<bool>("rtm.watchNarrow", self);
         if (narrow != narrowWindow) { narrowWindow = narrow; Popups.SetNarrowWindow(narrow); StateHasChanged(); }
         await ApplyTheme();
     }
 
-    private bool narrowWindow;   // too narrow for the split screen: the list beside an open item is hidden, so not rendered
+    private bool narrowWindow;   // too narrow for panes side by side: only the active one is built
 
     [JSInvokable]
     public Task NarrowChanged(bool narrow) => InvokeAsync(() => { narrowWindow = narrow; Popups.SetNarrowWindow(narrow); StateHasChanged(); });
@@ -94,7 +134,6 @@ else
 
     private void OnSettings() => InvokeAsync(async () =>
     {
-        if (split != Settings.Current.Split) { split = Settings.Current.Split; StateHasChanged(); }   // the split toggle
         await ApplyTheme();
     });
 
@@ -112,6 +151,7 @@ else
     public void Dispose()
     {
         Settings.Changed -= OnSettings;
+        Panes.Changed -= OnPanes;
         Nav.LocationChanged -= OnLocation;
         self?.Dispose();
     }

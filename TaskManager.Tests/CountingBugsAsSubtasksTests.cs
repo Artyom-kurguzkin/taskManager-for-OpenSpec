@@ -123,7 +123,6 @@ public sealed class CountingBugsAsSubtasksTests : IDisposable
 
     private IRenderedComponent<SideNav> Nav(BunitContext ctx)
     {
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
         nav.ClickWhenReady("button.nav-toggle");

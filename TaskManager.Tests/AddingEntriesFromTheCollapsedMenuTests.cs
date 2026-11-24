@@ -22,7 +22,6 @@ public sealed class AddingEntriesFromTheCollapsedMenuTests : IDisposable
         ctx.Services.AddSingleton(new SettingsStore(settingsFile));
         ctx.Services.AddSingleton<Workspace>();
         Assert.True(ctx.Services.GetRequiredService<Workspace>().Open(repo.Root).Success);
-        ctx.Services.GetRequiredService<SettingsStore>().Update(s => s with { Split = false });
         ctx.Services.GetRequiredService<NavigationManager>().NavigateTo("item/123");
         IRenderedComponent<SideNav> nav = ctx.Render<SideNav>();
         return (ctx, nav, ctx.Services.GetRequiredService<UiService>());

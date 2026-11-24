@@ -40,14 +40,7 @@
         }
         @if (!Detached)
         {
-            <Menu Label="Split screen">
-                <Activator><button type="button" class="ic split-btn" aria-label="Split screen" title="Beside the list, item only, or a separate window">⇔</button></Activator>
-                <Items>
-                    <MenuItem Class="@("wide-only" + (Settings.Current.Split ? " cur" : ""))" OnClick="() => Settings.Update(s => s with { Split = true })">Beside the list</MenuItem>
-                    <MenuItem Class="@(Settings.Current.Split ? "" : "cur")" OnClick="() => Settings.Update(s => s with { Split = false })">Item only</MenuItem>
-                    <MenuItem OnClick="OpenSeparateWindow">Separate window</MenuItem>
-                </Items>
-            </Menu>
+            <button type="button" class="ic split-btn" aria-label="Separate window" title="Open in a separate window" @onclick="OpenSeparateWindow">⇱</button>
             <BackButton />
         }
     </div>
@@ -235,7 +228,7 @@
     [Parameter] public int Id { get; set; }
     [Inject] private IJSRuntime Js { get; set; } = default!;
 
-    // split menu: this window is a detached one (no menu, no back); "Separate window" moves the item out and the board comes back here
+    // a detached window has no menu and no back; "Separate window" moves the item out and the board comes back here
     private bool Detached => Services.GetService(typeof(TaskManager.AppState.AppMode)) is TaskManager.AppState.AppMode { Detached: true };
     private void OpenSeparateWindow()
     {

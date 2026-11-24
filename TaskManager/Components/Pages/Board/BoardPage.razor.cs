@@ -32,11 +32,9 @@ public partial class BoardPage
     /// <summary>The options as this view reads them: the list's own groups and subgroups (flat until chosen) stand in for the board's columns and rows.</summary>
     private BoardOptions Opt => View == "list" ? O.ForList() : O;
 
-    /// <summary>True when the layout shows this page as the left half of a split screen (an open work item on the right): always the list.</summary>
-    [Parameter] public bool Embedded { get; set; }
-    /// <summary>The work item open on the right of a split screen; its row is marked.</summary>
-    [Parameter] public int? Current { get; set; }
-    private string View => Embedded ? "list" : O.View;
+    /// <summary>The pane this board sits in while the window is split (null with one pane): a work item opened from it goes to the neighbouring pane.</summary>
+    [CascadingParameter] public Pane? Pane { get; set; }
+    private string View => O.View;
     private List<Project> projects = [];   // the visible projects (open tabs not hidden), in tab order
     private readonly HashSet<(string Root, int Id)> selected = [];   // a number is only unique within its project
     private readonly HashSet<string> selectedProjects = [];          // project headings Shift-clicked, to move with the arrow keys
@@ -309,7 +307,7 @@ public partial class BoardPage
         selectedColumns.RemoveWhere(k => !HeadColumns.Contains(k));
         selected.RemoveWhere(s => !projects.Any(p => p.Root == s.Root && p.Items.Any(i => i.Id == s.Id)));
         cachedFor = null;   // the examined item's neighbours are read again
-        if (!Embedded && Popups.Examined is (string xr, int xi) && !projects.Any(p => p.Root == xr && p.Items.Any(i => i.Id == xi))) Popups.Examine(null);
+        if (Popups.Examined is (string xr, int xi) && !projects.Any(p => p.Root == xr && p.Items.Any(i => i.Id == xi))) Popups.Examine(null);
         selectedProjects.RemoveWhere(r => !Multi || !projects.Any(p => p.Root == r));
         selectedRows.RemoveWhere(k => !projects.Any(p => p.Sections.Any(s => RowKeys(s).Contains(k))));   // a hidden row, or another row field
         // a row that is what it was (same item, place and column content) keeps its instance, so the grid has nothing new to build for it
@@ -486,7 +484,6 @@ public partial class BoardPage
             Project p = ProjectOf(row.Root);
             RowMarks.Mark m = RowMarks.Mark.None;
             if (selected.Contains((p.Root, it.Id))) m |= RowMarks.Mark.Selected;
-            if (Embedded && Current == it.Id && IsActive(p)) m |= RowMarks.Mark.Current;
             m |= ExamineClass(p, it.Id) switch { "ex-on" => RowMarks.Mark.Examined, "ex-waits" => RowMarks.Mark.Waits, "ex-needs" => RowMarks.Mark.Needs, _ => RowMarks.Mark.None };
             if (m != RowMarks.Mark.None) marks.Add(new("data-row", row.Key, m));
         }
@@ -628,7 +625,10 @@ public partial class BoardPage
     private void OpenItem(Project p, int id)
     {
         if (!IsActive(p)) Workspace.Open(p.Root);
-        Nav.NavigateTo($"item/{id}");
+        string path = $"item/{id}";
+        Pane? target = Pane is { } from ? Popups.Panes.ItemTarget(from) : null;
+        if (target is null || target == Popups.Panes.Active) Nav.NavigateTo(path);   // alone, or the neighbour is the one the window follows
+        else Popups.Panes.Navigate(target, path);   // split: the list stays, the item opens beside it
     }
 
     /// <summary>A click opens the card; Shift-click (or Ctrl/⌘-click) adds it to the selection or removes it. A drag fires no click.</summary>
@@ -642,11 +642,11 @@ public partial class BoardPage
 
     private bool itemClicked;   // a plain click on an item is on its way up to the board's BackgroundClick, which must not let go of it
 
-    /// <summary>A plain click on a work item: opens it, or with the menu expanded examines it first (the split view's list keeps opening at once).</summary>
+    /// <summary>A plain click on a work item: opens it, or with the menu expanded examines it first .</summary>
     private void ItemClick(Project p, int id)
     {
         itemClicked = true;
-        if (Embedded || !Popups.MenuExpanded || Popups.Examined == (p.Root, id)) OpenItem(p, id);
+        if (!Popups.MenuExpanded || Popups.Examined == (p.Root, id)) OpenItem(p, id);
         else Popups.Examine((p.Root, id));
     }
 
@@ -658,7 +658,7 @@ public partial class BoardPage
     {
         if (itemClicked) return;
         itemClicked = true;
-        if (!Embedded && Popups.MenuExpanded && Popups.Examined != (p.Root, id)) Popups.Examine((p.Root, id));
+        if (Popups.MenuExpanded && Popups.Examined != (p.Root, id)) Popups.Examine((p.Root, id));
     }
 
     private (string Root, int Id)? cachedFor;
