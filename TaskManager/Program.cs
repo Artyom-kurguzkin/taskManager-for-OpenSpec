@@ -86,7 +86,7 @@ internal static class Program
                 Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ => { watch.LogWarning("RTM_DEBUG_FREEZE: sleeping on the UI thread for 40 s"); main.MainWindow.Invoke(() => Thread.Sleep(TimeSpan.FromSeconds(40))); });
 #endif
         };
-        Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => RunMarker.WindowsIsEnding(Paths.Logs, Environment.ProcessId);
+        if (OperatingSystem.IsWindows()) Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => RunMarker.WindowsIsEnding(Paths.Logs, Environment.ProcessId);
 
         // Reopen the last repository; otherwise try the folder the app was started from. Only the cheap half runs here (the project is open, the tabs are right); the reading happens after the window is up (below).
         Workspace workspace = main.Services.GetRequiredService<Workspace>();

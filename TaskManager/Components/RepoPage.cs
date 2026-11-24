@@ -24,7 +24,7 @@ public abstract class RepoPage : RtmComponent, IDisposable
     /// <summary>The clock the page's timers run on: the system's, unless a <see cref="TimeProvider"/> is registered (a test moves time by hand with one).</summary>
     protected TimeProvider Time => Ui.ClockOf(PageServices);
 
-    protected override void OnInitialized() => Workspace.Changed += OnChanged;
+    protected override void OnInitialized() => Workspace.Changed += OnWorkspaceChanged;
 
     /// <summary>How many times <see cref="Load"/> has run: tests and the perf probe check that a navigation or a change reads once.</summary>
     public int Loads { get; private set; }
@@ -72,7 +72,7 @@ public abstract class RepoPage : RtmComponent, IDisposable
     // The store's stamp when this page's own background write finished, once the page showed that write's result itself: the Changed it raises is the page's own echo.
     private (string?, long, string)? ownStamp;
 
-    protected virtual void OnChanged()
+    protected virtual void OnWorkspaceChanged()
     {
         lock (gate)
         {
@@ -194,7 +194,7 @@ public abstract class RepoPage : RtmComponent, IDisposable
 
     public virtual void Dispose()
     {
-        Workspace.Changed -= OnChanged;
+        Workspace.Changed -= OnWorkspaceChanged;
         lock (gate) { disposed = true; window?.Dispose(); window = null; }
     }
 }

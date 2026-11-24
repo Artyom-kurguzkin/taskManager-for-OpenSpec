@@ -1,6 +1,0 @@
-schema: spec-driven
-
-# lanes per column, written by the app
-x-rtm:
-  lanes:
-    In Progress: [High priority, Lower priority]

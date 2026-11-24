@@ -33,17 +33,17 @@ internal static class Verification
             List<string> differ = [];
             real = false;
             first = v.Stamps is null;
-            if (first) { real = true; Interlocked.Increment(ref repo.Outside); }
+            if (v.Stamps is not { } old) { real = true; Interlocked.Increment(ref repo.Outside); }
             else
             {
                 foreach ((string path, (long Length, long Ticks) stamp) in now)
                 {
-                    bool known = v.Stamps.TryGetValue(path, out (long Length, long Ticks) before);
+                    bool known = old.TryGetValue(path, out (long Length, long Ticks) before);
                     if (known && before == stamp && !v.Racy.Contains(path)) continue;
                     differ.Add(path);
                     real |= !known || before != stamp;
                 }
-                foreach (string path in v.Stamps.Keys) if (!now.ContainsKey(path)) { differ.Add(path); real = true; }
+                foreach (string path in old.Keys) if (!now.ContainsKey(path)) { differ.Add(path); real = true; }
             }
             v.Stamps = now;
             v.Racy = [.. now.Where(p => p.Value.Ticks >= at.Ticks - Slack).Select(p => p.Key)];

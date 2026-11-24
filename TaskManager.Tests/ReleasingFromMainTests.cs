@@ -50,6 +50,16 @@ public sealed class ReleasingFromMainTests
     }
 
     [Fact]
+    public void The_debug_throw_component_takes_its_address_in_release_builds_too()
+    {
+        // MainLayout always passes Uri; a Release build without the parameter fails on every page.
+        string razor = File.ReadAllText(Path.Combine(RepoRoot(), "TaskManager", "Components", "Shared", "DebugThrow.razor"));
+        int parameter = razor.IndexOf("[Parameter] public string Uri", StringComparison.Ordinal);
+        int debugOnly = razor.IndexOf("#if DEBUG", StringComparison.Ordinal);
+        Assert.True(parameter >= 0 && (debugOnly < 0 || parameter < debugOnly), "Uri must be declared outside #if DEBUG");
+    }
+
+    [Fact]
     public void The_workflow_does_not_run_the_tests()
     {
         Assert.DoesNotContain("dotnet test", Workflow());

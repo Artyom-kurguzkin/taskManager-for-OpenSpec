@@ -1,8 +1,0 @@
-schema: spec-driven
-created: 2026-09-22
-x-rtm:
-  id: 107
-  title: Monthly remittance export
-  status: Planned
-  priority: low
-  contributors: [Tom]

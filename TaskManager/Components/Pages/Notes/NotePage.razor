@@ -126,7 +126,7 @@
     private CancellationTokenSource? pendingSave;
 
     // Outside edits reload the note, but never while there is typing not yet on disk (that would wipe it).
-    protected override void OnChanged() { if (!saving) base.OnChanged(); }
+    protected override void OnWorkspaceChanged() { if (!saving) base.OnWorkspaceChanged(); }
 
     protected override object? LoadKey => Id;
     protected override string? LogTarget => $"#n{Id}";

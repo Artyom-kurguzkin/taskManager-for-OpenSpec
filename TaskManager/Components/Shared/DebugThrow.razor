@@ -1,8 +1,9 @@
 @* A Debug build only (nothing in Release): with RTM_DEBUG_THROW=1 an address that has "?throw" in it makes this component fail, so the error boundary and its message can be checked in the real app. *@
 @code {
-#if DEBUG
+    // Declared in every build: MainLayout always passes it, and Release would fail on an unknown parameter.
     [Parameter] public string Uri { get; set; } = "";   // the address: a change of it draws this again (a component without parameters is not set again)
 
+#if DEBUG
     protected override void OnParametersSet()
     {
         if (Environment.GetEnvironmentVariable("RTM_DEBUG_THROW") == "1" && Uri.Contains("?throw", StringComparison.Ordinal))

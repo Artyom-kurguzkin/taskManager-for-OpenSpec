@@ -11,7 +11,6 @@ using TaskManager.BackgroundJobs;
 using TaskManager.Helpers;
 using WorkItems;
 using WorkItems.PublicDTOs;
-using TaskManager.AppState;
 
 namespace TaskManager.Components.Pages;
 
@@ -244,7 +243,7 @@ public partial class BoardPage
 
     /// <summary>A drop's writes raise <see cref="Workspace.Changed"/> inside it: the drop reads once, itself, when they are done.</summary>
     private int landing;
-    protected override void OnChanged() { if (landing == 0) base.OnChanged(); }
+    protected override void OnWorkspaceChanged() { if (landing == 0) base.OnWorkspaceChanged(); }
 
     protected override void Load()
     {
@@ -867,7 +866,7 @@ public partial class BoardPage
         }
         finally { landing--; }
         // The page held every change back while the drop ran; one that moved the store after the drop's last write (not its own) is read now.
-        if (landedAt is long own && OpenSpecStore.OpenSpecStoreApi.TotalVersion != own) base.OnChanged();
+        if (landedAt is long own && OpenSpecStore.OpenSpecStoreApi.TotalVersion != own) base.OnWorkspaceChanged();
         return landedCount;
     }
 
