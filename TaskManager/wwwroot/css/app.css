@@ -2,8 +2,8 @@
    Repo Tasks — the one stylesheet.
 
    Soft-brutalist task app: white cards with firm 2px outlines and generous radius, pastel fills for state, dashed frames
-   for things that come from elsewhere (specs, git). Dark mode is designed, not inverted: a warm dark base, lighter
-   elevated surfaces, desaturated pastels that keep dark text on top.
+   for things that come from elsewhere (specs, git). Themes (light, dark, Novita, Ayu Mirage) are one token block each; dark is designed, not inverted:
+   a warm dark base, lighter elevated surfaces, desaturated pastels that keep dark text on top.
 
    Organised as cascade layers, generic to specific, so nothing has to shout (@layer order wins over specificity):
      tokens      colours, type, space — the values everything else uses
@@ -35,18 +35,70 @@
 
 /* ───────────────────────────────────────────── tokens ───────────────────────────────────────────── */
 @layer tokens {
-  :root {
+  /* A theme is ONE block: every colour token and its colour-scheme. The attribute on <html> always holds a concrete id (the app resolves
+     "system" to light or dark before it sets it), so nothing here follows the operating system by itself. :root is the default, light.
+     Adding a theme = one more block like these (and its id in the Settings list). Derived colours (color-mix) are written in the rules
+     that use them, or in the block, so they are computed again for each theme. */
+  :root, :root[data-theme="light"] {
+    color-scheme: light;      /* native parts (scrollbars, form controls) follow the app theme, not the OS one */
     /* surfaces + text */
     --paper: #f7f4f1; --card: #ffffff; --ink: #24211f; --ink-2: #6f6a66;
     --line: #2b2725;          /* firm outline */
     --line-soft: #d9d3cd;     /* dividers, inputs */
-    --shadow: #2b2725;
-    --accent: var(--ink);
+    --shadow: #2b2725; --shadow-soft: rgba(0, 0, 0, .18);
+    --accent: var(--ink); --on-accent: #ffffff;
+    --hover: #e7e2dc;         /* the surface a pointed-at row, button or menu entry takes (text on it: --on-fill) */
+    --selection: #bcd5f1;     /* selected text */
     /* pastel fills (always carry --on-fill text) */
     --peach: #f4a98a; --sun: #f3da6c; --sage: #d3e39c; --sky: #bcd5f1; --lilac: #d8cbf1; --stone: #e7e2dc; --mint: #a8dcd1;
     --rose: #f2a3bb; --teal: #8fd5e0; --sand: #e3c9a0; --green: #94d6a0; --indigo: #a9aef0; --orchid: #e4a8dc;
     --on-fill: #24211f;
-    --ok: #2f7d32;
+    --ok: #2f7d32; --alert: #c62d2d; --on-alert: #ffffff;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #161514; --card: #221f1d; --ink: #ece7e1; --ink-2: #a9a29b;
+    --line: #5e5751; --line-soft: #3a3532;
+    --shadow: #000000; --shadow-soft: rgba(0, 0, 0, .18);
+    --accent: var(--ink); --on-accent: #161514;
+    --hover: #aea69e;
+    --selection: #3b4d63;
+    --peach: #d89479; --sun: #d4bd5f; --sage: #b2c483; --sky: #9db7d4; --lilac: #b5a8d3; --stone: #aea69e; --mint: #89b8ae;
+    --rose: #d58fa5; --teal: #7ebbc5; --sand: #c8b18d; --green: #82bc8d; --indigo: #9599d3; --orchid: #c994c2;
+    --on-fill: #1c1917;
+    --ok: #9fd393; --alert: #f0847a; --on-alert: #1c1917;
+  }
+  /* Novita: the plum and pink brand look of the owner's finance tools, light; values from the Novita project's own palette (plum scale,
+     brand pink as the New button, the project's teal for "ok"), the pastels tinted from its chart colours. */
+  :root[data-theme="novita"] {
+    color-scheme: light;
+    --paper: #f6f1f6; --card: #ffffff; --ink: #1f2933; --ink-2: #55606b;
+    --line: #411540; --line-soft: #cec5ce;
+    --shadow: #411540; --shadow-soft: color-mix(in srgb, var(--shadow) 18%, transparent);
+    --accent: #64415c; --on-accent: #ffffff;
+    --hover: #ece8ec;
+    --selection: #e3dae3;
+    --peach: #f7b877; --sun: #f8dd6b; --sage: #cfe29a; --sky: #9cc8f0; --lilac: #d3bbe8; --stone: #ece8ec; --mint: #9fdcc6;
+    --rose: #f5a3b8; --teal: #77c5d5; --sand: #d9c2a8; --green: #a5d6a7; --indigo: #98a4ee; --orchid: #eaa6d4;
+    --on-fill: #1f2933;
+    --ok: #14606e; --alert: #c1104a; --on-alert: #ffffff;
+  }
+  /* Ayu Mirage (Bordered): the owner's VS Code theme, dark; editor #242936 and sidebar #1F2430 as card and paper, accent #FFCC66, chip fills from
+     its syntax colours. Muted text, borders and the text on the accent are lifted from the editor's own values to reach WCAG AA. */
+  :root[data-theme="ayu-mirage"] {
+    color-scheme: dark;
+    --paper: #1f2430; --card: #242936; --ink: #cccac2; --ink-2: #8d99ad;
+    --line: #6a7385; --line-soft: #343a48;
+    --shadow: #000000; --shadow-soft: color-mix(in srgb, var(--shadow) 18%, transparent);
+    --accent: #ffcc66; --on-accent: #1f2430;
+    --hover: #9fb0c4;
+    --selection: #2b4768;
+    --peach: #ffa659; --sun: #ffcd66; --sage: #d5ff80; --sky: #73d0ff; --lilac: #dfbfff; --stone: #9fb0c4; --mint: #95e6cb;
+    --rose: #f28779; --teal: #5ccfe6; --sand: #d9be98; --green: #87d96c; --indigo: #b0c9ff; --orchid: #eaa2c7;
+    --on-fill: #181c26;
+    --ok: #87d96c; --alert: #ff6666; --on-alert: #1f2430;
+  }
+  :root {
     /* type */
     --f-body: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
     --f-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
@@ -54,20 +106,7 @@
     /* space / shape */
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
     --r: 14px;
-    color-scheme: light;      /* native parts (scrollbars, form controls) follow the app theme, not the OS one */
   }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-    --paper: #161514; --card: #221f1d; --ink: #ece7e1; --ink-2: #a9a29b; --line: #5e5751; --line-soft: #3a3532; --shadow: #000000;
-    --peach: #d89479; --sun: #d4bd5f; --sage: #b2c483; --sky: #9db7d4; --lilac: #b5a8d3; --stone: #aea69e; --mint: #89b8ae;
-    --rose: #d58fa5; --teal: #7ebbc5; --sand: #c8b18d; --green: #82bc8d; --indigo: #9599d3; --orchid: #c994c2;
-    --on-fill: #1c1917; --ok: #9fd393;
-    color-scheme: dark; } }
-  :root[data-theme="dark"] {
-    --paper: #161514; --card: #221f1d; --ink: #ece7e1; --ink-2: #a9a29b; --line: #5e5751; --line-soft: #3a3532; --shadow: #000000;
-    --peach: #d89479; --sun: #d4bd5f; --sage: #b2c483; --sky: #9db7d4; --lilac: #b5a8d3; --stone: #aea69e; --mint: #89b8ae;
-    --rose: #d58fa5; --teal: #7ebbc5; --sand: #c8b18d; --green: #82bc8d; --indigo: #9599d3; --orchid: #c994c2;
-    --on-fill: #1c1917; --ok: #9fd393;
-    color-scheme: dark; }
 }
 
 /* ───────────────────────────────────────────── base ───────────────────────────────────────────── */
@@ -80,6 +119,7 @@
   button, select, input, textarea { font: inherit; color: inherit; }
   a { color: inherit; }
   :focus-visible { outline: 2px dashed var(--accent); outline-offset: 3px; }
+  ::selection { background: var(--selection); }
   [hidden] { display: none !important; }
   .mono { font-family: var(--f-mono); font-size: .92em; }
   .muted { color: var(--ink-2); }
@@ -105,7 +145,8 @@
     background: var(--fill); transition: background .12s, box-shadow .12s, transform .12s; }
   /* plain at rest, outlined and lifted on hover (rows, log entries, the description) */
   .hov { --stroke: transparent; --fill: transparent; cursor: pointer; }
-  .hov:hover, .hov:focus-visible { --stroke: var(--line); --fill: var(--stone); color: var(--on-fill); outline: none; }
+  .hov:hover, .hov:focus-visible { --stroke: var(--line); --fill: var(--hover); color: var(--on-fill); outline: none; }
+  input.hov:hover, input.hov:focus-visible, textarea.hov:hover, textarea.hov:focus-visible { color: var(--ink); }   /* a field with a transparent background (a title) never paints --fill: its text stays --ink, not --on-fill, which is dark on a dark page */
   .card:hover, .sub:hover, .btn:hover { box-shadow: 3px 3px 0 var(--shadow); transform: translate(-1px, -1px); outline: none; }
   .is-sel { --fill: var(--sun); --stroke: var(--line); color: var(--on-fill); }   /* the current choice (a nav entry, a segment): not a selection */
   .is-sel .muted { color: var(--on-fill); opacity: .7; }
@@ -113,6 +154,7 @@
      line hugs it and a dotted yellow line runs round that. Rows draw both inside their edge, so neighbours don't cover them. */
   /* selected: a firm ink ring with a yellow halo outside it; the dotted yellow before was hard to see on paper */
   .card.selected, .sub.selected, .proj-h.selected, .col-h.selected { outline: 3px solid var(--ink); outline-offset: 0; box-shadow: 0 0 0 7px var(--sun); }
+  .rm-bar.selected, .rm-row.selected { outline: 3px solid var(--ink); outline-offset: 0; box-shadow: 0 0 0 4px var(--sun); }
   /* a selected list row's ring is written by RowMarks (the grid's rows carry no mark): inset, in this layer */
   .is-group { --fill: var(--sage); color: var(--on-fill); }
 
@@ -124,11 +166,11 @@
   .add:hover { color: var(--ink); }
   .ic { display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none;
     color: var(--ink-2); font-size: 16px; line-height: 1; cursor: pointer; }
-  .ic:hover:not(:disabled) { background: var(--stone); color: var(--on-fill); }
+  .ic:hover:not(:disabled) { background: var(--hover); color: var(--on-fill); }
   .ic svg { width: 14px; height: 14px; }
   .sheet-close { margin-left: auto; flex: none; width: 30px; height: 30px; display: inline-grid; place-items: center; padding: 0;
     border: 2px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); cursor: pointer; }
-  .sheet-close:hover { background: var(--stone); color: var(--on-fill); }
+  .sheet-close:hover { background: var(--hover); color: var(--on-fill); }
 
   /* chips and pills — one height, one radius, so they sit together in a row:
      .feat   a feature (dashed: it comes from the change's specs, or from the feature list)
@@ -142,7 +184,7 @@
   .chip.x { border-style: solid; background: var(--card); cursor: pointer; }
   .chip.x::after { content: " ×"; color: var(--ink-2); }
   .chip.x.spec { border-style: dashed; }
-  .chip.x:hover { background: var(--stone); color: var(--on-fill); }
+  .chip.x:hover { background: var(--hover); color: var(--on-fill); }
   .chip.x:hover::after { color: var(--on-fill); }
   .cell.filled, .cell.filled span { border: 0; background: var(--fill); color: var(--on-fill); }
   .cell.filled .sw-dot { display: none; }   /* the pill is the swatch */
@@ -168,7 +210,7 @@
   .dd .rz-dropdown-label { display: inline-flex; align-items: center; gap: 8px; padding: 0; white-space: nowrap; }
   .dd .rz-dropdown-trigger { display: inline-flex; opacity: .65; }
   .dd.mini, .box.mini { min-height: 0; border: 1.5px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
-  .dd.mini:hover, .box.mini:hover { background: var(--stone); color: var(--on-fill); }
+  .dd.mini:hover, .box.mini:hover { background: var(--hover); color: var(--on-fill); }
   .box { display: inline-flex; align-items: center; padding: 3px 12px; min-height: 35px; }
 
   /* inputs */
@@ -185,7 +227,7 @@
   .seg-o .count { font-weight: 500; opacity: .7; }
   .add-line { display: flex; gap: var(--s2); }
   .add-line input { flex: 1; min-width: 0; border: 0; border-bottom: 2px solid var(--line); background: transparent; padding: 4px; }
-  textarea.desc-in, textarea.md { width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: transparent; outline: none; resize: vertical; line-height: 1.55; }
+  textarea.desc-in, textarea.md { width: 100%; padding: 10px 12px; color: var(--ink); border: 0; border-radius: 8px; background: transparent; outline: none; resize: vertical; line-height: 1.55; }
   .spinner { width: 22px; height: 22px; flex: none; border: 3px solid var(--line-soft); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
@@ -233,7 +275,7 @@
   .nav-btn { display: flex; align-items: center; gap: 10px; flex: none; min-height: 34px; padding: 0 8px; border: 2px solid transparent;
     border-radius: 10px; background: none; color: var(--ink); font: 500 14px var(--f-body); text-align: left; white-space: nowrap; cursor: pointer; }
   .nav-btn svg { width: 16px; height: 16px; flex: none; }
-  .nav-btn:hover, .nav-btn.is-open { background: var(--stone); color: var(--on-fill); }
+  .nav-btn:hover, .nav-btn.is-open { background: var(--hover); color: var(--on-fill); }
   .nav-btn.is-sel { background: var(--sun); border-color: var(--line); color: var(--on-fill); }
   .nav-l { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   nav.side.expanded .nav-l { display: inline; }
@@ -252,7 +294,7 @@
   .nav-worklog .nav-h { padding: 0; }
   .nav-acts { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; align-self: stretch; }
   .menu-pop .proj-eye { margin-left: auto; padding: 2px 4px; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
-  .menu-pop .proj-eye:hover { color: var(--ink); background: var(--stone); }
+  .menu-pop .proj-eye:hover { color: var(--ink); background: var(--hover); }
   .menu-pop .proj-eye.off { color: var(--ink); }   /* hidden: the crossed eye stands out */
   /* Organise: columns, rows and colour over one field list; the legend names the colours shown */
   .organise { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; align-self: stretch; }
@@ -269,7 +311,7 @@
   .nav-h { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 4px; font: 700 12px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
   .grp-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 2px; padding: 1px 2px; border-radius: 8px; }
   .grp-row:has(.count) { grid-template-columns: minmax(0, 1fr) auto 24px; }
-  .grp-row:hover { background: color-mix(in srgb, var(--stone) 45%, transparent); }
+  .grp-row:hover { background: color-mix(in srgb, var(--hover) 45%, transparent); }
   .grp-row .nm { padding-left: 6px; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .grp-row .count { margin-left: 0; padding-inline: 6px; text-align: right; }
   @media (min-width: 901px) { .nav-view-btn { display: none; } }   /* desktop: ☰ shows the options; the view icon is for the header bar */
@@ -339,7 +381,7 @@
   .swim-h { align-items: center; border-radius: 8px; padding-bottom: 8px; }
   .swim-h .swim-hide { flex: none; width: 0; height: 18px; padding: 0; border: 0; border-radius: 5px; overflow: hidden; background: none; color: var(--ink-2); font: 700 14px/1 var(--f-body); cursor: pointer; opacity: 0; }
   .swim-h:hover .swim-hide, .swim-h .swim-hide:focus-visible { width: 18px; opacity: 1; }
-  .swim-h .swim-hide:hover { background: var(--stone); color: var(--on-fill); }
+  .swim-h .swim-hide:hover { background: var(--hover); color: var(--on-fill); }
   .swim-h.selected { outline: 3px solid var(--ink); outline-offset: -3px; background: color-mix(in srgb, var(--sun) 35%, transparent); }
   body.shift-held .swim-h { cursor: cell; }
   body.shift-held .swim-h:hover { background: color-mix(in srgb, var(--sun) 25%, transparent); }
@@ -414,24 +456,28 @@
      width of the table, under the strip's own text, and no row scrolled up behind the header shows in it. */
   .tbl-wrap thead th { position: sticky; top: 28px; z-index: 2; height: 36px; font: 600 12px var(--f-body); color: var(--ink-2); background: var(--paper); box-shadow: 0 -28px 0 var(--paper); border-bottom: 1px solid var(--line); white-space: nowrap; }
   .tbl-wrap thead th:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, var(--paper)); }
-  .tbl-wrap thead th > div { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; height: 36px; }  .tbl-wrap .rz-column-title { display: inline-flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
-  .tbl-wrap .rz-column-title-content { display: inline-flex; align-items: center; min-width: 0; }
+  .tbl-wrap thead th > div { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; height: 36px; }  .tbl-wrap .rz-column-title, .tbl-wrap .rz-column-title-content { display: contents; }   /* the label, the sort mark and the × become the header's own flex items, ordered below with the filter */
   .tbl-wrap .rz-sortable-column { cursor: default; }
-  .tbl-wrap .rz-sortable-column-icon { font-size: 16px; opacity: 0; }
-  .tbl-wrap thead th:hover .rz-sortable-column-icon { opacity: .45; }
-  .tbl-wrap .rzi-sort-asc, .tbl-wrap .rzi-sort-desc { opacity: 1; color: var(--ink); }
-  .tbl-wrap .rz-grid-filter-icon { padding: 0; border: 0; background: none; color: var(--ink-2); cursor: pointer; font-size: 15px; opacity: 0; }
-  .tbl-wrap thead th:hover .rz-grid-filter-icon, .tbl-wrap .rz-grid-filter-icon.rz-grid-filter-active, .tbl-wrap .rz-grid-filter-icon:focus-visible { opacity: 1; }
-  .tbl-wrap .rz-grid-filter-icon:hover, .tbl-wrap .rz-grid-filter-icon.rz-grid-filter-active { color: var(--ink); }
-  .tbl-wrap .th-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* a long label in a narrow column shortens, so the × after it stays inside the title box (Radzen clips what overflows it) and takes clicks */
-  .tbl-wrap .th-hide { flex: none; width: 0; height: 18px; padding: 0; border: 0; border-radius: 5px; overflow: hidden; background: none; color: var(--ink-2); font: 700 14px/1 var(--f-body); cursor: pointer; opacity: 0; }
-  .tbl-wrap thead th:hover .th-hide, .tbl-wrap .th-hide:focus-visible { width: 18px; margin-left: 2px; opacity: 1; }
-  .tbl-wrap .th-hide:hover { background: var(--stone); color: var(--on-fill); }
+  /* At rest the header is its name, plus a mark for what is on (the sort arrow, the filled funnel): the other controls take no room.
+     On hover (or keyboard focus, or the filter's panel open) the name hides and the three controls, in the order filter, sort, hide,
+     share the header's width, each at least 24px wide and 28px tall with a gap, so one is easy to hit (the hovered-header rules below) */
+  .tbl-wrap .rz-sortable-column-icon { display: none; order: 2; position: relative; z-index: 1; pointer-events: auto; cursor: pointer; font-size: 16px; color: var(--ink-2); }
+  .tbl-wrap .rz-sortable-column-icon.rzi-sort-asc, .tbl-wrap .rz-sortable-column-icon.rzi-sort-desc { display: inline-flex; color: var(--ink); }
+  .tbl-wrap .rz-grid-filter-icon { display: none; order: 1; padding: 0; border: 0; background: none; color: var(--ink-2); cursor: pointer; font-size: 15px; }
+  .tbl-wrap .rz-grid-filter-icon.rz-grid-filter-active { display: inline-flex; color: var(--ink); }
+  .tbl-wrap .th-l { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* a long label in a narrow column shortens, so the × after it stays inside the title box (Radzen clips what overflows it) and takes clicks */
+  .tbl-wrap .th-hide { order: 3; flex: none; width: 0; height: 18px; padding: 0; border: 0; border-radius: 5px; overflow: hidden; background: none; color: var(--ink-2); font: 700 14px/1 var(--f-body); cursor: pointer; opacity: 0; }   /* no room at rest, but still focusable */
+  /* the hovered header: not while the column's resize handle is under the pointer (that header is at rest, its handle lit) */
+  .tbl-wrap thead th:is(:hover, :has(:focus-visible), :has(.rz-grid-filter-icon[aria-expanded="true"])):not(:has(.rz-column-resizer:hover), [data-resizing]) > div { gap: 6px; }
+  .tbl-wrap thead th:is(:hover, :has(:focus-visible), :has(.rz-grid-filter-icon[aria-expanded="true"])):not(:has(.rz-column-resizer:hover), [data-resizing]) .th-l { display: none; }
+  .tbl-wrap thead th:is(:hover, :has(:focus-visible), :has(.rz-grid-filter-icon[aria-expanded="true"])):not(:has(.rz-column-resizer:hover), [data-resizing]) :is(.rz-sortable-column-icon, .rz-grid-filter-icon, .th-hide) { display: inline-flex; align-items: center; justify-content: center; flex: 1 1 0; width: auto; min-width: 24px; height: 28px; margin: 0; border-radius: 5px; opacity: 1; }
+  .tbl-wrap thead th:is(:hover, :has(:focus-visible), :has(.rz-grid-filter-icon[aria-expanded="true"])):not(:has(.rz-column-resizer:hover), [data-resizing]) .th-hide { font-size: 17px; }
+  .tbl-wrap .rz-sortable-column-icon:hover, .tbl-wrap .rz-grid-filter-icon:hover, .tbl-wrap .th-hide:hover { background: var(--hover); color: var(--on-fill); }
   /* the whole header is the reorder handle (Radzen listens on .rz-column-drag, stretched under the title); a press on the label
      falls through to it, a release without a move sorts (app.js), and the buttons keep their own clicks */
   .tbl-wrap .rz-column-drag { position: absolute; inset: 0; }
-  .tbl-wrap .rz-column-title, .tbl-wrap .rz-grid-filter-icon { position: relative; z-index: 1; }
-  .tbl-wrap .rz-column-title { pointer-events: none; }
+  .tbl-wrap .rz-grid-filter-icon, .tbl-wrap .th-hide { position: relative; z-index: 1; }
+  .tbl-wrap .rz-column-title { pointer-events: none; }   /* inherited by the label: a press on it reaches the layer under */
   .tbl-wrap .th-hide { pointer-events: auto; }
   .rz-column-draggable { background: var(--card); color: var(--ink); border: 1.5px solid var(--line); border-radius: 8px; padding: 6px 10px; font: 600 12px var(--f-body); box-shadow: 2px 2px 0 var(--shadow); }   /* the ghost that follows the pointer */
   /* column resize: the handle is the 16px inside the column's right edge; hovering lights a band with the line in it, resizing
@@ -443,8 +489,6 @@
   .tbl-wrap .rz-column-resizer:hover::before, .tbl-wrap .rz-column-resizer:hover::after, .tbl-wrap th[data-resizing] .rz-column-resizer::after { opacity: 1; }
   .tbl-wrap th[data-resizing] .rz-column-resizer::after { height: 100vh; }
   .tbl-wrap thead th:has(.rz-column-resizer:hover), .tbl-wrap thead th[data-resizing] { color: var(--ink-2); background: var(--paper); }
-  .tbl-wrap thead th:has(.rz-column-resizer:hover) .rz-sortable-column-icon, .tbl-wrap thead th:has(.rz-column-resizer:hover) .rz-grid-filter-icon:not(.rz-grid-filter-active) { opacity: 0; }
-  .tbl-wrap thead th:has(.rz-column-resizer:hover) .th-hide { width: 0; margin: 0; opacity: 0; }
   /* rows */
   .tbl-wrap tr[data-id]:hover td { background: color-mix(in srgb, var(--ink) 6%, transparent); }
   body.shift-held .tbl-wrap tr[data-id] td { cursor: cell; }
@@ -489,11 +533,12 @@
   .tbl-wrap tr[data-group] b { font-weight: 600; }
   .tbl-wrap tr[data-group] .gname[style] { display: inline-block; padding: 1px 10px; border-radius: 6px; background: var(--fill); color: var(--on-fill); }
   .tbl-wrap tr[data-group] .rz-button { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; color: var(--ink-2); }
-  .tbl-wrap tr[data-group] .rz-button:hover { background: var(--stone); color: var(--on-fill); }
-  /* a group's "…" menu (delete the status or feature): shown on hover or focus of the group row, like a column header's × */
-  .tbl-wrap .gh-menu { width: 22px; height: 22px; margin-left: 6px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--ink-2); font: 700 14px/1 var(--f-body); cursor: pointer; opacity: 0; vertical-align: middle; }
-  .tbl-wrap tr[data-group]:hover .gh-menu, .tbl-wrap .gh-menu:focus-visible { opacity: 1; }
-  .tbl-wrap .gh-menu:hover { background: var(--stone); color: var(--on-fill); }
+  .tbl-wrap tr[data-group] .rz-button:hover { background: var(--hover); color: var(--on-fill); }
+  /* a group's name opens the group's menu (the chevron beside it folds the group); the same actions as a board column header's */
+  .tbl-wrap .gname-btn { padding: 0; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
+  .tbl-wrap .gname-btn:not(:has(.gname[style])) { padding: 1px 6px; margin-left: -6px; }
+  .tbl-wrap .gname-btn:hover .gname[style] { filter: brightness(.94); }
+  .tbl-wrap .gname-btn:hover:not(:has(.gname[style])), .tbl-wrap .gname-btn:focus-visible { background: var(--hover); }
   .tbl-wrap tr[data-group] .menu-wrap { display: inline-block; }
   /* an empty group's "No items" and the "+ Add item" row under each group: short, faint, no rule under them */
   .tbl-wrap tr[data-empty] td { height: 32px; color: var(--ink-2); font-size: 13px; border-bottom: 0; }
@@ -684,7 +729,7 @@
   .menu-pop.placed { visibility: visible; }
   .menu-item { display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: 0; padding: 8px 12px;
     border-radius: 9px; font: 500 14px var(--f-body); color: var(--ink); cursor: pointer; white-space: nowrap; }
-  .menu-item:hover, .menu-item:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
+  .menu-item:hover, .menu-item:focus-visible { background: var(--hover); color: var(--on-fill); outline: none; }
   .menu-item.cur { background: var(--sun); color: var(--on-fill); font-weight: 700; }
   .menu-item.cur::after { content: "✓"; margin-left: auto; padding-left: 12px; }
   .menu-item svg { width: 15px; height: 15px; }
@@ -698,16 +743,16 @@
   .rz-dropdown-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; font-size: 14px; white-space: nowrap; cursor: pointer; }
   .rz-dropdown-item > span { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
   .rz-dropdown-item > span > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* in a popup given a width (the commit list) a long row ends in an ellipsis */
-  .rz-dropdown-item:hover, .rz-dropdown-item.rz-state-highlight { background: var(--stone); color: var(--on-fill); }
+  .rz-dropdown-item:hover, .rz-dropdown-item.rz-state-highlight { background: var(--hover); color: var(--on-fill); }
   .rz-grid-filter { display: flex; flex-direction: column; gap: 8px; }
   .rz-grid-filter-label { font: 700 12px var(--f-body); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
   .rz-grid-filter .rz-dropdown { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; padding: 2px 8px; border: 2px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--ink); font-size: 14px; cursor: pointer; }
-  .rz-grid-filter .rz-dropdown:hover { background: var(--stone); color: var(--on-fill); }
+  .rz-grid-filter .rz-dropdown:hover { background: var(--hover); color: var(--on-fill); }
   .rz-dropdown-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rz-grid-filter input.rz-inputtext, .rz-grid-filter .rz-textbox { width: 100%; height: 30px; padding: 0 10px; font: 14px var(--f-body); color: var(--ink); background: var(--card); border: 1.5px solid var(--line-soft); border-radius: 8px; outline: none; }
   .rz-grid-filter input:focus { border-color: var(--accent); }
   .rz-grid-filter .rz-button { display: inline-flex; align-items: center; min-height: 30px; padding: 0 14px; border: 2px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--ink); font: 600 14px var(--f-body); cursor: pointer; }
-  .rz-grid-filter .rz-button:hover { background: var(--stone); color: var(--on-fill); }
+  .rz-grid-filter .rz-button:hover { background: var(--hover); color: var(--on-fill); }
   .rz-grid-filter .rz-button + .rz-button { margin-left: 8px; }
   /* dialogs (Overlays.razor): confirm, prompt, and the busy panel with a CSS spinner that keeps turning while the CLI blocks .NET */
   .dialog-backdrop { position: fixed; inset: 0; z-index: 70; background: color-mix(in srgb, var(--ink) 35%, transparent); }
@@ -736,7 +781,7 @@
   /* hint mode (F): a letter badge on every clickable element */
   .hint-overlay { position: absolute; inset: 0; z-index: 9999; pointer-events: none; }
   .hint-badge { position: absolute; z-index: 9999; padding: 1px 5px; border-radius: 4px; font: 700 11px/1.3 var(--f-body); background: var(--sun); color: var(--on-fill);
-    border: 1.5px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, .18); white-space: nowrap; pointer-events: none; transform: translate(-50%, -50%); }
+    border: 1.5px solid var(--line); box-shadow: 0 1px 3px var(--shadow-soft); white-space: nowrap; pointer-events: none; transform: translate(-50%, -50%); }
   .hint-badge.dim { opacity: .25; }
   /* pointer-driven drags and column resizes (app.js): the whole app shows the pointer for it and nothing gets text-selected */
   body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none !important; }
@@ -750,7 +795,7 @@
   .rm-today-btn, .rm-prev, .rm-next, .rm-zoom { min-height: 30px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: 600 var(--t-sm) var(--f-body); }
   .rm-today-btn, .rm-prev, .rm-next { padding: 0 12px; cursor: pointer; }
   .rm-prev, .rm-next { padding: 0 10px; font-size: 18px; line-height: 1; }
-  .rm-today-btn:hover, .rm-prev:hover, .rm-next:hover, .rm-zoom button:hover { background: var(--stone); color: var(--on-fill); }
+  .rm-today-btn:hover, .rm-prev:hover, .rm-next:hover, .rm-zoom button:hover { background: var(--hover); color: var(--on-fill); }
   .rm-zoom { display: inline-flex; overflow: hidden; }
   .rm-zoom button { padding: 0 12px; border: 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
   .rm-zoom button + button { border-left: 1.5px solid var(--line); }
@@ -770,6 +815,10 @@
   .rm-sname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rm-row.deep { padding-left: 30px; }
   .rm-gname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* a group's name opens the group's menu */
+  .rm-gbtn { padding: 0 4px; margin-left: -4px; border: 0; border-radius: 5px; background: none; color: inherit; font: inherit; cursor: pointer; }
+  .rm-gbtn:hover, .rm-gbtn:focus-visible { background: var(--line-soft); }
+  .rm-gmenu, .rm-gmenu .menu-activator { display: flex; min-width: 0; }
   .rm-count { flex: none; padding: 0 7px; border-radius: 999px; background: var(--stone); color: var(--on-fill); font: 600 12px/18px var(--f-body); }
   .rm-chev { flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font-size: 14px; line-height: 1; cursor: pointer; }
   .rm-chev:hover { background: var(--line-soft); color: var(--ink); }
@@ -808,7 +857,7 @@
   .range-grid { display: grid; grid-template-columns: repeat(7, 34px); gap: 2px; }
   .rdow { font: 600 11px var(--f-body); color: var(--ink-2); text-align: center; padding-bottom: 2px; }
   .rd { height: 30px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 500 13px var(--f-body); cursor: pointer; }
-  .rd:hover { background: var(--stone); color: var(--on-fill); }
+  .rd:hover { background: var(--hover); color: var(--on-fill); }
   .rd.other { color: var(--ink-2); opacity: .55; }
   .rd.today { box-shadow: inset 0 0 0 1.5px var(--line); }
   .rd.in { background: color-mix(in srgb, var(--sun) 35%, transparent); color: var(--ink); }
@@ -852,6 +901,14 @@ nav.side:not(.expanded) .nav-tab { padding-inline: 0; text-align: center; }
   main.panes { grid-auto-flow: row; }   /* only the active pane is built */
 }
 
+/* ───────── right panel: Ctrl+Shift+> (MainLayout), empty for now; the surface of the side menu, in a third column of the window ───────── */
+#app:has(> aside.right-panel) { grid-template-columns: auto minmax(0, 1fr) 280px; }
+aside.right-panel { position: sticky; top: 0; height: 100vh; overflow: hidden auto; padding: 6px 12px; background: var(--paper); border-left: 2px solid var(--line-soft); }
+aside.right-panel h2 { margin: 0; font: 600 var(--t-md) var(--f-body); color: var(--ink-2); }
+@media (max-width: 1399px) {
+  aside.right-panel { display: none; }
+}
+
 @layer page {
   /* merged items: a task group / a merged source's notes as a collapsible header with its count */
   .sub-group { display: flex; align-items: center; gap: 8px; margin: 14px 0 8px; padding: 6px 12px; cursor: pointer; font-weight: 700; color: var(--ink); background: var(--card); border: 2px solid var(--line); border-radius: 8px; }
@@ -893,7 +950,7 @@ nav.side:not(.expanded) .nav-tab { padding-inline: 0; text-align: center; }
   .wk-first.filling textarea.desc-in { flex: 1 1 auto; resize: none; }
   /* every entry has the same 2px edge (transparent unless it is a card or hovered, see .hov) so times and markers line up */
   .wk-e { --stroke: transparent; --fill: transparent; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 16px; padding: 5px 12px; border: 2px solid var(--stroke); border-radius: 10px; background: var(--fill); }
-  .wk-e.hov:hover, .wk-e.hov:focus-visible { --stroke: var(--line); --fill: var(--stone); color: var(--on-fill); outline: none; }   /* an entry with a menu: outlined when pointed at */
+  .wk-e.hov:hover, .wk-e.hov:focus-visible { --stroke: var(--line); --fill: var(--hover); color: var(--on-fill); outline: none; }   /* an entry with a menu: outlined when pointed at */
   .wk-e:focus-visible { outline-offset: 2px; }
   .wk-mark { position: absolute; left: -29px; top: 11px; width: 12px; height: 12px; border-radius: 50%; background: var(--stone); border: 2px solid var(--paper); box-shadow: 0 0 0 1.5px var(--line-soft); }
   .wk-e[data-kind="note"] .wk-mark { top: 14px; background: var(--sun); box-shadow: 0 0 0 1.5px var(--line); }
@@ -962,7 +1019,7 @@ nav.side:not(.expanded) .nav-tab { padding-inline: 0; text-align: center; }
 @layer nav {
   .nav-day { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; width: 100%; min-height: 26px; padding: 0 6px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: 500 13px var(--f-body); text-align: left; white-space: nowrap; cursor: pointer; }
   .nav-day .count { margin-left: 0; }
-  .nav-day:hover, .nav-day:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
+  .nav-day:hover, .nav-day:focus-visible { background: var(--hover); color: var(--on-fill); outline: none; }
   .nav-day:hover .count, .nav-day:focus-visible .count { color: inherit; }
 }
 
@@ -1026,7 +1083,7 @@ nav.side:not(.expanded) .nav-tab { padding-inline: 0; text-align: center; }
 @layer nav {
   /* on/off options: a filled pill when on, plain underlined text when off (a real button, aria-pressed) */
   .nav-pill { padding: 1px 12px; border: 2px solid transparent; border-radius: var(--r); background: none; color: var(--ink); font: 500 14px var(--f-body); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; cursor: pointer; white-space: nowrap; }
-  .nav-pill:hover { background: var(--stone); color: var(--on-fill); }
+  .nav-pill:hover { background: var(--hover); color: var(--on-fill); }
   .nav-pill:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .nav-pill.is-sel { background: var(--sun); border-color: var(--line); color: var(--on-fill); text-decoration: none; }
   .nav-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; align-self: stretch; }
@@ -1098,9 +1155,6 @@ nav.side:not(.expanded) .nav-tab { padding-inline: 0; text-align: center; }
 }
 
 /* menu sections */
-:root { --alert: #c62d2d; --on-alert: #fff; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --alert: #f0847a; --on-alert: #1c1917; } }
-:root[data-theme="dark"] { --alert: #f0847a; --on-alert: #1c1917; }
 @layer nav {
   /* Organise, Filters and Hidden fold under their header (folded until the user opens one); folded, the header says what is set inside */
   .nav-sec-h { justify-content: flex-start; gap: 4px; width: 100%; min-width: 0; padding: 2px 0; border: 0; background: none; text-align: left; cursor: pointer; }
@@ -1124,7 +1178,7 @@ nav.side:not(.expanded) .nav-tab { padding-inline: 0; text-align: center; }
   .field-ctl > .dd { flex: 0 1 auto; min-width: 0; }
   .nav-legend-btn.is-sel { background: var(--sun); color: var(--on-fill); }
   .arr-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 2px; padding: 1px 2px; border-radius: 8px; align-self: stretch; }
-  .arr-row:hover { background: color-mix(in srgb, var(--stone) 45%, transparent); }
+  .arr-row:hover { background: color-mix(in srgb, var(--hover) 45%, transparent); }
   .arr-open { padding: 0 0 0 6px; border: 0; background: none; color: var(--ink); font: 500 14px var(--f-body); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
   .arr-open:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .arr-new { display: flex; align-items: center; gap: 4px; align-self: stretch; padding-top: 4px; }
@@ -1182,12 +1236,12 @@ nav.side:not(.expanded) .nav-tab { padding-inline: 0; text-align: center; }
 @layer nav {
   /* the feed's kind pills: a small "all" link restores every kind once some are off */
   .nav-feed-all { padding: 0 6px; border: 0; background: none; color: var(--ink); font: 500 13px var(--f-body); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-  .nav-feed-all:hover, .nav-feed-all:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; border-radius: 6px; }
+  .nav-feed-all:hover, .nav-feed-all:focus-visible { background: var(--hover); color: var(--on-fill); outline: none; border-radius: 6px; }
   /* the examined item's subtasks: rows with their number, plain like the lines above them */
   .ex-sub-group { padding-top: 4px; font: 600 var(--t-sm) var(--f-body); color: var(--ink-2); overflow-wrap: anywhere; }
   .ex-sub { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 2px 4px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: 500 var(--t-sm) var(--f-body); text-align: left; }
   button.ex-sub { cursor: grab; }
-  button.ex-sub:hover, button.ex-sub:focus-visible { background: var(--stone); color: var(--on-fill); outline: none; }
+  button.ex-sub:hover, button.ex-sub:focus-visible { background: var(--hover); color: var(--on-fill); outline: none; }
   .ex-sub[data-done] { color: var(--ink-2); text-decoration: line-through; }
   .ex-num { flex: none; min-width: 2.2em; font-variant-numeric: tabular-nums; color: var(--ink-2); }
   button.ex-sub:hover .ex-num, button.ex-sub:focus-visible .ex-num { color: inherit; }
@@ -1208,7 +1262,7 @@ nav.side:not(.expanded) .nav-tab { padding-inline: 0; text-align: center; }
     .nav-hidden { padding-inline: 6px; }
     nav.side .nav-hidden > .nav-sec-h { margin-inline: -6px; width: calc(100% + 12px); padding-inline: 4px; }
     .nav-hidden .nav-sec-body > .nav-pill { margin-left: -6px; }
-    nav.side .nav-sec-h:hover { background: var(--stone); color: var(--on-fill); }
+    nav.side .nav-sec-h:hover { background: var(--hover); color: var(--on-fill); }
     .nav-sec-chev { width: 16px; height: 16px; justify-content: center; align-items: center; }
     .nav-sec-chev svg { width: 14px; height: 14px; }
   }

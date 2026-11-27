@@ -78,22 +78,17 @@ When a board file changed on two computers, the app SHALL merge it by its kind (
 
 ### Requirement: Sync never erases a file
 
-A file the sync removes or replaces on a computer SHALL first be kept in a trash folder in the app's data for 30 days. A sync SHALL stop and ask first when the deletions of the last 24 hours would exceed a large share of the board.
+A file the sync removes or replaces on a computer SHALL first be kept in a trash folder in the app's data for 30 days. The sync SHALL remove a board file only when a move (archive, merge, rename) or a line of the item's event log explains it; a missing file SHALL NOT be read as a deletion (see #wi233).
 
-#### Scenario: A deletion arrives
+#### Scenario: An explained removal arrives
 
-- **WHEN** a file was deleted on another computer and this computer syncs
-- **THEN** the file leaves the board folder and is in the trash
+- **WHEN** a note was renumbered on another computer and its event log says so, and this computer syncs
+- **THEN** the old note file leaves the board folder and is in the trash
 
 #### Scenario: A file is replaced
 
 - **WHEN** a sync replaces a board file with the storage's version
 - **THEN** the previous content is in the trash
-
-#### Scenario: A mass deletion
-
-- **WHEN** a sync would delete more than the allowed share of the board
-- **THEN** nothing changes until the user allows it
 
 ### Requirement: Sync stays inside the board and trusts nothing from the storage
 

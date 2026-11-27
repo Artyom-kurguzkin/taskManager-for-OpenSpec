@@ -266,6 +266,20 @@ public static class BoardModel
     public static bool CanDeleteStatus(BoardOptions o, IReadOnlyList<string> projectStatuses, string columnKey) =>
         o.GroupBy == "status" && MergeOf(o, columnKey) is null && projectStatuses.Contains(columnKey) && !WorkItemsApi.FixedStatuses.Contains(columnKey);
 
+    /// <summary>Whether a status column can be renamed from where it is seen: the same statuses that can be deleted (the project's own custom ones).</summary>
+    public static bool CanRenameStatus(BoardOptions o, IReadOnlyList<string> projectStatuses, string columnKey) => CanDeleteStatus(o, projectStatuses, columnKey);
+
+    /// <summary>The options after a status was renamed: its column key in the hidden and saved order lists, and its place in the merges (a merge's own name is the user's and stays).</summary>
+    public static BoardOptions RenameStatus(BoardOptions o, string from, string to)
+    {
+        string oldKey = "status:" + from, newKey = "status:" + to;
+        IReadOnlyList<string>? Keys(IReadOnlyList<string>? keys) => keys?.Contains(oldKey) == true ? [.. keys.Select(k => k == oldKey ? newKey : k)] : keys;
+        IReadOnlyList<StatusMerge>? merges = o.Merges?.Any(m => m.Statuses.Contains(from)) == true
+            ? [.. o.Merges.Select(m => m.Statuses.Contains(from) ? m with { Statuses = [.. m.Statuses.Select(s => s == from ? to : s)] } : m)]
+            : o.Merges;
+        return o with { Hidden = Keys(o.Hidden), Order = Keys(o.Order), Merges = merges };
+    }
+
     /// <summary>
     /// The statuses a card dropped into a column can get in its own project: the column's key when it is a plain status the project has, else the merge's statuses that project has
     /// (<paramref name="projectStatuses"/>). One is the answer, several are for the user to pick from, none means the project cannot take the card there.

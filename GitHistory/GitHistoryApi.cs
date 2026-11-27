@@ -153,6 +153,12 @@ public static class GitHistoryApi
     /// </summary>
     public static ConflictSides? ConflictSides(string repoRelativePath, string markedText) => ConflictSidesReader.Read(repoRelativePath, markedText);
 
+    /// <summary>The hash of the repository's first commit (the same on every clone, so it names the project); the oldest when there are several roots, by hash order for a tie. null when this is not a repository or it has no commit.</summary>
+    public static string? FirstCommit() => Queries.FirstCommit();
+
+    /// <summary>The text of a repo-relative file as the last commit (HEAD) has it; null when there is none (no repository, no commit, not committed). Read only.</summary>
+    public static string? CommittedText(string repoRelativePath) => Queries.CommittedText(repoRelativePath);
+
     /// <summary>Stages and commits only the given repo-relative paths.</summary>
     public static (bool Success, string Message) Commit(IReadOnlyList<string> paths, string message) => Commands.Commit(paths, message);
 }

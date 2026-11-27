@@ -308,10 +308,15 @@ public sealed class RecognisingOldContentTests : IDisposable
         SyncReport up = await Sync(a);
         SyncReport down = await Sync(b);
 
+        // A file moved by hand out of a folder that stays is not a folder's move: nothing says the old path was removed on purpose, so it is put back (nothing is deleted),
+        // and the new path is a new file that is stored under its own object.
         Assert.Equal([Moved], up.Uploaded);
-        Assert.Equal([Proposal], up.DeletedInStorage);
+        Assert.Equal([Proposal], up.Downloaded);
+        Assert.Empty(up.DeletedInStorage);
         Assert.Equal([Moved], down.Downloaded);
-        Assert.Equal([Proposal], down.DeletedHere);
+        Assert.Empty(down.DeletedHere);
+        Assert.Equal(SeedProposal, Read(a, Proposal));
+        Assert.Equal(SeedProposal, Read(b, Proposal));
         Assert.Equal(Tree(a), Tree(b));
         Assert.Equal(SeedProposal, Read(b, Moved));
         Assert.True(File.Exists(ObjectFile(Moved, SeedProposal)));
@@ -347,24 +352,37 @@ public sealed class RecognisingOldContentTests : IDisposable
     [Fact(DisplayName = "A file that comes back through git after it was deleted, with content the storage had long ago, is deleted again")]
     public async Task OldContentOfADeletedFileIsRecognisedByTheRefusal()
     {
+        // A file is only ever removed for a reason the item's log gives (a plain deletion is put back), so this one is a delta spec the app removed: its log says "spec-removed".
+        const string Spec = Dir + "/specs/health/spec.md";
+        static string SpecVersion(int i) => $"## ADDED Requirements\n\n### Requirement: Health\n\nThe service SHALL answer.\n\n<!-- version {i} -->\n";
         (Computer a, Computer b) = await TwoSyncedComputers();
-        await Evolve(a, Enough);
-        Tick(1);
-        File.Delete(Path.Combine(a.Root, Tasks));
+        Write(a, Spec, SpecVersion(0));
         await Sync(a);
-        await Sync(b);                                                // the tasks are deleted on both computers
+        await Sync(b);
+        for (int i = 1; i <= Enough; i++)
+        {
+            Tick(1);
+            Write(a, Spec, SpecVersion(i));
+            await Sync(a);
+        }
         Tick(1);
-        Write(b, Tasks, Version(3));                                  // an old branch has them again, with a version nobody here saw
+        File.Delete(Path.Combine(a.Root, Spec));
+        Write(a, Log, Read(a, Log) + "2026-11-12T09:00:00 | Ann | spec-removed | specs/health/spec.md\n");
+        await Sync(a);
+        await Sync(b);                                                // the spec is deleted on both computers, for the reason the log gives
+        Assert.False(File.Exists(Path.Combine(b.Root, Spec)));
+        Tick(1);
+        Write(b, Spec, SpecVersion(3));                               // an old branch has it again, with a version nobody here saw
 
         SyncReport report = await Sync(b, NoAppEdits);
 
-        Assert.Equal([Tasks], report.Stale);
-        Assert.Equal([Tasks], report.DeletedHere);
+        Assert.Equal([Spec], report.Stale);
+        Assert.Equal([Spec], report.DeletedHere);
         Assert.Empty(report.Uploaded);
-        Assert.False(File.Exists(Path.Combine(b.Root, Tasks)));
+        Assert.False(File.Exists(Path.Combine(b.Root, Spec)));
         Assert.Single(report.Trashed);
-        Assert.Equal(Version(3), File.ReadAllText(report.Trashed[0]));
-        System.Text.Json.JsonElement entry = System.Text.Json.JsonDocument.Parse(a.Storage.Get("manifest.json").GetAwaiter().GetResult()!.Bytes).RootElement.GetProperty("entries").GetProperty(Tasks);
+        Assert.Equal(SpecVersion(3), File.ReadAllText(report.Trashed[0]));
+        System.Text.Json.JsonElement entry = System.Text.Json.JsonDocument.Parse(a.Storage.Get("manifest.json").GetAwaiter().GetResult()!.Bytes).RootElement.GetProperty("entries").GetProperty(Spec);
         Assert.True(entry.GetProperty("deleted").GetBoolean());
     }
 

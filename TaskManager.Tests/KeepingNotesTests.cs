@@ -516,11 +516,11 @@ public sealed class KeepingNotesTests
             Assert.True(NotesApi.AttachBytes(123, "pasted.png", [1, 2, 3]).Success);
             Assert.True(NotesApi.AttachLink(123, "https://example.com/x").Success);
             Assert.False(NotesApi.AttachLink(123, "notaurl").Success);   // refused: nothing recorded
-            Assert.True(NotesApi.RemoveAttachment(123, "https://example.com/x").Success);   // removing is not an addition
+            Assert.True(NotesApi.RemoveAttachment(123, "https://example.com/x").Success);   // removing is not an addition: it is its own event
 
             var events = WorkItemsApi.GetEvents(NotesApi.Get(123)!.WorkItemId);
             Assert.Equal(
-                [("attachment-added", "n123: shot.txt"), ("attachment-added", "n123: shot-2.txt"), ("attachment-added", "n123: pasted.png"), ("attachment-added", "n123: https://example.com/x")],
+                [("attachment-added", "n123: shot.txt"), ("attachment-added", "n123: shot-2.txt"), ("attachment-added", "n123: pasted.png"), ("attachment-added", "n123: https://example.com/x"), ("attachment-removed", "n123: https://example.com/x")],
                 events.Select(e => (e.Kind, e.Text)));
             Assert.All(events, e => Assert.Equal("Tester", e.By));
         }

@@ -1,0 +1,370 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "type": "text",
+   "id": "t0",
+   "x": 20,
+   "y": 10,
+   "text": "Why var density wants to delete 48 of 77 files (#233)",
+   "fontSize": 20,
+   "width": 583,
+   "height": 25
+  },
+  {
+   "type": "rectangle",
+   "id": "other",
+   "x": 20,
+   "y": 60,
+   "width": 300,
+   "height": 150,
+   "backgroundColor": "#fff3bf",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "other-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "other-label",
+   "containerId": "other",
+   "text": "Other computer 07189f54\nNov 25 10:42 local: merges 9 items\ninto merge-wi8-wi17\n(source folders removed)",
+   "originalText": "Other computer 07189f54\nNov 25 10:42 local: merges 9 items\ninto merge-wi8-wi17\n(source folders removed)",
+   "fontSize": 14,
+   "x": 39.099999999999994,
+   "y": 100,
+   "width": 261.8,
+   "height": 70,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "bucket",
+   "x": 400,
+   "y": 60,
+   "width": 330,
+   "height": 150,
+   "backgroundColor": "#e7f5ff",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "bucket-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "bucket-label",
+   "containerId": "bucket",
+   "text": "Bucket repo-tasks, prefix var-density/\nmanifest: 104 entries\n+26 files merge-wi8-wi17 (Nov 25 00:12Z)\n+48 tombstones (all 07189f54,\nNov 25 20:01:05Z, one sync)",
+   "originalText": "Bucket repo-tasks, prefix var-density/\nmanifest: 104 entries\n+26 files merge-wi8-wi17 (Nov 25 00:12Z)\n+48 tombstones (all 07189f54,\nNov 25 20:01:05Z, one sync)",
+   "fontSize": 14,
+   "x": 411,
+   "y": 91.25,
+   "width": 308,
+   "height": 87.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "here",
+   "x": 810,
+   "y": 60,
+   "width": 300,
+   "height": 150,
+   "backgroundColor": "#ebfbee",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "here-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "here-label",
+   "containerId": "here",
+   "text": "This computer d34f9008\n77 files = last-sync base (77)\nno local edits since Nov 24 17:06\nlast sync saw none of the above",
+   "originalText": "This computer d34f9008\n77 files = last-sync base (77)\nno local edits since Nov 24 17:06\nlast sync saw none of the above",
+   "fontSize": 14,
+   "x": 832.95,
+   "y": 100,
+   "width": 254.10000000000002,
+   "height": 70,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a1",
+   "x": 320,
+   "y": 135,
+   "width": 80,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     80,
+     0
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a1-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a1-label",
+   "containerId": "a1",
+   "text": "sync",
+   "originalText": "sync",
+   "fontSize": 14,
+   "x": 344.6,
+   "y": 126.25,
+   "width": 30.800000000000004,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a2",
+   "x": 810,
+   "y": 135,
+   "width": -80,
+   "height": 0,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     -80,
+     0
+    ]
+   ],
+   "endArrowhead": "arrow",
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "a2-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "a2-label",
+   "containerId": "a2",
+   "text": "plan",
+   "originalText": "plan",
+   "fontSize": 14,
+   "x": 754.6,
+   "y": 126.25,
+   "width": 30.800000000000004,
+   "height": 17.5,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "plan",
+   "x": 810,
+   "y": 260,
+   "width": 300,
+   "height": 120,
+   "backgroundColor": "#ffe3e3",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "plan-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "plan-label",
+   "containerId": "plan",
+   "text": "Planner reads each tombstone as\n'storage changed, local unchanged,\nstorage has no content' = delete here\n48 of 77 > 30% brake: paused",
+   "originalText": "Planner reads each tombstone as\n'storage changed, local unchanged,\nstorage has no content' = delete here\n48 of 77 > 30% brake: paused",
+   "fontSize": 14,
+   "x": 817.55,
+   "y": 285,
+   "width": 284.90000000000003,
+   "height": 70,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a3",
+   "x": 960,
+   "y": 210,
+   "width": 0,
+   "height": 50,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     50
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "rectangle",
+   "id": "nine",
+   "x": 400,
+   "y": 260,
+   "width": 330,
+   "height": 120,
+   "backgroundColor": "#fff3bf",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "nine-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "nine-label",
+   "containerId": "nine",
+   "text": "The 48 = 9 folders (ids 8 to 16):\n7 blender-* + flow-domain-module (5 files each)\n+ new-work-item-7 (8 files)\nall named in merge-wi8-wi17 mergedFolders",
+   "originalText": "The 48 = 9 folders (ids 8 to 16):\n7 blender-* + flow-domain-module (5 files each)\n+ new-work-item-7 (8 files)\nall named in merge-wi8-wi17 mergedFolders",
+   "fontSize": 14,
+   "x": 384.04999999999995,
+   "y": 285,
+   "width": 361.90000000000003,
+   "height": 70,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a4",
+   "x": 565,
+   "y": 210,
+   "width": 0,
+   "height": 50,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     50
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "rectangle",
+   "id": "bi",
+   "x": 20,
+   "y": 260,
+   "width": 330,
+   "height": 120,
+   "backgroundColor": "#f1f3f5",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "bi-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "bi-label",
+   "containerId": "bi",
+   "text": "BI project: same bucket, NO prefix\nreads root manifest.json only\nvar-density/ is just 106 keys under it:\nnot involved in the 48",
+   "originalText": "BI project: same bucket, NO prefix\nreads root manifest.json only\nvar-density/ is just 106 keys under it:\nnot involved in the 48",
+   "fontSize": 14,
+   "x": 34.849999999999994,
+   "y": 285,
+   "width": 300.3,
+   "height": 70,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "rectangle",
+   "id": "fix",
+   "x": 400,
+   "y": 420,
+   "width": 710,
+   "height": 70,
+   "backgroundColor": "#d3f9d8",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "fix-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "fix-label",
+   "containerId": "fix",
+   "text": "By hand in the bucket: nothing. Content is in merge-wi8-wi17 (all 12 notes kept, mergedFrom added).\nFolder pass (chunk B) reads mergedFolders: the 48 become a merge, not deletes.",
+   "originalText": "By hand in the bucket: nothing. Content is in merge-wi8-wi17 (all 12 notes kept, mergedFrom added).\nFolder pass (chunk B) reads mergedFolders: the 48 become a merge, not deletes.",
+   "fontSize": 14,
+   "x": 373.84999999999997,
+   "y": 437.5,
+   "width": 762.3000000000001,
+   "height": 35,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

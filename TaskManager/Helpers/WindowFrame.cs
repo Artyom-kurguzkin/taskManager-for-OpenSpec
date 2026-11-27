@@ -3,8 +3,6 @@ using System.Runtime.InteropServices;
 
 namespace TaskManager.Helpers;
 
-public sealed record FrameColors(string Caption, string Text, string Border);
-
 /// <summary>
 /// Paints the native title bar in the theme's colours (Windows 11 DWM attributes), so the frame blends with the
 /// page the way VS Code's does, while keeping native dragging, snap layouts and min/max/close, and swaps the window icon
@@ -13,13 +11,9 @@ public sealed record FrameColors(string Caption, string Text, string Border);
 /// </summary>
 public sealed partial class WindowFrame(Func<IntPtr> windowHandle, Action<string>? setIcon = null)   // setIcon: tests capture the choice
 {
-    /// <summary>File in wwwroot: the signature in ink on paper, or inverted for the dark theme.</summary>
-    public static string IconFor(bool dark) => dark ? "icon-dark.ico" : "icon.ico";
-
-    // Same values as --paper / --ink / --line-soft in wwwroot/css/app.css.
-    public static FrameColors ColorsFor(bool dark) => dark
-        ? new FrameColors("#161514", "#ece7e1", "#3a3532")
-        : new FrameColors("#f7f4f1", "#24211f", "#d9d3cd");
+    /// <summary>File in wwwroot: the signature in ink on paper, or inverted on a dark title bar. It follows the caption's
+    /// darkness, not the page's (Novita is a light page under a dark plum bar).</summary>
+    public static string IconFor(Theme theme) => theme.DarkCaption ? "icon-dark.ico" : "icon.ico";
 
     /// <summary>"#rrggbb" → COLORREF 0x00BBGGRR.</summary>
     public static uint ToColorRef(string hex)
@@ -28,9 +22,9 @@ public sealed partial class WindowFrame(Func<IntPtr> windowHandle, Action<string
         return ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | ((rgb >> 16) & 0xFF);
     }
 
-    public void Apply(bool dark)
+    public void Apply(Theme theme)
     {
-        string icon = Path.Combine(AppContext.BaseDirectory, "wwwroot", IconFor(dark));
+        string icon = Path.Combine(AppContext.BaseDirectory, "wwwroot", IconFor(theme));
         if (setIcon is not null) setIcon(icon);
         else if (OperatingSystem.IsWindows() && windowHandle() is var h && h != IntPtr.Zero)
         {
@@ -42,8 +36,8 @@ public sealed partial class WindowFrame(Func<IntPtr> windowHandle, Action<string
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;   // caption colours need Windows 11
         IntPtr hwnd = windowHandle();
         if (hwnd == IntPtr.Zero) return;
-        FrameColors c = ColorsFor(dark);
-        Set(hwnd, DarkMode, dark ? 1u : 0u);
+        FrameColors c = theme.Frame;
+        Set(hwnd, DarkMode, theme.DarkCaption ? 1u : 0u);
         Set(hwnd, CaptionColor, ToColorRef(c.Caption));
         Set(hwnd, TextColor, ToColorRef(c.Text));
         Set(hwnd, BorderColor, ToColorRef(c.Border));

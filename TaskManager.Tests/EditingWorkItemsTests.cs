@@ -1393,7 +1393,7 @@ public sealed class EditingWorkItemsTests
 
             WorkItemEvent e = Assert.Single(WorkItemsApi.GetEvents(123));
             Assert.Equal(("Tester", "status", "In Progress -> In Review"), (e.By, e.Kind, e.Text));
-            Assert.Matches(@"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d \| Tester \| status \| In Progress -> In Review\r?\n$", repo.Read(HealthEvents));
+            Assert.Matches(@"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d \| Tester \| status \| In Progress -> In Review\r?\n$", repo.Read(HealthEvents));
 
             Assert.True(WorkItemsApi.SetStatus(123, "In Review").Success);   // nothing changed, nothing recorded
             Assert.Single(WorkItemsApi.GetEvents(123));
@@ -1401,7 +1401,7 @@ public sealed class EditingWorkItemsTests
             Assert.Empty(WorkItemsApi.GetEvents(107));
 
             Assert.True(WorkItemsApi.SetStatus(107, "Completed").Success);   // the event goes with the folder into the archive
-            Assert.Equal([("status", "Planned -> Completed")], Events(107));
+            Assert.Equal([("status", "Planned -> Completed"), ("archived", "export-remittances -> archive/2026-10-23-export-remittances")], Events(107));
             Assert.True(File.Exists(repo.PathOf("openspec/changes/archive/2026-10-23-export-remittances/events.log")));
         }
         finally { WorkItemsApi.ConfigureActor(null); WorkItemsApi.ConfigureArchiver(null); }

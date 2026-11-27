@@ -10,9 +10,7 @@ namespace BoardSync.Sync;
 internal static class SyncEngine
 {
     private const int MaxRounds = 5;
-
-    /// <summary>How far back the deletion brake counts (see <see cref="SyncPlanner"/>).</summary>
-    private static readonly TimeSpan DeletionWindowLength = TimeSpan.FromHours(24);
+    private const string OtherProjectMessage = "This storage holds the board of another project. Nothing was changed. Check the bucket and prefix in Settings.";
 
     // ponytail: one lock per directory for the life of the process; entries are never removed (a handful of projects).
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> Gates = new(StringComparer.OrdinalIgnoreCase);
@@ -54,8 +52,6 @@ internal static class SyncEngine
         List<string> links = [], tooLarge = [];
         Dictionary<string, LocalFile> local = LocalTree.Scan(root, links, tooLarge, hooks?.OnScanBuffer, stat, options.SettleWindow);          // links are not followed: what is behind one is not this board's; a file over the cap is not read at all
         stat.Save();
-        List<SyncStateStore.DeletionEntry> deletions = store.LoadDeletions(now, DeletionWindowLength);
-        DeletionWindow window = new(deletions.Sum(d => d.Here), deletions.Sum(d => d.Storage), deletions.Count > 0 ? deletions[0].Live : null);
         using ObjectFetcher fetcher = new(options.Storage, store, Path.Combine(options.StateFolder, "fetch"));      // objects downloaded so far (in files in the state folder, six at a time), kept for the later rounds of this pass
         Dictionary<string, HashSet<string>> seen = store.LoadSeen();           // every content this computer ever saw for a path
         HashSet<string> inherited = store.LoadPending();                       // objects a sync that died was about to create
@@ -68,14 +64,16 @@ internal static class SyncEngine
         {
             (ManifestFile? manifest, string? version) = await ReadManifest(options.Storage, round == 1 ? state?.StorageVersion : null, state, ct);
             Dictionary<string, ManifestEntry> remote = manifest?.Entries ?? [];
+            if (options.ProjectId is not null && manifest?.Board is not null && manifest.Board != options.ProjectId) { stat.Save(); return SyncReport.Of(SyncOutcome.Blocked, OtherProjectMessage, SyncBlock.OtherProject); }      // another project's board: before anything is changed
+            string? board = options.ProjectId ?? manifest?.Board;                       // what the list is stamped with from here on
+            bool unstamped = options.ProjectId is not null && manifest is not null && manifest.Board is null;
             foreach (ManifestEntry entry in remote.Values) if (SyncClock.IsValid(entry.Clock)) entry.Clock = SyncClock.Clamp(entry.Clock, now);     // a clock far ahead of this computer's counts as now
             // A storage that lost its manifest while this computer remembers one is not a mass delete: everything here is uploaded again.
             Dictionary<string, ManifestEntry> baseEntries = state is not null && manifest is not null ? state.Entries : [];
             seenChanged |= Remember(seen, remote);
 
             HashSet<string> refused = new(StringComparer.Ordinal);
-            SyncPlan plan = await SyncPlanner.Build(options, now, store, local, baseEntries, remote, firstConnection: state is null, fetcher, seen, refused, ct, links, window, tooLarge);
-            if (plan.BlockedMessage is not null) return SyncReport.Of(SyncOutcome.Blocked, plan.BlockedMessage, SyncBlock.MassDelete);
+            SyncPlan plan = await SyncPlanner.Build(options, now, store, local, baseEntries, remote, firstConnection: state is null, fetcher, seen, refused, ct, links, tooLarge);
 
             List<PlanItem> uploads = plan.Items.Where(i => i.Upload is not null && i.NewEntry is not null).ToList();
             if (uploads.Count > 0)
@@ -104,8 +102,7 @@ internal static class SyncEngine
                 });
                 if (refused.Count > 0)
                 {
-                    plan = await SyncPlanner.Build(options, now, store, local, baseEntries, remote, firstConnection: state is null, fetcher, seen, refused, ct, links, window, tooLarge);
-                    if (plan.BlockedMessage is not null) return SyncReport.Of(SyncOutcome.Blocked, plan.BlockedMessage, SyncBlock.MassDelete);
+                    plan = await SyncPlanner.Build(options, now, store, local, baseEntries, remote, firstConnection: state is null, fetcher, seen, refused, ct, links, tooLarge);
                     uploads = plan.Items.Where(i => i.Upload is not null && i.NewEntry is not null).ToList();
                 }
             }
@@ -114,7 +111,7 @@ internal static class SyncEngine
             foreach (PlanItem item in plan.Items.Where(i => i.NewEntry is not null)) entries[item.Path] = item.NewEntry!;
             string? newVersion = version;
 
-            if (plan.Items.Any(i => i.NewEntry is not null))
+            if (plan.Items.Any(i => i.NewEntry is not null) || unstamped)
             {
                 object claimed = new();
                 await Parallel.ForEachAsync(uploads, ObjectFetcher.Options(ct), async (item, token) =>
@@ -125,7 +122,7 @@ internal static class SyncEngine
                     if (mine) await options.Storage.Put(key, ReadForUpload(item), PutCondition.OnlyIfAbsent, token);   // refused = already there
                 });
                 // ponytail: one manifest for the whole board, so every change rewrites it; split per work item when many people sync.
-                byte[] bytes = SyncModels.Serialize(new ManifestFile { Entries = entries });
+                byte[] bytes = SyncModels.Serialize(new ManifestFile { Board = board, Entries = entries });
                 PutCondition condition = manifest is null ? PutCondition.OnlyIfAbsent : PutCondition.OnlyIfVersion(version!);
                 PutResult put = await options.Storage.Put(SyncModels.ManifestPath, bytes, condition, ct);
                 if (!put.Written) continue;                    // another computer replaced the manifest first: start again from theirs
@@ -143,18 +140,12 @@ internal static class SyncEngine
             }
 
             // After a skipped path the saved entries are no longer the manifest of that version, so the next sync must read the manifest again instead of trusting the version.
-            SyncStateFile next = new() { StorageVersion = skipped.Count > 0 ? state?.StorageVersion : newVersion, Entries = entries };
+            SyncStateFile next = new() { StorageVersion = skipped.Count > 0 ? state?.StorageVersion : newVersion, Board = skipped.Count > 0 ? state?.Board : board, Entries = entries };
             plan.Forget(skipped);
             if (state is null || !SyncModels.Serialize(state).AsSpan().SequenceEqual(SyncModels.Serialize(next)))
                 store.Save(next, options.WholeFilesOnly ? new Dictionary<string, Func<byte[]>>() : plan.FinalContent, options.WholeFilesOnly ? null : plan.FinalFiles);        // whole files are never merged, so they need no base copies
             seenChanged |= Remember(seen, entries);
             if (seenChanged) store.SaveSeen(seen);
-            if (options.AllowMassDelete) { if (deletions.Count > 0) store.SaveDeletions([]); }            // an allowed mass deletion starts the window again
-            else if (plan.DeletesHere + plan.DeletesStorage > 0)
-            {
-                deletions.Add(new SyncStateStore.DeletionEntry(now, plan.DeletesHere, plan.DeletesStorage, plan.BaseLive));
-                store.SaveDeletions(deletions);
-            }
             store.ClearPending();                            // everything this sync put is in the manifest now
             store.PruneTrash(now);                           // only after a sync that went through
             return plan.ToReport();
@@ -187,7 +178,7 @@ internal static class SyncEngine
     {
         StoredFile? file = await storage.GetIfChanged(SyncModels.ManifestPath, knownVersion, ct);
         if (file is null) return (null, null);
-        if (file.IsNotModified) return (new ManifestFile { Entries = state!.Entries }, state.StorageVersion);
+        if (file.IsNotModified) return (new ManifestFile { Board = state!.Board, Entries = state.Entries }, state.StorageVersion);
         return (SyncModels.ParseManifest(file.Bytes), file.Version);
     }
 

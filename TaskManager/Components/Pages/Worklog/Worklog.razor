@@ -475,6 +475,7 @@
             case "dependency-removed": <span>no longer waits on @Dependency(r.Text)</span> break;
             case "title" or "priority" or "label" or "dates" or "feature": <span>@r.Kind: @r.Text.Replace(" -> ", " → ")</span> break;
             case "merged-from": <span>merged @r.Text into this item</span> break;
+            case "sync": <span class="wk-kind">sync</span> <span class="wk-etext">@r.Text</span> break;
             case "contributor-added": <span>added contributor @r.Text</span> break;
             case "contributor-removed": <span>removed contributor @r.Text</span> break;
             case "plan-linked": <span>linked a plan: @DocLink(r.Text)</span> break;

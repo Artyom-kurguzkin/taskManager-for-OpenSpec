@@ -5,7 +5,7 @@ using TaskManager.Components.Pages;
 namespace TaskManager.AppState;
 
 public sealed record AppSettings(
-    string Theme = "light",               // light (default) | dark | system
+    string Theme = "light",               // a Helpers.Themes id (light, the default; dark; novita; ayu-mirage) or system; unknown applies as light
     string? LastRepo = null,
     string? Name = null,                  // null = use git user.name
     Dictionary<string, BoardOptions>? Boards = null,

@@ -20,13 +20,13 @@ public sealed record RoadmapSource(string Root, string Name, IReadOnlyList<Board
 public sealed record RoadmapRow(string Root, WorkItem Item);
 
 /// <summary>A column inside a row's group: its items.</summary>
-public sealed record RoadmapSubgroup(string Key, string Name, IReadOnlyList<RoadmapRow> Rows);
+public sealed record RoadmapSubgroup(string Key, string Name, IReadOnlyList<RoadmapRow> Rows, string? Root = null, string? Column = null);
 
 /// <summary>
 /// One roadmap group (with the project's name in front when several projects are open): a board column and its items, or, when the board
 /// has rows, a row with its columns as <see cref="Subgroups"/> (<see cref="Rows"/> then holds the row's items, each once).
 /// </summary>
-public sealed record RoadmapGroup(string Key, string Name, IReadOnlyList<RoadmapRow> Rows, IReadOnlyList<RoadmapSubgroup>? Subgroups = null);
+public sealed record RoadmapGroup(string Key, string Name, IReadOnlyList<RoadmapRow> Rows, IReadOnlyList<RoadmapSubgroup>? Subgroups = null, string? Root = null, string? Column = null);
 
 /// <summary>Pure layout for the calendar view, a roadmap (no IO, unit-tested directly).</summary>
 public static class RoadmapModel
@@ -96,10 +96,10 @@ public static class RoadmapModel
             List<RoadmapRow> Of(IEnumerable<WorkItem> items) => items.Select(i => new RoadmapRow(p.Root, i)).ToList();
             foreach (BoardSection s in p.Sections)
                 if (s.Rows is null)
-                    groups.AddRange(s.Columns.Select(c => new RoadmapGroup(p.Root + "|" + c.Key, Name(c.Label), Of(c.Items))));
+                    groups.AddRange(s.Columns.Select(c => new RoadmapGroup(p.Root + "|" + c.Key, Name(c.Label), Of(c.Items), null, p.Root, c.Key)));
                 else
                     groups.AddRange(s.Rows.Where(r => r.Items.Count > 0).Select(r => new RoadmapGroup(p.Root + "|" + r.Key, Name(r.Label), Of(r.Items),
-                        [.. r.Columns.Where(c => c.Items.Count > 0).Select(c => new RoadmapSubgroup(p.Root + "|" + r.Key + "|" + c.Key, c.Label, Of(c.Items)))])));
+                        [.. r.Columns.Where(c => c.Items.Count > 0).Select(c => new RoadmapSubgroup(p.Root + "|" + r.Key + "|" + c.Key, c.Label, Of(c.Items), p.Root, c.Key))])));
         }
         return groups;
     }

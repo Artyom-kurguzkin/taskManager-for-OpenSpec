@@ -53,13 +53,14 @@ public partial class BoardPage
     /// <summary>The wrapper's click: one delegate for the page's life, and it does not render the page unless it changed something.</summary>
     private Action<MouseEventArgs> BackgroundClickHandler => backgroundClickHandler ??= EventUtil.AsNonRenderingEventHandler<MouseEventArgs>(BackgroundClick);
 
-    /// <summary>A plain click on the board or list (not on a project heading) lets go of the selected projects and rows.</summary>
+    /// <summary>A plain click on the board or list (not on a project heading) lets go of the selected projects, rows and items; one that came up from an item is that item's (ItemClick).</summary>
     private void BackgroundClick(MouseEventArgs e)
     {
         bool onItem = itemClicked;   // the click came up from a card or row: it examined or opened it, so it is not "somewhere else"
         itemClicked = false;
         if (e.ShiftKey || e.CtrlKey || e.MetaKey) return;
-        bool held = selectedProjects.Count + selectedRows.Count + selectedColumns.Count > 0;
+        bool held = selectedProjects.Count + selectedRows.Count + selectedColumns.Count > 0 || (!onItem && selected.Count > 0);
+        if (!onItem) selected.Clear();   // empty space lets go of the selected items too
         selectedProjects.Clear();
         selectedRows.Clear();
         if (!onItem) Popups.Examine(null);   // redraws by ExamineChanged when something was examined
@@ -388,8 +389,19 @@ public partial class BoardPage
 
     // ── Calendar view: the Roadmap component draws the board's columns as groups, or the rows with the columns inside them ──
     private IReadOnlyList<RoadmapSource> RoadmapProjects => projects.Select(p => new RoadmapSource(p.Root, p.Name, p.Sections, p.Colours)).ToList();
-    private void OpenFrom((string Root, int Id) at) => ItemClick(ProjectOf(at.Root), at.Id);
-    private void CalendarBackground() { if (!itemClicked) Popups.Examine(null); itemClicked = false; }
+    /// <summary>A click on a calendar bar or row: a modifier click toggles it in the selection, a plain one selects it alone or opens it (ItemClick).</summary>
+    private void PickFrom((string Root, int Id, MouseEventArgs E) at)
+    {
+        Project p = ProjectOf(at.Root);
+        if (at.E.ShiftKey || at.E.CtrlKey || at.E.MetaKey) { itemClicked = true; ToggleSelect(p, p.Items.First(i => i.Id == at.Id)); StateHasChanged(); }   // itemClicked: on its way up, the background must not let go of it
+        else ItemClick(p, at.Id, at.E);
+    }
+    private bool SelectedOf(string root, int id) => selected.Contains((root, id));
+    private void CalendarBackground()
+    {
+        if (!itemClicked) { Popups.Examine(null); if (selected.Count > 0) { selected.Clear(); StateHasChanged(); } }
+        itemClicked = false;
+    }
     private Action? calendarBackground;
     /// <summary>The calendar's background click: one delegate for the page's life, and it draws nothing itself (letting go of the examined item draws by ExamineChanged).</summary>
     private Action CalendarBackgroundHandler => calendarBackground ??= EventUtil.AsNonRenderingEventHandler(CalendarBackground);
@@ -468,7 +480,7 @@ public partial class BoardPage
         args.Attributes["onclick"] = EventUtil.AsNonRenderingEventHandler<MouseEventArgs>(e =>   // the board's select click, anywhere on the row; it renders only when it changed something
         {
             if (e.ShiftKey || e.CtrlKey || e.MetaKey) { ToggleSelect(p, it); StateHasChanged(); }
-            else RowItemClick(p, it.Id);   // examining redraws by ExamineChanged
+            else RowItemClick(p, it.Id, e);
         });
         args.Attributes["ondragstart"] = EventCallback.Factory.Create<DragEventArgs>(this, () => StartCardDrag(p, it, row.Column.Key, SwimOf(row)));
         args.Attributes["ondrop"] = EventCallback.Factory.Create<DragEventArgs>(this, () => DropBefore(p, row.Column, it, SwimOf(row)));
@@ -631,34 +643,47 @@ public partial class BoardPage
         else Popups.Panes.Navigate(target, path);   // split: the list stays, the item opens beside it
     }
 
-    /// <summary>A click opens the card; Shift-click (or Ctrl/⌘-click) adds it to the selection or removes it. A drag fires no click.</summary>
+    /// <summary>A click selects the card (and only it); on the one selected card it opens it; Shift-click (or Ctrl/⌘-click) adds it to the selection or removes it. A drag fires no click.</summary>
     private void CardClick(Project p, WorkItem it, MouseEventArgs e)
     {
         if (e.ShiftKey || e.CtrlKey || e.MetaKey) ToggleSelect(p, it);
-        else ItemClick(p, it.Id);
+        else ItemClick(p, it.Id, e);
     }
 
-    // ── Examine: with the side menu expanded a click on a card or row looks at the item (its metadata fills the menu), a second click opens it ──
+    // ── Select and examine: a click on a card, row or calendar bar selects it alone (and with the side menu expanded looks at it); a click on the one selected item, or a double-click, opens it ──
 
     private bool itemClicked;   // a plain click on an item is on its way up to the board's BackgroundClick, which must not let go of it
+    private (string Root, int Id)? openedByClick;   // the item the last click opened: the second click of a double-click on it must not open it again
 
-    /// <summary>A plain click on a work item: opens it, or with the menu expanded examines it first .</summary>
-    private void ItemClick(Project p, int id)
+    /// <summary>A plain click on a work item: the selection becomes that item (the menu, when expanded, examines it); a click on the item that is the whole selection opens it, and so does the second click of a double-click (one open, not two).</summary>
+    private void ItemClick(Project p, int id, MouseEventArgs e)
     {
         itemClicked = true;
-        if (!Popups.MenuExpanded || Popups.Examined == (p.Root, id)) OpenItem(p, id);
-        else Popups.Examine((p.Root, id));
+        (string Root, int Id) key = (p.Root, id);
+        if (selected.Count == 1 && selected.Contains(key))
+        {
+            if (e.Detail < 2 || openedByClick != key) OpenItem(p, id);
+            openedByClick = key;
+            return;
+        }
+        openedByClick = null;
+        selected.Clear();
+        selected.Add(key);
+        selectedProjects.Clear();
+        selectedRows.Clear();
+        selectedColumns.Clear();
+        if (Popups.MenuExpanded) Popups.Examine(key);
+        StateHasChanged();   // the handler of a list row or calendar bar does not render by itself
     }
 
-    /// <summary>A plain click on a list pill (or its picker) is the pill's: it must not examine the row, or let go of the examined one, on its way up.</summary>
+    /// <summary>A plain click on a list pill (or its picker) is the pill's: it must not select the row, or let go of the selected one, on its way up.</summary>
     private void PillPressed() => itemClicked = true;
 
-    /// <summary>A plain click anywhere on a list row that its title button did not take: examines the row's item when another one is examined.</summary>
-    private void RowItemClick(Project p, int id)
+    /// <summary>A plain click anywhere on a list row: the pills took theirs (PillPressed), the rest of the row is the item's.</summary>
+    private void RowItemClick(Project p, int id, MouseEventArgs e)
     {
         if (itemClicked) return;
-        itemClicked = true;
-        if (Popups.MenuExpanded && Popups.Examined != (p.Root, id)) Popups.Examine((p.Root, id));
+        ItemClick(p, id, e);
     }
 
     private (string Root, int Id)? cachedFor;
@@ -1088,22 +1113,38 @@ public partial class BoardPage
         Run(Workspace.In(p.Root, () => WorkItemsApi.DeleteFeature(f.Path)));
     }
 
+    /// <summary>Whether a status column or group has a status of its own to rename or delete: for a project, that project's; null (the shared header row of several projects) any open project's.</summary>
+    private bool OwnsStatus(Project? p, string status) =>
+        p is null ? projects.Any(x => BoardModel.CanDeleteStatus(Opt, x.Statuses, status)) : BoardModel.CanDeleteStatus(Opt, p.Statuses, status);
+
+    /// <summary><paramref name="p"/>, or, when null (the shared header row), the one project that has the status, or the one the user picks of several; null when there is none or the user backs out.</summary>
+    private async Task<Project?> OwnerOf(Project? p, string status, string title)
+    {
+        if (p is not null) return p;
+        List<Project> owners = [.. projects.Where(x => BoardModel.CanDeleteStatus(Opt, x.Statuses, status))];
+        if (owners.Count == 0) return null;
+        if (owners.Count == 1) return owners[0];
+        return await Popups.Choose(title, "", [.. owners.Select(x => (x.Root, x.Name))]) is string root ? ProjectOf(root) : null;
+    }
+
     /// <summary>Deletes a status where it is seen, with the confirm Settings uses. <paramref name="p"/> is the project the column or group belongs to; null (the shared header row of several projects) asks which of the projects that have it.</summary>
     private async Task DeleteStatus(Project? p, string status)
     {
-        if (p is null)
-        {
-            List<Project> owners = [.. projects.Where(x => BoardModel.CanDeleteStatus(Opt, x.Statuses, status))];
-            if (owners.Count == 0) return;
-            if (owners.Count == 1) p = owners[0];
-            else if (await Popups.Choose($"Remove {status} from…", "", [.. owners.Select(x => (x.Root, x.Name))]) is string root) p = ProjectOf(root);
-            else return;
-        }
-        Project target = p;
+        if (await OwnerOf(p, status, $"Remove {status} from…") is not Project target) return;
         int n = Workspace.In(target.Root, () => WorkItemsApi.CountWithStatus(status));
         string first = target.Statuses.First(s => s != status && s != "Completed");
         if (!await Popups.ConfirmRemoveStatus(status, n, first)) return;
         Run(Workspace.In(target.Root, () => WorkItemsApi.RemoveStatus(status)));
+    }
+
+    /// <summary>Renames a status where it is seen: its items, the project's list and, unless another open project still has the old name, the board's saved columns (hidden, merged, ordered) follow.</summary>
+    private async Task RenameStatus(Project? p, string status)
+    {
+        if (await OwnerOf(p, status, $"Rename {status} in…") is not Project target) return;
+        if (await Popups.Prompt($"Rename {status}", status, "Rename", status) is not string typed || typed.Trim() == status) return;
+        string name = typed.Trim();
+        if (!Run(Workspace.In(target.Root, () => WorkItemsApi.RenameStatus(status, name)))) return;
+        if (!projects.Any(x => x.Root != target.Root && x.Statuses.Contains(status))) Set(BoardModel.RenameStatus(O, status, name));
     }
 
     private async Task RenameFeature(Project p, Feature f)

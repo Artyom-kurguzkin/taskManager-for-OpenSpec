@@ -50,13 +50,19 @@ public sealed record SyncSetup(TimeSpan Quiet, Func<SyncOptions, Task<SyncReport
 
     /// <summary>False: no timer runs (the quiet wait and the idle check only record when they are due; a test calls QuietElapsed and IdleElapsed itself).</summary>
     public bool RealTimers { get; init; } = true;
+
+    /// <summary>How the app waits for files to settle when it is closing (a test moves its clock instead of sleeping).</summary>
+    public Func<TimeSpan, CancellationToken, Task> Wait { get; init; } = (span, stop) => Task.Delay(span, stop);
 }
 
-/// <summary>What the Settings page shows for a project: one plain line, and whether a paused sync can be allowed.</summary>
+/// <summary>Files of one change folder (or the attachments folder) that were written too recently to be synced yet; <paramref name="Files"/> are paths relative to the board's folder.</summary>
+public sealed record SettlingFolder(string Folder, IReadOnlyList<string> Files);
+
+/// <summary>What the Settings page shows for a project: one plain line.</summary>
 /// <param name="TrashFolder">The folder the sync keeps what it removed in (30 days), when it exists; null otherwise. The attachments' trash is beside the board's: when both exist this is the sync folder that holds both.</param>
 /// <param name="TooLarge">The line about files over the size limit (either sync), while there are any.</param>
 /// <param name="Proposal">What the repository's settings ask for when this computer has not allowed it: the project stays inert until it does.</param>
-public sealed record SyncStatus(bool Connected, string Line, bool CanAllow, bool Running, int Unsent, string? TrashFolder = null, StorageProposal? Proposal = null, string? SkippedLinks = null, string? TooLarge = null);
+public sealed record SyncStatus(bool Connected, string Line, bool Running, int Unsent, string? TrashFolder = null, StorageProposal? Proposal = null, string? SkippedLinks = null, string? TooLarge = null);
 
 /// <summary>
 /// Syncs each connected project's board (openspec/changes) with its storage in the background, one sync at a time per project, never on the UI
@@ -75,13 +81,14 @@ public sealed class BoardSyncService : IDisposable
         public Timer? Idle;                 // the idle check: a conditional request for the manifest, a pass only when it moved
         public DateTime? IdleDue;
         public Dictionary<string, (long Length, long Ticks)>? Echo;   // the board's files (size, time) as the last pass that wrote files left them: a change report that finds them as they are was caused by that pass
-        public bool Running, Allow, Dropped;
+        public bool Running, Dropped;
         public TaskCompletionSource<SyncReport?>? Again;   // a trigger arrived while a pass ran: the one more pass that follows, and who waits for it
         public Task Pass = Task.CompletedTask;             // the last pass started (it also covers the "again" pass that follows it)
         public readonly HashSet<string> Edited = new(StringComparer.Ordinal);   // board-relative paths the app wrote since the last sync that succeeded
         public long Cursor;
         public SyncReport? Last;
         public SyncReport? LastAtt;         // the last attachments sync (null: none yet, off, or no folder to sync)
+        public readonly Dictionary<string, (long Length, long Ticks)> OwnWrites = new(StringComparer.Ordinal);   // files a pass wrote itself (downloads, merges): "b:" board-relative or "a:" attachments-relative path, as it left them; such a file is not "written inside the window" by anyone else
         public bool AttFailedInRow;
         public string? AttBlockedToasted;
         public string? TooLargeToasted;     // the set of too-large files a toast was shown for
@@ -438,13 +445,12 @@ public sealed class BoardSyncService : IDisposable
     /// One pass for the project, now, or one more right after the one running (a trigger that arrives while a pass runs makes exactly one more pass, however many arrive).
     /// The returned task completes with the report of the pass it caused or joined; null when the project is not connected.
     /// </summary>
-    private Task<SyncReport?> Request(Link l, bool allow = false)
+    private Task<SyncReport?> Request(Link l)
     {
         Task<SyncReport?> result;
         lock (l)
         {
             if (l.Dropped) return Task.FromResult<SyncReport?>(null);
-            l.Allow |= allow;
             if (l.Running) return (l.Again ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
             l.Running = true;
             result = Task.Run(() => Pass(l));
@@ -475,23 +481,119 @@ public sealed class BoardSyncService : IDisposable
 
     private async Task<SyncReport?> Once(Link l)
     {
-        bool allow;
         lock (l)
         {
-            allow = l.Allow;
-            l.Allow = false;
             l.QuietDue = null;                                      // this pass takes what the wait was for; a change from here on starts it again
             l.FirstChangeAt = null;
             l.Quiet?.Change(Timeout.Infinite, Timeout.Infinite);
         }
-        try { return await RunOnce(l, allow); }
+        try { return await RunOnce(l); }
         catch (Exception e) { SyncReport report = new(SyncOutcome.Failed, settings.Scrub(l.Root, e.Message), [], [], [], [], [], [], []); Handle(l, report, []); return report; }   // a bug in here must never end the app: it shows as a failed sync
     }
 
     /// <summary>Syncs now (after the one running, if any) and returns what that sync did; null when the project is not connected.</summary>
-    public Task<SyncReport?> SyncNow(string root, bool allowMassDelete = false) => LinkOf(root) is { } l ? Request(l, allowMassDelete) : Task.FromResult<SyncReport?>(null);
+    public Task<SyncReport?> SyncNow(string root) => LinkOf(root) is { } l ? Request(l) : Task.FromResult<SyncReport?>(null);
 
     private static readonly TimeSpan ExitLimit = TimeSpan.FromSeconds(15);
+
+    /// <summary>A file written this recently is taken by the engine anyway (see <see cref="SyncOptions.SettleWindow"/>), so the app never waits longer for one.</summary>
+    internal static readonly TimeSpan SettleCap = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// The files that wait for the settle window now, by folder: what the state line counts and the close dialog names. Empty when nothing waits. It answers from the files as they are this moment
+    /// (written less than the window ago by the service's clock) as well as from what the last pass reported: a merge in the app writes files and no pass has run yet, but closing then must still ask.
+    /// </summary>
+    public IReadOnlyList<SettlingFolder> Settling()
+    {
+        List<Link> all;
+        lock (gate) all = [.. links.Values];
+        Dictionary<string, SortedSet<string>> byFolder = new(StringComparer.Ordinal);
+        foreach (Link l in all)
+            foreach ((string folder, string file) in SettlingOf(l)) (byFolder.TryGetValue(folder, out SortedSet<string>? files) ? files : byFolder[folder] = new(StringComparer.Ordinal)).Add(file);
+        return [.. byFolder.Select(f => new SettlingFolder(f.Key, [.. f.Value])).OrderBy(f => f.Folder, StringComparer.Ordinal)];
+    }
+
+    /// <summary>
+    /// (folder, file) of what the project is leaving settling: what its last pass reported, and the files written inside the settle window right now (a stat walk of the board and the attachments folder:
+    /// the board's files by change folder, the attachments by their own folder). Takes the link's lock itself for the report, never while it walks.
+    /// </summary>
+    private List<(string Folder, string File)> SettlingOf(Link l)
+    {
+        List<(string Folder, string File)> found = [];
+        lock (l)
+        {
+            // what the last pass reported is only true for one window after it: files written before it have settled by then, and the next pass is minutes away
+            if (l.Last is { Outcome: SyncOutcome.Synced or SyncOutcome.NothingToDo } board && (setup.SettleWindow <= TimeSpan.Zero || UtcNow() - l.LastAt.ToUniversalTime() < setup.SettleWindow))
+            {
+                foreach (string path in board.Settling) found.Add((FolderOf(path), path));
+                if (l.LastAtt is { Outcome: SyncOutcome.Synced or SyncOutcome.NothingToDo } att)
+                    foreach (string path in att.Settling) found.Add(("attachments", "attachments/" + path));
+            }
+            if (l.Dropped) return found;
+        }
+        if (setup.SettleWindow <= TimeSpan.Zero) return found;
+        DateTime now = UtcNow();
+        string changes = Path.Combine(l.Root, "openspec", "changes");
+        foreach (string path in BoardSyncApi.RecentlyWritten(changes, now, setup.SettleWindow)) if (!IsOwnWrite(l, "b:", changes, path)) found.Add((FolderOf(path), path));
+        if (settings.SyncAttachments(l.Root))
+        {
+            try { string dir = AttachmentsDirOf(l.Root); foreach (string path in BoardSyncApi.RecentlyWritten(dir, now, setup.SettleWindow)) if (!IsOwnWrite(l, "a:", dir, path)) found.Add(("attachments", "attachments/" + path)); }
+            catch (Exception e) when (e is ArgumentException or NotSupportedException or IOException) { }   // no usable folder: nothing there to wait for
+        }
+        return [.. found.Distinct()];
+    }
+
+    /// <summary>True when the file is exactly as a pass of this service left it (size and time): the sync's own download or merge is not a write that still has to settle.</summary>
+    private static bool IsOwnWrite(Link l, string kind, string dir, string relative)
+    {
+        (long Length, long Ticks) own;
+        lock (l) if (!l.OwnWrites.TryGetValue(kind + relative, out own)) return false;
+        try { FileInfo f = new(Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar))); return f.Exists && (f.Length, f.LastWriteTimeUtc.Ticks) == own; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return false; }
+    }
+
+    /// <summary>Notes the files this pass wrote (downloaded, merged, replaced) as it left them, for <see cref="IsOwnWrite"/>; entries older than the settle window are dropped.</summary>
+    private void NoteOwnWrites(Link l, SyncReport board, SyncReport? attachments)
+    {
+        if (setup.SettleWindow <= TimeSpan.Zero) return;
+        List<(string Key, string Full)> wrote = [];
+        string changes = Path.Combine(l.Root, "openspec", "changes");
+        foreach (string path in board.Downloaded.Concat(board.Merged).Concat(board.Replaced)) wrote.Add(("b:" + path, Path.Combine(changes, path.Replace('/', Path.DirectorySeparatorChar))));
+        if (attachments is not null)
+        {
+            string dir = AttachmentsDirOf(l.Root);
+            foreach (string path in attachments.Downloaded.Concat(attachments.Merged).Concat(attachments.Replaced)) wrote.Add(("a:" + path, Path.Combine(dir, path.Replace('/', Path.DirectorySeparatorChar))));
+        }
+        long keepFrom = (UtcNow() - setup.SettleWindow).Ticks;
+        lock (l)
+        {
+            foreach (string key in l.OwnWrites.Where(e => e.Value.Ticks < keepFrom).Select(e => e.Key).ToList()) l.OwnWrites.Remove(key);
+            foreach ((string key, string full) in wrote)
+                try { FileInfo f = new(full); if (f.Exists) l.OwnWrites[key] = (f.Length, f.LastWriteTimeUtc.Ticks); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
+        }
+    }
+
+    private static string FolderOf(string path) => path.Contains('/') ? path[..path.IndexOf('/')] : path;
+
+    private string AttachmentsDirOf(string root) => app is null ? NotesApi.AttachmentsRoot(root) : Path.GetFullPath(Path.Combine(root, app.AttachmentsDir(root)));
+
+    /// <summary>
+    /// The app is closing and the user chose to wait: passes run (one settle window apart, by the setup's wait) until nothing is settling, for at most <see cref="SettleCap"/>, which is when the engine takes
+    /// any file anyway. <paramref name="stop"/> ends it earlier.
+    /// </summary>
+    public async Task WaitForSettle(CancellationToken stop = default)
+    {
+        DateTime start = UtcNow();
+        while (Settling().Count > 0 && UtcNow() - start < SettleCap && !stop.IsCancellationRequested)
+        {
+            try { await setup.Wait(setup.SettleWindow > TimeSpan.Zero ? setup.SettleWindow : TimeSpan.FromSeconds(1), stop); }
+            catch (OperationCanceledException) { return; }
+            List<Link> waiting;
+            lock (gate) waiting = [.. links.Values];
+            await Task.WhenAll(waiting.Where(l => SettlingOf(l).Count > 0).Select(Request));
+        }
+    }
 
     /// <summary>
     /// The app is closing: every project whose wait is still pending (changes not synced yet) syncs once, awaited for at most 15 seconds (<paramref name="stop"/> ends it earlier);
@@ -516,7 +618,7 @@ public sealed class BoardSyncService : IDisposable
 
     // ── one sync ──
 
-    private async Task<SyncReport?> RunOnce(Link l, bool allow)
+    private async Task<SyncReport?> RunOnce(Link l)
     {
         string root = l.Root;
         (IBoardStorage? storage, string? problem) = settings.Open(root);
@@ -533,9 +635,10 @@ public sealed class BoardSyncService : IDisposable
         string? git = GitFolder(root);
         RepairMarkers(l, git);                    // before the pause for markers is looked at: a file git left half merged is rebuilt here, the pause is for what cannot be
         HashSet<string> sent = GatherEdited(l);
-        bool allowAttachments = allow, allowBoard = allow;
-        lock (l) if (allow && l.LastAtt is { Outcome: SyncOutcome.Blocked } && l.Last is not { Outcome: SyncOutcome.Blocked }) allowBoard = false;   // "Allow and sync" was for the attachments' pause: the board's brake is not lifted with it
-        SyncOptions options = new(Path.Combine(root, "openspec", "changes"), settings.StateFolder(root), storage, settings.DeviceId(), setup.UtcNow, allowBoard, sent, git, SettleWindow: setup.SettleWindow);
+        string? project;
+        using (GitHistoryApi.InRepo(root)) project = git is null ? null : GitHistoryApi.FirstCommit();      // the project's name: the first commit's hash; none without git
+        SyncOptions options = new(Path.Combine(root, "openspec", "changes"), settings.StateFolder(root), storage, settings.DeviceId(), setup.UtcNow, sent, git, SettleWindow: setup.SettleWindow,
+            ProjectId: project, CommittedContent: git is null ? null : rel => InWorkingLineEndings(root, rel, () => { using (GitHistoryApi.InRepo(root)) return GitHistoryApi.CommittedText("openspec/changes/" + rel); }));
         Changed?.Invoke();
         string key = SettingsStore.Key(root);
         SyncReport report;
@@ -544,9 +647,11 @@ public sealed class BoardSyncService : IDisposable
             report = await Engine(options);
             runs.AddOrUpdate(key, 1, (_, n) => n + 1);
             if (report.Message is { Length: > 0 } message) report = report with { Message = settings.Scrub(root, message) };   // a key id is only ever shown as its last four characters
-            SyncReport? attachments = report.Outcome is SyncOutcome.Synced or SyncOutcome.NothingToDo ? await SyncAttachments(l, storage, allowAttachments) : null;   // after a board sync that did not fail or pause
+            SyncReport? attachments = report.Outcome is SyncOutcome.Synced or SyncOutcome.NothingToDo ? await SyncAttachments(l, storage) : null;   // after a board sync that did not fail or pause
             Handle(l, report, sent, attachments, attachmentsRan: report.Outcome is SyncOutcome.Synced or SyncOutcome.NothingToDo);
             NoteSyncWrites(l, report);
+            NoteOwnWrites(l, report, attachments);
+            RecordNotes(l, report, attachments);
             if (setup.SettleWindow > TimeSpan.Zero && report.Settling.Count + (attachments?.Settling.Count ?? 0) > 0) Schedule(l, setup.SettleWindow);   // files were written too recently to take: one more pass once they have settled
         }
         finally { (storage as IDisposable)?.Dispose(); }
@@ -608,6 +713,66 @@ public sealed class BoardSyncService : IDisposable
 
     private Task<SyncReport> Engine(SyncOptions options) => setup.Run is { } run ? run(options) : BoardSyncApi.Sync(options);
 
+    // ── what the sync did on its own is said on the item it concerns ──
+
+    /// <summary>
+    /// Every note of the reports (a folder or file put back, a folder followed to where another computer moved it, edits carried into a merged item) is written as a
+    /// <c>sync</c> event on its item's events.log, the way any other event is: the log is the app's write and goes up with the next sync. The attachments' notes name their item only.
+    /// </summary>
+    private void RecordNotes(Link l, SyncReport board, SyncReport? attachments)
+    {
+        List<SyncNote> notes = [.. board.Notes, .. attachments?.Notes ?? []];
+        if (notes.Count == 0) return;
+        string local = Path.Combine(l.Root, "openspec", "changes");
+        bool wrote = false;
+        InProject(l.Root, () =>
+        {
+            OpenSpecStoreApi.Refresh();      // the sync just wrote files (a folder put back, a file downloaded) that the watcher has not reported yet: the items are read again, or an item it brought back is "not found" and says nothing
+            foreach (SyncNote note in notes)
+            {
+                int? id = note.ItemId ?? (note.Folder.Length > 0 && ItemOf(local, note.Folder + "/events.log") is { } found ? found.Item.Id : null);
+                if (id is not int item) continue;      // no such item (any more): nothing to say it on
+                try { wrote |= WorkItemsApi.LogEvent(item, "sync", note.Text).Success; }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            }
+        });
+        if (!wrote) return;
+        Touched?.Invoke();
+        lock (l) { if (!l.Dropped) Schedule(l); }
+    }
+
+    /// <summary>
+    /// The attachments the items' event logs say were taken off a note on purpose, as sync paths (<c>wi&lt;item&gt;/n&lt;note&gt;/&lt;file&gt;</c>): the log line is <c>attachment-removed | n&lt;note&gt;: &lt;file&gt;</c>.
+    /// An attachment missing anywhere else is put back by the attachments sync.
+    /// </summary>
+    private HashSet<string> RemovedAttachments(string root)
+    {
+        HashSet<string> removed = new(StringComparer.Ordinal);
+        InProject(root, () =>
+        {
+            foreach (WorkItem item in WorkItemsApi.GetAll(includeHidden: true))
+                foreach (WorkItemEvent e in WorkItemsApi.GetEvents(item.Id))
+                    if (e.Kind == "attachment-removed" && e.Text.IndexOf(": ", StringComparison.Ordinal) is > 0 and int colon)
+                        removed.Add($"wi{item.Id}/{e.Text[..colon]}/{e.Text[(colon + 2)..]}");
+        });
+        return removed;
+    }
+
+    /// <summary>The text of a board file as the last commit has it, with the line endings the working file has: the base of a merge reads the same lines whichever way git handed them back.</summary>
+    private static string? InWorkingLineEndings(string root, string rel, Func<string?> committed)
+    {
+        if (committed() is not { } text) return null;
+        bool crlf;
+        try
+        {
+            string file = Path.Combine(root, "openspec", "changes", rel.Replace('/', Path.DirectorySeparatorChar));
+            crlf = File.Exists(file) && File.ReadAllText(file).Contains("\r\n");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return text; }
+        string unix = text.Replace("\r\n", "\n");
+        return crlf ? unix.Replace("\n", "\r\n") : unix;
+    }
+
     // ── the attachments folder: a second sync beside the board's, into the same storage under "attachments/" ──
 
     /// <summary>
@@ -615,11 +780,11 @@ public sealed class BoardSyncService : IDisposable
     /// attachment never reaches a storage the board would not reach. A folder that is not there is not made, and a storage that holds no attachments
     /// is not written to for a project without any: nothing happens until a file or a remote manifest exists.
     /// </summary>
-    private async Task<SyncReport?> SyncAttachments(Link l, IBoardStorage storage, bool allow)
+    private async Task<SyncReport?> SyncAttachments(Link l, IBoardStorage storage)
     {
         string root = l.Root;
         if (!settings.SyncAttachments(root)) return null;   // switched off: nothing runs, the state folder is left as it is, nothing is deleted in the storage
-        string dir = app is null ? NotesApi.AttachmentsRoot(root) : Path.GetFullPath(Path.Combine(root, app.AttachmentsDir(root))), state = settings.AttachmentsStateFolder(root);
+        string dir = AttachmentsDirOf(root), state = settings.AttachmentsStateFolder(root);
         KeepStateForThisFolder(root, state);
         IBoardStorage view = BoardSyncApi.Under(storage, AttachmentsPrefix);
         SyncReport report;
@@ -627,7 +792,8 @@ public sealed class BoardSyncService : IDisposable
         {
             // The folder was never made, or was moved or deleted. The engine would refuse a known folder that is gone (and delete nothing), and would make state for an unknown one: say nothing.
             if (!Directory.Exists(dir) && (File.Exists(Path.Combine(state, "state.json")) || await view.Get("manifest.json") is null)) return null;
-            SyncOptions options = new(dir, state, view, settings.DeviceId(), setup.UtcNow, allow, null, null, WholeFilesOnly: true, SettleWindow: setup.SettleWindow);
+            HashSet<string> removed = RemovedAttachments(root);      // read before the engine runs: what the items' logs say was removed on purpose
+            SyncOptions options = new(dir, state, view, settings.DeviceId(), setup.UtcNow, null, null, WholeFilesOnly: true, SettleWindow: setup.SettleWindow, RemovedOnPurpose: removed.Contains);
             report = await Engine(options);
         }
         catch (BoardStorageException e) { report = new SyncReport(SyncOutcome.Failed, e.Message, [], [], [], [], [], [], []); }
@@ -912,7 +1078,7 @@ public sealed class BoardSyncService : IDisposable
                 l.FailedInRow = true;
                 break;
             case SyncOutcome.Blocked:
-                // One toast when a pause starts. A git pause is one pause however its message changes (one more conflicted file); the deletion brake counts what it would delete.
+                // One toast when a pause starts. A git pause is one pause however its message changes (one more conflicted file).
                 string pause = report.Blocked == SyncBlock.GitBusy ? "git" : report.Message ?? "";
                 if (l.BlockedToasted != pause)
                     ui.Toast(report.Blocked == SyncBlock.GitBusy ? $"Sync paused for {project}: {report.Message}" : $"Sync paused for {project}: {report.Message} See Settings, Board storage.", ToastKind.Warning);
@@ -1113,10 +1279,10 @@ public sealed class BoardSyncService : IDisposable
     public SyncStatus Status(string root)
     {
         Interlocked.Increment(ref statusRuns);
-        if (settings.Unreadable(root)) return new(false, settings.Problem(root) ?? "", false, false, 0);
-        if (settings.Config(root) is null) return new(false, "This folder only", false, false, 0);
-        if (settings.Proposal(root) is { } proposal) return new(true, proposal.Line, false, false, 0, null, proposal);   // asked, not allowed: nothing runs, whatever a link still remembers
-        if (LinkOf(root) is not { } l) return new(true, settings.Problem(root) ?? "Not syncing", false, false, 0);
+        if (settings.Unreadable(root)) return new(false, settings.Problem(root) ?? "", false, 0);
+        if (settings.Config(root) is null) return new(false, "This folder only", false, 0);
+        if (settings.Proposal(root) is { } proposal) return new(true, proposal.Line, false, 0, null, proposal);   // asked, not allowed: nothing runs, whatever a link still remembers
+        if (LinkOf(root) is not { } l) return new(true, settings.Problem(root) ?? "Not syncing", false, 0);
         string local = Path.Combine(root, "openspec", "changes");
         string? paused;
         try { paused = l.LastPause = BoardSyncApi.GitPause(local, GitFolder(root), settings.StateFolder(root)); }   // git in the middle of a merge: shown now, not only after the next sync
@@ -1131,10 +1297,8 @@ public sealed class BoardSyncService : IDisposable
             foreach (string full in OpenSpecStoreApi.ChangesSince(l.Cursor).Paths)
                 if (Path.GetRelativePath(local, full) is { } rel && !rel.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(rel)) pending.Add(rel.Replace('\\', '/'));
             unsent = pending.Count;
-            // only the deletion brake can be allowed (the board's, or the attachments' when the board's sync was fine); a git pause clears when git is done
-            bool canAllow = paused is null && (l.Last is { Outcome: SyncOutcome.Blocked, Blocked: SyncBlock.MassDelete } || l.Last is { Outcome: SyncOutcome.Synced or SyncOutcome.NothingToDo } && l.LastAtt is { Outcome: SyncOutcome.Blocked, Blocked: SyncBlock.MassDelete });
             string line = Line(l, unsent, paused);
-            return new(true, line, canAllow, l.Running && l.Last is null, unsent, trash, null, l.Last is { SkippedLinks.Count: > 0 } last ? SkippedText(last.SkippedLinks) : null,
+            return new(true, line, l.Running && l.Last is null, unsent, trash, null, l.Last is { SkippedLinks.Count: > 0 } last ? SkippedText(last.SkippedLinks) : null,
                 l.Last is { } board ? TooLargeText(board, l.LastAtt) : null);
         }
     }
@@ -1150,11 +1314,19 @@ public sealed class BoardSyncService : IDisposable
             case { Outcome: SyncOutcome.Failed } r: return $"Failed: {r.Message}{more}";
             case { Outcome: SyncOutcome.Blocked } r: return $"Paused: {r.Message}{more}";
             case { Outcome: SyncOutcome.Synced or SyncOutcome.NothingToDo } when l.LastAtt is { Outcome: SyncOutcome.Failed or SyncOutcome.Blocked } a: return $"Attachments: {a.Message}{more}";   // the board was fine: the attachments' trouble is the state
+            case { Outcome: SyncOutcome.Synced or SyncOutcome.NothingToDo } when SettlingOf(l) is { Count: > 0 } settling: return SettlingLine(settling) + more;   // not "Nothing new": files wait
             case { Outcome: SyncOutcome.NothingToDo } when l.QuietDue is null && l.LastAtt is { Outcome: SyncOutcome.Synced }: return SyncedLine(l.Last, l.LastAtt, l.LastAt);   // only attachments moved
             case { Outcome: SyncOutcome.Synced or SyncOutcome.NothingToDo } when l.QuietDue is { } due: return $"Waiting to sync at {Clock(due)}{more}";   // a change since the last sync: the wait is what is next
             case { Outcome: SyncOutcome.NothingToDo }: return $"Nothing new, checked at {l.LastAt:HH:mm}";
             default: return SyncedLine(l.Last, l.LastAtt, l.LastAt);
         }
+    }
+
+    private static string SettlingLine(List<(string Folder, string File)> settling)
+    {
+        List<string> folders = [.. settling.Select(s => s.Folder).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+        string names = string.Join(", ", folders.Take(3)) + (folders.Count > 3 ? "…" : "");
+        return $"Waiting for {settling.Count} file{(settling.Count == 1 ? "" : "s")} to settle ({(folders.Count == 1 ? "folder" : "folders")} {names})";
     }
 
     /// <summary>One line for both syncs: the board's files and the attachments are counted together; when only attachments moved, it says so.</summary>

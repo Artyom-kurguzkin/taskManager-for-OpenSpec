@@ -21,6 +21,25 @@ internal static class Queries
         return isRepo;
     }
 
+    internal static string? FirstCommit()
+    {
+        if (!IsRepository()) return null;
+        (int exit, string output, string _) = GitCli.Run("rev-list", "--max-parents=0", "HEAD");
+        if (exit != 0) return null;
+        string[] roots = output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (roots.Length <= 1) return roots.FirstOrDefault();
+        // Several root commits: the oldest by author date, the lower hash on a tie, so every clone picks the same one.
+        return roots.Select(r => (Hash: r, Time: long.TryParse(GitCli.Run("log", "-1", "--format=%at", r).Output.Trim(), out long t) ? t : long.MaxValue))
+            .OrderBy(x => x.Time).ThenBy(x => x.Hash, StringComparer.Ordinal).First().Hash;
+    }
+
+    internal static string? CommittedText(string repoRelativePath)
+    {
+        if (!IsRepository()) return null;
+        (int exit, string output, string _) = GitCli.Run("show", "HEAD:" + repoRelativePath.Replace('\\', '/'));
+        return exit == 0 ? output : null;
+    }
+
     internal static bool IsIgnored(string relativePath) => IsRepository() && GitCli.Run("check-ignore", "-q", "--", relativePath).Exit == 0;
 
     internal static string? UserName()

@@ -32,7 +32,14 @@
                     <div class="rm-lgroup">
                         <div class="rm-lrow rm-group">
                             <button type="button" class="rm-chev @(shut ? "shut" : "")" aria-expanded="@(shut ? "false" : "true")" aria-label="@ToggleLabel(g.Name, shut)" @onclick="() => Toggle(g.Key)" @onclick:stopPropagation="true">▾</button>
-                            <span class="rm-gname" title="@g.Name">@g.Name</span>
+                            @if (GroupMenu is not null && g.Root is not null && g.Column is not null)
+                            {
+                                <Menu Label="Group options" IgnoreModifiedClick="true" Class="rm-gmenu">
+                                    <Activator><button type="button" class="rm-gname rm-gbtn" aria-haspopup="menu" title="@g.Name · group options">@g.Name</button></Activator>
+                                    <Items>@GroupMenu((g.Root, g.Column))</Items>
+                                </Menu>
+                            }
+                            else { <span class="rm-gname" title="@g.Name">@g.Name</span> }
                             <span class="rm-count">@g.Rows.Count</span>
                         </div>
                         @if (!shut)
@@ -45,7 +52,14 @@
                                     bool sshut = collapsed.Contains(sg.Key);
                                     <div class="rm-lrow rm-subgroup">
                                         <button type="button" class="rm-chev @(sshut ? "shut" : "")" aria-expanded="@(sshut ? "false" : "true")" aria-label="@ToggleLabel(sg.Name, sshut)" @onclick="() => Toggle(sg.Key)" @onclick:stopPropagation="true">▾</button>
-                                        <span class="rm-sname" title="@sg.Name">@sg.Name</span>
+                                        @if (GroupMenu is not null && sg.Root is not null && sg.Column is not null)
+                                        {
+                                            <Menu Label="Group options" IgnoreModifiedClick="true" Class="rm-gmenu">
+                                                <Activator><button type="button" class="rm-sname rm-gbtn" aria-haspopup="menu" title="@sg.Name · group options">@sg.Name</button></Activator>
+                                                <Items>@GroupMenu((sg.Root, sg.Column))</Items>
+                                            </Menu>
+                                        }
+                                        else { <span class="rm-sname" title="@sg.Name">@sg.Name</span> }
                                         <span class="rm-count">@sg.Rows.Count</span>
                                     </div>
                                     @if (!sshut) { @LeftRows(sg.Rows, true) }
@@ -106,7 +120,7 @@
         foreach (RoadmapRow r in rows)
         {
             RoadmapRow row = r;
-            <button type="button" class="rm-lrow rm-row @(deep ? "deep" : "") @ExamineOf?.Invoke(r.Root, r.Item.Id)" data-id="@r.Item.Id" title="@Describe(r.Item)" style="--band:var(@Colour(r))" @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))">
+            <button type="button" class="rm-lrow rm-row @(deep ? "deep" : "") @ExamineOf?.Invoke(r.Root, r.Item.Id) @(SelectedOf?.Invoke(r.Root, r.Item.Id) == true ? "selected" : "")" data-id="@r.Item.Id" title="@Describe(r.Item)" style="--band:var(@Colour(r))" @onclick="e => OnOpen.InvokeAsync((row.Root, row.Item.Id, e))">
                 <span class="rm-n">@(++rowNo)</span>
                 <span class="rm-dot"></span>
                 <span class="rm-t">@r.Item.Title</span>
@@ -134,9 +148,9 @@
             <div class="rm-trow">
                 @if (RoadmapModel.Bar(r.Item, Window) is { } b)
                 {
-                    <button type="button" class="rm-bar @(b.StartsBefore ? "from" : "") @(b.EndsAfter ? "to" : "") @(b.Span * Cw < 150 ? "short" : "") @ExamineOf?.Invoke(r.Root, r.Item.Id)"
+                    <button type="button" class="rm-bar @(b.StartsBefore ? "from" : "") @(b.EndsAfter ? "to" : "") @(b.Span * Cw < 150 ? "short" : "") @ExamineOf?.Invoke(r.Root, r.Item.Id) @(SelectedOf?.Invoke(r.Root, r.Item.Id) == true ? "selected" : "")"
                             data-id="@r.Item.Id" style="--col:@b.Col; --span:@b.Span; --band:var(@Colour(r))" title="@Describe(r.Item)"
-                            @onclick="() => OnOpen.InvokeAsync((row.Root, row.Item.Id))"><span class="rm-bt">@r.Item.Title</span></button>
+                            @onclick="e => OnOpen.InvokeAsync((row.Root, row.Item.Id, e))"><span class="rm-bt">@r.Item.Title</span></button>
                 }
             </div>
         }

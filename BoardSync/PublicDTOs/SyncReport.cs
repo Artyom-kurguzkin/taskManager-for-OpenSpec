@@ -21,8 +21,17 @@ public sealed record SyncReport(
     IReadOnlyList<string>? tooLarge = null,
     IReadOnlyList<string>? settling = null)
 {
+    /// <summary>What the sync did on its own that an item should say: folders and files put back, folders followed to where another computer moved them, edits carried into an archived or merged item. Nothing here was deleted.</summary>
+    public IReadOnlyList<SyncNote> Notes { get; init; } = [];
+
     /// <summary>Paths of files written so recently (<see cref="SyncOptions.SettleWindow"/>) that this sync left them for the next one, like links: nothing was uploaded, overwritten or deleted for them. A file put off for 5 minutes is taken anyway.</summary>
     public IReadOnlyList<string> Settling { get; init; } = settling ?? [];
+
+    /// <summary>Change folders (relative to the synced directory) held back whole this pass because a file in them is still settling (see <see cref="Settling"/>): none of their files was uploaded, downloaded or deleted; the next pass takes them once nothing in them is being written.</summary>
+    public IReadOnlyList<string> WaitingFolders { get; init; } = [];
+
+    /// <summary>Change folders in the storage that are incomplete (no live .openspec.yaml, or a merged item whose sources are still live there) and not yet on this computer: not downloaded and not counted; the computer that made them uploads the rest, and they flow normally after.</summary>
+    public IReadOnlyList<string> IncompleteFolders { get; init; } = [];
 
     /// <summary>Why the sync was <see cref="SyncOutcome.Blocked"/> (<see cref="SyncBlock.None"/> for every other outcome).</summary>
     public SyncBlock Blocked { get; init; } = blocked;

@@ -402,7 +402,7 @@ public sealed class BoardStorageSettings(string dataFolder, IReadOnlyList<Storag
     private const string AttachmentsKey = "attachments";
 
     /// <summary>
-    /// What the sync remembers (state.json, the merge bases, what it saw, the deletion brake's count) is about one storage. When the address changed since the last sync, that memory
+    /// What the sync remembers (state.json, the merge bases, what it saw) is about one storage. When the address changed since the last sync, that memory
     /// is wrong for the new storage (a file that is not there would be taken for one deleted there), so it is dropped, for the board and the attachments both: the next sync is a first
     /// connection. The trash and the backups are the user's and stay. The address the memory is about is kept in state-address.txt beside the state folders; state with no such file is
     /// from a version before it and is taken to belong to the address now saved. Called before a sync of an approved, complete setting only.

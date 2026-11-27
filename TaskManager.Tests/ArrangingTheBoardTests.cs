@@ -473,17 +473,21 @@ public sealed class ArrangingTheBoardTests
         Assert.DoesNotContain(filtered, l => l.Colour != map[l.Label]);
     }
 
-    [Fact(DisplayName = "Every palette colour has a light and a dark value")]
-    public void EveryPaletteColourHasLightAndDarkValues()
+    [Fact(DisplayName = "Every palette colour has a value in every theme")]
+    public void EveryPaletteColourHasAValueInEveryTheme()
     {
         string css = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "wwwroot", "css", "app.css")).Replace("\r\n", "\n");
-        const string darkMedia = "@media (prefers-color-scheme: dark) { :root:not([data-theme=\"light\"])", darkTheme = ":root[data-theme=\"dark\"]";
-        int media = css.IndexOf(darkMedia, StringComparison.Ordinal), theme = css.IndexOf(darkTheme, StringComparison.Ordinal);
-        Assert.True(media > 0 && theme > media);
-        string light = css[..media], dark = css[media..theme], forced = css[theme..css.IndexOf('}', theme)];   // the light :root, the system dark theme, the chosen dark theme
-        foreach (string token in PaletteTokens)
-            Assert.All(new[] { light, dark, forced }, block => Assert.Matches($@"{token}:\s*#[0-9a-fA-F]{{6}}\b", block));
-        Assert.Matches(@"--stone:\s*#[0-9a-fA-F]{6}\b", light);   // the neutral colour stays outside the palette
+        // a theme is one block: :root (light, the default) or :root[data-theme="id"], found by its selector wherever it sits in the file
+        foreach (string theme in new[] { "light", "dark", "novita", "ayu-mirage" })
+        {
+            string selector = theme == "light" ? ":root, :root[data-theme=\"light\"] {" : $":root[data-theme=\"{theme}\"] {{";
+            int open = css.IndexOf(selector, StringComparison.Ordinal);
+            Assert.True(open >= 0, $"no block for the {theme} theme");
+            string block = css[open..css.IndexOf('}', open)];
+            foreach (string token in PaletteTokens)
+                Assert.Matches($@"{token}:\s*#[0-9a-fA-F]{{6}}\b", block);
+            Assert.Matches(@"--stone:\s*#[0-9a-fA-F]{6}\b", block);   // the neutral colour stays outside the palette, in every theme
+        }
     }
 
     [Fact(DisplayName = "Rows follow the board's saved order and leave out hidden rows, keyed by the row field and value")]

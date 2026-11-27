@@ -1,0 +1,14 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-26
+x-rtm:
+  id: 232
+  title: more ui bugs
+  status: Research
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  started: 2026-11-26
+  due: 2026-11-26
+  moved: 2026-11-26

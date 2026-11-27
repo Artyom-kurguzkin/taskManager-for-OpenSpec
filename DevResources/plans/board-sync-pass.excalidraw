@@ -1,0 +1,418 @@
+{
+ "type": "excalidraw",
+ "version": 2,
+ "source": "repo-tasks",
+ "elements": [
+  {
+   "type": "rectangle",
+   "id": "s0",
+   "x": 20,
+   "y": 20,
+   "width": 620,
+   "height": 56,
+   "backgroundColor": "#f1f3f5",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "s0-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "s0-label",
+   "containerId": "s0",
+   "text": "1. Pause if git is mid-merge; repair conflict markers",
+   "originalText": "1. Pause if git is mid-merge; repair conflict markers",
+   "fontSize": 16,
+   "x": 96.79999999999998,
+   "y": 38,
+   "width": 466.40000000000003,
+   "height": 20,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a0",
+   "x": 330,
+   "y": 76,
+   "width": 0,
+   "height": 28,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     28
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "rectangle",
+   "id": "s1",
+   "x": 20,
+   "y": 104,
+   "width": 620,
+   "height": 56,
+   "backgroundColor": "#f1f3f5",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "s1-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "s1-label",
+   "containerId": "s1",
+   "text": "2. Scan the board files on this computer",
+   "originalText": "2. Scan the board files on this computer",
+   "fontSize": 16,
+   "x": 154,
+   "y": 122,
+   "width": 352,
+   "height": 20,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a1",
+   "x": 330,
+   "y": 160,
+   "width": 0,
+   "height": 28,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     28
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "rectangle",
+   "id": "s2",
+   "x": 20,
+   "y": 188,
+   "width": 620,
+   "height": 56,
+   "backgroundColor": "#f1f3f5",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "s2-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "s2-label",
+   "containerId": "s2",
+   "text": "3. Read the list of files in the bucket",
+   "originalText": "3. Read the list of files in the bucket",
+   "fontSize": 16,
+   "x": 158.39999999999998,
+   "y": 206,
+   "width": 343.20000000000005,
+   "height": 20,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a2",
+   "x": 330,
+   "y": 244,
+   "width": 0,
+   "height": 28,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     28
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "rectangle",
+   "id": "s3",
+   "x": 20,
+   "y": 272,
+   "width": 620,
+   "height": 56,
+   "backgroundColor": "#b2f2bb",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "s3-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "s3-label",
+   "containerId": "s3",
+   "text": "4. NEW: check the bucket belongs to this project",
+   "originalText": "4. NEW: check the bucket belongs to this project",
+   "fontSize": 16,
+   "x": 118.79999999999998,
+   "y": 290,
+   "width": 422.40000000000003,
+   "height": 20,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a3",
+   "x": 330,
+   "y": 328,
+   "width": 0,
+   "height": 28,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     28
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "rectangle",
+   "id": "s4",
+   "x": 20,
+   "y": 356,
+   "width": 620,
+   "height": 80,
+   "backgroundColor": "#b2f2bb",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "s4-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "s4-label",
+   "containerId": "s4",
+   "text": "5. NEW: folder pass: find where each missing change went\n(archive, merged item, renamed) or mark it to be put back",
+   "originalText": "5. NEW: folder pass: find where each missing change went\n(archive, merged item, renamed) or mark it to be put back",
+   "fontSize": 16,
+   "x": 79.19999999999999,
+   "y": 376,
+   "width": 501.6,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a4",
+   "x": 330,
+   "y": 436,
+   "width": 0,
+   "height": 28,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     28
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "rectangle",
+   "id": "s5",
+   "x": 20,
+   "y": 464,
+   "width": 620,
+   "height": 80,
+   "backgroundColor": "#ffec99",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "s5-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "s5-label",
+   "containerId": "s5",
+   "text": "6. File pass: three-way merge per file\nCHANGED: a missing file is put back unless the log covers it",
+   "originalText": "6. File pass: three-way merge per file\nCHANGED: a missing file is put back unless the log covers it",
+   "fontSize": 16,
+   "x": 66,
+   "y": 484,
+   "width": 528,
+   "height": 40,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a5",
+   "x": 330,
+   "y": 544,
+   "width": 0,
+   "height": 28,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     28
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "rectangle",
+   "id": "s6",
+   "x": 20,
+   "y": 572,
+   "width": 620,
+   "height": 56,
+   "backgroundColor": "#f1f3f5",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "s6-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "s6-label",
+   "containerId": "s6",
+   "text": "7. Upload, then write merged files here (old copies to the trash)",
+   "originalText": "7. Upload, then write merged files here (old copies to the trash)",
+   "fontSize": 16,
+   "x": 44,
+   "y": 590,
+   "width": 572,
+   "height": 20,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "arrow",
+   "id": "a6",
+   "x": 330,
+   "y": 628,
+   "width": 0,
+   "height": 28,
+   "points": [
+    [
+     0,
+     0
+    ],
+    [
+     0,
+     28
+    ]
+   ],
+   "endArrowhead": "arrow"
+  },
+  {
+   "type": "rectangle",
+   "id": "s7",
+   "x": 20,
+   "y": 656,
+   "width": 620,
+   "height": 56,
+   "backgroundColor": "#b2f2bb",
+   "roundness": {
+    "type": 3
+   },
+   "boundElements": [
+    {
+     "type": "text",
+     "id": "s7-label"
+    }
+   ]
+  },
+  {
+   "type": "text",
+   "id": "s7-label",
+   "containerId": "s7",
+   "text": "8. NEW: write what the sync did on each item it touched",
+   "originalText": "8. NEW: write what the sync did on each item it touched",
+   "fontSize": 16,
+   "x": 87.99999999999997,
+   "y": 674,
+   "width": 484.00000000000006,
+   "height": 20,
+   "textAlign": "center",
+   "verticalAlign": "middle",
+   "strokeColor": "#1e1e1e"
+  },
+  {
+   "type": "text",
+   "id": "k",
+   "x": 680,
+   "y": 30,
+   "text": "grey: as today\ngreen: new\nyellow: changed rule",
+   "fontSize": 16,
+   "width": 176,
+   "height": 60
+  }
+ ],
+ "appState": {
+  "viewBackgroundColor": "#ffffff"
+ },
+ "files": {}
+}

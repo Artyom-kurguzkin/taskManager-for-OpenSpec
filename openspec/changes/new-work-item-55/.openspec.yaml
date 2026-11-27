@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-26
+x-rtm:
+  id: 231
+  title: expand & collapse panes fixed shortcuts
+  status: In Review
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: enhancement
+  started: 2026-11-26
+  moved: 2026-11-26
+  plan: DevResources/plans/in-progress-round-2026-11-26.md
+  agentBy: Claude
+  agentAt: 2026-11-26T05:45:12

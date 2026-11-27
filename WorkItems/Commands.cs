@@ -224,18 +224,28 @@ internal static partial class Commands
             if (archived && i == 2) NoteSpecsNotMerged(folder, first);
         }
         OpenSpecStoreApi.MarkOwnChange(item.Path);   // the CLI moved folders: invalidate cached reads
-        if (archived) Log(id, ("status", $"{item.Status} -> {status}"));   // into the archived folder, where the item lives now
+        if (archived)   // into the archived folder, where the item lives now
+        {
+            List<(string Kind, string Text)> events = [("status", $"{item.Status} -> {status}")];
+            if (ArchivedDir(folder) is string dir) events.Add(("archived", $"{item.Folder} -> archive/{Path.GetFileName(dir)}"));   // where the folder went, for a sync that finds it gone
+            Log(id, [.. events]);
+        }
         return archived ? (true, "") : (false, first);
+    }
+
+    /// <summary>The archive folder of a change (<c>&lt;date&gt;-&lt;folder&gt;</c>, the latest when there are several), null when there is none.</summary>
+    private static string? ArchivedDir(string folder)
+    {
+        string archive = Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, "changes", "archive");
+        return Directory.Exists(archive)
+            ? Directory.EnumerateDirectories(archive).Where(d => Path.GetFileName(d) == folder || DatePrefix().Replace(Path.GetFileName(d), "") == folder).OrderBy(d => d, StringComparer.Ordinal).LastOrDefault()
+            : null;
     }
 
     /// <summary>The CLI archived the change only with --skip-specs: records in a note of the archived folder why its specs weren't merged.</summary>
     private static void NoteSpecsNotMerged(string folder, string reason)
     {
-        string archive = Path.Combine(OpenSpecStoreApi.OpenSpecRoot!, "changes", "archive");
-        string? dir = Directory.Exists(archive)
-            ? Directory.EnumerateDirectories(archive).Where(d => Path.GetFileName(d) == folder || DatePrefix().Replace(Path.GetFileName(d), "") == folder).OrderBy(d => d, StringComparer.Ordinal).LastOrDefault()
-            : null;
-        if (dir is null) return;
+        if (ArchivedDir(folder) is not string dir) return;
         int noteId = NextNoteId();
         string created = DateTime.Now.ToString("s", System.Globalization.CultureInfo.InvariantCulture);
         string why = AnsiCode().Replace(reason, "").Trim();
@@ -309,8 +319,10 @@ internal static partial class Commands
     private static (bool Success, string Message) DeleteDelta(string changeDir, string path)
     {
         string specs = Path.Combine(changeDir, "specs"), dir = Path.Combine(specs, path.Replace('/', Path.DirectorySeparatorChar));
+        string[] gone = Directory.Exists(dir) ? [.. Directory.EnumerateFiles(dir, "spec.md", SearchOption.AllDirectories).Select(f => "specs/" + Path.GetRelativePath(specs, f).Replace(Path.DirectorySeparatorChar, '/')).Order(StringComparer.Ordinal)] : [];
         (bool ok, string message) = OpenSpecStoreApi.DeleteFolder(dir);
         if (!ok) return (ok, message);
+        EventLog.Append(changeDir, Actor(), gone.Select(g => ("spec-removed", g)));   // one per spec, so a sync knows the file is gone on purpose
         for (string? up = Path.GetDirectoryName(dir); up is not null && up.StartsWith(specs) && Directory.Exists(up) && !Directory.EnumerateFileSystemEntries(up).Any(); up = Path.GetDirectoryName(up))
             if (OpenSpecStoreApi.DeleteFolder(up) is { Success: false } failed) return failed;
         return SyncSkipSpecs(changeDir);
@@ -327,7 +339,11 @@ internal static partial class Commands
         foreach (WorkItem it in items)
         {
             string delta = Path.Combine(it.Path, "specs", Rel(path));
-            if (Directory.Exists(delta) && OpenSpecStoreApi.MoveFolder(delta, Path.Combine(it.Path, "specs", Rel(newPath!))) is { Success: false } moveFailed) return (false, moveFailed.Message, null);
+            if (Directory.Exists(delta))
+            {
+                if (OpenSpecStoreApi.MoveFolder(delta, Path.Combine(it.Path, "specs", Rel(newPath!))) is { Success: false } moveFailed) return (false, moveFailed.Message, null);
+                EventLog.Append(it.Path, Actor(), [("spec-moved", $"specs/{path} -> specs/{newPath}")]);   // the folder moves whole: one line, so a sync knows each file under it went there
+            }
             if (Metadata.TryRead<Rtm>(Queries.Yaml(it.Path), out _) is { } meta && ((meta.Features ?? []).Contains(path) || (meta.UnlinkedFeatures ?? []).Contains(path)))
                 if (Update(it.Id, m => { if (m.Features is not null) m.Features = Swap(m.Features); if (m.UnlinkedFeatures is not null) m.UnlinkedFeatures = Swap(m.UnlinkedFeatures); }) is { Success: false } failed) return (false, failed.Message, null);
         }
@@ -852,6 +868,49 @@ internal static partial class Commands
         foreach (WorkItem item in Queries.GetAll(includeHidden: true).Where(w => w.Status == name).ToList())
             if (SetStatus(item.Id, to, ignoreDependencies: true) is { Success: false } failed) return (false, $"#wi{item.Id} did not move: {failed.Message}");
         return RemoveFromList(name);
+    }
+
+    /// <summary>
+    /// Renames a status of the project: not a fixed one, and not to a name the project has. The status list keeps the place, every open work item (hidden ones included) that has it takes
+    /// the new name (their "in status since" day stays: a rename is not a move), and the lanes of its column follow. Archived items keep the name in their file and show as Completed.
+    /// </summary>
+    internal static (bool Success, string Message) RenameStatus(string from, string to)
+    {
+        from = (from ?? "").Trim();
+        to = (to ?? "").Trim();
+        if (WorkItemsApi.FixedStatuses.Any(f => string.Equals(f, from, StringComparison.OrdinalIgnoreCase))) return (false, $"{from} stays: Backlog, In Progress and Completed are in every project");
+        if (to.Length == 0) return (false, "Type a name first");
+        if (to.Length > MaxStatusLength) return (false, $"A status name is at most {MaxStatusLength} characters");
+        if (to.Any(char.IsControl)) return (false, "A status name is one line of plain text");
+        if (!Queries.GetStatuses().Contains(from)) return (false, $"This project has no status \"{from}\"");
+        if (Queries.GetStatuses().Contains(to)) return (false, $"This project has a status \"{to}\" already");
+
+        // the items first: once the list lacks "from", an item that has it reads as Backlog
+        List<int> renamed = [];
+        foreach (WorkItem item in Queries.GetAll(includeHidden: true).Where(w => w.Status == from && !w.Archived).ToList())
+        {
+            (bool done, string why) = Update(item.Id, m =>
+            {
+                m.Status = to;
+                if (m.Lanes?.Remove(from, out string? lane) == true) m.Lanes[to] = lane;
+            });
+            if (!done) return Undo($"#wi{item.Id} did not take the new name: {why}");
+            renamed.Add(item.Id);
+        }
+        (bool ok, string message) = EditStatuses(l => { l[l.IndexOf(from)] = to; return null; });
+        if (!ok) return Undo(message);
+        if (OpenSpecStoreApi.ReadConfigSection<Dictionary<string, List<string>>>("lanes") is { Problem: null, Value: { } lanes } && lanes.Remove(from, out List<string>? mine))
+        {
+            lanes[to] = mine;
+            if (OpenSpecStoreApi.WriteConfigSection("lanes", lanes, flowLists: true) is { Success: false } laneFailed) return laneFailed;
+        }
+        return (true, "");
+
+        (bool, string) Undo(string reason)
+        {
+            foreach (int id in renamed) Update(id, m => m.Status = from);
+            return (false, reason);
+        }
     }
 
     /// <summary>Moves a status up (<paramref name="by"/> -1) or down (+1) in the project's order; any status, the fixed ones too.</summary>

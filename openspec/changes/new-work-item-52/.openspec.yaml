@@ -1,0 +1,8 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-26
+x-rtm:
+  id: 228
+  status: Backlog
+  contributors: [Artyom-kurguzkin]
+  moved: 2026-11-26

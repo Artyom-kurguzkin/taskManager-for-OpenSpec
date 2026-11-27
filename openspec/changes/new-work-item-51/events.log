@@ -1,0 +1,13 @@
+2026-11-26T04:48:17 | Artyom-kurguzkin | created | New work item
+2026-11-26T04:48:43 | Artyom-kurguzkin | title | New work item -> work item details: work item description is unreadable wen editing
+2026-11-26T04:49:50 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-26T04:49:55 | Artyom-kurguzkin | feature | none -> general-ux
+2026-11-26T04:49:58 | Artyom-kurguzkin | status | Backlog -> In Progress
+2026-11-26T04:50:00 | Artyom-kurguzkin | priority | low -> high
+2026-11-26T04:50:03 | Artyom-kurguzkin | label | none -> bug
+2026-11-26T05:13:37 | Claude | plan-linked | DevResources/plans/in-progress-round-2026-11-26.md
+2026-11-26T05:15:03 | Claude chunk C | started | Chunk C started: finding why the work item description editor text is black in ayu-mirage; will fix the root cause for all themes and sweep other form controls.
+2026-11-26T05:25:36 | Claude chunk C | done | Chunk C done, branch agent/editor tip 8de5302 (one commit, TaskManager/wwwroot/css/app.css only).\nCause: .hov:hover/.hov:focus-visible set color: var(--on-fill) (dark text meant for a pastel --fill). The title input (and the note title) carry .hov but their background is transparent, so on focus/hover the text turned #181c26 on #1f2430 in ayu-mirage (and #1c1917 on dark). The description textarea itself measured correct (204,202,194 = --ink) in all four themes before the change; the black text appears in the title field while editing the item.\nFix: input.hov / textarea.hov hover and focus-visible keep color: var(--ink); textarea.desc-in/.md state color: var(--ink) explicitly.\nMeasured after (focused+hovered): title ayu-mirage rgb(204,202,194) on rgb(31,36,48) 9.5:1; light 14.6; dark 14.8; novita 13.2. Description textarea same values. Before: title ayu-mirage rgb(24,28,38) (about 1.1:1), dark rgb(28,25,23).\nSweep: no [data-theme=dark] or prefers-color-scheme selectors remain in CSS (only the :root theme blocks); the two JS matchMedia uses only pick the OS theme. Inputs reached by .hov: title-in and note-title (fixed). All other inputs/textareas/selects measured at least 8.9:1 in settings, board and item pages. Shots: tests/out/shots/wi227-after-*.png in the worktree.
+2026-11-26T05:26:03 | Claude | verified | Integrated chunk C into the owner's index (app.css, 2 lines); worktree and branch removed.\nCause found was the item title field going dark on hover/focus; the description box itself measured readable. Owner to confirm which field was black.
+2026-11-26T05:45:08 | Claude | status | In Progress -> In Review
+2026-11-26T05:45:08 | Claude | subtask-added | 1.1 Owner: confirm the black text was the title field; if it was the description box, say what you were doing when it went black

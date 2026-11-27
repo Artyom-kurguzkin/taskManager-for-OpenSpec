@@ -1,0 +1,16 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-26
+x-rtm:
+  id: 227
+  title: 'work item details: work item description is unreadable wen editing'
+  status: In Review
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  started: 2026-11-26
+  moved: 2026-11-26
+  plan: DevResources/plans/in-progress-round-2026-11-26.md
+  agentBy: Claude
+  agentAt: 2026-11-26T05:45:09

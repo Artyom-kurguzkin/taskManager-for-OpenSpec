@@ -1235,7 +1235,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.True(HasCard(Col(board, "Planned"), 107));
     }
 
-    [Fact(DisplayName = "The list's group header offers Delete status… for a custom status, and a default status offers none")]
+    [Fact(DisplayName = "The list's group name opens a menu that offers Delete status… for a custom status, and a default status offers none")]
     public async Task DeleteStatusFromTheListGroupHeader()
     {
         await using BunitContext ctx = NewContext();
@@ -1244,10 +1244,12 @@ public sealed class UsingTheBoardTests : IDisposable
         IRenderedComponent<BoardPage> board = ctx.Render<BoardPage>();
         ShowList();
         board.Eventually(() => Assert.NotEmpty(board.FindAll("tr[data-group='Review ready']")));
-        Assert.Empty(board.FindAll("tr[data-group='Backlog'] button.gh-menu"));
-        Assert.Empty(board.FindAll("tr[data-group='Completed'] button.gh-menu"));
+        board.ClickWhenReady("tr[data-group='Backlog'] button.gname-btn");
+        board.Eventually(() => Assert.Contains(board.FindAll(".menu-item"), i => i.TextContent.Trim() == "Hide group"));
+        Assert.DoesNotContain(board.FindAll(".menu-item"), i => i.TextContent.Contains("Delete status"));   // a default status has no delete
+        board.ClickWhenReady(".menu-backdrop");
 
-        board.ClickWhenReady("tr[data-group='Review ready'] button.gh-menu");
+        board.ClickWhenReady("tr[data-group='Review ready'] button.gname-btn");
         await ChooseInMenu(board, "Delete status…");
         overlays!.Eventually(() => Assert.Contains("Remove Review ready?", overlays.Find(".dialog").TextContent));
         overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(x => x.TextContent.Trim() == "Remove"));
@@ -1257,7 +1259,7 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.DoesNotContain("Review ready", repo.Read("openspec/config.yaml"));
     }
 
-    [Fact(DisplayName = "In the list grouped by feature a feature's group header offers Delete feature…, which asks first and moves its open items to Unassigned; Unassigned offers none")]
+    [Fact(DisplayName = "In the list grouped by feature a feature's group name's menu offers Delete feature…, which asks first and moves its open items to Unassigned")]
     public async Task DeleteFeatureFromTheListGroupHeader()
     {
         await using BunitContext ctx = NewContext();
@@ -1267,9 +1269,7 @@ public sealed class UsingTheBoardTests : IDisposable
         GroupByFeature();
         ShowList();
         board.Eventually(() => Assert.NotEmpty(board.FindAll("tr[data-group='functional/payments']")));
-        Assert.Empty(board.FindAll($"tr[data-group='{BoardModel.Unassigned}'] button.gh-menu"));
-
-        board.ClickWhenReady("tr[data-group='functional/payments'] button.gh-menu");
+        board.ClickWhenReady("tr[data-group='functional/payments'] button.gname-btn");
         await ChooseInMenu(board, "Delete feature…");
         overlays!.Eventually(() => Assert.Contains("Delete Payments?", overlays.Find(".dialog").TextContent));
         overlays.FireWhenReady(".dialog button", e => e.Click(), all => all.Single(x => x.TextContent.Trim() == "Delete"));
@@ -3060,14 +3060,14 @@ public sealed class UsingTheBoardTests : IDisposable
         Assert.Empty(toggle.QuerySelectorAll(".nav-l"));
         Assert.DoesNotContain("openspec", toggle.TextContent);
         Assert.Equal("Menu", toggle.GetAttribute("aria-label"));
-        Assert.Equal("Expand menu", toggle.GetAttribute("title"));
+        Assert.Equal("Expand menu (Ctrl+Shift+<)", toggle.GetAttribute("title"));
         Assert.Equal("false", toggle.GetAttribute("aria-expanded"));
         Assert.Single(nav.FindAll("nav.side > button.nav-toggle:first-child"));
 
         // expanded on the board: in the row of the "N open" button, after it, and no longer a row of its own
         nav.Eventually(() => toggle.Click());
         toggle = nav.Find("button.nav-toggle");
-        Assert.Equal("Collapse menu", toggle.GetAttribute("title"));
+        Assert.Equal("Collapse menu (Ctrl+Shift+<)", toggle.GetAttribute("title"));
         Assert.Equal("true", toggle.GetAttribute("aria-expanded"));
         Assert.Empty(nav.FindAll("nav.side > button.nav-toggle"));
         Assert.NotNull(toggle.ParentElement!.QuerySelector("button.tabs-btn"));

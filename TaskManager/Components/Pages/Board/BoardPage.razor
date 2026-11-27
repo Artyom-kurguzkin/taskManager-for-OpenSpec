@@ -32,7 +32,7 @@ else if (projects.Count == 0)
 }
 else if (View == "calendar")
 {
-    <Roadmap Projects="RoadmapProjects" Multi="Multi" ColorBy="@O.ColorBy" OnOpen="OpenFrom" OnBackground="CalendarBackgroundHandler" ExamineOf="ExamineOf" />
+    <Roadmap Projects="RoadmapProjects" Multi="Multi" ColorBy="@O.ColorBy" OnOpen="PickFrom" SelectedOf="SelectedOf" OnBackground="CalendarBackgroundHandler" ExamineOf="ExamineOf" GroupMenu="CalendarGroupMenu" />
 }
 else if (View == "analytics")
 {
@@ -79,8 +79,7 @@ else if (View == "list")
                 else
                 {
                     (BoardColumn gcol, string? gcat, string groot) = GroupOf(context);
-                    <b class="gname" style="@(Opt.GroupBy == "status" ? $"--fill:var({Ui.Band(gcol.Label)})" : null)">@gcol.Label</b> <span class="count">@BoardModel.Count(gcol.Items, O.Unit)</span>@if (gcat is not null) { <span class="muted"> · @gcat</span> }
-                    @GroupMenu(ProjectOf(groot), gcol)
+                    @GroupLabel(ProjectOf(groot), gcol, gcat)
                 }
             </GroupHeaderTemplate>
             <Template Context="row">
@@ -114,8 +113,8 @@ else if (View == "list")
                                     bool open = grid?.IsRowExpanded(row) == true;
                                     <button class="chev @(open ? "open" : "")" @onclick="() => ToggleRow(row)" aria-expanded="@open" aria-label="Subtasks">@Ui.Icon("chev")</button>
                                 }
-                                @* a modifier click is the row's (RowRender): it selects, as on a card; a plain click opens *@
-                                <button class="row-title" title="@it.Title" @onclick="@(EventUtil.AsNonRenderingEventHandler<MouseEventArgs>(e => { if (!(e.ShiftKey || e.CtrlKey || e.MetaKey)) ItemClick(ProjectOf(row.Root), it.Id); }))">@it.Title</button>
+                                @* every click on the row is the row's (RowRender): it selects, as on a card; a click on the one selected row opens it *@
+                                <button class="row-title" title="@it.Title">@it.Title</button>
                             </span>
                         }
                         else { <span class="muted">No items</span> }
@@ -192,21 +191,7 @@ else
                                         <h3>@col.Label</h3><span class="count">@projects.Where(p => !Collapsed(p)).Sum(p => p.Sections[0].Columns.Where(c => c.Key == col.Key).Sum(c => BoardModel.Count(c.Items, O.Unit)))</span>
                                     </header>
                                 </Activator>
-                                <Items>
-                                    <MenuItem OnClick="() => NewItem(null, col.Key)">+ Add work item here…</MenuItem>
-                                    <MenuItem OnClick="() => SelectAllProjects(col.Key)">Select all in column</MenuItem>
-                                    @if (Opt.GroupBy == "status")
-                                    {
-                                        @if (selectedColumns.Count >= 2 && selectedColumns.Contains(col.Key)) { <MenuItem OnClick="MergeSelected">Merge</MenuItem> }
-                                        @if (BoardModel.LookAlikes(HeadColumns, col.Key) is { } look) { <MenuItem OnClick="() => MergeLookAlikes(look)">@(col.Key == look.Fixed ? "Merge look-alikes" : $"Merge with {look.Fixed}")</MenuItem> }
-                                        @if (BoardModel.MergeOf(O, col.Key) is not null) { <MenuItem OnClick="() => Unmerge(col.Key)">Unmerge</MenuItem> }
-                                    }
-                                    @if (col.Key != BoardModel.Unassigned)
-                                    {
-                                        <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(Opt, col.Key)))">Hide column</MenuItem>
-                                    }
-                                    @if (projects.Any(x => BoardModel.CanDeleteStatus(Opt, x.Statuses, col.Key))) { <MenuItem OnClick="() => DeleteStatus(null, col.Key)">Delete status…</MenuItem> }
-                                </Items>
+                                <Items>@GroupActions(null, col, "column")</Items>
                             </Menu>
                         </section>
                     }
@@ -247,20 +232,7 @@ else
                                                             <header class="col-h hov @(selectedColumns.Contains(col.Key) ? "selected" : "")" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)" @onclick="Quiet(e => ColumnClick(col.Key, e))"
                                                                     @ondragstart="() => StartColumnDrag(sec.Columns.Select(c => BoardModel.ColumnKey(Opt, c.Key)).ToList(), BoardModel.ColumnKey(Opt, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
                                                         </Activator>
-                                                        <Items>
-                                                            <MenuItem OnClick="() => NewItem(p, col.Key)">+ Add work item here</MenuItem>
-                                                            <MenuItem OnClick="() => SelectAll(p, col)">Select all in column</MenuItem>
-                                                            @if (col.Key != BoardModel.Unassigned)
-                                                            {
-                                                                <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(Opt, col.Key)))">Hide column</MenuItem>
-                                                            }
-                                                            @if (Opt.GroupBy == "feature" && p.Features.FirstOrDefault(f => f.Path == col.Key) is { } feature)
-                                                            {
-                                                                <MenuItem OnClick="() => RenameFeature(p, feature)">Rename feature…</MenuItem>
-                                                                <MenuItem OnClick="() => DeleteFeature(p, feature)">Delete feature…</MenuItem>
-                                                            }
-                                                            @if (BoardModel.CanDeleteStatus(Opt, p.Statuses, col.Key)) { <MenuItem OnClick="() => DeleteStatus(p, col.Key)">Delete status…</MenuItem> }
-                                                        </Items>
+                                                        <Items>@GroupActions(p, col, "column")</Items>
                                                     </Menu>
                                                 }
                                                 <div class="lane" data-drop>@Cards(p, col, col.Items, null)</div>
@@ -311,19 +283,59 @@ else if (View != "analytics" && (View == "list" || O.Unit == "tasks"))
         </Menu>
     };
 
-    // A list group's menu, after its name and count: delete the status or the feature the group stands for (a default status, Unassigned and the other groupings have none).
-    private RenderFragment GroupMenu(Project p, BoardColumn col) => __builder =>
+    // The actions of a status, feature or other column, one set for the board's column header, the list's group row and the calendar's group (noun: "column" or "group").
+    // p is the project the column belongs to; null is the shared header row of several projects, whose actions ask which project they are for.
+    // Merge only ever appears for a status grouping; renaming and deleting a status only for a project's own custom statuses; renaming and deleting a feature for a feature column.
+    private RenderFragment GroupActions(Project? p, BoardColumn col, string noun, bool canSelect = true) => __builder =>
     {
-        bool status = BoardModel.CanDeleteStatus(Opt, p.Statuses, col.Key);
-        Features.PublicDTOs.Feature? feature = Opt.GroupBy == "feature" ? p.Features.FirstOrDefault(f => f.Path == col.Key) : null;
-        if (!status && feature is null) return;
+        <MenuItem OnClick="() => NewItem(p, col.Key)">@(p is null ? "+ Add work item here…" : "+ Add work item here")</MenuItem>
+        @if (canSelect)
+        {
+            <MenuItem OnClick="() => { if (p is null) SelectAllProjects(col.Key); else SelectAll(p, col); }">Select all in @noun</MenuItem>
+        }
+        @if (Opt.GroupBy == "status")
+        {
+            @if (selectedColumns.Count >= 2 && selectedColumns.Contains(col.Key)) { <MenuItem OnClick="MergeSelected">Merge</MenuItem> }
+            @if (BoardModel.LookAlikes(HeadColumns, col.Key) is { } look) { <MenuItem OnClick="() => MergeLookAlikes(look)">@(col.Key == look.Fixed ? "Merge look-alikes" : $"Merge with {look.Fixed}")</MenuItem> }
+            @if (BoardModel.MergeOf(O, col.Key) is not null) { <MenuItem OnClick="() => Unmerge(col.Key)">Unmerge</MenuItem> }
+        }
+        @if (col.Key != BoardModel.Unassigned)
+        {
+            <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(Opt, col.Key)))">Hide @noun</MenuItem>
+        }
+        @if (p is not null && Opt.GroupBy == "feature" && p.Features.FirstOrDefault(f => f.Path == col.Key) is { } feature)
+        {
+            <MenuItem OnClick="() => RenameFeature(p, feature)">Rename feature…</MenuItem>
+            <MenuItem OnClick="() => DeleteFeature(p, feature)">Delete feature…</MenuItem>
+        }
+        @if (OwnsStatus(p, col.Key))
+        {
+            <MenuItem OnClick="() => RenameStatus(p, col.Key)">Rename status…</MenuItem>
+            <MenuItem OnClick="() => DeleteStatus(p, col.Key)">Delete status…</MenuItem>
+        }
+    };
+
+    // The calendar's group menu: the board's column actions for the group's column in its project (no "select all": the calendar does not show a selection)
+    private RenderFragment<(string Root, string Column)> CalendarGroupMenu => g => __builder =>
+    {
+        if (projects.FirstOrDefault(x => x.Root == g.Root) is { } project && project.Sections.SelectMany(s => s.Columns.Concat(s.Rows?.SelectMany(r => r.Columns) ?? [])).FirstOrDefault(c => c.Key == g.Column) is { } col)
+        {
+            @GroupActions(project, col, "group", canSelect: false)
+        }
+    };
+
+    // A list group's name: a click on it opens the group's menu (the chevron beside it folds the group)
+    private RenderFragment GroupLabel(Project p, BoardColumn col, string? category) => __builder =>
+    {
         <Menu Label="Group options" IgnoreModifiedClick="true">
-            <Activator><button type="button" class="gh-menu" aria-haspopup="menu" aria-label="Group options for @col.Label" title="Group options">…</button></Activator>
-            <Items>
-                @if (status) { <MenuItem OnClick="() => DeleteStatus(p, col.Key)">Delete status…</MenuItem> }
-                @if (feature is not null) { <MenuItem OnClick="() => DeleteFeature(p, feature)">Delete feature…</MenuItem> }
-            </Items>
+            <Activator>
+                <button type="button" class="gname-btn" aria-haspopup="menu" title="Group options" aria-label="Group options for @col.Label">
+                    <b class="gname" style="@(Opt.GroupBy == "status" ? $"--fill:var({Ui.Band(col.Label)})" : null)">@col.Label</b>
+                </button>
+            </Activator>
+            <Items>@GroupActions(p, col, "group")</Items>
         </Menu>
+        <span class="count">@BoardModel.Count(col.Items, O.Unit)</span>@if (category is not null) { <span class="muted"> · @category</span> }
     };
 
     // A list column's header: its title and a × that hides it (the side menu's Hidden list brings it back).
@@ -350,20 +362,7 @@ else if (View != "analytics" && (View == "list" || O.Unit == "tasks"))
                             <header class="col-h hov @(selectedColumns.Contains(col.Key) ? "selected" : "")" data-sk title="Column options · drag to reorder" data-drag-col="@(col.Key != BoardModel.Unassigned)" @onclick="Quiet(e => ColumnClick(col.Key, e))"
                                     @ondragstart="() => StartColumnDrag(keys, BoardModel.ColumnKey(Opt, col.Key))"><h3>@col.Label</h3><span class="count">@BoardModel.Count(col.Items, O.Unit)</span></header>
                         </Activator>
-                        <Items>
-                            <MenuItem OnClick="() => NewItem(p, col.Key)">+ Add work item here</MenuItem>
-                            <MenuItem OnClick="() => SelectAll(p, col)">Select all in column</MenuItem>
-                            @if (col.Key != BoardModel.Unassigned)
-                            {
-                                <MenuItem OnClick="() => Set(BoardModel.ToggleHidden(O, BoardModel.ColumnKey(Opt, col.Key)))">Hide column</MenuItem>
-                            }
-                            @if (Opt.GroupBy == "feature" && p.Features.FirstOrDefault(f => f.Path == col.Key) is { } feature)
-                            {
-                                <MenuItem OnClick="() => RenameFeature(p, feature)">Rename feature…</MenuItem>
-                                <MenuItem OnClick="() => DeleteFeature(p, feature)">Delete feature…</MenuItem>
-                            }
-                            @if (BoardModel.CanDeleteStatus(Opt, p.Statuses, col.Key)) { <MenuItem OnClick="() => DeleteStatus(p, col.Key)">Delete status…</MenuItem> }
-                        </Items>
+                        <Items>@GroupActions(p, col, "column")</Items>
                     </Menu>
                 </section>
             }

@@ -2,6 +2,16 @@
 
 These apply to every change, every session.
 
+## ALWAYS a diagram when explaining
+
+**Every explanation to the owner comes with a diagram, in the same reply: in chat and in every plan. Always. Never skipped to answer faster, never "offered for later".** How something works, why something happened, a design, options, a before/after: draw it, then say in a line or two how to read it. Only a one-line answer to a quick factual question goes without.
+
+- Write the drawing as `<name>.excalidraw` (the Excalidraw MCP server's element format; `label` on shapes is fine) in the plans folder, run `node DevResources/tools/excalidraw-to-svg.mjs <file>`, look at the render (headless Edge screenshot) before showing it.
+- In a plan: embed `![what it shows](<name>.excalidraw.svg)` under the section it explains, before the plan is handed over. One drawing per concept.
+- In chat: link the `.excalidraw.svg` in the reply.
+- Subagents that write a plan, a research summary or a final report explaining a design or a cause do the same; say so in their brief.
+- If the route does not work, say so at the top of the reply. Do not silently skip.
+
 ## Every behaviour change
 
 1. **Tests first.** Write the failing test before the implementation. Fast suite: `dotnet test TaskManager.Tests --filter "Category!=OpenSpecCli"`.

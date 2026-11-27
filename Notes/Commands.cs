@@ -268,11 +268,15 @@ internal static class Commands
         meta.Id = id;
         if (meta.Attachments?.Remove(entry) != true) return (false, "That attachment is already gone");
         (bool ok, string message) = OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
+        if (ok) WorkItemsApi.LogEvent(note.WorkItemId, "attachment-removed", $"n{id}: {AttachmentLabel(entry)}");   // a sync that finds it missing knows it was removed on purpose
         // a file we copied: <any folder>/wi<item>/n<note>/<name>, so one from before the attachments folder was moved goes too
         if (ok && !entry.Contains("..") && !entry.StartsWith('/') && System.Text.RegularExpressions.Regex.IsMatch(entry, $@"^[^:]+/wi{note.WorkItemId}/n{id}/[^/]+$") && RootOf(note) is string root)
             try { File.Delete(Path.Combine(root, entry.Replace('/', Path.DirectorySeparatorChar))); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         return (ok, message);
     }
+
+    /// <summary>What the worklog calls an attachment: a link as it is, a file by its name.</summary>
+    private static string AttachmentLabel(string entry) => Uri.TryCreate(entry, UriKind.Absolute, out Uri? uri) && uri.Scheme is "http" or "https" ? entry : Path.GetFileName(entry);
 
     private static (bool Success, string Message) Append(Note note, string entry)
     {
@@ -282,7 +286,7 @@ internal static class Commands
         meta.Id = note.Id;
         (meta.Attachments ??= []).Add(entry);
         (bool ok, string message) = OpenSpecStoreApi.WriteText(note.Path, NoteFile.Compose(meta, body));
-        if (ok) WorkItemsApi.LogEvent(note.WorkItemId, "attachment-added", $"n{note.Id}: {(Uri.TryCreate(entry, UriKind.Absolute, out Uri? uri) && uri.Scheme is "http" or "https" ? entry : Path.GetFileName(entry))}");
+        if (ok) WorkItemsApi.LogEvent(note.WorkItemId, "attachment-added", $"n{note.Id}: {AttachmentLabel(entry)}");
         return (ok, message);
     }
 

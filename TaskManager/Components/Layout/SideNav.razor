@@ -137,7 +137,7 @@
     /// <summary>Expanded, the collapse icon has no row of its own: it ends the projects row, or the Worklog header while a work item fills the window (no projects row then).</summary>
     private bool ToggleInRow => expanded && Workspace.Root is not null && (!ItemFillsWindow || Popups.WorklogOpen is not null);
     private RenderFragment Toggle(bool inRow) =>
-        @<button class="@(inRow ? "ic nav-toggle" : "nav-btn nav-toggle")" aria-label="Menu" aria-expanded="@(expanded ? "true" : "false")" title="@(expanded ? "Collapse menu" : "Expand menu")"
+        @<button class="@(inRow ? "ic nav-toggle" : "nav-btn nav-toggle")" aria-label="Menu" aria-expanded="@(expanded ? "true" : "false")" title="@(expanded ? "Collapse menu (Ctrl+Shift+<)" : "Expand menu (Ctrl+Shift+<)")"
                  @onclick="ToggleMenu">@Ui.Icon("menu")</button>;
 
     /// <summary>The menu of what an entry can be: a labelled button in the expanded Worklog block, a plus icon on the collapsed rail; one list of items for both.</summary>

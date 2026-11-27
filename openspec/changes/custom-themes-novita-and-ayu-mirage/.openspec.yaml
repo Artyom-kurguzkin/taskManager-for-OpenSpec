@@ -1,0 +1,14 @@
+schema: spec-driven
+created: 2026-11-25
+x-rtm:
+  id: 225
+  title: 'Custom themes: Novita and Ayu Mirage beside light and dark'
+  status: In Review
+  contributors: [Claude]
+  features: [general-ux]
+  label: feature
+  started: 2026-11-25
+  moved: 2026-11-25
+  plan: DevResources/plans/custom-themes-2026-11-25.md
+  agentBy: Claude
+  agentAt: 2026-11-25T08:13:04

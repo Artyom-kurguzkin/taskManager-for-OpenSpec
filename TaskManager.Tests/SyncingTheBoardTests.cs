@@ -45,9 +45,9 @@ public sealed class SyncingTheBoardTests : IDisposable
     private Computer NewComputer(string id, IBoardStorage? storage = null) =>
         new(id, Path.Combine(_temp.FullName, id, "changes"), Path.Combine(_temp.FullName, id, "state"), storage ?? BoardSyncApi.FolderStorage(StorageFolder));
 
-    private Task<SyncReport> Sync(Computer c, bool allowMassDelete = false, SyncHooks? hooks = null)
+    private Task<SyncReport> Sync(Computer c, SyncHooks? hooks = null)
     {
-        SyncOptions options = new(c.Root, c.State, c.Storage, c.Id, () => _now, allowMassDelete);
+        SyncOptions options = new(c.Root, c.State, c.Storage, c.Id, () => _now);
         return hooks is null ? BoardSyncApi.Sync(options) : SyncEngine.Run(options, hooks, default);
     }
 
@@ -62,6 +62,18 @@ public sealed class SyncingTheBoardTests : IDisposable
     private static string Read(Computer c, string path) => File.ReadAllText(Path.Combine(c.Root, path));
     private static bool Exists(Computer c, string path) => File.Exists(Path.Combine(c.Root, path));
     private static void Delete(Computer c, string path) => File.Delete(Path.Combine(c.Root, path));
+
+    private const string Note2 = Dir + "/notes/n2.md";
+    private const string SeedNote2 = "---\nid: 2\nby: Ann\ncreated: 2026-11-10T10:00:00\n---\n# Second note\n\nMore.\n";
+    private int _renumbers;
+
+    /// <summary>A note removed the way the app does it: the file goes and the log says where (a renumbered line), so the sync knows it was on purpose.</summary>
+    private void Remove(Computer c, string note)
+    {
+        Delete(c, note);
+        File.AppendAllText(Path.Combine(c.Root, Log), $"2026-11-12T09:00:00+00:00 | Ann | renumbered | #{Path.GetFileNameWithoutExtension(note)} -> #n{900 + ++_renumbers}: the id was taken\n");
+        File.SetLastWriteTimeUtc(Path.Combine(c.Root, Log), _now);
+    }
 
     private void SeedBoard(Computer c)
     {
@@ -306,16 +318,20 @@ public sealed class SyncingTheBoardTests : IDisposable
         string edited = Read(b, Note) + "\nAn edit that will lose.\n";
         Write(b, Note, edited);
         Tick(10);
-        Delete(a, Note);
+        Remove(a, Note);
         await Sync(a);
         SyncConflict lostHere = Assert.Single((await Sync(b)).Conflicts);
         Assert.Equal((edited, true), (lostHere.Dropped, lostHere.DroppedHere));
 
         Tick(10);
-        Write(b, Tasks, SeedTasks.Replace("- [ ] 1.1", "- [x] 1.1"));
+        Write(a, Note2, SeedNote2);
+        await Sync(a);
         await Sync(b);
         Tick(10);
-        Delete(a, Tasks);
+        Write(b, Note2, SeedNote2 + "\n- [x] 1.1 written on B\n");
+        await Sync(b);
+        Tick(10);
+        Remove(a, Note2);
         SyncConflict lostThere = Assert.Single((await Sync(a)).Conflicts);
         Assert.Contains("[x] 1.1", lostThere.Dropped);
         Assert.False(lostThere.DroppedHere);
@@ -326,28 +342,29 @@ public sealed class SyncingTheBoardTests : IDisposable
     public async Task DeleteReachesTheOtherUnlessEditedLater()
     {
         (Computer a, Computer b) = await TwoSyncedComputers();
+        Write(a, Note2, SeedNote2);
+        await Sync(a);
+        await Sync(b);
 
         Tick(10);
-        Delete(a, Note);
-        Delete(a, Proposal);
+        Remove(a, Note);
+        Remove(a, Note2);
         SyncReport deleted = await Sync(a);
         Tick(10);
-        Write(b, Proposal, SeedProposal + "\nBob kept working on it.\n");
+        Write(b, Note2, SeedNote2 + "\nBob kept working on it.\n");
         SyncReport atB = await Sync(b);
         SyncReport back = await Sync(a);
 
-        Assert.Equal(Sorted([Note, Proposal]), Sorted(deleted.DeletedInStorage));
+        Assert.Equal(Sorted([Note, Note2]), Sorted(deleted.DeletedInStorage));
         Assert.Equal([Note], atB.DeletedHere);
-        Assert.Equal([Proposal], atB.Uploaded);
+        Assert.Equal([Note2], atB.Uploaded);
         Assert.Empty(atB.Conflicts);
         Assert.False(Exists(b, Note));
-        Assert.False(Directory.Exists(Path.Combine(b.Root, Dir, "notes")));    // the emptied folder goes too
-        Assert.True(Directory.Exists(b.Root));
-        Assert.Equal([Proposal], back.Downloaded);
-        Assert.Equal(SeedProposal + "\nBob kept working on it.\n", Read(a, Proposal));
+        Assert.Equal([Note2], back.Downloaded);
+        Assert.Equal(SeedNote2 + "\nBob kept working on it.\n", Read(a, Note2));
         Assert.False(Exists(a, Note));
         Assert.Equal(Tree(a), Tree(b));
-        Assert.False(ManifestEntries(a.Storage).GetProperty(Proposal).GetProperty("deleted").GetBoolean());
+        Assert.False(ManifestEntries(a.Storage).GetProperty(Note2).GetProperty("deleted").GetBoolean());
         Assert.True(ManifestEntries(a.Storage).GetProperty(Note).GetProperty("deleted").GetBoolean());
     }
 
@@ -355,35 +372,38 @@ public sealed class SyncingTheBoardTests : IDisposable
     public async Task EditLosingToDeleteIsReported()
     {
         (Computer a, Computer b) = await TwoSyncedComputers();
+        Write(a, Note2, SeedNote2);
+        await Sync(a);
+        await Sync(b);
 
         // B edits first and has not synced; A deletes later and syncs.
         Tick(10);
-        string edited = SeedProposal + "\nAn edit that will lose.\n";
-        Write(b, Proposal, edited);
+        string edited = SeedNote + "\nAn edit that will lose.\n";
+        Write(b, Note, edited);
         Tick(10);
-        Delete(a, Proposal);
+        Remove(a, Note);
         await Sync(a);
         SyncReport atB = await Sync(b);
 
-        Assert.Equal([Proposal], atB.DeletedHere);
+        Assert.Equal([Note], atB.DeletedHere);
         SyncConflict conflict = Assert.Single(atB.Conflicts);
-        Assert.Equal(Proposal, conflict.Path);
+        Assert.Equal(Note, conflict.Path);
         Assert.Equal(edited, conflict.Dropped);
-        Assert.False(Exists(b, Proposal));
+        Assert.False(Exists(b, Note));
 
         // The other way round: B edited and synced; A deleted later without having synced.
         Tick(10);
-        string editedYaml = SeedYaml.Replace("priority: low", "priority: high");
-        Write(b, Yaml, editedYaml);
+        string editedNote = SeedNote2 + "\nEdited on B.\n";
+        Write(b, Note2, editedNote);
         await Sync(b);
         Tick(10);
-        Delete(a, Yaml);
+        Remove(a, Note2);
         SyncReport atA = await Sync(a);
 
-        Assert.Equal([Yaml], atA.DeletedInStorage);
+        Assert.Equal([Note2], atA.DeletedInStorage);
         SyncConflict lost = Assert.Single(atA.Conflicts);
-        Assert.Equal((Yaml, editedYaml), (lost.Path, lost.Dropped));
-        Assert.False(Exists(a, Yaml));
+        Assert.Equal((Note2, editedNote), (lost.Path, lost.Dropped));
+        Assert.False(Exists(a, Note2));
     }
 
     [Fact(DisplayName = "Two computers syncing at the same moment both succeed: the one that lost the manifest retries against the winner's")]
@@ -448,45 +468,32 @@ public sealed class SyncingTheBoardTests : IDisposable
         Assert.Equal(Tree(a), Tree(b));
     }
 
-    [Fact(DisplayName = "A sync that would delete a large share of the board is blocked and changes nothing until it is allowed")]
-    public async Task MassDeleteIsBlocked()
+    [Fact(DisplayName = "Many files gone here are put back by the sync, which is never blocked and deletes nothing")]
+    public async Task ManyMissingFilesAreNotAMassDelete()
     {
         SpyStorage spyA = NewSpy(), spyB = NewSpy();
         Computer a = NewComputer("A", spyA), b = NewComputer("B", spyB);
         SeedBoard(a);
+        Write(a, "big-change/.openspec.yaml", "schema: spec-driven\nx-rtm:\n  id: 9\n  title: Big change\n");   // a change folder always has its header: notes alone are what a half-uploaded folder looks like
         for (int i = 2; i <= 13; i++) Write(a, $"big-change/notes/n{i}.md", $"# Note {i}\n\nText {i}.\n");   // 17 files in all
         await Sync(a);
         await Sync(b);
+        SortedDictionary<string, string> whole = Tree(a);
 
         Tick(5);
-        for (int i = 2; i <= 12; i++) Delete(a, $"big-change/notes/n{i}.md");                              // 11 of 17
-        List<string> before = Snapshot(a.Root, a.State, StorageFolder);
-        int writes = spyA.Writes;
-        SyncReport blocked = await Sync(a);
+        for (int i = 2; i <= 12; i++) Delete(a, $"big-change/notes/n{i}.md");                              // 11 of 17: nothing says why
+        SyncReport report = await Sync(a);
 
-        Assert.Equal(SyncOutcome.Blocked, blocked.Outcome);
-        Assert.Contains("11 of 17", blocked.Message);
-        Assert.Equal(writes, spyA.Writes);
-        Assert.Equal(before, Snapshot(a.Root, a.State, StorageFolder));
-        Assert.Empty(blocked.Uploaded.Concat(blocked.DeletedInStorage));
+        Assert.Equal(SyncOutcome.Synced, report.Outcome);
+        Assert.Equal(SyncBlock.None, report.Blocked);
+        Assert.Empty(report.DeletedInStorage);
+        Assert.Equal(11, report.Downloaded.Count);                                                          // every one comes back from the storage
+        Assert.Equal(whole, Tree(a));
 
-        SyncReport allowed = await Sync(a, allowMassDelete: true);
-
-        Assert.Equal(SyncOutcome.Synced, allowed.Outcome);
-        Assert.Equal(11, allowed.DeletedInStorage.Count);
-
-        // The same brake on the receiving side.
-        List<string> beforeB = Snapshot(b.Root, b.State);
-        SyncReport blockedB = await Sync(b);
-        Assert.Equal(SyncOutcome.Blocked, blockedB.Outcome);
-        Assert.Contains("11 of 17", blockedB.Message);
-        Assert.Equal(beforeB, Snapshot(b.Root, b.State));
-        Assert.True(Exists(b, "big-change/notes/n2.md"));
-
-        SyncReport allowedB = await Sync(b, allowMassDelete: true);
-        Assert.Equal(SyncOutcome.Synced, allowedB.Outcome);
-        Assert.Equal(11, allowedB.DeletedHere.Count);
-        Assert.Equal(Tree(a), Tree(b));
+        // The other computer never saw a deletion either.
+        SyncReport atB = await Sync(b);
+        Assert.Equal(SyncOutcome.NothingToDo, atB.Outcome);
+        Assert.Equal(whole, Tree(b));
     }
 
     [Fact(DisplayName = "A storage failure fails the sync with a message and leaves the local files and the sync state untouched")]

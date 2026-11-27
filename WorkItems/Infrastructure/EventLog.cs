@@ -6,7 +6,7 @@ using WorkItems.PublicDTOs;
 namespace WorkItems.Infrastructure;
 
 /// <summary>
-/// events.log in a change folder: one line per event, <c>yyyy-MM-ddTHH:mm:ss | who | kind | text</c>, and a line a merge carried over from
+/// events.log in a change folder: one line per event, <c>yyyy-MM-ddTHH:mm:sszzz | who | kind | text</c> (the time with its offset from UTC; older lines have none and read as this computer's time), and a line a merge carried over from
 /// another item ends with <c> | from #wiN</c>. Lines are only ever appended; a line that does not parse is skipped when reading and left alone when writing.
 /// </summary>
 internal static class EventLog
@@ -23,13 +23,15 @@ internal static class EventLog
     internal static DateTime? Newest(string dir) =>
         OpenSpecStoreApi.ReadUnrecorded(PathIn(dir)) is string text ? Lines(text).Select(Parse).OfType<WorkItemEvent>().Select(e => (DateTime?)e.At).Max() : null;
 
-    internal static string Format(DateTime at, string by, string kind, string text) =>
-        string.Join(Separator, at.ToString("s", CultureInfo.InvariantCulture), OneLine(by, true), OneLine(kind, true), Escape(text));
+    internal const string OffsetFormat = "yyyy-MM-ddTHH:mm:sszzz";
+
+    internal static string Format(DateTimeOffset at, string by, string kind, string text) =>
+        string.Join(Separator, at.ToString(OffsetFormat, CultureInfo.InvariantCulture), OneLine(by, true), OneLine(kind, true), Escape(text));
 
     /// <summary>Appends the events (all stamped now, by <paramref name="by"/>) in one write. Never throws: a log that cannot be written is a message, not a failure of what happened.</summary>
     internal static (bool Success, string Message) Append(string dir, string by, IEnumerable<(string Kind, string Text)> events)
     {
-        string[] lines = events.Select(e => Format(DateTime.Now, by, e.Kind, e.Text)).ToArray();
+        string[] lines = events.Select(e => Format(DateTimeOffset.Now, by, e.Kind, e.Text)).ToArray();
         if (lines.Length == 0) return (true, "");
         return Write(dir, text => text + string.Concat(lines.Select(l => l + "\n")));
     }
@@ -66,8 +68,13 @@ internal static class EventLog
         string text = Unescape(parts[3]);
         int? from = null;
         if (FromMarker.Match(text) is { Success: true } m) { from = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture); text = text[..m.Index]; }
-        return DateTime.TryParseExact(parts[0], "s", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime at) ? new WorkItemEvent(at, parts[1], parts[2], text, from) : null;
+        return TimeOf(parts[0]) is DateTime at ? new WorkItemEvent(at, parts[1], parts[2], text, from) : null;
     }
+
+    /// <summary>The time of a line as this computer's clock shows it: a time with an offset is converted to it, one without (older lines) is taken as it is. Null when it is neither.</summary>
+    internal static DateTime? TimeOf(string time) =>
+        DateTimeOffset.TryParseExact(time, OffsetFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset withOffset) ? withOffset.LocalDateTime
+        : DateTime.TryParseExact(time, "s", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime local) ? local : null;
 
     private static readonly Regex FromMarker = new(@" \| from #wi(\d+)$");
 

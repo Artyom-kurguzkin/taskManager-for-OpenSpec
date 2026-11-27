@@ -120,7 +120,7 @@ public sealed partial class GuidingAgentsTests
         Assert.Contains("`docs`", tools);
 
         string hand = text[text.IndexOf("Keep the worklog current by hand", StringComparison.Ordinal)..];
-        foreach (string s in new[] { "events.log", "yyyy-MM-ddTHH:mm:ss | <who> | <kind> | <text>", "append", "never rewrite", "x-rtm.docs:",
+        foreach (string s in new[] { "events.log", "yyyy-MM-ddTHH:mm:sszzz | <who> | <kind> | <text>", "archived", "spec-removed", "spec-moved", "attachment-removed", "sync", "append", "never rewrite", "x-rtm.docs:",
                      "status", "Old -> New", "commit-linked", "commit-unlinked", "test-linked", "test-unlinked", "doc-linked", "doc-unlinked",
                      "subtask-done", "subtask-reopened", "subtask-added", "dependency-added", "dependency-removed", "created" })
             Assert.Contains(s, hand);

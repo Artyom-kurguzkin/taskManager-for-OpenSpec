@@ -67,7 +67,6 @@
                     <div class="bs-actions">
                         <button class="btn bs-test" data-sk disabled="@testing" @onclick="TestConnection">@(testing ? "Testing…" : "Test connection")</button>
                         <button class="btn bs-sync" data-sk disabled="@(!Sync.IsActive(Root))" @onclick="SyncNow">Sync now</button>
-                        @if (status.CanAllow) { <button class="btn primary bs-allow" data-sk @onclick="Allow">Allow and sync</button> }
                     </div>
                     <p class="bs-state @(StateClass(status))">@status.Line</p>
                     @if (status.TooLarge is not null) { <p class="muted bs-toolarge">@status.TooLarge</p> }
@@ -177,6 +176,4 @@
     }
 
     private Task SyncNow() => Sync!.SyncNow(Root);
-
-    private Task Allow() => Sync!.SyncNow(Root, allowMassDelete: true);
 }

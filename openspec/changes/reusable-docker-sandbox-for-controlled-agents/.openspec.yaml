@@ -1,0 +1,15 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-25
+x-rtm:
+  id: 224
+  title: Reusable Docker sandbox for controlled agents
+  status: In Review
+  contributors: [Claude]
+  features: [integration-with-agents]
+  label: feature
+  started: 2026-11-25
+  moved: 2026-11-25
+  plan: DevResources/plans/agent-sandbox-2026-11-25.md
+  agentBy: Claude
+  agentAt: 2026-11-25T07:11:10

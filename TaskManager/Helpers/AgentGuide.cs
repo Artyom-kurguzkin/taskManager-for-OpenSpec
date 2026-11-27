@@ -195,12 +195,12 @@ public static class AgentGuide
         The `board_*` tools do this for you; when you edit files, you do it yourself. The worklog of an item is its notes plus `events.log` in the change folder (`openspec/changes/<folder>/events.log`, beside `.openspec.yaml`): one line per thing that happened, appended in time order. `events.log` must be tracked by git (commit it with the change): the app adds `!openspec/**/events.log` to `.gitignore` when a rule such as `*.log` would ignore it.
 
         ```
-        yyyy-MM-ddTHH:mm:ss | <who> | <kind> | <text>
-        2026-11-09T10:15:00 | Claude | status | Planned -> In Progress
-        2026-11-09T10:40:00 | Claude | subtask-done | 1.1 Count requests per API key
+        yyyy-MM-ddTHH:mm:sszzz | <who> | <kind> | <text>
+        2026-11-09T10:15:00+11:00 | Claude | status | Planned -> In Progress
+        2026-11-09T10:40:00+11:00 | Claude | subtask-done | 1.1 Count requests per API key
         ```
 
-        - **Append, never rewrite**: add your lines at the end, keep every line that is there, and keep the order by time. `<who>` is your agent name (section 1), never the user's. Local time, to the second; one line each, no ` | ` in the text.
+        - **Append, never rewrite**: add your lines at the end, keep every line that is there, and keep the order by time. `<who>` is your agent name (section 1), never the user's. Local time to the second, with its offset from UTC (`+11:00`; lines without one are read as this computer's time); one line each, no ` | ` in the text.
         - Log what you change, with these kinds and texts:
           - `created`: the title (when you create the item).
           - `status`: `Old -> New`, e.g. `Planned -> In Progress`.
@@ -216,6 +216,10 @@ public static class AgentGuide
           - `description-edited`: `proposal.md`.
           - `attachment-added`: `n<note>: <file>`, e.g. `n44: screenshot.png`.
           - `merged-from`: on the item that survives a merge, one line per item merged into it, `#wi<id> <its title>`.
+          - `archived`: `<folder> -> archive/<date>-<folder>`, when you move a finished change into the archive (the sync follows the folder there on the other computers).
+          - `spec-removed`: `specs/<capability>/spec.md`, when you delete a delta spec; `spec-moved`: `specs/<old> -> specs/<new>`, when you rename a feature's spec folder. Without the line, a sync takes the missing file for an accident and puts it back.
+          - `attachment-removed`: `n<note>: <file>`, when you take an attachment off a note (same reason).
+          - `sync`: written by the app's sync, never by you: what it put back or followed on its own, e.g. `put back tasks.md: it was missing on this computer and nothing says it was removed on purpose`.
         - Linked documents are `x-rtm.docs: [<path>, …]` in the `x-rtm:` block: repo-relative paths, on one line.
         - What the log cannot say, a command you ran and what came back, a decision, a blocker, the result of a chunk of work, goes in a note (section 2), one short note per event, as you go.
 

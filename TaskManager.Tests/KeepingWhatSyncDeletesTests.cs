@@ -60,6 +60,18 @@ public sealed class KeepingWhatSyncDeletesTests : IDisposable
     private static void Delete(Computer c, string path) => File.Delete(Path.Combine(c.Root, path));
     private static string TrashRoot(Computer c) => Path.Combine(c.State, "trash");
 
+    private const string Note2 = Dir + "/notes/n2.md";
+    private const string SeedNote2 = "---\nid: 2\nby: Ann\ncreated: 2026-11-10T10:00:00\n---\n# Second note\n\nMore.\n";
+    private int _renumbers;
+
+    /// <summary>A note removed the way the app does it: the file goes and the log says where (a renumbered line), so the sync knows it was on purpose.</summary>
+    private void Remove(Computer c, string note)
+    {
+        Delete(c, note);
+        File.AppendAllText(Path.Combine(c.Root, Log), $"2026-11-12T09:00:00+00:00 | Ann | renumbered | #{Path.GetFileNameWithoutExtension(note)} -> #n{900 + ++_renumbers}: the id was taken\n");
+        File.SetLastWriteTimeUtc(Path.Combine(c.Root, Log), _now);
+    }
+
     private void SeedBoard(Computer c)
     {
         for (int i = 0; i < Seeded.Length; i++) Write(c, Seeded[i], SeedTexts[i]);
@@ -92,7 +104,7 @@ public sealed class KeepingWhatSyncDeletesTests : IDisposable
         (Computer a, Computer b) = await TwoSyncedComputers();
 
         Tick(10);
-        Delete(a, Note);
+        Remove(a, Note);
         await Sync(a);
         SyncReport atB = await Sync(b);
 
@@ -111,18 +123,18 @@ public sealed class KeepingWhatSyncDeletesTests : IDisposable
         (Computer a, Computer b) = await TwoSyncedComputers();
 
         Tick(10);
-        string edited = SeedProposal + "\nAn edit that will lose.\n";
-        Write(b, Proposal, edited);
+        string edited = SeedNote + "\nAn edit that will lose.\n";
+        Write(b, Note, edited);
         Tick(10);
-        Delete(a, Proposal);
+        Remove(a, Note);
         await Sync(a);
         SyncReport atB = await Sync(b);
 
-        Assert.Equal([Proposal], atB.DeletedHere);
-        Assert.Equal(Proposal, Assert.Single(atB.Conflicts).Path);
-        Assert.Equal([TrashOf(b, Proposal)], atB.Trashed);
-        Assert.Equal(edited, File.ReadAllText(TrashOf(b, Proposal)));
-        Assert.False(Exists(b, Proposal));
+        Assert.Equal([Note], atB.DeletedHere);
+        Assert.Equal(Note, Assert.Single(atB.Conflicts).Path);
+        Assert.Equal([TrashOf(b, Note)], atB.Trashed);
+        Assert.Equal(edited, File.ReadAllText(TrashOf(b, Note)));
+        Assert.False(Exists(b, Note));
     }
 
     [Fact(DisplayName = "Archiving a work item on one computer moves its folder on the other and the old files are in the trash")]
@@ -259,7 +271,7 @@ public sealed class KeepingWhatSyncDeletesTests : IDisposable
         Assert.Null(connect.TrashFolder);
 
         Tick(10);
-        Delete(a, Note);
+        Remove(a, Note);
         await Sync(a);
         SyncReport atB = await Sync(b);                                        // a deletion: trash, no backup
         Assert.Equal(Path.Combine(TrashRoot(b), Stamp), atB.TrashFolder);
@@ -295,7 +307,7 @@ public sealed class KeepingWhatSyncDeletesTests : IDisposable
         (Computer a, Computer b) = await TwoSyncedComputers();
 
         Tick(5);
-        Delete(a, Note);
+        Remove(a, Note);
         await Sync(a);
         await Sync(b);
         Tick(5);
@@ -361,10 +373,13 @@ public sealed class KeepingWhatSyncDeletesTests : IDisposable
     public async Task UnmovableFileIsKeptAndRetried()
     {
         (Computer a, Computer b) = await TwoSyncedComputers();
+        Write(a, Note2, SeedNote2);
+        await Sync(a);
+        await Sync(b);
 
         Tick(10);
-        Delete(a, Note);
-        Delete(a, Proposal);
+        Remove(a, Note);
+        Remove(a, Note2);
         await Sync(a);
         File.WriteAllText(TrashRoot(b), "a file where the trash folder must be");     // no trash folder can be made
         SyncReport blocked = await Sync(b);
@@ -372,17 +387,17 @@ public sealed class KeepingWhatSyncDeletesTests : IDisposable
         Assert.Empty(blocked.DeletedHere);
         Assert.Empty(blocked.Trashed);
         Assert.Equal(SeedNote, File.ReadAllText(Path.Combine(b.Root, Note)));
-        Assert.Equal(SeedProposal, File.ReadAllText(Path.Combine(b.Root, Proposal)));
+        Assert.Equal(SeedNote2, File.ReadAllText(Path.Combine(b.Root, Note2)));
         Assert.True(File.Exists(TrashRoot(b)));                           // and the blocker itself is untouched
 
         File.Delete(TrashRoot(b));
         Tick(1);
         SyncReport retry = await Sync(b);
 
-        Assert.Equal(Sorted([Note, Proposal]), Sorted(retry.DeletedHere));
-        Assert.Equal(Sorted([Note, Proposal]), Sorted(retry.Trashed.Select(p => Path.GetRelativePath(Path.Combine(TrashRoot(b), Stamp), p).Replace('\\', '/'))));
+        Assert.Equal(Sorted([Note, Note2]), Sorted(retry.DeletedHere));
+        Assert.Equal(Sorted([Note, Note2]), Sorted(retry.Trashed.Select(p => Path.GetRelativePath(Path.Combine(TrashRoot(b), Stamp), p).Replace('\\', '/'))));
         Assert.False(Exists(b, Note));
-        Assert.False(Exists(b, Proposal));
+        Assert.False(Exists(b, Note2));
         Assert.Equal(SeedNote, File.ReadAllText(TrashOf(b, Note)));
     }
 
@@ -421,7 +436,7 @@ public sealed class KeepingWhatSyncDeletesTests : IDisposable
     {
         (Computer a, Computer b) = await TwoSyncedComputers();
 
-        Delete(a, Note);
+        Remove(a, Note);
         await Sync(a);
         SyncReport first = await Sync(b);                                 // the note is in the trash of 08:00:00
 
@@ -431,7 +446,7 @@ public sealed class KeepingWhatSyncDeletesTests : IDisposable
         await Sync(a);
         await Sync(b);
         _now = _now.AddMilliseconds(100);
-        Delete(a, Note);
+        Remove(a, Note);
         await Sync(a);
         SyncReport again = await Sync(b);                                 // deleted again, still in the same second
 

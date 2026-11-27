@@ -122,6 +122,8 @@ public static class WorkItemsApi
     public static (bool Success, string Message) RemoveStatus(string name) => Commands.RemoveStatus(name);
     /// <summary>Moves the work items that have the status to another, then removes it.</summary>
     public static (bool Success, string Message) RemoveStatus(string name, string moveItemsTo) => Commands.RemoveStatusMoving(name, moveItemsTo);
+    /// <summary>Renames a status that is not a fixed one: its work items, the project's list (same place) and the lanes of its column take the new name. A name the project has, or an empty one, is refused.</summary>
+    public static (bool Success, string Message) RenameStatus(string from, string to) => Commands.RenameStatus(from, to);
     /// <summary>Moves a status one place up (-1) or down (+1) in the project's order.</summary>
     public static (bool Success, string Message) MoveStatus(string name, int by) => Commands.MoveStatus(name, by);
     /// <summary>How many work items of the open project (hidden ones included) have the status.</summary>

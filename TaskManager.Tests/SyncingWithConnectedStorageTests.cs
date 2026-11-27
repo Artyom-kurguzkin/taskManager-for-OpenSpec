@@ -586,8 +586,8 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.Contains(a.Toasts, t => t.Contains("conflict") && t.Contains(Path.GetDirectoryName(kept[0])!));
     }
 
-    [Fact(DisplayName = "A blocked sync shows why and syncs once it is allowed")]
-    public async Task BlockedSyncIsAllowedByTheUser()
+    [Fact(DisplayName = "Files that disappear here are put back by the next sync, which is never paused for it")]
+    public async Task LostFilesComeBackWithoutAPause()
     {
         (Computer a, Computer b) = await TwoConnected();
         foreach (string folder in new[] { "export-remittances", "plain-change", "archive" }) Directory.Delete(Path.Combine(a.Root, "openspec/changes", folder), true);
@@ -598,21 +598,14 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
 
         await a.Sync.SyncNow(a.Root);
 
-        Assert.StartsWith("Paused:", a.Line);
-        Assert.Contains("delete", a.Line);
-        Assert.True(a.Sync.Status(a.Root).CanAllow);
-        Assert.Contains(a.Toasts, t => t.Contains("paused", StringComparison.OrdinalIgnoreCase) || t.Contains("blocked", StringComparison.OrdinalIgnoreCase));
-        Assert.True(File.Exists(Path.Combine(b.Root, Yaml)));                 // nothing reached the storage
-
-        await a.Sync.SyncNow(a.Root, allowMassDelete: true);
-
-        Assert.StartsWith("Synced", a.Line);
-        Assert.False(a.Sync.Status(a.Root).CanAllow);
-        await b.Sync.SyncNow(b.Root);                                         // the other computer's brake holds the same way
-        Assert.StartsWith("Paused:", b.Line);
-        Assert.True(File.Exists(Path.Combine(b.Root, Yaml)));
-        await b.Sync.SyncNow(b.Root, allowMassDelete: true);
-        Assert.False(File.Exists(Path.Combine(b.Root, Yaml)));
+        Assert.DoesNotContain("Paused", a.Line);                              // nothing was deleted, so there is nothing to stop
+        Assert.StartsWith("Waiting to sync", a.Line);                         // the sync wrote what it put back on the items (sync events): those go up with the next sync
+        Assert.True(File.Exists(Path.Combine(a.Root, Yaml)));                 // every file is back here
+        Assert.True(File.Exists(Path.Combine(a.Root, Item, "tasks.md")));
+        Assert.True(File.Exists(Path.Combine(a.Root, Item, "notes", "n123.md")));
+        Assert.True(Directory.Exists(Path.Combine(a.Root, "openspec/changes", "export-remittances")));
+        await b.Sync.SyncNow(b.Root);
+        Assert.True(File.Exists(Path.Combine(b.Root, Yaml)));                 // and the other computer never lost anything
     }
 
     [Fact(DisplayName = "A service whose toasts have no lifetime keeps every toast, so a slow machine never takes one away from a test")]
@@ -653,6 +646,9 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
     [Fact(DisplayName = "Paths the app wrote are passed to the sync as app edits and cleared after it succeeds")]
     public async Task AppEditsArePassedAndCleared()
     {
+        // The store's file watcher verifies an outside write 300 ms later and records it as a touch, the record the app's own writes use: a slow machine would let that happen before the sync reads
+        // the set, and the outside edit would count as the app's. The test says what it covers (what the app wrote vs. what a hand wrote) with the watcher off, so the order is fixed.
+        OpenSpecStoreModule.State.RealWatcher = false;
         Computer a = NewComputer("a");
         a.ConnectFolder(Storage);
         await a.Pass();
@@ -783,41 +779,6 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
     }
     private static void EndMerge(Computer c) => File.Delete(Path.Combine(c.Root, ".git", "MERGE_HEAD"));
 
-    [Fact(DisplayName = "Allow and sync is offered for the deletion brake only, never for a git pause")]
-    public async Task AllowIsOfferedForTheBrakeOnly()
-    {
-        Computer a = NewComputer("a");
-        a.ConnectFolder(Storage);
-        await a.Pass();
-        await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
-
-        a.Engine = _ => Task.FromResult(Blocked(SyncBlock.MassDelete, "A message that does not say what the old host looked for."));   // the reason decides, not the wording
-        await a.Sync.SyncNow(a.Root);
-        Assert.True(a.Sync.Status(a.Root).CanAllow);
-        page.Eventually(() => Assert.NotNull(Section(page).QuerySelector("button.bs-allow")));
-
-        a.Engine = _ => Task.FromResult(Blocked(SyncBlock.GitBusy, "Sync is paused while a git merge is in progress. If you want to allow it, finish the merge."));   // even a wording that once looked like the brake's
-        await a.Sync.SyncNow(a.Root);
-        Assert.False(a.Sync.Status(a.Root).CanAllow);
-        Assert.StartsWith("Paused: Sync is paused while a git merge", a.Line);
-        page.Eventually(() =>
-        {
-            Assert.Null(Section(page).QuerySelector("button.bs-allow"));
-            Assert.StartsWith("Paused:", Section(page).QuerySelector(".bs-state")!.TextContent.Trim());
-        });
-
-        a.Engine = _ => Task.FromResult(Blocked(SyncBlock.None, "allow it"));                         // a report that gives no reason offers nothing
-        await a.Sync.SyncNow(a.Root);
-        Assert.False(a.Sync.Status(a.Root).CanAllow);
-
-        a.Engine = null;                                                                             // and with the real engine: a real git pause and a real brake
-        BeginMerge(a);
-        await a.Sync.SyncNow(a.Root);
-        Assert.False(a.Sync.Status(a.Root).CanAllow);
-        EndMerge(a);
-    }
-
     [Fact(DisplayName = "The state line shows a git pause without waiting for the next sync")]
     public async Task TheStateLineShowsAGitPauseAtOnce()
     {
@@ -839,10 +800,8 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.StartsWith("Paused: Sync is paused while a git merge is in progress", line);
         Assert.Contains("bad", Section(page).QuerySelector(".bs-state")!.ClassList);
         Assert.Null(Section(page).QuerySelector("button.bs-allow"));
-        Assert.False(a.Sync.Status(a.Root).CanAllow);
 
         EndMerge(a);
-        Assert.False(a.Sync.Status(a.Root).CanAllow);
         await a.Sync.SyncNow(a.Root);
         Assert.DoesNotContain("Paused", a.Line);                                                      // the next sync takes the line out of the pause
 
@@ -913,7 +872,7 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
         Assert.Null(Section(page).QuerySelector(".bs-open-trash"));                                   // nothing was removed yet: no folder, no link
 
-        File.Delete(Path.Combine(a.Root, Item, "notes", "n123.md"));
+        RemoveNote123(a);
         await a.Sync.SyncNow(a.Root);
         SyncReport report = (await b.Sync.SyncNow(b.Root))!;
 
@@ -1537,11 +1496,18 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         Assert.Single(a.Toasts, t => t.Contains("changed on both computers"));
     }
 
+    /// <summary>A note removed the way the app does it: the file goes and the log says where (a renumbered line), so the sync knows it was on purpose.</summary>
+    private static void RemoveNote123(Computer c)
+    {
+        File.Delete(Path.Combine(c.Root, Item, "notes", "n123.md"));
+        File.AppendAllText(Path.Combine(c.Root, Item, "events.log"), "2026-11-26T09:00:00+00:00 | Ann | renumbered | #n123 -> #n1230: the id was taken\n");
+    }
+
     private static SyncReport Report(SyncOutcome outcome, string? message = null, SyncBlock blocked = SyncBlock.None, IReadOnlyList<string>? tooLarge = null) =>
         new(outcome, message, [], [], [], [], [], [], [], blocked: blocked, tooLarge: tooLarge);
 
-    [Fact(DisplayName = "A failing or blocked attachments sync shows in the state line, and Allow and sync lets it through once")]
-    public async Task AFailingOrBlockedAttachmentsSyncShowsAndCanBeAllowed()
+    [Fact(DisplayName = "A failing attachments sync shows in the state line, once")]
+    public async Task AFailingAttachmentsSyncShowsOnce()
     {
         (Computer a, _) = await TwoConnected();
         a.WriteAttachment(Pic, Png);                                                     // a folder to sync
@@ -1551,39 +1517,11 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         await a.Sync.SyncNow(a.Root);
 
         Assert.Equal("Attachments: the attachments storage said no", a.Line);            // the board's own sync was fine: the attachments' trouble is the state
-        Assert.False(a.Sync.Status(a.Root).CanAllow);
         Assert.Single(a.Toasts, t => t.Contains("Attachments sync failed"));            // once, not at every attempt
 
-        List<SyncOptions> seen = [];
-        a.Engine = o =>
-        {
-            lock (seen) seen.Add(o);
-            return o.WholeFilesOnly && !o.AllowMassDelete
-                ? Task.FromResult(Report(SyncOutcome.Blocked, "The sync would delete 12 files.", SyncBlock.MassDelete))
-                : o.WholeFilesOnly ? Task.FromResult(Report(SyncOutcome.NothingToDo)) : BoardSyncApi.Sync(o);
-        };
-        await a.Sync.SyncNow(a.Root);
-        Assert.Equal("Attachments: The sync would delete 12 files.", a.Line);
-        Assert.True(a.Sync.Status(a.Root).CanAllow);                                     // the deletion brake can be allowed, for the attachments too
-        Assert.Contains(a.Toasts, t => t.Contains("Attachments sync paused") && t.Contains("12 files"));
-
-        await using BunitContext ctx = PageContext(a);
-        IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
-        await a.Pass();                                                                // opening the page queued a pass of its own: let it finish, so the allowance goes to the next pass
-        Assert.Contains("bad", Section(page).QuerySelector(".bs-state")!.ClassName);
-        page.Eventually(() => Assert.NotNull(Section(page).QuerySelector(".bs-allow")));   // the page offers it; its button asks for exactly this sync
-        await a.Sync.SyncNow(a.Root, allowMassDelete: true);
-        Assert.DoesNotContain("Attachments:", a.Line);
-
-        Assert.False(a.Sync.Status(a.Root).CanAllow);
-        lock (seen)
-        {
-            Assert.Contains(seen, o => o.WholeFilesOnly && o.AllowMassDelete);           // let through...
-            Assert.DoesNotContain(seen, o => !o.WholeFilesOnly && o.AllowMassDelete);    // ...without lifting the board's own brake
-        }
         a.Engine = null;
         await a.Sync.SyncNow(a.Root);
-        Assert.False(a.AttachmentRuns.Last().AllowMassDelete);                           // once: the next sync has the brake again
+        Assert.DoesNotContain("Attachments:", a.Line);                                   // the next sync that works takes the line away
     }
 
     [Fact(DisplayName = "Files over the size limit are listed in the settings and announced once")]
@@ -1625,20 +1563,22 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         string? opened = null;
         await using BunitContext ctx = PageContext(b, opener: p => { opened = p; return (true, ""); });
         IRenderedComponent<SettingsPage> page = ctx.Render<SettingsPage>().OnProject();
-        foreach (string name in new[] { "one", "two", "three" }) a.WriteAttachment($"wi1/n1/{name}.png", Png);
+        foreach (string name in new[] { "one", "two", "three" }) a.WriteAttachment($"wi123/n123/{name}.png", Png);
         await a.Sync.SyncNow(a.Root);
         await b.Sync.SyncNow(b.Root);
         Assert.Null(b.Sync.Status(b.Root).TrashFolder);                                  // nothing removed yet: no link
 
-        File.Delete(Path.Combine(a.AttachDir, "wi1/n1/one.png"));                        // only an attachment is removed
+        a.Do(() => WorkItemsApi.LogEvent(123, "attachment-removed", "n123: one.png"));      // what taking it off the note writes
+        File.Delete(Path.Combine(a.AttachDir, "wi123/n123/one.png"));                        // only an attachment is removed
         await a.Sync.SyncNow(a.Root);
         await b.Sync.SyncNow(b.Root);
         string attachmentsTrash = Path.Combine(b.Settings.ProjectFolder(b.Root), "state-attachments", "trash");
         Assert.Equal(attachmentsTrash, b.Sync.Status(b.Root).TrashFolder);
         Assert.Equal(["1 file the sync removed is kept in the trash for 30 days"], b.Toasts.Where(t => t.Contains("kept in the trash")));
 
-        File.Delete(Path.Combine(a.Root, Item, "notes", "n123.md"));                     // and now a board file too: both folders hold something
-        File.Delete(Path.Combine(a.AttachDir, "wi1/n1/two.png"));
+        RemoveNote123(a);                                                                // and now a board file too: both folders hold something
+        a.Do(() => WorkItemsApi.LogEvent(123, "attachment-removed", "n123: two.png"));
+        File.Delete(Path.Combine(a.AttachDir, "wi123/n123/two.png"));
         await a.Sync.SyncNow(a.Root);
         await b.Sync.SyncNow(b.Root);
 
@@ -1798,7 +1738,6 @@ public sealed class SyncingWithConnectedStorageTests : IDisposable
         page.Eventually(() => Assert.True(File.Exists(Path.Combine(oldFolder, "wi1/n1/pic.png"))));            // the user chose to keep them: they are where they were
         page.Eventually(() => Assert.True(File.Exists(Path.Combine(oldFolder, "wi1/n1/other.png"))));
         page.Eventually(() => Assert.Equal(before.Length, StoredSnapshot().Length));                            // nothing in the storage was deleted because the watched folder changed
-        page.Eventually(() => Assert.DoesNotContain(b.AttachmentRuns, o => o.LocalRoot == b.AttachDir && o.AllowMassDelete));
         page.Eventually(() => Assert.Equal(Png, b.ReadAttachment("wi1/n1/pic.png")));                           // the new folder is a first connection: what the storage holds comes down
     }
 

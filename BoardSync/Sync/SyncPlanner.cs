@@ -31,13 +31,11 @@ internal sealed class PlanItem(string path)
     internal bool KeepOld { get; set; }
 }
 
-/// <summary>The deletions this computer applied or tombstoned in the last 24 hours, and how many live paths the board had when that window began.</summary>
-internal sealed record DeletionWindow(int Here, int Storage, int? Live);
-
 internal sealed class SyncPlan
 {
     internal List<PlanItem> Items { get; } = [];
-    internal string? BlockedMessage { get; set; }
+    /// <summary>What the sync did on its own that an item should say (see <see cref="SyncNote"/>).</summary>
+    internal List<SyncNote> Notes { get; } = [];
     /// <summary>The content every live path ends with, read only when a base copy has to be written.</summary>
     internal Dictionary<string, Func<byte[]>> FinalContent { get; } = new(StringComparer.Ordinal);
     /// <summary>The paths whose final content is a downloaded file: the base copy is made by copying it.</summary>
@@ -54,15 +52,16 @@ internal sealed class SyncPlan
     internal List<string> TooLarge { get; } = [];
     /// <summary>Files left for the next pass because they were written too recently (the settle window).</summary>
     internal List<string> Settling { get; } = [];
+    /// <summary>Change folders left whole for the next pass because a file in them is still settling.</summary>
+    internal List<string> WaitingFolders { get; } = [];
+    /// <summary>Change folders in the storage that are incomplete and not on this computer yet: not downloaded.</summary>
+    internal List<string> IncompleteFolders { get; } = [];
     internal List<string> Trashed { get; } = [];
     /// <summary>Copies of local files that a download replaced (in the trash), not files the sync removed.</summary>
     internal List<string> Replaced { get; } = [];
     /// <summary>Paths the plan left alone because a link on this computer is in the way (the link itself, or something the storage has under it).</summary>
     internal HashSet<string> LinkedPaths { get; } = new(StringComparer.Ordinal);
     internal List<string> SkippedLinks { get; set; } = [];
-    internal int DeletesHere { get; set; }
-    internal int DeletesStorage { get; set; }
-    internal int BaseLive { get; set; }
     internal string? TrashFolder { get; set; }
     internal string? BackupFolder { get; set; }
 
@@ -80,7 +79,7 @@ internal sealed class SyncPlan
     internal SyncReport ToReport()
     {
         bool moved = Uploaded.Count + Downloaded.Count + Merged.Count + DeletedHere.Count + DeletedInStorage.Count + Conflicts.Count + BackedUp.Count > 0;
-        return new SyncReport(moved ? SyncOutcome.Synced : SyncOutcome.NothingToDo, null, Uploaded, Downloaded, Merged, DeletedHere, DeletedInStorage, Conflicts, BackedUp, Stale, Trashed, trashFolder: TrashFolder, backupFolder: BackupFolder, replaced: Replaced, skippedLinks: SkippedLinks, tooLarge: [.. TooLarge.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)], settling: [.. Settling.Order(StringComparer.Ordinal)]);
+        return new SyncReport(moved ? SyncOutcome.Synced : SyncOutcome.NothingToDo, null, Uploaded, Downloaded, Merged, DeletedHere, DeletedInStorage, Conflicts, BackedUp, Stale, Trashed, trashFolder: TrashFolder, backupFolder: BackupFolder, replaced: Replaced, skippedLinks: SkippedLinks, tooLarge: [.. TooLarge.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)], settling: [.. Settling.Order(StringComparer.Ordinal)]) { Notes = Notes, WaitingFolders = WaitingFolders, IncompleteFolders = IncompleteFolders };
     }
 }
 
@@ -93,22 +92,38 @@ internal static class SyncPlanner
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly UTF8Encoding Utf8 = new(false);
 
-    internal static async Task<SyncPlan> Build(SyncOptions options, DateTime now, SyncStateStore store, Dictionary<string, LocalFile> local,
-        Dictionary<string, ManifestEntry> baseEntries, Dictionary<string, ManifestEntry> remote, bool firstConnection, ObjectFetcher fetcher,
+    internal static async Task<SyncPlan> Build(SyncOptions options, DateTime now, SyncStateStore store, Dictionary<string, LocalFile> realLocal,
+        Dictionary<string, ManifestEntry> realBase, Dictionary<string, ManifestEntry> realRemote, bool firstConnection, ObjectFetcher fetcher,
         Dictionary<string, HashSet<string>> seen, IReadOnlySet<string> refused, CancellationToken ct,
-        IReadOnlyCollection<string>? links = null, DeletionWindow? window = null, IReadOnlyCollection<string>? tooLarge = null)
+        IReadOnlyCollection<string>? links = null, IReadOnlyCollection<string>? tooLarge = null)
     {
         SyncPlan plan = new() { SkippedLinks = [.. links ?? []] };
         plan.TooLarge.AddRange(tooLarge ?? []);
         bool whole = options.WholeFilesOnly;
         HashSet<string> big = new(tooLarge ?? [], StringComparer.Ordinal);
         string device = options.DeviceId;
-        int deletesHere = 0, deletesStorage = 0;
         // Only when the host says which paths the app wrote, and never on a first connection (no base to tell what changed): the rest changed outside the app.
         IReadOnlySet<string>? editedInApp = firstConnection ? null : options.EditedInApp;
 
+        // Whole change folders first: one that is gone from a side was archived, merged or renamed (it is followed there); the files below are then read as views in which that has happened.
+        // A folder of binary or opaque files (attachments) has no such folders.
+        FolderWork work = await FolderWork.Create(plan, store, fetcher, device, now, whole, ct, realLocal, realBase, realRemote, links);
+        plan.WaitingFolders.AddRange(work.Waiting);
+        plan.IncompleteFolders.AddRange(work.Incomplete);
+        Dictionary<string, LocalFile> local = work.Local;
+        Dictionary<string, ManifestEntry> baseEntries = work.Base, remote = work.Remote;
+
         // A file in the state folder, hash-checked while it was streamed in (or a base copy that had the hash); the bytes are read only where a merge or a report needs them.
-        Task<FetchedObject> Fetch(string path, string hash) => fetcher.Get(path, hash, ct);
+        Task<FetchedObject> Fetch(string path, string hash) => fetcher.Get(work.SourceOf(path), hash, ct);
+
+        // Whether a file missing on one side was removed on purpose. Change folders: their moves and event logs say (FolderWork). Whole files (attachments): the host says, from the items' logs; no host answer = plain deletions.
+        async Task<bool> Explained(string path, FolderSide lacking) => whole ? options.RemovedOnPurpose?.Invoke(path) ?? true : await work.RemovalExplained(path, lacking);
+
+        async Task PutBack(string path, FolderSide lacking)
+        {
+            if (!whole) { await work.PutBack(path, lacking); return; }
+            if (AttachmentItem(path) is int item) plan.Notes.Add(new SyncNote(item, "", "put-back-file", $"put back attachment {path[(path.LastIndexOf('/') + 1)..]}: it was missing on {(lacking == FolderSide.Local ? "this computer" : "the storage")} and nothing says it was removed on purpose"));
+        }
 
         ManifestEntry Live(ManifestEntry? current, string hash, string candidate)
         {
@@ -129,15 +144,15 @@ internal static class SyncPlanner
         foreach (string path in paths)
         {
             if (links is { Count: > 0 } && links.Any(l => path == l || path.StartsWith(l + "/", StringComparison.Ordinal))) continue;
-            if (big.Contains(path) || LocalTree.IsIgnored(path)) continue;
+            if (big.Contains(path) || LocalTree.IsIgnored(path) || work.IsHeld(path)) continue;
             local.TryGetValue(path, out LocalFile? lf);
             baseEntries.TryGetValue(path, out ManifestEntry? be);
             remote.TryGetValue(path, out ManifestEntry? re);
             string? l = lf?.Hash, b = be is { Deleted: false } ? be.Hash : null, r = re is { Deleted: false } ? re.Hash : null;
             if (r is null || l == r || r == b) continue;                       // nothing to read from the storage, in sync, or only this computer changed it
             if (lf is { Settling: true } && l != b) continue;                  // left for the next pass
-            if (l is null && b is not null && whole) continue;                 // deleted here, edited in the storage, whole files: the loop does not read the dropped version
-            wanted.Add((path, r));
+            if (l is null && b is not null && whole && options.RemovedOnPurpose is null) continue;                 // deleted here, edited in the storage, whole files: the loop does not read the dropped version
+            wanted.Add((work.SourceOf(path), r));
         }
         await fetcher.Prefetch(wanted, ct);
 
@@ -169,6 +184,12 @@ internal static class SyncPlanner
             remote.TryGetValue(path, out ManifestEntry? re);
             string? l = lf?.Hash, b = be is { Deleted: false } ? be.Hash : null, r = re is { Deleted: false } ? re.Hash : null;
             if (LocalTree.IsIgnored(path)) { plan.LinkedPaths.Add(path); return; }        // never synced, in either direction (a temp or editor file); not a deletion either
+            if (work.IsHeld(path))
+            {
+                plan.LinkedPaths.Add(path);       // its change folder is held whole (a file in it still settling, or the folder incomplete in the storage): nothing is uploaded, downloaded or deleted
+                if (lf is { Settling: true } && l != r && l != b) plan.Settling.Add(path);
+                return;
+            }
             if (lf is { Settling: true } && l != r && l != b)
             {
                 plan.LinkedPaths.Add(path);       // written a moment ago and different from what was synced: still being written, so left for the next pass, exactly like a link
@@ -176,7 +197,7 @@ internal static class SyncPlanner
                 return;
             }
             PlanItem item = new(path) { ExpectedLocalHash = l };
-            bool outside = editedInApp is not null && !editedInApp.Contains(path);
+            bool outside = editedInApp is not null && !editedInApp.Contains(path) && !work.Virtual.Contains(path);
             bool probe = outside && re is not null && options.Storage.ConditionalWrites;
 
             if (l == r)                                                   // in sync (or gone on both sides)
@@ -192,17 +213,19 @@ internal static class SyncPlanner
                 string logStamp = SyncClock.Stamp(lf.LastWriteUtc, now, device);
                 Merge(plan, item, path, lf, re!, null, remoteLog, logStamp, SyncClock.IsLater(re!.Clock, logStamp), store, Live, whole: false);
                 if (item.Op == LocalOp.None && item.Upload is not null) { plan.Merged.Remove(path); plan.Uploaded.Add(path); }     // this computer's log had every line: a plain upload
-                plan.Items.Add(item);
+                work.Add(item);
                 return;
             }
 
-            if (outside && l != b && re is not null && IsStale(path, l, b, r, re, seen, refused))
+            // A path the storage lost, or a file that a checkout or a hand left out: gone with nothing to explain it, it is put back (OpenSpec never deletes; a change is only archived, merged or renamed).
+            // A removal is a removal only when its folder moved or the event log of the side that lacks it says why (see FolderWork.RemovalExplained). Whole-file folders (attachments) ask the host (SyncOptions.RemovedOnPurpose); without an answer they keep plain deletions.
+            if (outside && l != b && re is not null && IsStale(path, l, b, r, re, seen, refused) && !(r is null && !whole && lf is not null && b is not null && !await work.RemovalExplained(path, FolderSide.Remote)))      // a removal the last sync already took in needs no new explanation
             {
                 // Changed outside the app (git) to something the storage has already moved past: the storage wins, nothing is uploaded.
-                if (r is null) { item.Op = LocalOp.Delete; plan.DeletedHere.Add(path); deletesHere++; }
+                if (r is null) { item.Op = LocalOp.Delete; plan.DeletedHere.Add(path); }
                 else Download(plan, item, path, await Fetch(path, r));
                 plan.Stale.Add(path);
-                plan.Items.Add(item);
+                work.Add(item);
                 return;
             }
 
@@ -210,15 +233,30 @@ internal static class SyncPlanner
             {
                 if (lf is null)
                 {
-                    item.NewEntry = Tombstone(re!, SyncClock.Stamp(now, device));
-                    plan.DeletedInStorage.Add(path);
-                    deletesStorage++;
+                    if (!await Explained(path, FolderSide.Local))
+                    {
+                        Download(plan, item, path, await Fetch(path, r!));        // not removed on purpose: it comes back
+                        await PutBack(path, FolderSide.Local);
+                    }
+                    else
+                    {
+                        item.NewEntry = Tombstone(re!, SyncClock.Stamp(now, device));
+                        plan.DeletedInStorage.Add(path);
+                    }
                 }
                 else Upload(plan, item, lf, Live(re, lf.Hash, SyncClock.Stamp(lf.LastWriteUtc, now, device)), path, probe);
             }
             else if (l == b)                                              // only the storage changed it
             {
-                if (r is null) { item.Op = LocalOp.Delete; plan.DeletedHere.Add(path); deletesHere++; }
+                if (r is null)
+                {
+                    if (!await Explained(path, FolderSide.Remote))
+                    {
+                        Upload(plan, item, lf!, Live(re, lf!.Hash, SyncClock.Stamp(lf.LastWriteUtc, now, device)), path, probe);      // a marker nothing explains is ignored: the file is uploaded again
+                        await PutBack(path, FolderSide.Remote);
+                    }
+                    else { item.Op = LocalOp.Delete; plan.DeletedHere.Add(path); }
+                }
                 else Download(plan, item, path, await Fetch(path, r));
             }
             else if (l is not null && r is not null)                      // both changed it, both have content
@@ -226,60 +264,56 @@ internal static class SyncPlanner
                 FetchedObject remoteObject = await Fetch(path, r);
                 string stamp = SyncClock.Stamp(lf!.LastWriteUtc, now, device);
                 bool remoteIsNewer = SyncClock.IsLater(re!.Clock, stamp);
-                if (firstConnection)
+                string? committed = whole ? null : options.CommittedContent?.Invoke(path);      // the last commit's version: the base when this computer has none saved
+                if (firstConnection && !(committed is not null && TryText(lf.Bytes) is not null && TryText(remoteObject.Bytes()) is not null))
                 {
                     // No base exists yet, so no finer merge: the storage's content wins and this computer's copy is kept aside.
                     item.BackupOf = lf.Bytes;
                     Download(plan, item, path, remoteObject);
                 }
-                else Merge(plan, item, path, lf, re, b, remoteObject.Bytes(), stamp, remoteIsNewer, store, Live, whole);
+                else Merge(plan, item, path, lf, re, b, remoteObject.Bytes(), stamp, remoteIsNewer, store, Live, whole, committed);
             }
             else if (l is null)                                           // deleted here, edited in the storage
             {
                 string stamp = SyncClock.Stamp(now, device);
-                if (SyncClock.IsLater(re!.Clock, stamp)) Download(plan, item, path, await Fetch(path, r!));    // the edit is later: it brings the file back
+                if (!await Explained(path, FolderSide.Local))
+                {
+                    Download(plan, item, path, await Fetch(path, r!));        // not removed on purpose: it comes back, with the edit
+                    await PutBack(path, FolderSide.Local);
+                }
+                else if (SyncClock.IsLater(re!.Clock, stamp)) Download(plan, item, path, await Fetch(path, r!));    // the edit is later: it brings the file back
                 else
                 {
                     string dropped = whole ? "the version edited on another computer" : Lenient((await Fetch(path, r!)).Bytes());     // fetched before anything is changed: an object that is too large skips the whole path
                     item.NewEntry = Tombstone(re, stamp);
                     plan.DeletedInStorage.Add(path);
-                    deletesStorage++;
                     plan.Conflicts.Add(new SyncConflict(path, "deleted on this computer, edited on another", "deleted", dropped, DroppedHere: false));
                 }
             }
-            else                                                          // edited here, deleted in the storage (r is null, so re is its tombstone)
+            else                                                          // edited here, deleted in the storage (r is null, so re is its tombstone, or the storage lost the entry)
             {
-                if (re is null) throw new SyncFailure($"The manifest in the storage has no entry for \"{path}\", which this computer synced before and has edited since, so nothing was synced. Another computer may have damaged the storage; sync from the computer that has the file.");
                 string stamp = SyncClock.Stamp(lf!.LastWriteUtc, now, device);
-                if (SyncClock.IsLater(stamp, re!.Clock)) Upload(plan, item, lf, Live(re, lf.Hash, stamp), path, probe);    // the edit is later: the file comes back
+                if (!await Explained(path, FolderSide.Remote))
+                {
+                    Upload(plan, item, lf, Live(re, lf.Hash, stamp), path, probe);      // not removed on purpose: the edit brings the file back
+                    await PutBack(path, FolderSide.Remote);
+                }
                 else
                 {
-                    item.Op = LocalOp.Delete;
-                    plan.DeletedHere.Add(path);
-                    deletesHere++;
-                    plan.Conflicts.Add(new SyncConflict(path, "edited on this computer, deleted on another", "deleted", whole ? "the version edited on this computer (kept in the trash)" : Lenient(lf.Bytes), DroppedHere: true));
+                    if (re is null) throw new SyncFailure($"The manifest in the storage has no entry for \"{path}\", which this computer synced before and has edited since, so nothing was synced. Another computer may have damaged the storage; sync from the computer that has the file.");
+                    if (SyncClock.IsLater(stamp, re.Clock)) Upload(plan, item, lf, Live(re, lf.Hash, stamp), path, probe);    // the edit is later: the file comes back
+                    else
+                    {
+                        item.Op = LocalOp.Delete;
+                        plan.DeletedHere.Add(path);
+                        plan.Conflicts.Add(new SyncConflict(path, "edited on this computer, deleted on another", "deleted", whole ? "the version edited on this computer (kept in the trash)" : Lenient(lf.Bytes), DroppedHere: true));
+                    }
                 }
             }
-            plan.Items.Add(item);
+            work.Add(item);
         }
 
-
-        int baseLive = baseEntries.Values.Count(e => !e.Deleted);
-        plan.DeletesHere = deletesHere;
-        plan.DeletesStorage = deletesStorage;
-        plan.BaseLive = baseLive;
-        // The brake counts the last 24 hours, not one sync: small deletions repeated sync after sync add up. The ceiling is a share of the board as it was when that window began.
-        int windowLive = window?.Live ?? baseLive;
-        int limit = Math.Max(10, (int)Math.Ceiling(windowLive * 0.3));
-        int totalHere = deletesHere + (window?.Here ?? 0), totalStorage = deletesStorage + (window?.Storage ?? 0);
-        if (!options.AllowMassDelete && (totalHere > limit || totalStorage > limit))
-        {
-            List<string> reasons = [];
-            string recent = window is { Here: > 0 } or { Storage: > 0 } ? " in the last 24 hours" : "";
-            if (totalHere > limit) reasons.Add($"This sync would delete {totalHere} of {windowLive} board files on this computer{recent}.");
-            if (totalStorage > limit) reasons.Add($"This sync would delete {totalStorage} of {windowLive} board files in the storage{recent}.");
-            plan.BlockedMessage = string.Join(" ", reasons) + " That is more than usual, often a wrong folder or a storage that was reset, so nothing was changed. If it is what you want, allow it and sync again.";
-        }
+        await work.Finish();       // followed files are written where they went; edits made here are carried into merged items; notes name the other destination
         return plan;
     }
 
@@ -294,6 +328,13 @@ internal static class SyncPlanner
         l is null
             ? r is not null && b != r
             : re.History.Contains(l) || (re.Deleted && re.Hash == l) || (seen.TryGetValue(path, out HashSet<string>? known) && known.Contains(l)) || refused.Contains(path);
+
+    /// <summary>The work item an attachment path belongs to (wi&lt;id&gt;/…); null for any other path.</summary>
+    private static int? AttachmentItem(string path)
+    {
+        int slash = path.IndexOf('/');
+        return slash > 2 && path.StartsWith("wi", StringComparison.Ordinal) && int.TryParse(path.AsSpan(2, slash - 2), out int id) ? id : null;
+    }
 
     private static bool IsEventLog(string path) => path == "events.log" || path.EndsWith("/events.log", StringComparison.Ordinal);
 
@@ -328,7 +369,7 @@ internal static class SyncPlanner
     }
 
     private static void Merge(SyncPlan plan, PlanItem item, string path, LocalFile lf, ManifestEntry re, string? baseHash, byte[] remoteBytes,
-        string stamp, bool remoteIsNewer, SyncStateStore store, Func<ManifestEntry?, string, string, ManifestEntry> live, bool whole)
+        string stamp, bool remoteIsNewer, SyncStateStore store, Func<ManifestEntry?, string, string, ManifestEntry> live, bool whole, string? committedBase = null)
     {
         // Whole files only: never a text merge, whatever the name or the content; the bytes are not even decoded.
         string? localText = whole ? null : TryText(lf.Bytes), remoteText = whole ? null : TryText(remoteBytes);
@@ -348,7 +389,7 @@ internal static class SyncPlanner
         }
 
         byte[]? baseBytes = baseHash is null ? null : store.ReadBase(baseHash);
-        string? baseText = baseBytes is null ? null : TryText(baseBytes);
+        string? baseText = baseBytes is null ? committedBase : TryText(baseBytes);      // no saved base: the committed version is the common ancestor
         MergeResult merged = BoardSyncApi.Merge(path, baseText, localText, remoteText, remoteIsNewer);
         byte[] mergedBytes = Utf8.GetBytes(merged.Text);
         string mergedHash = SyncModels.HashOf(mergedBytes);

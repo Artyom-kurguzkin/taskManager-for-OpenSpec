@@ -1,0 +1,16 @@
+2026-11-26T04:54:54 | Artyom-kurguzkin | created | New work item
+2026-11-26T04:55:09 | Artyom-kurguzkin | title | New work item -> rename status
+2026-11-26T04:55:54 | Artyom-kurguzkin | description-edited | proposal.md
+2026-11-26T04:56:01 | Artyom-kurguzkin | feature | none -> general-ux
+2026-11-26T04:56:08 | Artyom-kurguzkin | status | Backlog -> In Progress
+2026-11-26T04:56:11 | Artyom-kurguzkin | priority | low -> high
+2026-11-26T04:56:13 | Artyom-kurguzkin | label | none -> bug
+2026-11-26T05:13:37 | Claude | plan-linked | DevResources/plans/in-progress-round-2026-11-26.md
+2026-11-26T05:27:50 | Claude chunk A | tests-green | Tests green for chunk A (RenamingAStatusTests 7 tests, KeepingProjectStatusesTests, MovingGroupsInTheListTests, ListBugFixesTests, delete status/feature list tests, Roadmap): Passed! - Failed: 0, Passed: 48, Skipped: 0, Total: 48. Implemented WorkItemsApi.RenameStatus (items first, then list in place, lanes follow, rollback on failure), BoardModel.RenameStatus/CanRenameStatus, shared GroupActions menu for board columns, list group label button and calendar group names.
+2026-11-26T05:32:51 | Claude chunk A | verified | Verified in the real app (hidden desktop, port 9391, demo repo, CDP): list group label opens Add / Select all / Hide group / Rename status / Delete status; no "…" button remains; the chevron still folds; Hide group removes the group; Research renamed from the list to "Needs scoping" (config.yaml updated, group renamed), then from the board column menu to "Scoped"; calendar group names open Add / Hide group. Screenshots in light and dark: tests/out/shots/wi226-*.png, wi229-*.png in the menus worktree.
+2026-11-26T05:45:06 | Claude | status | In Progress -> In Review
+2026-11-26T05:45:06 | Claude | test-linked | RenamingAStatusTests / Renaming a status moves every item that has it
+2026-11-26T05:45:06 | Claude | test-linked | RenamingAStatusTests / Renaming a status keeps the project's status list order
+2026-11-26T05:45:06 | Claude | test-linked | RenamingAStatusTests / Renaming a status carries hidden and merged board columns
+2026-11-26T05:45:06 | Claude | test-linked | RenamingAStatusTests / A core status cannot be renamed
+2026-11-26T05:45:06 | Claude | test-linked | RenamingAStatusTests / A status cannot be renamed to a name already in use

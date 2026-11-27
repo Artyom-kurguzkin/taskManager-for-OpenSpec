@@ -3,10 +3,9 @@ window.rtm = {
   // Same breakpoint as the work item page's one-column views in app.css (the description and the linked tasks stack).
   isNarrow() { return matchMedia("(max-width: 860px)").matches; },
 
+  // theme: the setting, "system" or an id from js/theme.js's list; html[data-theme] gets the concrete id (unknown: light).
   setTheme(theme) {
-    const root = document.documentElement;
-    if (theme === "light" || theme === "dark") root.dataset.theme = theme;
-    else delete root.dataset.theme;
+    rtmTheme.apply(theme);
     try { localStorage.setItem("rtm.theme", theme); } catch (e) { }   // js/theme.js reads it before the next start's first frame
   },
 
@@ -68,7 +67,8 @@ window.rtm = {
   },
 };
 
-// ── Panes: Alt+\ splits the active pane, Ctrl+W closes it (the window itself never closes), Alt+Win+\ opens a full window.
+// ── Panes: Alt+\ splits the active pane, Ctrl+W closes it (the window itself never closes), Alt+Win+\ opens a full window;
+//    Ctrl+Shift+< folds / opens the side menu, Ctrl+Shift+> the right panel.
 //    They work in text fields too, so they are taken before anything else sees the key. ──
 let _panes = null;
 addEventListener("keydown", (e) => {
@@ -80,6 +80,9 @@ addEventListener("keydown", (e) => {
   } else if ((e.key === "w" || e.key === "W" || e.code === "KeyW") && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
     e.preventDefault();   // the web view would close the window
     _panes.invokeMethodAsync("ClosePane");
+  } else if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.code === "Comma" || e.code === "Period")) {
+    e.preventDefault();   // Ctrl+Shift+< folds / opens the side menu, Ctrl+Shift+> the right panel; matched on the physical key so other layouts work
+    _panes.invokeMethodAsync(e.code === "Comma" ? "ToggleMenu" : "ToggleRightPanel");
   }
 }, true);
 
@@ -683,12 +686,13 @@ document.addEventListener("pointerdown", (e) => {
   if (!e.target.closest("button, .dd, .menu-wrap")) _paintCells();   // a press on a control paints nothing until it moves
 });
 document.addEventListener("pointermove", (e) => {
+  if (_hdDown && !(e.buttons & 1)) _hdDown = null;   // a press that ended is no longer a drag candidate: hovering after a click on the header must not look like dragging
   if (_hdDown && !_hdDrag && Math.hypot(e.clientX - _hdDown.x, e.clientY - _hdDown.y) > 4) { _hdDrag = true; document.body.classList.add("is-dragging"); }
   if (!_cells.dragging) return;
   const cell = _cellAt(document.elementFromPoint(e.clientX, e.clientY));
   if (cell && cell.table === _cells.anchor.table && (cell.row !== _cells.focus.row || cell.col !== _cells.focus.col)) { _cells.focus = cell; _cells.moved = true; _paintCells(); }
 });
-document.addEventListener("pointerup", () => { _cells.dragging = false; if (_hdDrag) { _hdDrag = false; document.body.classList.remove("is-dragging"); } });
+document.addEventListener("pointerup", () => { _cells.dragging = false; setTimeout(() => { _hdDown = null; });   /* after the click that follows the release has used it */ if (_hdDrag) { _hdDrag = false; document.body.classList.remove("is-dragging"); } });
 document.addEventListener("click", (e) => { if (_cells.moved) { _cells.moved = false; e.stopPropagation(); e.preventDefault(); } }, true);   // the press that selected is not a click
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _cells.anchor) _clearCells(); });
 

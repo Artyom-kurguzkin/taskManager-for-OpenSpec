@@ -1,0 +1,15 @@
+schema: spec-driven
+created: 2026-11-26
+x-rtm:
+  id: 230
+  title: list view collumn controls are clunky
+  status: In Review
+  priority: high
+  contributors: [Artyom-kurguzkin]
+  features: [general-ux]
+  label: bug
+  started: 2026-11-26
+  moved: 2026-11-26
+  plan: DevResources/plans/in-progress-round-2026-11-26.md
+  agentBy: Claude
+  agentAt: 2026-11-26T05:45:08

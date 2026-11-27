@@ -211,8 +211,8 @@ internal static partial class ItemRules
     /// <summary>The filter group a worklog entry of an event kind belongs to: events (created, status, ...), links, subtasks, or edits (everything else, kinds not known yet included).</summary>
     internal static string EventGroup(string kind) => kind switch
     {
-        "converted" or "subtask-removed" => "edits",   // a note turned into a subtask or the other way round, and the subtask taken out: housekeeping
-        "created" or "status" or "merged-from" or "renumbered" or "sync-conflict" => "events",
+        "converted" or "subtask-removed" or "spec-removed" or "spec-moved" or "attachment-removed" => "edits",   // a note turned into a subtask or the other way round, and the subtask taken out: housekeeping
+        "created" or "status" or "archived" or "merged-from" or "renumbered" or "sync-conflict" or "sync" => "events",
         "commit-linked" or "commit-unlinked" or "test-linked" or "test-unlinked" or "doc-linked" or "doc-unlinked" or "plan-linked" or "plan-unlinked" or "commit" or "mention" or "test" or "doc" => "links",
         "subtask-done" or "subtask-reopened" or "subtask-added" or "subtask-moved" or "made-from-subtask" or "dependency-added" or "dependency-removed" => "subtasks",
         _ => "edits",

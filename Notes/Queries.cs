@@ -101,7 +101,7 @@ internal static partial class Queries
         foreach (IGrouping<int, Raw> twins in raws.Where(r => r.Id > 0).GroupBy(r => r.Id).Where(g => g.Count() > 1).ToList())
         {
             List<Raw> ordered = [.. twins.OrderBy(r => r.Created).ThenBy(r => r.FileNumber).ThenBy(r => r.File, StringComparer.Ordinal)];
-            foreach (Raw r in ordered.Skip(1).Where(r => r.Meta.Problem is null))   // a file whose frontmatter does not parse is never rewritten
+            foreach (Raw r in ordered.Skip(1).Where(r => r.Meta.Problem is null && !IsSourceOfOpenMerge(r, twins)))   // a file whose frontmatter does not parse is never rewritten; a source whose merge is not whole yet keeps its numbers
             {
                 int id = ++maxId, old = r.Id;
                 string target = Path.Combine(Path.GetDirectoryName(r.File)!, $"n{id}.md");
@@ -130,6 +130,28 @@ internal static partial class Queries
         renumbered = made;
         return new NotesRead([.. folders.SelectMany(f => f.Notes)], maxId, wrote);
     }
+
+    /// <summary>
+    /// Whether the note belongs to an item that another item names in its <c>mergedFrom</c> while the item's own folder is still here: a merge that arrived in part (the computer that made it has not uploaded the rest),
+    /// so the twin is the merged item's copy and the source must keep its numbers. The sync does not bring such a folder in, but one that an older build wrote is held the same way.
+    /// Nothing is renumbered then; once the source folder is gone (the merge is whole) there is no twin left to settle.
+    /// </summary>
+    private static bool IsSourceOfOpenMerge(Raw note, IEnumerable<Raw> twins)
+    {
+        foreach (Raw other in twins)
+        {
+            if (other.WorkItemId == note.WorkItemId) continue;
+            string yaml = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(other.File))!, ".openspec.yaml");
+            if (!File.Exists(yaml)) continue;
+            if (MergedFromLine().Match(OpenSpecStoreApi.ReadText(yaml)) is { Success: true } m
+                && m.Groups["v"].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Any(v => int.TryParse(v, CultureInfo.InvariantCulture, out int id) && id == note.WorkItemId))
+                return true;
+        }
+        return false;
+    }
+
+    [GeneratedRegex(@"^ {2}mergedFrom:\s*\[(?<v>.*)\]\s*$", RegexOptions.Multiline, matchTimeoutMilliseconds: 1000)]
+    private static partial Regex MergedFromLine();
 
     private static DateTime? Time(string? text) => DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime d) ? d : null;
 

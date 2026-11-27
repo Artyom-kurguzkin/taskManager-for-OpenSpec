@@ -1,0 +1,16 @@
+schema: spec-driven
+created: 2026-11-26
+x-rtm:
+  id: 234
+  title: A sync stopped mid-settle leaves a half-uploaded merged folder in the storage
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [track-work-items]
+  label: bug
+  started: 2026-11-27
+  moved: 2026-11-27
+  plan: DevResources/plans/half-uploaded-folder-2026-11-27.md
+  tests: [{suite: WarningWhileFilesSettleTests, test: The state line names the files still settling}, {suite: WarningWhileFilesSettleTests, test: Closing with files still settling warns and names them}, {suite: WarningWhileFilesSettleTests, test: Wait and sync closes after the files settle}, {suite: WarningWhileFilesSettleTests, test: Sync now with files still settling says so}, {suite: KeepingFoldersWholeTests, test: A folder with files still settling is not uploaded in part}, {suite: KeepingFoldersWholeTests, test: An incomplete folder in the storage is held back}, {suite: KeepingFoldersWholeTests, test: Sources of an incomplete merged folder keep their note ids}, {suite: KeepingFoldersWholeTests, test: The computer that made the merge completes a half-uploaded folder on its next sync}, {suite: WarningWhileFilesSettleTests, test: Closing right after a merge warns even though no sync pass ran yet}, {suite: WarningWhileFilesSettleTests, test: A file the last pass reported stops counting once the window has passed}, {suite: WarningWhileFilesSettleTests, test: A file the sync downloaded does not count as settling}]
+  agentBy: Claude
+  agentAt: 2026-11-27T10:22:08

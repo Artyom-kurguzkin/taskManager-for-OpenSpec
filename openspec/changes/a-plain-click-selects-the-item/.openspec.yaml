@@ -1,0 +1,15 @@
+schema: spec-driven
+skip_specs: true
+created: 2026-11-27
+x-rtm:
+  id: 235
+  title: A plain click selects the item too; Shift-click extends the selection
+  status: In Review
+  priority: high
+  contributors: [Claude]
+  features: [organise-work-items]
+  label: enhancement
+  started: 2026-11-27
+  moved: 2026-11-27
+  agentBy: Claude
+  agentAt: 2026-11-27T10:49:18

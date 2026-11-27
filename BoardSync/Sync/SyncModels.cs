@@ -18,6 +18,8 @@ internal sealed class ManifestEntry
 internal sealed class ManifestFile
 {
     public int Version { get; set; } = 1;
+    /// <summary>The project the list belongs to (the hash of the repository's first commit); null on a list that was never stamped.</summary>
+    public string? Board { get; set; }
     public Dictionary<string, ManifestEntry> Entries { get; set; } = [];
 }
 
@@ -25,6 +27,8 @@ internal sealed class ManifestFile
 internal sealed class SyncStateFile
 {
     public string? StorageVersion { get; set; }
+    /// <summary>The project the list had at <see cref="StorageVersion"/> (null = none), so an unchanged list is not read again to find it.</summary>
+    public string? Board { get; set; }
     public Dictionary<string, ManifestEntry> Entries { get; set; } = [];
 }
 
@@ -58,15 +62,25 @@ internal static class SyncModels
     private static SortedDictionary<string, ManifestEntry> Sorted(Dictionary<string, ManifestEntry> entries) => new(entries, StringComparer.Ordinal);
 
     internal static byte[] Serialize(ManifestFile manifest) =>
-        JsonSerializer.SerializeToUtf8Bytes(new { manifest.Version, Entries = Sorted(manifest.Entries) }, Compact);
+        JsonSerializer.SerializeToUtf8Bytes(new WireManifest { Version = manifest.Version, Board = manifest.Board, Entries = Sorted(manifest.Entries) }, Compact);
+
+    /// <summary>The manifest as written: the project is left out while the list has none, so a list nobody stamped is byte for byte what an older client wrote.</summary>
+    private sealed class WireManifest
+    {
+        public int Version { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public string? Board { get; set; }
+        public SortedDictionary<string, ManifestEntry> Entries { get; set; } = [];
+    }
 
     internal static byte[] Serialize(SyncStateFile state) =>
-        JsonSerializer.SerializeToUtf8Bytes(new { state.StorageVersion, Entries = Sorted(state.Entries) }, Json);
+        JsonSerializer.SerializeToUtf8Bytes(new { state.StorageVersion, state.Board, Entries = Sorted(state.Entries) }, Json);
 
     /// <summary>What the manifest file may hold before it is checked: every member can be null or missing.</summary>
     private sealed class RawManifest
     {
         public int Version { get; set; } = 1;
+        public string? Board { get; set; }
         public Dictionary<string, RawEntry?>? Entries { get; set; }
     }
 
@@ -93,7 +107,7 @@ internal static class SyncModels
             if (raw.Version != 1) throw new SyncFailure("The board in the storage was written by a newer version of Repo Tasks. Update this app, then sync again.");
             if (raw.Entries is null) throw new SyncFailure("The manifest in the storage has no list of entries, so nothing was synced.");
 
-            ManifestFile manifest = new() { Entries = new(StringComparer.Ordinal) };
+            ManifestFile manifest = new() { Board = string.IsNullOrWhiteSpace(raw.Board) ? null : raw.Board.Trim(), Entries = new(StringComparer.Ordinal) };
             Dictionary<string, string> lowered = new(StringComparer.OrdinalIgnoreCase);
             foreach ((string path, RawEntry? entry) in raw.Entries)
             {

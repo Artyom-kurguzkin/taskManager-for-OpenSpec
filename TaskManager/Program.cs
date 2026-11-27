@@ -69,6 +69,25 @@ internal static class Program
         });
         main.MainWindow.SetTitle("Repo tasks").SetUseOsDefaultSize(true).SetMaximized(true);   // icons: WindowFrame
         mainWindow = main;
+        // Closing the window while files are still settling asks first (Wait and sync / Close anyway). The question needs the page, so the close is cancelled here and made again once it is answered.
+        bool closeAnswered = false, asking = false;
+        main.MainWindow.WindowClosing += (_, _) =>
+        {
+            if (closeAnswered || main.Services.GetService<BoardSyncService>() is not { } syncing || syncing.Settling().Count == 0) return false;
+            if (asking) return true;
+            asking = true;
+            _ = Task.Run(async () =>
+            {
+                bool close = true;
+                try { close = await new CloseGuard(syncing, mainUi).MayClose(); }
+                catch (Exception e) { LogCrash("Asking about files still settling failed; the app closes anyway. " + e); }
+                finally { asking = false; }
+                if (!close) return;
+                closeAnswered = true;
+                main.MainWindow.Invoke(() => main.MainWindow.Close());
+            });
+            return true;
+        };
         updates.RestartRequested += () => main.MainWindow.Invoke(() => main.MainWindow.Close());   // "Restart now": the helper is waiting for this process to end
         log.LogInformation("The window's dispatcher is {Watched}", failures.WatchDispatcher(main.Services.GetService<Microsoft.AspNetCore.Components.Dispatcher>()) ? "watched" : "not watchable (Photino exposes no event)");
 

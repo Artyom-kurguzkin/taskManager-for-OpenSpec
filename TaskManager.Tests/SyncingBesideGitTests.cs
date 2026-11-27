@@ -67,6 +67,16 @@ public sealed class SyncingBesideGitTests : IDisposable
     private static bool Exists(Computer c, string path) => File.Exists(Path.Combine(c.Root, path));
     private static void Delete(Computer c, string path) => File.Delete(Path.Combine(c.Root, path));
 
+    private int _renumbers;
+
+    /// <summary>A note removed the way the app does it: the file goes and the log says where (a renumbered line), so the sync knows it was on purpose.</summary>
+    private void Remove(Computer c, string note)
+    {
+        Delete(c, note);
+        File.AppendAllText(Path.Combine(c.Root, Log), $"2026-11-12T09:00:00+00:00 | Ann | renumbered | #{Path.GetFileNameWithoutExtension(note)} -> #n{900 + ++_renumbers}: the id was taken\n");
+        File.SetLastWriteTimeUtc(Path.Combine(c.Root, Log), _now);
+    }
+
     private void SeedBoard(Computer c)
     {
         Write(c, Yaml, SeedYaml);
@@ -235,19 +245,19 @@ public sealed class SyncingBesideGitTests : IDisposable
         (Computer a, Computer b) = await TwoComputersAfterOneEdit(TasksV2);
 
         Write(b, Tasks, SeedTasks);
-        Delete(b, Note);
+        Remove(b, Note);
         SyncReport report = await Sync(b, edited: null);
 
-        Assert.Equal([Tasks], report.Uploaded);
+        Assert.Equal(Sorted([Log, Tasks]), Sorted(report.Uploaded));
         Assert.Equal([Note], report.DeletedInStorage);
         Assert.Empty(report.Stale);
         Assert.Equal(Sha(SeedTasks), ManifestHash(b.Storage, Tasks));
         Assert.True(ManifestDeleted(b.Storage, Note));
         Assert.Equal(Sha(SeedTasks), Sha(Read(b, Tasks)));
-        Assert.Equal([Tasks], (await Sync(a)).Downloaded);
+        Assert.Equal(Sorted([Log, Tasks]), Sorted((await Sync(a)).Downloaded));
     }
 
-    [Fact(DisplayName = "A file a checkout removed comes back when the storage has moved on, and stays deleted when nobody else changed it")]
+    [Fact(DisplayName = "A file a checkout removed comes back when the storage has moved on, and a note the log says went stays deleted")]
     public async Task RemovedByCheckout()
     {
         (Computer a, Computer b) = await TwoSyncedComputers();
@@ -256,20 +266,20 @@ public sealed class SyncingBesideGitTests : IDisposable
         Write(a, Proposal, SeedProposal + "\nAnn added a paragraph.\n");
         await Sync(a);                                                // the storage moved on for the proposal; B has not seen it
         Tick(5);
-        Delete(b, Proposal);                                          // git checkout removed both files
-        Delete(b, Tasks);
+        Delete(b, Proposal);                                          // git checkout removed the proposal, and a note whose removal its log records
+        Remove(b, Note);
         SyncReport report = await Sync(b, NoAppEdits);
         SyncReport back = await Sync(a, NoAppEdits);
 
         Assert.Equal([Proposal], report.Downloaded);
         Assert.Equal([Proposal], report.Stale);
         Assert.Equal(SeedProposal + "\nAnn added a paragraph.\n", Read(b, Proposal));
-        Assert.Equal([Tasks], report.DeletedInStorage);
-        Assert.False(Exists(b, Tasks));
-        Assert.True(ManifestDeleted(b.Storage, Tasks));
+        Assert.Equal([Note], report.DeletedInStorage);
+        Assert.False(Exists(b, Note));
+        Assert.True(ManifestDeleted(b.Storage, Note));
         Assert.False(ManifestDeleted(b.Storage, Proposal));
         Assert.Empty(report.Conflicts);
-        Assert.Equal([Tasks], back.DeletedHere);
+        Assert.Equal([Note], back.DeletedHere);
         Assert.Equal(Tree(a), Tree(b));
     }
 
@@ -279,16 +289,16 @@ public sealed class SyncingBesideGitTests : IDisposable
         (Computer a, Computer b) = await TwoSyncedComputers();
 
         Tick(5);
-        Write(a, Proposal, SeedProposal + "\nAnn added a paragraph.\n");
+        Write(a, Note, SeedNote + "\nAnn added a paragraph.\n");
         await Sync(a);
         Tick(5);
-        Delete(b, Proposal);
-        SyncReport report = await Sync(b, AppEdits(Proposal));
+        Remove(b, Note);
+        SyncReport report = await Sync(b, AppEdits(Note, Log));
 
-        Assert.Equal([Proposal], report.DeletedInStorage);
+        Assert.Equal([Note], report.DeletedInStorage);
         Assert.Empty(report.Stale);
-        Assert.Equal(Proposal, Assert.Single(report.Conflicts).Path);
-        Assert.False(Exists(b, Proposal));
+        Assert.Equal(Note, Assert.Single(report.Conflicts).Path);
+        Assert.False(Exists(b, Note));
     }
 
     [Fact(DisplayName = "A file a checkout brings back after it was deleted in the storage is deleted again")]
@@ -298,7 +308,7 @@ public sealed class SyncingBesideGitTests : IDisposable
         (Computer a, Computer b) = await TwoSyncedComputers(spy);
 
         Tick(5);
-        Delete(a, Note);
+        Remove(a, Note);
         await Sync(a);
         await Sync(b);                                                // the note is gone on both computers
         Tick(5);
@@ -319,22 +329,23 @@ public sealed class SyncingBesideGitTests : IDisposable
     public async Task EarlierVersionOfDeletedFileIsDeletedAgain()
     {
         (Computer a, Computer b) = await TwoSyncedComputers();
+        string noteV2 = SeedNote + "\nMore.\n";
 
         Tick(5);
-        Write(a, Tasks, TasksV2);
+        Write(a, Note, noteV2);
         await Sync(a);
         Tick(5);
-        Delete(a, Tasks);
+        Remove(a, Note);
         await Sync(a);
         await Sync(b);
-        Assert.False(Exists(b, Tasks));
+        Assert.False(Exists(b, Note));
         Tick(5);
-        Write(b, Tasks, SeedTasks);                                   // the first version, now in the history of the tombstone
+        Write(b, Note, SeedNote);                                     // the first version, now in the history of the tombstone
         SyncReport report = await Sync(b, NoAppEdits);
 
-        Assert.Equal([Tasks], report.DeletedHere);
-        Assert.Equal([Tasks], report.Stale);
-        Assert.False(Exists(b, Tasks));
+        Assert.Equal([Note], report.DeletedHere);
+        Assert.Equal([Note], report.Stale);
+        Assert.False(Exists(b, Note));
     }
 
     [Fact(DisplayName = "A file the app recreates after it was deleted in the storage is an edit and comes back")]
@@ -343,7 +354,7 @@ public sealed class SyncingBesideGitTests : IDisposable
         (Computer a, Computer b) = await TwoSyncedComputers();
 
         Tick(5);
-        Delete(a, Note);
+        Remove(a, Note);
         await Sync(a);
         await Sync(b);
         Tick(5);
@@ -364,14 +375,14 @@ public sealed class SyncingBesideGitTests : IDisposable
         Tick(5);
         Write(a, Tasks, TasksV2);
         Write(a, Proposal, SeedProposal + "\nAnn added a paragraph.\n");
-        Delete(a, Note);
+        Remove(a, Note);
         await Sync(a);
         await Sync(b);
         Tick(5);
         Write(b, Tasks, SeedTasks);                                   // old content back
         Write(b, Proposal, SeedProposal);                             // old content back
         Write(b, Note, SeedNote);                                     // a deleted file back
-        Write(b, Log, SeedLog + "2026-11-12T08:10:00 | Bob | log | a real edit\n");
+        Write(b, Log, Read(b, Log) + "2026-11-12T10:10:00+00:00 | Bob | log | a real edit\n");
         SyncReport report = await Sync(b, NoAppEdits);
 
         Assert.Equal(Sorted([Note, Proposal, Tasks]), Sorted(report.Stale));
@@ -447,7 +458,7 @@ public sealed class SyncingBesideGitTests : IDisposable
         Assert.Equal(SeedTasks, Read(a, Tasks));
     }
 
-    [Fact(DisplayName = "A blocked sync says whether git is busy or the deletion brake stopped it")]
+    [Fact(DisplayName = "A blocked sync says that git is busy, and a sync with many files missing is not blocked at all")]
     public async Task ABlockedSyncSaysWhy()
     {
         Computer a = NewComputer("A"), b = NewComputer("B");
@@ -467,19 +478,16 @@ public sealed class SyncingBesideGitTests : IDisposable
         Assert.Contains("git merge", busy.Message);
         File.Delete(mergeHead);
 
-        for (int i = 2; i <= 12; i++) Delete(a, $"big-change/notes/n{i}.md");                              // 11 of 17: more than the brake lets through
-        SyncReport brake = await Sync(a, AppEdits(), git);
-        Assert.Equal(SyncOutcome.Blocked, brake.Outcome);
-        Assert.Equal(SyncBlock.MassDelete, brake.Blocked);
-        Assert.Contains("allow it", brake.Message);
+        for (int i = 2; i <= 12; i++) Delete(a, $"big-change/notes/n{i}.md");                              // 11 of 17: once the brake's case, now files to put back
+        SyncReport back = await Sync(a, AppEdits(), git);
+        Assert.Equal(SyncOutcome.Synced, back.Outcome);
+        Assert.Equal(SyncBlock.None, back.Blocked);
+        Assert.Equal(11, back.Downloaded.Count);
+        Assert.Empty(back.DeletedInStorage);
 
-        File.WriteAllText(mergeHead, "0123456789abcdef0123456789abcdef01234567\n");                        // both at once: git comes first, nothing is read
+        File.WriteAllText(mergeHead, "0123456789abcdef0123456789abcdef01234567\n");                        // git comes first: nothing is read
         Assert.Equal(SyncBlock.GitBusy, (await Sync(a, AppEdits(), git)).Blocked);
         File.Delete(mergeHead);
-
-        SyncReport allowed = await BoardSyncApi.Sync(new SyncOptions(a.Root, a.State, a.Storage, a.Id, () => _now, AllowMassDelete: true, EditedInApp: AppEdits(), GitFolder: git));
-        Assert.Equal(SyncOutcome.Synced, allowed.Outcome);
-        Assert.Equal(SyncBlock.None, allowed.Blocked);
 
         File.WriteAllText(Path.Combine(StorageFolder, "manifest.json"), "not a manifest");
         SyncReport failed = await Sync(NewComputer("C"));

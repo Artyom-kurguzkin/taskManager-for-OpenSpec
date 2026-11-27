@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using TaskManager.Components.Pages;
 using WorkItems.PublicDTOs;
 using TaskManager.Helpers;
@@ -21,12 +22,17 @@ public partial class Roadmap
     /// <summary>The field the bars and dots are coloured by (the board's colour option).</summary>
     [Parameter] public string ColorBy { get; set; } = "status";
 
-    /// <summary>A row or bar was clicked: the project's root and the work item's id.</summary>
-    [Parameter] public EventCallback<(string Root, int Id)> OnOpen { get; set; }
+    /// <summary>A row or bar was clicked: the project's root, the work item's id and the click (its modifiers and count).</summary>
+    [Parameter] public EventCallback<(string Root, int Id, MouseEventArgs E)> OnOpen { get; set; }
+    /// <summary>Whether an item is selected, as the board's cards wear it.</summary>
+    [Parameter] public Func<string, int, bool>? SelectedOf { get; set; }
     /// <summary>A click that did not come from an item (the board lets go of the examined one).</summary>
     [Parameter] public EventCallback OnBackground { get; set; }
     /// <summary>The examine mark of an item (ex-on, ex-waits, ex-needs) or null, as the board's cards wear it.</summary>
     [Parameter] public Func<string, int, string?>? ExamineOf { get; set; }
+
+    /// <summary>The menu of a column's group (project root, column key): the board's column actions. Null leaves the group names plain text.</summary>
+    [Parameter] public RenderFragment<(string Root, string Column)>? GroupMenu { get; set; }
 
     [Inject] private IServiceProvider Services { get; set; } = default!;
 

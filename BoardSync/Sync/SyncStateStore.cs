@@ -168,21 +168,4 @@ internal sealed class SyncStateStore(string folder)
         LocalTree.WriteAtomic(target, bytes);
         return target;
     }
-
-    // ---- the deletion log ----------------------------------------------------------------------------------------------------------
-
-    private string DeletionsPath => Path.Combine(folder, "deletions.json");
-
-    /// <summary>One sync that deleted files here or tombstoned them in the storage, with how many live paths the board had before it.</summary>
-    internal sealed record DeletionEntry(DateTime At, int Here, int Storage, int Live);
-
-    /// <summary>The deletions of the last <paramref name="window"/> up to <paramref name="now"/>, oldest first; a damaged file is the same as none.</summary>
-    internal List<DeletionEntry> LoadDeletions(DateTime now, TimeSpan window) =>
-        [.. (ReadJson<List<DeletionEntry>>(DeletionsPath) ?? []).Where(e => e is not null && e.At > now - window).OrderBy(e => e.At)];
-
-    internal void SaveDeletions(List<DeletionEntry> entries)
-    {
-        if (entries.Count == 0) { try { File.Delete(DeletionsPath); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } return; }
-        LocalTree.WriteAtomic(DeletionsPath, System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(entries));
-    }
 }

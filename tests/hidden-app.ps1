@@ -26,13 +26,31 @@ public static class HiddenDesk {
   [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr h);
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool CreateProcess(string app, string cmd, IntPtr pa, IntPtr ta, bool inh, uint fl, IntPtr env, string dir, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll")] static extern uint ResumeThread(IntPtr t);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern IntPtr CreateJobObject(IntPtr a, string n);
+  [DllImport("kernel32.dll")] static extern bool SetInformationJobObject(IntPtr j, int c, ref JOBX i, uint n);
+  [DllImport("kernel32.dll")] static extern bool AssignProcessToJobObject(IntPtr j, IntPtr p);
+  [StructLayout(LayoutKind.Sequential)] struct JOBX { public long a, b; public uint flags; public UIntPtr c, d; public uint e; public UIntPtr f; public uint g, h; public ulong i1, i2, i3, i4, i5, i6; public UIntPtr m1, m2, m3, m4; }
+  // One job per PowerShell process, never closed by hand: when this PowerShell exits (finished, crashed, forgotten Stop-HiddenApp),
+  // Windows closes the handle and KILL_ON_JOB_CLOSE ends the app and the WebView2 processes it started. No ghost instance can outlive its check.
+  static IntPtr job;
+  static IntPtr Job() {
+    if (job != IntPtr.Zero) return job;
+    var j = CreateJobObject(IntPtr.Zero, null); var x = new JOBX(); x.flags = 0x2000;   // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if (j == IntPtr.Zero || !SetInformationJobObject(j, 9, ref x, (uint)Marshal.SizeOf(typeof(JOBX)))) throw new Exception("job object failed, error " + Marshal.GetLastWin32Error());
+    return job = j;
+  }
   public static IntPtr Create(string name) { var h = CreateDesktop(name, null, IntPtr.Zero, 0, 0x10000000, IntPtr.Zero); if (h == IntPtr.Zero) throw new Exception("CreateDesktop failed, error " + Marshal.GetLastWin32Error()); return h; }
   public static void Close(IntPtr h) { CloseDesktop(h); }
   public static int Start(string exe, string args, string dir, string desktop) {
     var si = new STARTUPINFO(); si.cb = Marshal.SizeOf(typeof(STARTUPINFO)); si.desktop = desktop;
     PROCESS_INFORMATION pi;
-    if (!CreateProcess(exe, "\"" + exe + "\" " + args, IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, dir, ref si, out pi)) throw new Exception("CreateProcess failed, error " + Marshal.GetLastWin32Error());
-    CloseHandle(pi.hT); CloseHandle(pi.hP); return pi.pid;
+    // suspended until it is in the job, so nothing it starts can escape the job
+    if (!CreateProcess(exe, "\"" + exe + "\" " + args, IntPtr.Zero, IntPtr.Zero, false, 0x4, IntPtr.Zero, dir, ref si, out pi)) throw new Exception("CreateProcess failed, error " + Marshal.GetLastWin32Error());
+    bool inJob = AssignProcessToJobObject(Job(), pi.hP);
+    ResumeThread(pi.hT); CloseHandle(pi.hT); CloseHandle(pi.hP);
+    if (!inJob) throw new Exception("could not tie the app (pid " + pi.pid + ") to this PowerShell, error " + Marshal.GetLastWin32Error());
+    return pi.pid;
   }
 }
 "@
@@ -112,11 +130,12 @@ function Start-HiddenApp([Parameter(Mandatory)][string]$RepoPath, [string]$Setti
     }
     Start-Sleep -Seconds 2   # Blazor circuit + first board render
     Connect-Cdp
-    [pscustomobject]@{ Pid = $appPid; Desktop = $desk; DesktopName = $name; Repo = $RepoPath; Settings = $Settings }
+    $script:LastApp = [pscustomobject]@{ Pid = $appPid; Desktop = $desk; DesktopName = $name; Repo = $RepoPath; Settings = $Settings }
+    $script:LastApp
 }
 
 # Stops only what Start-HiddenApp started: the app, the WebView2 processes of its profile, the desktop.
-function Stop-HiddenApp($App) {
+function Stop-HiddenApp($App = $script:LastApp) {   # without an argument: the instance this script started last
     if ($script:ws) { try { $script:ws.Dispose() } catch { }; $script:ws = $null }
     if ($App -and (Get-Process -Id $App.Pid -ErrorAction SilentlyContinue)) { Stop-Process -Id $App.Pid -Force }
     $profile = Join-Path $script:Out "webview"
@@ -148,7 +167,7 @@ function Send-Cdp($method, $params) {
 function Eval($expr) { $r = Send-Cdp "Runtime.evaluate" @{ expression = $expr; returnByValue = $true }; if ($r.result.exceptionDetails) { return "JS EXC: " + $r.result.exceptionDetails.exception.description }; return $r.result.result.value }
 # Screenshot to tests\out\shots\<name>.png; returns the path.
 function Shot($name) { $r = Send-Cdp "Page.captureScreenshot" @{ format = "png" }; $p = Join-Path $script:ShotDir "$name.png"; [IO.File]::WriteAllBytes($p, [Convert]::FromBase64String($r.result.data)); $p }
-function Set-Theme([ValidateSet("light", "dark")][string]$theme) { Eval "document.documentElement.dataset.theme = '$theme'; 'x'" | Out-Null; Start-Sleep -Milliseconds 300 }
+function Set-Theme([ValidateSet("light", "dark", "novita", "ayu-mirage")][string]$theme) { Eval "document.documentElement.dataset.theme = '$theme'; 'x'" | Out-Null; Start-Sleep -Milliseconds 300 }
 # Real pointer / key events (CSS px, from getBoundingClientRect). $modifiers: 1 Alt, 2 Ctrl, 4 Meta, 8 Shift.
 function Mouse($type, $x, $y, $buttons, $modifiers = 0) { if ($null -eq $x -or $null -eq $y) { return }; Send-Cdp "Input.dispatchMouseEvent" @{ type = $type; x = [int]$x; y = [int]$y; button = "left"; buttons = $buttons; clickCount = 1; modifiers = $modifiers } | Out-Null }
 function Key($key, $code, $modifiers = 0) { Send-Cdp "Input.dispatchKeyEvent" @{ type = "keyDown"; key = $key; code = $key; windowsVirtualKeyCode = $code; modifiers = $modifiers } | Out-Null; Send-Cdp "Input.dispatchKeyEvent" @{ type = "keyUp"; key = $key; code = $key; windowsVirtualKeyCode = $code; modifiers = $modifiers } | Out-Null }

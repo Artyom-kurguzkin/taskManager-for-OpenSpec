@@ -44,8 +44,8 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         return new Site(dir, BoardSyncApi.FolderStorage(Path.Combine(dir, "storage")));
     }
 
-    private Task<SyncReport> Sync(Site s, bool allowMassDelete = false, IReadOnlySet<string>? edited = null, string? git = null) =>
-        BoardSyncApi.Sync(new SyncOptions(s.Root, s.State, s.Storage, "dev", () => _now, allowMassDelete, edited, git));
+    private Task<SyncReport> Sync(Site s, IReadOnlySet<string>? edited = null, string? git = null) =>
+        BoardSyncApi.Sync(new SyncOptions(s.Root, s.State, s.Storage, "dev", () => _now, edited, git));
 
     private void Write(Site s, string path, string text)
     {
@@ -684,49 +684,26 @@ public sealed class SecurityOfBoardSyncTests : IDisposable
         Assert.Empty(r.DeletedHere);
     }
 
-    [Fact(DisplayName = "deletions are counted over 24 hours: a second small deletion that passes the ceiling is blocked, and an allowed sync resets the window", Timeout = 60000)]
-    public async Task Deletion_window_is_kept_and_reset()
+    [Fact(DisplayName = "markers a storage holds for files nobody removed on purpose are ignored: the files stay and are uploaded again, however many", Timeout = 60000)]
+    public async Task Unexplained_markers_are_ignored()
     {
         Site s = NewSite("window");
         for (int i = 0; i < 40; i++) Write(s, $"w{i:D2}/proposal.md", $"item {i}");
         await Sync(s);
 
-        async Task<SyncReport> TombstoneAndSync(int count)
+        for (int round = 0; round < 3; round++)
         {
             _now = _now.AddMinutes(10);
             ManifestFile m = Manifest(s);
-            foreach (string path in m.Entries.Where(e => !e.Value.Deleted).Select(e => e.Key).Order(StringComparer.Ordinal).Take(count))
-            { m.Entries[path].Deleted = true; m.Entries[path].Clock = Clock(2000); }
+            foreach (string path in m.Entries.Where(e => !e.Value.Deleted).Select(e => e.Key).Order(StringComparer.Ordinal).Take(15))
+            { m.Entries[path].Deleted = true; m.Entries[path].Clock = Clock(2000 + round * 100); }
             await PublishRaw(s, SyncModels.Serialize(m));
-            return await Sync(s);
-        }
-
-        Assert.Equal(SyncOutcome.Synced, (await TombstoneAndSync(12)).Outcome);                     // 12 of 40 is the ceiling
-        Assert.True(File.Exists(Path.Combine(s.State, "deletions.json")));
-        SyncReport blocked = await TombstoneAndSync(5);
-        Assert.Equal(SyncOutcome.Blocked, blocked.Outcome);
-        Assert.Equal(SyncBlock.MassDelete, blocked.Blocked);
-        Assert.Equal(28, Files(s.Root).Length);                                                     // nothing more was deleted
-
-        SyncReport allowed = await Sync(s, allowMassDelete: true);
-        Assert.Equal(SyncOutcome.Synced, allowed.Outcome);
-        Assert.False(File.Exists(Path.Combine(s.State, "deletions.json")), "an allowed sync starts the window again");
-        Assert.Equal(SyncOutcome.Synced, (await TombstoneAndSync(3)).Outcome);
-    }
-
-    [Fact(DisplayName = "deletions older than 24 hours no longer count towards the brake", Timeout = 60000)]
-    public async Task Deletion_window_expires()
-    {
-        Site s = NewSite("expire");
-        for (int i = 0; i < 40; i++) Write(s, $"w{i:D2}/proposal.md", $"item {i}");
-        await Sync(s);
-        for (int round = 0; round < 2; round++)
-        {
-            _now = _now.AddHours(25);
-            ManifestFile m = Manifest(s);
-            foreach (string path in m.Entries.Where(e => !e.Value.Deleted).Select(e => e.Key).Order(StringComparer.Ordinal).Take(10)) { m.Entries[path].Deleted = true; m.Entries[path].Clock = Clock(round * 3000 + 3000); }
-            await PublishRaw(s, SyncModels.Serialize(m));
-            Assert.Equal(SyncOutcome.Synced, (await Sync(s)).Outcome);
+            SyncReport r = await Sync(s);
+            Assert.Equal(SyncOutcome.Synced, r.Outcome);
+            Assert.Equal(SyncBlock.None, r.Blocked);
+            Assert.Equal(15, r.Uploaded.Count);
+            Assert.Equal(40, Files(s.Root).Length);                                                  // nothing was deleted
+            Assert.Equal(40, Manifest(s).Entries.Values.Count(e => !e.Deleted));                     // and the storage lists every file again
         }
     }
 

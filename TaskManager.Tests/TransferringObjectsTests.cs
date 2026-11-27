@@ -175,9 +175,11 @@ public sealed class TransferringObjectsTests : IDisposable
     [Fact(DisplayName = "An object whose hash the base folder already holds is not fetched", Timeout = 30000)]
     public async Task BaseCopyIsReused()
     {
+        const string Folder = "add-health-check", Archive = "archive/2026-11-12-add-health-check";
         Computer a = NewComputer("A");
         Write(a, Tasks, SeedTasks);
-        Write(a, "add-health-check/proposal.md", "# Add health check\n");
+        Write(a, Folder + "/proposal.md", "# Add health check\n");
+        Write(a, Folder + "/.openspec.yaml", "schema: spec-driven\nx-rtm:\n  id: 12\n  title: Add health check\n");
         await Sync(a);
         Computer b = NewComputer("B");
         await Sync(b);
@@ -185,16 +187,16 @@ public sealed class TransferringObjectsTests : IDisposable
         b = b with { Storage = watched };
 
         // Archived: the same content under a new path (the object key names the path, so it is a new object).
-        File.Delete(Path.Combine(a.Root, Tasks));
-        Write(a, "archive/tasks.md", SeedTasks);
+        Directory.CreateDirectory(Path.Combine(a.Root, "archive"));
+        Directory.Move(Path.Combine(a.Root, Folder), Path.Combine(a.Root, Archive));
         _now = _now.AddMinutes(5);
         Assert.Equal(SyncOutcome.Synced, (await Sync(a)).Outcome);
 
         SyncReport report = await Sync(b);
 
         Assert.Equal(SyncOutcome.Synced, report.Outcome);
-        Assert.Equal(0, watched.ObjectGetCalls + watched.ObjectGetToCalls);
-        Assert.Equal(SeedTasks, Read(b, "archive/tasks.md"));
+        Assert.Equal(0, watched.ObjectGetCalls + watched.ObjectGetToCalls);        // the base already holds every one of these contents: nothing is fetched
+        Assert.Equal(SeedTasks, Read(b, Archive + "/tasks.md"));
         Assert.False(File.Exists(Path.Combine(b.Root, Tasks)));
     }
 
@@ -235,7 +237,7 @@ public sealed class TransferringObjectsTests : IDisposable
         Assert.Equal(3, again.Entries[Tasks].History.Count);
     }
 
-    [Fact(DisplayName = "A manifest entry with a base and a local edit but no remote entry fails clearly instead of crashing")]
+    [Fact(DisplayName = "A manifest entry with a base and a local edit but no remote entry puts the edit back instead of failing")]
     public async Task MissingRemoteEntryFailsClearly()
     {
         Computer a = NewComputer("A");
@@ -253,10 +255,8 @@ public sealed class TransferringObjectsTests : IDisposable
 
         SyncReport report = await Sync(b);
 
-        Assert.Equal(SyncOutcome.Failed, report.Outcome);
-        Assert.Contains(Tasks, report.Message!);
-        Assert.DoesNotContain("NullReference", report.Message!);
-        Assert.Contains("nothing was synced", report.Message!);
+        Assert.Equal(SyncOutcome.Synced, report.Outcome);                       // nothing says the file was removed: the edit is put back, nothing fails
+        Assert.Equal([Tasks], report.Uploaded);
         Assert.Equal(SeedTasks + "edited here\n", Read(b, Tasks));
     }
 
@@ -287,16 +287,14 @@ public sealed class TransferringObjectsTests : IDisposable
         store.Save(first, new Dictionary<string, Func<byte[]>>());
         store.SaveSeen(new() { ["a.md"] = [hash] });
         store.SavePending(["objects/ab/abc"]);
-        store.SaveDeletions([new SyncStateStore.DeletionEntry(at, 1, 0, 5)]);
         store.SaveScan(new StatCacheFile());
-        string[] names = ["state.json", "seen.json", "pending.json", "deletions.json", "scan.json"];
+        string[] names = ["state.json", "seen.json", "pending.json", "scan.json"];
         List<FileStream> held = [.. names.Select(n => new FileStream(Path.Combine(folder, n), FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))];
         try
         {
             Assert.Equal("v1", store.Load()!.StorageVersion);
             Assert.Single(store.LoadSeen());
             Assert.Single(store.LoadPending());
-            Assert.Single(store.LoadDeletions(at.AddHours(1), TimeSpan.FromHours(24)));
             Assert.NotNull(store.LoadScan());
         }
         finally { foreach (FileStream stream in held) stream.Dispose(); }
@@ -307,7 +305,6 @@ public sealed class TransferringObjectsTests : IDisposable
         store.Save(second, new Dictionary<string, Func<byte[]>>());
         store.SaveSeen(new() { ["b.md"] = [hash] });
         store.SavePending(["objects/cd/cde"]);
-        store.SaveDeletions([]);
         store.SaveScan(new StatCacheFile { ScannedAt = 5 });
 
         Assert.Empty(Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Where(f => f.EndsWith(LocalTree.TempSuffix, StringComparison.Ordinal)));

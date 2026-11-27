@@ -131,6 +131,13 @@ public sealed class UiService
         if (!expanded) Examine(null);   // no menu, nowhere to show the metadata
     }
 
+    /// <summary>Ctrl+Shift+&lt;: the menu's collapse button, from the keyboard. Same state; the menu is told to draw.</summary>
+    public void ToggleMenuExpanded()
+    {
+        SetMenuExpanded(!MenuExpanded);
+        LayoutChanged?.Invoke();
+    }
+
     public void Examine((string Root, int Id)? item)
     {
         if (item == Examined) return;

@@ -3,6 +3,7 @@
 @page "/settings"
 @using Notes
 @using TaskManager.Api
+@using Themes = TaskManager.Helpers.Themes   @* Radzen has a Themes too *@
 
 <ScrollMemory View="settings" />
 
@@ -31,7 +32,7 @@
                     <tr>
                         <th scope="row">Theme</th>
                         <td>
-                            <Seg Name="theme" Options="Themes" Value="@Settings.Current.Theme" ValueChanged="v => Settings.Update(s => s with { Theme = v })" />
+                            <Seg Name="theme" Options="Themes.Choices" Value="@Themes.Normalize(Settings.Current.Theme)" ValueChanged="v => Settings.Update(s => s with { Theme = v })" />
                             <p class="muted set-note">System follows your OS setting.</p>
                         </td>
                     </tr>
@@ -216,7 +217,6 @@
         if (Updates is { } updates) updates.Changed -= UpdatesChanged;
     }
 
-    private static readonly IReadOnlyList<(string, string)> Themes = [("light", "Light"), ("dark", "Dark"), ("system", "System")];
 
     // ── the tabs: General, then one per open project; the chosen one is the window's own state (UiService), kept when the user comes back ──
 

@@ -1,6 +1,8 @@
 @inherits RtmLayout
 @implements IDisposable
 @using TaskManager.Components.Pages
+@using Theme = TaskManager.Helpers.Theme
+@using Themes = TaskManager.Helpers.Themes   @* Radzen has a Theme and a Themes too *@
 
 @* One error boundary over everything the layout draws: a failing component is logged and replaced by a message with a Reload link, never a blank window. *@
 <AppErrorBoundary>
@@ -30,6 +32,11 @@ else
             </section>
         }
     </main>
+}
+@if (rightPanelOpen && !narrowWindow)
+{
+    @* Ctrl+Shift+>: a column at the window's right edge, empty for now. It pushes the panes (the #app grid gets a third column), it does not cover them. *@
+    <aside class="right-panel" aria-label="Panel"><h2>Panel</h2></aside>
 }
 }
 <Overlays />
@@ -98,6 +105,21 @@ else
         if (!Detached) Panes.Close(Panes.Active);
     });
 
+    private bool rightPanelOpen;   // per window, closed at start, not saved
+
+    /// <summary>Ctrl+Shift+&lt;: the side menu's collapse button, from the keyboard (the same state the button sets).</summary>
+    [JSInvokable]
+    public Task ToggleMenu() => InvokeAsync(() => { if (!Detached) Popups.ToggleMenuExpanded(); });
+
+    /// <summary>Ctrl+Shift+&gt;: the right panel opens or closes.</summary>
+    [JSInvokable]
+    public Task ToggleRightPanel() => InvokeAsync(() =>
+    {
+        if (Detached) return;
+        rightPanelOpen = !rightPanelOpen;
+        StateHasChanged();
+    });
+
     /// <summary>Alt+Win+\: one more full window, on the active pane's page.</summary>
     [JSInvokable]
     public Task OpenWindow() => InvokeAsync(() =>
@@ -137,15 +159,16 @@ else
         await ApplyTheme();
     });
 
-    /// <summary>Theme comes from Settings (Light / Dark / System); the CSS tokens switch on html[data-theme]. The keyboard
-    /// hints switch goes to the script the same way.</summary>
+    /// <summary>Theme comes from Settings (System or one of <see cref="Themes"/>); the script resolves it to a concrete
+    /// html[data-theme] id and the CSS tokens switch on it. The window frame takes the same resolved theme, again when the OS
+    /// flips while the setting is System. The keyboard hints switch goes to the script the same way.</summary>
     private async Task ApplyTheme()
     {
-        string theme = Settings.Current.Theme;
-        bool dark = theme == "dark" || (theme == "system" && systemDark);
-        await Js.InvokeVoidAsync("rtm.setTheme", theme);
+        string setting = Themes.Normalize(Settings.Current.Theme);   // an unknown saved value applies as light
+        Theme theme = Themes.Resolve(setting, systemDark);
+        await Js.InvokeVoidAsync("rtm.setTheme", setting);
         await Js.InvokeVoidAsync("rtm.setHints", Settings.Current.Hints);
-        (Services.GetService(typeof(WindowFrame)) as WindowFrame)?.Apply(dark);   // desktop host only
+        (Services.GetService(typeof(WindowFrame)) as WindowFrame)?.Apply(theme);   // desktop host only
     }
 
     public void Dispose()
